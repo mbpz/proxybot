@@ -53,3 +53,79 @@ This is correct because UDP is connectionless - a single UDP socket can send to 
 ### Conclusion
 
 **Step 3 is clear.** Both Must Fix items are properly resolved.
+
+---
+
+## Step 4 Review
+
+**Reviewer:** Richard
+**Date:** 2026-04-14
+**Ready for Builder:** NO
+
+---
+
+### Must Fix
+
+#### 1. `app_rules.rs:50` — Incorrect subdomain matching causes false positives
+
+The condition `host == domain || host.ends_with(domain)` is wrong for subdomain matching.
+
+Consider host `"qq.com.evil.com"` and domain `"qq.com"`:
+- `host.ends_with("qq.com")` returns **true** — this is a false positive. The attacker controls `qq.com.evil.com` which is not WeChat.
+
+A proper subdomain match requires the dot boundary: `host == domain || host.ends_with(&format!(".{domain}"))`.
+
+**Fix:** Change line 50 from:
+```rust
+if host == domain || host.ends_with(domain) {
+```
+to:
+```rust
+if host == domain || host.ends_with(&format!(".{domain}")) {
+```
+
+This affects every app: WeChat, Douyin, and Alipay. All domain rules are currently vulnerable to domain-suffix spoofing.
+
+---
+
+### Should Fix
+
+#### 2. `app_rules.rs` — WeChat domain coverage is thin
+
+WeChat has many more active domains beyond the six listed. Notable gaps:
+- `wechatpay.com` / `wx.tenpay.com` — WeChat Pay
+- `weapp.com` — Mini programs
+- `wxa.com` — WeChat mini-program infrastructure
+
+These are significant WeChat traffic sources that would fall into "Unknown" with current rules.
+
+#### 3. `app_rules.rs` — Douyin domain coverage is thin
+
+Missing:
+- `douyinecdn.com` — Douyin CDN
+- `tiktok.com` — TikTok international (same ByteDance infrastructure)
+- `bytedance.com` / `bytedance.com.cn` — ByteDance corporate
+
+#### 4. `app_rules.rs` — Alipay domain coverage is thin
+
+Missing:
+- `antgroup.com` — Ant Group (Alipay parent)
+- `mybank.com` — Alipay's bank subsidiary
+
+---
+
+### Cleared
+
+1. **proxy.rs:518-521, 609-612** — `classify_host()` is called on every intercepted request in both HTTPS CONNECT and HTTP paths. App name and icon are correctly attached to the `InterceptedRequest` payload in both handlers. No regression in proxy functionality.
+
+2. **App.tsx:258-262** — Tab filtering logic is correct: "Unknown" tab filters for `!req.app_name`, individual app tabs match `req.app_name === selectedTab`.
+
+3. **App.tsx:265-266** — App column display is correct: shows emoji + name when available, "-" otherwise.
+
+4. **lib.rs:3,7** — `mod app_rules` is correctly declared and imported. No issues found.
+
+---
+
+### Conclusion
+
+**Step 4 is NOT clear.** The subdomain matching bug at `app_rules.rs:50` is a security issue — it causes false positives that could mislead users about what traffic belongs to which app. This must be fixed before the step passes.

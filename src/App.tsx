@@ -12,7 +12,11 @@ interface InterceptedRequest {
   status: number | null;
   latency_ms: number | null;
   scheme: string;
+  app_name?: string;
+  app_icon?: string;
 }
+
+type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
 
 interface NetworkInfo {
   lan_ip: string;
@@ -34,6 +38,7 @@ function App() {
   const [pfLoading, setPfLoading] = useState(false);
   const [pfStatus, setPfStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
+  const [selectedTab, setSelectedTab] = useState<AppTab>("all");
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -221,6 +226,17 @@ function App() {
 
       <section className="requests">
         <h2>Intercepted Requests ({requests.length})</h2>
+        <div className="app-tabs">
+          {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
+            <button
+              key={tab}
+              className={`tab-btn ${selectedTab === tab ? "tab-active" : ""}`}
+              onClick={() => setSelectedTab(tab)}
+            >
+              {tab === "all" ? "All" : tab === "WeChat" ? "WeChat 💬" : tab === "Douyin" ? "Douyin 🎵" : tab === "Alipay" ? "Alipay 💳" : "Unknown"}
+            </button>
+          ))}
+        </div>
         <div className="requests-list">
           {requests.length === 0 ? (
             <p className="no-requests">No requests yet. Configure your browser or device to use ProxyBot as the proxy.</p>
@@ -228,6 +244,7 @@ function App() {
             <table className="requests-table">
               <thead>
                 <tr>
+                  <th>App</th>
                   <th>Time</th>
                   <th>Method</th>
                   <th>Host</th>
@@ -237,18 +254,27 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {requests.map((req) => (
-                  <tr key={req.id}>
-                    <td className="time">{formatTimestamp(req.timestamp)}</td>
-                    <td className="method">{req.method}</td>
-                    <td className="host">{req.host}</td>
-                    <td className="path">{req.path}</td>
-                    <td className={`status-code ${req.status && req.status >= 400 ? "status-error" : ""}`}>
-                      {req.status || "-"}
-                    </td>
-                    <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
-                  </tr>
-                ))}
+                {requests
+                  .filter((req) => {
+                    if (selectedTab === "all") return true;
+                    if (selectedTab === "Unknown") return !req.app_name;
+                    return req.app_name === selectedTab;
+                  })
+                  .map((req) => (
+                    <tr key={req.id}>
+                      <td className="app-cell">
+                        {req.app_icon ? `${req.app_icon} ${req.app_name}` : "-"}
+                      </td>
+                      <td className="time">{formatTimestamp(req.timestamp)}</td>
+                      <td className="method">{req.method}</td>
+                      <td className="host">{req.host}</td>
+                      <td className="path">{req.path}</td>
+                      <td className={`status-code ${req.status && req.status >= 400 ? "status-error" : ""}`}>
+                        {req.status || "-"}
+                      </td>
+                      <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           )}

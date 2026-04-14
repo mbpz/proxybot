@@ -1,3 +1,4 @@
+use crate::app_rules;
 use crate::cert::CertManager;
 use crate::dns;
 use crate::dns::DnsState;
@@ -37,6 +38,8 @@ pub struct InterceptedRequest {
     pub status: Option<u16>,
     pub latency_ms: Option<u64>,
     pub scheme: String,
+    pub app_name: Option<String>,
+    pub app_icon: Option<String>,
 }
 
 struct ProxyContext {
@@ -512,6 +515,11 @@ async fn handle_https_connect(
     let status = parse_response_status(&response_data);
     let request_id = generate_request_id();
 
+    let app_info = app_rules::classify_host(&target_host);
+    let (app_name, app_icon) = app_info
+        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .unwrap_or((None, None));
+
     let req = InterceptedRequest {
         id: request_id,
         timestamp: timestamp_now(),
@@ -521,6 +529,8 @@ async fn handle_https_connect(
         status,
         latency_ms: Some(latency),
         scheme: "https".to_string(),
+        app_name,
+        app_icon,
     };
 
     let _ = ctx.app_handle.emit("intercepted-request", &req);
@@ -596,6 +606,11 @@ async fn handle_http(
 
     let status = parse_response_status(&response_buf);
 
+    let app_info = app_rules::classify_host(host);
+    let (app_name, app_icon) = app_info
+        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .unwrap_or((None, None));
+
     let req = InterceptedRequest {
         id: request_id,
         timestamp: timestamp_now(),
@@ -605,6 +620,8 @@ async fn handle_http(
         status,
         latency_ms: Some(latency),
         scheme: if port == 443 { "https" } else { "http" }.to_string(),
+        app_name,
+        app_icon,
     };
 
     let _ = ctx.app_handle.emit("intercepted-request", &req);

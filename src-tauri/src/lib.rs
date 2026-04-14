@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod app_rules;
 mod cert;
 mod dns;
 mod network;
