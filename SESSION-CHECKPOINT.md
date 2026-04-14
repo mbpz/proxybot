@@ -1,7 +1,7 @@
 # Session Checkpoint
 
 **最后更新:** 2026-04-14
-**当前进度:** Step 2 ✅ 代码 review 通过，待运行时验收
+**当前进度:** Step 2 ✅ 验收通过
 
 ## 状态
 - Step 1 ✅ 完成验收（curl 测试通过）

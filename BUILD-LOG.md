@@ -18,8 +18,8 @@
 - DIOCNATLOOK direction 字段：当前 PF_OUT(2)，若 NAT 查询失败改试 PF_IN(1)
 - pfioc_natlook 结构体布局无法 100% 验证（macOS 内核头文件未公开）
 
-### 待验收
-手机设网关为 PC IP → 访问 http/https → UI 出现请求记录
+### 验收结果 ✅
+点「启用透明代理」→ 系统密码弹框 → 输入后 pf 规则加载成功
 
 ---
 
