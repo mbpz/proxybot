@@ -129,3 +129,63 @@ Missing:
 ### Conclusion
 
 **Step 4 is NOT clear.** The subdomain matching bug at `app_rules.rs:50` is a security issue — it causes false positives that could mislead users about what traffic belongs to which app. This must be fixed before the step passes.
+
+---
+
+## Step 4 Pass 2
+
+**Reviewer:** Richard
+**Date:** 2026-04-14
+
+### Confirmations
+
+**1. Subdomain boundary fix (app_rules.rs:59)**
+
+The fix `host == domain || host.ends_with(&format!(".{domain}"))` is **correct**.
+
+- `host = "qq.com.evil.com"`, domain = `"qq.com"`: `"qq.com.evil.com".ends_with(".qq.com")` is `false` — no false positive.
+- `host = "weixin.qq.com"`, domain = `"qq.com"`: `"weixin.qq.com".ends_with(".qq.com")` is `true` — legitimate subdomain correctly matched.
+- The format string `".{domain}"` ensures a dot boundary, preventing suffix-match spoofing.
+
+**2. False positive test coverage (app_rules.rs:86-92)**
+
+`test_false_positive_subdomain` explicitly covers the attack case:
+```rust
+assert_eq!(classify_host("qq.com.evil.com"), None);
+assert_eq!(classify_host("weixin.qq.com.evil.com"), None);
+assert_eq!(classify_host("douyin.com.fake.com"), None);
+assert_eq!(classify_host("alipay.com.phishing.com"), None);
+```
+These four assertions verify the fix is tested. All four would have **failed** before the fix and **pass** after.
+
+**3. classify_host() in both paths**
+
+- HTTPS CONNECT (proxy.rs:518): `app_rules::classify_host(&target_host)` — called after MITM handshake with `target_host` from the CONNECT request.
+- Transparent HTTP (proxy.rs:609): `app_rules::classify_host(host)` — called with the resolved host from headers or DIOCNATLOOK fallback.
+
+Both paths attach `app_name`/`app_icon` to `InterceptedRequest` and emit it to the frontend. Confirmed present in both code paths.
+
+**4. App.tsx InterceptedRequest fields**
+
+```typescript
+interface InterceptedRequest {
+  app_name?: string;
+  app_icon?: string;
+}
+```
+Both fields are optional (`?:`), matching the Rust side `Option<String>` serialized as nullable fields. Correct.
+
+**5. "Unknown" tab filter**
+
+```typescript
+if (selectedTab === "all") return true;
+if (selectedTab === "Unknown") return !req.app_name;
+return req.app_name === selectedTab;
+```
+When `app_name` is `undefined`/`null`, `!req.app_name` is `true` — requests with no app classification land in the "Unknown" tab. Correct.
+
+---
+
+### Conclusion
+
+**Step 4 is clear.** All five items verified correct. The Must Fix from Pass 1 (subdomain boundary bug) is resolved, tests cover the false positive case, and both frontend and backend handle the "Unknown" app case correctly.
