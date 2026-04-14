@@ -12,7 +12,7 @@ use std::process::Command;
 /// Path to the pf anchor configuration file.
 const PF_ANCHOR_FILE: &str = "/etc/pf.anchors/proxybot";
 /// The pf anchor name.
-const PF_ANCHOR_NAME: &str = "com.proxybot";
+const PF_ANCHOR_NAME: &str = "com.apple/proxybot";
 /// Proxy port where we listen for redirected connections.
 const PROXY_PORT: u16 = 8080;
 /// DNS server listening port (pf redirects 53 -> 5300).
@@ -78,7 +78,7 @@ pub fn teardown_pf() -> Result<(), String> {
     // Build the osascript command to remove rules and disable pf.
     let privileged_script = r#"do shell script "
         # Remove pf rules
-        pfctl -a com.proxybot -F all 2>&1 || true
+        pfctl -a com.apple/proxybot -F all 2>&1 || true
 
         # Disable pf
         pfctl -d 2>&1 || true
