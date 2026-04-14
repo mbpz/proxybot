@@ -2,7 +2,15 @@ use crate::cert::CertManager;
 use crate::dns;
 use crate::dns::DnsState;
 use crate::network::NetworkInfo;
+use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr};
+
+#[derive(Deserialize)]
+pub struct SetupPfArgs {
+    #[serde(rename = "local_ip")]
+    pub local_ip: String,
+    pub interface: String,
+}
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -857,15 +865,14 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
     crate::network::get_network_info()
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 pub fn setup_pf(
-    interface: String,
-    local_ip: String,
+    args: SetupPfArgs,
     app_handle: AppHandle,
     dns_state: State<'_, Arc<DnsState>>,
 ) -> Result<String, String> {
     // Set up pf rules first
-    let result = crate::pf::setup_pf(interface, local_ip);
+    let result = crate::pf::setup_pf(args.interface, args.local_ip);
     if result.is_ok() {
         // Start DNS server after pf setup succeeds
         dns::start_dns_server(app_handle, dns_state.inner().clone());
