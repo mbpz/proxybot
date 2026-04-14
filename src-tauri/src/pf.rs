@@ -21,7 +21,7 @@ const DNS_PORT: u16 = 5300;
 /// Set up pf rules for transparent proxying.
 /// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8080.
 /// Requires administrator privileges via osascript prompt.
-pub fn setup_pf(interface: String) -> Result<String, String> {
+pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     // Validate interface name - must be alphanumeric only to prevent command injection.
     if !interface.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid interface name".to_string());
@@ -29,14 +29,19 @@ pub fn setup_pf(interface: String) -> Result<String, String> {
     if interface.is_empty() || interface.len() > 10 {
         return Err("Invalid interface name".to_string());
     }
+    // Validate IP — only digits and dots allowed.
+    if !local_ip.chars().all(|c| c.is_ascii_digit() || c == '.') || local_ip.is_empty() {
+        return Err("Invalid local IP address".to_string());
+    }
 
     // Write rules to a temp file first (no root needed for /tmp).
     let tmp_file = "/tmp/proxybot.pf.conf";
     let rules = format!(
-        "rdr on {iface} proto tcp from any to any port {{80,443}} -> ({iface}) port {port}\nrdr on {iface} proto udp from any to any port 53 -> ({iface}) port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
+        "rdr on {iface} proto tcp from any to any port {{80,443}} -> {ip} port {port}\nrdr on {iface} proto udp from any to any port 53 -> {ip} port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
         iface = interface,
         port = PROXY_PORT,
         dns_port = DNS_PORT,
+        ip = local_ip,
     );
     fs::write(tmp_file, &rules)
         .map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
