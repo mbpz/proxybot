@@ -33,7 +33,7 @@ pub fn setup_pf(interface: String) -> Result<String, String> {
     // Write rules to a temp file first (no root needed for /tmp).
     let tmp_file = "/tmp/proxybot.pf.conf";
     let rules = format!(
-        "rdr on {iface} proto tcp from any to any port {{80,443}} -> 127.0.0.1 port {port}\nrdr on {iface} proto udp from any to any port 53 -> 127.0.0.1 port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
+        "rdr on {iface} proto tcp from any to any port {{80,443}} -> ({iface}) port {port}\nrdr on {iface} proto udp from any to any port 53 -> ({iface}) port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
         iface = interface,
         port = PROXY_PORT,
         dns_port = DNS_PORT,
