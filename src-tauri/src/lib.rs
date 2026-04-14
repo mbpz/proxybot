@@ -8,6 +8,7 @@ mod proxy;
 
 use cert::CertManager;
 use dns::DnsState;
+use proxy::ProxyState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,11 +19,13 @@ pub fn run() {
         CertManager::new().expect("Failed to initialize certificate manager"),
     );
     let dns_state = Arc::new(DnsState::new());
+    let proxy_state = Arc::new(ProxyState::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(cert_manager.clone())
         .manage(dns_state.clone())
+        .manage(proxy_state.clone())
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
             proxy::get_ca_cert_path,

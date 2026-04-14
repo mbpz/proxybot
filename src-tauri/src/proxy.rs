@@ -852,20 +852,40 @@ pub fn get_ca_cert_pem(cert_manager: State<Arc<CertManager>>) -> String {
     cert_manager.get_ca_cert_pem()
 }
 
+/// Shared proxy state — stores network config set by get_network_info.
+pub struct ProxyState {
+    pub interface: std::sync::Mutex<Option<String>>,
+    pub local_ip: std::sync::Mutex<Option<String>>,
+}
+
+impl ProxyState {
+    pub fn new() -> Self {
+        Self {
+            interface: std::sync::Mutex::new(None),
+            local_ip: std::sync::Mutex::new(None),
+        }
+    }
+}
+
 #[tauri::command]
-pub fn get_network_info() -> Result<NetworkInfo, String> {
-    crate::network::get_network_info()
+pub fn get_network_info(state: State<'_, Arc<ProxyState>>) -> Result<NetworkInfo, String> {
+    let info = crate::network::get_network_info()?;
+    *state.interface.lock().unwrap() = Some(info.interface.clone());
+    *state.local_ip.lock().unwrap() = Some(info.lan_ip.clone());
+    Ok(info)
 }
 
 #[tauri::command]
 pub fn setup_pf(
-    interface: String,
-    #[allow(non_snake_case)] localIp: String,
     app_handle: AppHandle,
     dns_state: State<'_, Arc<DnsState>>,
+    proxy_state: State<'_, Arc<ProxyState>>,
 ) -> Result<String, String> {
-    // Set up pf rules first
-    let result = crate::pf::setup_pf(interface, localIp);
+    let interface = proxy_state.interface.lock().unwrap().clone()
+        .ok_or_else(|| "Network info not set. Call get_network_info first.")?;
+    let local_ip = proxy_state.local_ip.lock().unwrap().clone()
+        .ok_or_else(|| "Network info not set. Call get_network_info first.")?;
+    let result = crate::pf::setup_pf(interface, local_ip);
     if result.is_ok() {
         // Start DNS server after pf setup succeeds
         dns::start_dns_server(app_handle, dns_state.inner().clone());
