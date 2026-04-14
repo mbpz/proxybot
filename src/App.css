@@ -176,6 +176,90 @@
   color: #e65100;
 }
 
+.dns-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 8px 12px;
+  background: #f5f5f7;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.dns-label {
+  font-weight: 600;
+  color: #515154;
+}
+
+.dns-indicator {
+  font-weight: 600;
+}
+
+.dns-running {
+  color: #34c759;
+}
+
+.dns-stopped {
+  color: #ff3b30;
+}
+
+.dns-log {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.dns-log h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1d1d1f;
+  text-align: left;
+}
+
+.no-dns-queries {
+  color: #86868b;
+  padding: 40px;
+  text-align: center;
+}
+
+.dns-log-list {
+  overflow-x: auto;
+}
+
+.dns-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dns-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #f5f5f7;
+  color: #515154;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.dns-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.dns-table tr:hover {
+  background: #fafafa;
+}
+
+.dns-table .domain {
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  font-size: 12px;
+  color: #1d1d1f;
+}
+
 .setup-instructions {
   background: #f5f5f7;
   padding: 16px;
@@ -410,5 +494,38 @@
   .pf-status.status-inactive {
     background-color: #3d2e1b;
     color: #ff9800;
+  }
+
+  .dns-status {
+    background: #1d1d1f;
+  }
+
+  .dns-label {
+    color: #a1a1a6;
+  }
+
+  .dns-log {
+    background: #2c2c2e;
+  }
+
+  .dns-log h2 {
+    color: #f5f5f7;
+  }
+
+  .dns-table th {
+    background: #3a3a3c;
+    color: #f5f5f7;
+  }
+
+  .dns-table td {
+    border-bottom-color: #3a3a3c;
+  }
+
+  .dns-table tr:hover {
+    background: #3a3a3c;
+  }
+
+  .dns-table .domain {
+    color: #f5f5f7;
   }
 }

@@ -225,3 +225,60 @@ Ready for Builder: YES
 All 6 Must Fix items from Step 2 Pass 1 are resolved. The DIOCNATLOOK struct layout is consistent with BSD conventions but cannot be 100% verified without macOS kernel source access. Runtime testing on actual macOS with pf enabled is strongly recommended to confirm the NAT lookup works correctly.
 
 **Step 2 is clear.**
+
+---
+
+## Step 3 Review (Reviewer: Richard)
+
+Date: 2026-04-14
+Ready for Builder: NO
+
+### Must Fix
+
+1. **[dns.rs:210-232] — Shutdown has no wakeup mechanism; `recv_from` blocks indefinitely**
+   - `stop_dns_server()` (line 259-261) sets `state.running.store(false)` only
+   - The `tokio::select!` at line 211-232 has no branch to interrupt `socket.recv_from(&mut buf)` (line 212)
+   - When `stop_dns_server` is called, the loop condition at line 210 becomes false only after the current `recv_from` returns (on next packet or error)
+   - If no packets arrive, the DNS server loop blocks indefinitely and does not exit
+   - Fix: Use a broadcast channel (e.g., `tokio::sync::broadcast`) to signal the loop. Example: `let (tx, rx) = broadcast::channel::<()>(1)`. Add `rx.recv()` as a branch in the select. On stop, `tx.send(())` wakes the loop immediately. Alternatively, close the socket via `socket.shutdown()` to cause `recv_from` to return an error.
+
+2. **[dns.rs:203-206] — `_upstream_socket` is created but never used**
+   - The comment says "Create a separate socket for upstream communication to avoid port conflicts"
+   - But line 152 uses `socket.send_to(data, UPSTREAM_DNS)` — the SAME socket bound to 0.0.0.0:5300
+   - This works only because UDP is connectionless: the OS delivers the response to the receiving socket based on the 5-tuple
+   - The `_upstream_socket` binding is wasted (lines 204-206)
+   - Fix: Either (a) remove `_upstream_socket` entirely since it's unused, or (b) actually use it for upstream communication as the comment promises
+
+### Should Fix (Non-Blocking)
+
+3. **[dns.rs:142] — Malformed query silently forwarded to upstream**
+   - When `parse_dns_query` returns `None` (malformed QNAME), `handle_dns_query` defaults domain to `"unknown"` and still forwards the raw packet to 8.8.8.8
+   - This is a design choice (best-effort logging and forwarding), but means malformed queries still consume upstream bandwidth
+   - Non-blocking; documented for awareness only
+
+4. **[App.tsx:186-188] — DNS status reflects `pfEnabled` not `dns.running`**
+   - The UI shows "Listening on UDP 5300" when `pfEnabled = true`
+   - But `pfEnabled` is set by `setup_pf`/`teardown_pf` success, not by actual DNS server state
+   - DNS server start is synchronous (`tauri::async_runtime::spawn` at line 249) but the task may not be fully initialized before `setup_pf` returns
+   - The indicator is accurate once fully initialized; timing window is small
+   - Non-blocking
+
+### Cleared
+
+5. **DNS QNAME parser (`parse_dns_query`)** — No panics on malformed input. Bounds checks at lines 77, 85, 108 prevent out-of-bounds reads. Pointer compression (0xC0 prefix) correctly rejected at lines 97-99. Labels > 63 bytes rejected at lines 102-104. Empty labels handled at line 92-94. All invalid inputs return `Option<String>::None`.
+
+6. **UDP forwarding timeout** — 3-second timeout correctly applied to both `socket.send_to` (line 152) and `socket.recv_from` (line 161). If 8.8.8.8 never responds, the timeout future is properly awaited and the task completes cleanly — no task leak.
+
+7. **DNS state wiring** — `DnsState` created at `lib.rs:20` as `Arc<DnsState>`. Managed by Tauri's state system at `lib.rs:25`. Correctly shared with `start_dns_server` (via parameter), `get_dns_log` Tauri command (via `State<'_, Arc<DnsState>>`), and event emitter via `app_handle.emit` (line 65).
+
+8. **pf anchor UDP rule syntax** — `pf.rs:36`: `rdr on {iface} proto udp from any to any port 53 -> 127.0.0.1 port 5300` is syntactically valid. TCP and UDP rdr rules coexist in the same anchor; pf processes rules sequentially and applies the matching one.
+
+9. **Port 5300 binding** — `dns.rs:193`: binds `0.0.0.0:5300`. Correct for pf redirect which sends to the interface IP.
+
+10. **UI DNS log** — `App.tsx:48-50` listens to `dns-query` event. `App.tsx:269-276` displays domain + formatted timestamp in table. `App.tsx:184-189` shows DNS status indicator with `dns-running`/`dns-stopped` classes.
+
+### Summary
+
+Two blocking issues: (1) the DNS server loop cannot be reliably interrupted when `stop_dns_server` is called because `recv_from` blocks with no wakeup mechanism; (2) the `_upstream_socket` is created but unused, wasting a socket binding. Fix the shutdown mechanism before this ships.
+
+**Step 3 is NOT clear.**

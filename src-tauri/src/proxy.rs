@@ -1,4 +1,6 @@
 use crate::cert::CertManager;
+use crate::dns;
+use crate::dns::DnsState;
 use crate::network::NetworkInfo;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
@@ -851,11 +853,24 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
 }
 
 #[tauri::command]
-pub fn setup_pf(interface: String) -> Result<String, String> {
-    crate::pf::setup_pf(interface)
+pub fn setup_pf(
+    interface: String,
+    app_handle: AppHandle,
+    dns_state: State<'_, Arc<DnsState>>,
+) -> Result<String, String> {
+    // Set up pf rules first
+    let result = crate::pf::setup_pf(interface);
+    if result.is_ok() {
+        // Start DNS server after pf setup succeeds
+        dns::start_dns_server(app_handle, dns_state.inner().clone());
+    }
+    result
 }
 
 #[tauri::command]
-pub fn teardown_pf() -> Result<(), String> {
+pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
+    // Stop DNS server first
+    dns::stop_dns_server(dns_state.inner());
+    // Then tear down pf
     crate::pf::teardown_pf()
 }

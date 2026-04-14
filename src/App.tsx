@@ -19,6 +19,11 @@ interface NetworkInfo {
   interface: string;
 }
 
+interface DnsEntry {
+  domain: string;
+  timestamp_ms: number;
+}
+
 function App() {
   const [running, setRunning] = useState(false);
   const [caCertPath, setCaCertPath] = useState("");
@@ -28,6 +33,7 @@ function App() {
   const [pfEnabled, setPfEnabled] = useState(false);
   const [pfLoading, setPfLoading] = useState(false);
   const [pfStatus, setPfStatus] = useState("");
+  const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -39,8 +45,18 @@ function App() {
       setRequests((prev) => [event.payload, ...prev].slice(0, 100));
     });
 
+    const unlistenDns = listen<DnsEntry>("dns-query", (event) => {
+      setDnsQueries((prev) => [event.payload, ...prev].slice(0, 50));
+    });
+
+    // Load initial DNS log
+    invoke<DnsEntry[]>("get_dns_log")
+      .then(setDnsQueries)
+      .catch((e) => console.error("Failed to get DNS log:", e));
+
     return () => {
       unlisten.then((fn) => fn());
+      unlistenDns.then((fn) => fn());
     };
   }, []);
 
@@ -165,6 +181,13 @@ function App() {
           </p>
         )}
 
+        <div className="dns-status">
+          <span className="dns-label">DNS Server:</span>
+          <span className={`dns-indicator ${pfEnabled ? "dns-running" : "dns-stopped"}`}>
+            {pfEnabled ? "Listening on UDP 5300" : "Not running"}
+          </span>
+        </div>
+
         <div className="setup-instructions">
           <h3>Instructions</h3>
           <ol>
@@ -221,6 +244,34 @@ function App() {
                       {req.status || "-"}
                     </td>
                     <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="dns-log">
+        <h2>DNS Queries ({dnsQueries.length})</h2>
+        <div className="dns-log-list">
+          {dnsQueries.length === 0 ? (
+            <p className="no-dns-queries">No DNS queries yet. Enable transparent proxy to start capturing.</p>
+          ) : (
+            <table className="dns-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Domain</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dnsQueries.map((query, idx) => (
+                  <tr key={`${query.timestamp_ms}-${idx}`}>
+                    <td className="time">
+                      {new Date(query.timestamp_ms).toLocaleTimeString()}
+                    </td>
+                    <td className="domain">{query.domain}</td>
                   </tr>
                 ))}
               </tbody>

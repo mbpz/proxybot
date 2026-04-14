@@ -15,6 +15,8 @@ const PF_ANCHOR_FILE: &str = "/etc/pf.anchors/proxybot";
 const PF_ANCHOR_NAME: &str = "com.proxybot";
 /// Proxy port where we listen for redirected connections.
 const PROXY_PORT: u16 = 8080;
+/// DNS server listening port (pf redirects 53 -> 5300).
+const DNS_PORT: u16 = 5300;
 
 /// Set up pf rules for transparent proxying.
 /// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8080.
@@ -31,9 +33,10 @@ pub fn setup_pf(interface: String) -> Result<String, String> {
     // Write rules to a temp file first (no root needed for /tmp).
     let tmp_file = "/tmp/proxybot.pf.conf";
     let rules = format!(
-        "rdr on {iface} proto tcp from any to any port {{80,443}} -> 127.0.0.1 port {port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
+        "rdr on {iface} proto tcp from any to any port {{80,443}} -> 127.0.0.1 port {port}\nrdr on {iface} proto udp from any to any port 53 -> 127.0.0.1 port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
         iface = interface,
         port = PROXY_PORT,
+        dns_port = DNS_PORT,
     );
     fs::write(tmp_file, &rules)
         .map_err(|e| format!("Failed to write temp pf rules: {}", e))?;

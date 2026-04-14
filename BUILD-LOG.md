@@ -1,5 +1,32 @@
 # ProxyBot — Build Log
 
+## Step 3 — 内置 DNS 服务器 🚧
+**日期:** 2026-04-14
+**状态:** 构建完成，待 Richard review，cargo check 0 错误
+
+### 完成内容
+- DNS 服务器模块 `src-tauri/src/dns.rs`（新建）
+- UDP 监听 5300 端口（pf 转发 53->5300，无需 root）
+- RFC 1035 QNAME 解析（DNS Question Section 手动解析）
+- 转发 DNS 查询到 8.8.8.8:53，3秒超时，原样回传响应
+- `DnsEntry { domain, timestamp_ms }` 存储在 `Arc<Mutex<VecDeque>>`，最多 10000 条
+- Tauri event `dns-query` 实时推送查询到前端
+- `get_dns_log` Tauri command 返回最近 50 条记录
+- pf anchor 新增 UDP 53 -> 127.0.0.1:5300 重定向规则
+- DNS 启停与 pf setup/teardown 联动
+- UI Setup 面板增加 DNS 状态指示器
+- UI 新增「DNS 查询」区域，显示最近 50 条（时间 + 域名），实时更新
+
+### Known Gaps（后续步骤处理）
+- DNS 查询按 App 分类（Step 4）
+- DNS 缓存
+- DNSSEC 验证
+
+### 验收标准
+待验证：手机 Wi-Fi DNS 设为 PC IP，手机访问任意网页，ProxyBot「DNS 查询」面板出现对应域名记录
+
+---
+
 ## Step 2 — pf 透明代理 + IP 转发 ✅
 **日期:** 2026-04-14
 **状态:** 构建完成，通过 Richard 二次 review，cargo check 0 错误 0 警告
