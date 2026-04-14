@@ -857,7 +857,7 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
     crate::network::get_network_info()
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn setup_pf(
     interface: String,
     local_ip: String,
