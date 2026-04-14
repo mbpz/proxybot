@@ -21,7 +21,7 @@ use rustls::{
     DigitallySignedStruct,
 };
 use libc;
-use std::fs::File;
+use std::fs::OpenOptions;
 
 const PROXY_PORT: u16 = 8080;
 
@@ -72,10 +72,13 @@ fn parse_host_port(s: &str) -> Option<(&str, u16)> {
 /// Recovers the original destination address/port from a pf rdr redirect.
 /// This is the correct method for macOS - SO_ORIGINAL_DST does not exist on macOS.
 fn get_original_dst(peer_addr: SocketAddr, local_addr: SocketAddr) -> Option<SocketAddr> {
-    // Open /dev/pf for DIOCNATLOOK ioctl
-    let fd = match File::open("/dev/pf") {
+    // Open /dev/pf for DIOCNATLOOK ioctl (O_RDWR required for _IOWR ioctls)
+    let fd = match OpenOptions::new().read(true).write(true).open("/dev/pf") {
         Ok(f) => f,
-        Err(_) => return None,
+        Err(e) => {
+            log::warn!("Failed to open /dev/pf: {}", e);
+            return None;
+        }
     };
 
     // Build the pfioc_natlook structure
@@ -130,7 +133,7 @@ fn get_original_dst(peer_addr: SocketAddr, local_addr: SocketAddr) -> Option<Soc
         rdport: 0,
         af: 2, // AF_INET
         proto: 6, // IPPROTO_TCP
-        direction: 2, // PF_OUT
+        direction: 1, // PF_IN (rdr redirects inbound traffic)
         pad: [0u8; 5],
     };
 
@@ -143,6 +146,8 @@ fn get_original_dst(peer_addr: SocketAddr, local_addr: SocketAddr) -> Option<Soc
     };
 
     if ret != 0 {
+        let err = std::io::Error::last_os_error();
+        log::warn!("DIOCNATLOOK failed for {}→{}: {}", peer_addr, local_addr, err);
         return None;
     }
 
