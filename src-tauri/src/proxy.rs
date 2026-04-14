@@ -860,12 +860,12 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
 #[tauri::command]
 pub fn setup_pf(
     interface: String,
-    local_ip: String,
+    #[allow(non_snake_case)] localIp: String,
     app_handle: AppHandle,
     dns_state: State<'_, Arc<DnsState>>,
 ) -> Result<String, String> {
     // Set up pf rules first
-    let result = crate::pf::setup_pf(interface, local_ip);
+    let result = crate::pf::setup_pf(interface, localIp);
     if result.is_ok() {
         // Start DNS server after pf setup succeeds
         dns::start_dns_server(app_handle, dns_state.inner().clone());

@@ -77,7 +77,7 @@ function App() {
       setPfLoading(true);
       setError("");
       setPfStatus("");
-      const result = await invoke<string>("setup_pf", { interface: networkInfo.interface, local_ip: networkInfo.ip });
+      const result = await invoke<string>("setup_pf", { interface: networkInfo.interface, localIp: networkInfo.ip });
       console.log(result);
       setPfEnabled(true);
       setPfStatus("Transparent proxy enabled successfully");
