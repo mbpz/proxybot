@@ -7,6 +7,7 @@ static SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 /// Starts a tiny_http server that serves the CA certificate at /ca.crt.
 /// Returns the LAN IP and port so mobile devices can download via browser.
+#[tauri::command]
 pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
     if SERVER_RUNNING.swap(true, Ordering::SeqCst) {
         return format!("http://{}:{}", local_ip, CERT_SERVER_PORT);
@@ -28,7 +29,6 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
         log::info!("Cert server listening on {}", server_url_clone);
 
         for request in server.incoming_requests() {
-            let path = request.url().trim_start_matches('/');
             let file_path = &cert_path_clone;
 
             match std::fs::read(file_path) {
