@@ -41,7 +41,7 @@ static REQUEST_STORE: LazyLock<DashMap<String, InterceptedRequest>, fn() -> Dash
 /// Maximum response body size to store (10KB).
 const MAX_BODY_SIZE: usize = 10 * 1024;
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct InterceptedRequest {
     pub id: String,
     pub timestamp: String,
@@ -1511,4 +1511,10 @@ pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
 #[tauri::command]
 pub fn get_request_detail(id: String) -> Option<InterceptedRequest> {
     REQUEST_STORE.get(&id).map(|entry| entry.value().clone())
+}
+
+#[tauri::command]
+pub fn export_har(requests: Vec<InterceptedRequest>) -> Result<String, String> {
+    let har_log = crate::har::build_har(requests);
+    serde_json::to_string_pretty(&har_log).map_err(|e| e.to_string())
 }

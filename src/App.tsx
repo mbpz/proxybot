@@ -169,6 +169,22 @@ function App() {
     setAppFilter("ALL");
   };
 
+  const exportHar = async () => {
+    try {
+      const filtered = filterRequests(requests);
+      const har = await invoke<string>("export_har", { requests: filtered });
+      const blob = new Blob([har], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `proxybot-${new Date().toISOString().slice(0, 10)}.har`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const filterRequests = (reqs: InterceptedRequest[]) => {
     return reqs.filter((req) => {
       // Tab filter (app tabs)
@@ -305,6 +321,9 @@ function App() {
           ))}
         </div>
         <div className="filter-bar">
+          <button className="btn-export" onClick={exportHar}>
+            Export HAR
+          </button>
           <input
             type="text"
             className="filter-search"

@@ -404,6 +404,23 @@
   border-color: #d5d5d5;
 }
 
+.btn-export {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  background: #0071e3;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-export:hover {
+  background: #0077ed;
+}
+
 .no-requests {
   color: #86868b;
   padding: 40px;
@@ -531,6 +548,14 @@
   .btn-clear:hover {
     background: #3a3a3c;
     border-color: #4a4a4c;
+  }
+
+  .btn-export {
+    background: #0a84ff;
+  }
+
+  .btn-export:hover {
+    background: #409cff;
   }
 
   .header h1 {

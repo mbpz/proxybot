@@ -3,6 +3,7 @@ use std::sync::Arc;
 mod app_rules;
 mod cert;
 mod dns;
+mod har;
 mod network;
 mod pf;
 mod proxy;
@@ -35,6 +36,7 @@ pub fn run() {
             proxy::setup_pf,
             proxy::teardown_pf,
             proxy::get_request_detail,
+            proxy::export_har,
             dns::get_dns_log,
         ])
         .run(tauri::generate_context!())

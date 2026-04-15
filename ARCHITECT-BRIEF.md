@@ -4,63 +4,151 @@
 
 ---
 
-## Step 8 — 请求搜索/过滤
+## Step 9 — 导出 HAR 文件
 
-目标：在请求列表上方增加搜索框和过滤器，快速定位特定请求。
+目标：将请求列表导出为 HAR（HTTP Archive）格式，可在 Chrome DevTools / Charles Proxy / Fiddler 中打开。
 
-### UI 实现
+### HAR 格式概述
 
-**1. 搜索栏布局**
+HAR 1.2 spec: https://w3c.github.io/web-performance/specs/HAR/Overview.html
 
-```
-[🔍 Search host, path, method... ] [Method ▼] [Status ▼] [App ▼] [Clear]
-```
-
-- 搜索框：实时过滤，支持 host / path / method 模糊匹配
-- Method 下拉：ALL / GET / POST / PUT / DELETE / WebSocket
-- Status 下拉：ALL / 2xx / 3xx / 4xx / 5xx
-- App 下拉：ALL / WeChat / Douyin / Alipay / Unknown
-- Clear 按钮：清空所有过滤条件
-
-**2. 过滤逻辑（纯前端）**
-
-```typescript
-const filtered = requests.filter(req => {
-  const matchSearch = !search
-    || req.host.includes(search)
-    || req.path.includes(search)
-    || req.method.includes(search.toUpperCase())
-
-  const matchMethod = !method || method === 'ALL' || req.method === method
-  const matchStatus = !status || status === 'ALL' || matchesStatusGroup(req.status, status)
-  const matchApp = !app || app === 'ALL' || req.app_name === app
-
-  return matchSearch && matchMethod && matchStatus && matchApp
-})
-```
-
-**3. 状态分组匹配**
-
-```typescript
-function matchesStatusGroup(status: number, group: string): boolean {
-  if (group === '2xx') return status >= 200 && status < 300
-  if (group === '3xx') return status >= 300 && status < 400
-  if (group === '4xx') return status >= 400 && status < 500
-  if (group === '5xx') return status >= 500
-  return status === parseInt(group)
+```json
+{
+  "log": {
+    "version": "1.2",
+    "creator": { "name": "ProxyBot", "version": "0.1.0" },
+    "entries": [
+      {
+        "startedDateTime": "2026-04-15T10:23:45.123Z",
+        "time": 1281,
+        "request": {
+          "method": "GET",
+          "url": "https://httpbin.org/get",
+          "httpVersion": "HTTP/1.1",
+          "headers": [{ "name": "Host", "value": "httpbin.org" }],
+          "queryString": [],
+          "cookies": [],
+          "headersSize": -1,
+          "bodySize": 0
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "HTTP/1.1",
+          "headers": [...],
+          "content": { "size": 123, "mimeType": "application/json", "text": "..." },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": 123
+        },
+        "timings": { "send": -1, "wait": 1281, "receive": -1 }
+      }
+    ]
+  }
 }
 ```
 
-### 不做
+### Rust 实现
 
-- 服务端过滤（全部在前端过滤，数据量大了再说）
-- 正则搜索
-- 搜索历史
+**1. 新文件 `src-tauri/src/har.rs`**
+
+```rust
+use serde::Serialize;
+use serde_json::Value;
+
+#[derive(Serialize)]
+struct HarLog {
+    version: &'static str,
+    creator: HarCreator,
+    entries: Vec<HarEntry>,
+}
+
+#[derive(Serialize)]
+struct HarCreator {
+    name: String,
+    version: String,
+}
+
+#[derive(Serialize)]
+struct HarEntry {
+    started_date_time: String,  // ISO 8601
+    time: i64,                  // latency ms
+    request: HarRequest,
+    response: HarResponse,
+    #[serde(rename = "timings")]
+    timings_obj: HarTimings,
+}
+
+#[derive(Serialize)]
+struct HarRequest {
+    method: String,
+    url: String,
+    http_version: String,
+    headers: Vec<HarHeader>,
+    query_string: Vec<HarQueryParam>,
+    cookies: Vec<()>,
+    headers_size: i64,
+    body_size: i64,
+}
+
+#[derive(Serialize)]
+struct HarResponse {
+    status: u16,
+    status_text: String,
+    http_version: String,
+    headers: Vec<HarHeader>,
+    content: HarContent,
+    redirect_url: String,
+    headers_size: i64,
+    body_size: i64,
+}
+```
+
+**2. Tauri Command**
+
+```rust
+#[tauri::command]
+pub fn export_har(requests: Vec<InterceptedRequest>) -> Result<String, String> {
+    let har = build_har(requests);
+    serde_json::to_string_pretty(&har).map_err(|e| e.to_string())
+}
+```
+
+**3. 转换逻辑**
+
+- `InterceptedRequest` → `HarEntry`：时间戳用 `timestamp_ms` 转换 ISO 8601
+- URL 构造：`https://{host}{path}`
+- Headers 解析：`request_headers` 是 `"Name: value\r\n..."` 格式，按 `\r\n` 分割，再按 `": "` 分割 name/value
+- Response body：用已缓存的 `response_body`（10KB 内）
+- `timings.wait` = `latency_ms`
+
+### UI 实现
+
+**1. 导出按钮**
+
+在请求列表 Tab 栏旁边加「导出 HAR」按钮：
+
+```tsx
+<button onClick={exportHar}>Export HAR</button>
+```
+
+**2. 导出逻辑**
+
+```tsx
+const exportHar = async () => {
+  const har = await invoke<string>("export_har", { requests: requests });
+  const blob = new Blob([har], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `proxybot-${new Date().toISOString().slice(0,10)}.har`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+```
 
 ### 验收标准
 
-1. 输入 "baidu" → 只显示 host/path 含 baidu 的请求
-2. 选择 Method = POST → 只显示 POST 请求
-3. 选择 Status = 4xx → 只显示 4xx 请求
-4. 组合搜索：Method=GET + App=WeChat → 显示微信的 GET 请求
-5. Clear 按钮 → 所有过滤条件清空，完整列表恢复
+1. 点「导出 HAR」→ 下载 `.har` 文件
+2. 用 Chrome DevTools → Network → Import 导入 → 显示所有请求
+3. 用 Charles Proxy → File → Import → 显示所有请求

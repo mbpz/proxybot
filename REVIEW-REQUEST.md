@@ -1,125 +1,95 @@
-# Step 8 Review Request — Request Search & Filter
+# Step 9 Review Request — HAR Export
 
 **Ready for Review: YES**
 
 ## Summary
 
-Added search and filter functionality to the request table. Users can now quickly locate specific requests using text search (host/path/method), HTTP method filter, status code filter, and app filter. All filters are combinable and work alongside the existing app tab filtering.
+Implemented HAR (HTTP Archive) 1.2 export functionality. Users can click "Export HAR" to download the currently filtered requests as a `.har` file, compatible with Chrome DevTools, Charles Proxy, and Fiddler.
 
 ## Files Changed
 
+### src-tauri/src/har.rs (NEW)
+
+HAR 1.2 serialization with these structs:
+- `HarLog` → `HarLogInner` → `HarCreator` + `Vec<HarEntry>`
+- `HarEntry`, `HarRequest`, `HarResponse`, `HarHeader`, `HarQueryParam`, `HarContent`, `HarTimings`
+
+Key functions:
+- `build_har(requests)` — top-level builder
+- `intercepted_req_to_har_entry(req)` — converts one `InterceptedRequest` to `HarEntry`
+- `parse_headers(headers_str)` — parses `"Name: value\r\n..."` into `Vec<HarHeader>`
+- `to_iso8601(secs, ms)` — uses `libc::gmtime_r` + `libc::snprintf` to produce UTC ISO 8601 (no external time crate)
+- `timestamp_to_iso8601(ts)` — parses proxy timestamp `"secs.ms"` and delegates to `to_iso8601`
+- `http_status_text(status)` — maps HTTP status codes to human-readable strings
+- `extract_content_type(headers_str)` — extracts Content-Type from response headers
+
+Unit tests: `parse_headers`, `http_status_text`, `extract_content_type`
+
+### src-tauri/src/proxy.rs
+
+**InterceptedRequest struct** — added `serde::Deserialize` derive (needed because Tauri command parameters must be deserializable):
+```rust
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct InterceptedRequest { ... }
+```
+
+**export_har command**:
+```rust
+#[tauri::command]
+pub fn export_har(requests: Vec<InterceptedRequest>) -> Result<String, String> {
+    let har_log = crate::har::build_har(requests);
+    serde_json::to_string_pretty(&har_log).map_err(|e| e.to_string())
+}
+```
+
+### src-tauri/src/lib.rs
+
+- Added `mod har;`
+- Added `proxy::export_har` to `invoke_handler`
+
 ### src/App.tsx
 
-**Added state:**
+**exportHar function**:
 ```typescript
-const [searchQuery, setSearchQuery] = useState("");
-const [methodFilter, setMethodFilter] = useState("ALL");
-const [statusFilter, setStatusFilter] = useState("ALL");
-const [appFilter, setAppFilter] = useState("ALL");
+const exportHar = async () => {
+  try {
+    const filtered = filterRequests(requests);
+    const har = await invoke<string>("export_har", { requests: filtered });
+    const blob = new Blob([har], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `proxybot-${new Date().toISOString().slice(0, 10)}.har`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    setError(String(e));
+  }
+};
 ```
 
-**Added helper functions:**
-```typescript
-function matchesStatusGroup(status: number | null, group: string): boolean {
-  if (group === "ALL" || !status) return true;
-  if (group === "2xx") return status >= 200 && status < 300;
-  if (group === "3xx") return status >= 300 && status < 400;
-  if (group === "4xx") return status >= 400 && status < 500;
-  if (group === "5xx") return status >= 500;
-  return status === parseInt(group);
-}
-
-function clearFilters() {
-  setSearchQuery("");
-  setMethodFilter("ALL");
-  setStatusFilter("ALL");
-  setAppFilter("ALL");
-}
-
-function filterRequests(reqs: InterceptedRequest[]): InterceptedRequest[] {
-  return reqs.filter((req) => {
-    // Tab filter (app tabs: All/WeChat/Douyin/Alipay/Unknown)
-    if (selectedTab === "all") { /* keep all */ }
-    else if (selectedTab === "Unknown") { if (!req.app_name) return false; }
-    else { if (req.app_name !== selectedTab) return false; }
-
-    // Search filter (host/path/method fuzzy match, case-insensitive)
-    const search = searchQuery.toLowerCase();
-    if (search && !req.host.toLowerCase().includes(search)
-        && !req.path.toLowerCase().includes(search)
-        && !req.method.toLowerCase().includes(search.toUpperCase())) {
-      return false;
-    }
-
-    // Method filter
-    if (methodFilter !== "ALL" && req.method !== methodFilter) return false;
-
-    // Status filter
-    if (!matchesStatusGroup(req.status, statusFilter)) return false;
-
-    // App filter
-    if (appFilter !== "ALL" && req.app_name !== appFilter) return false;
-
-    return true;
-  });
-}
-```
-
-**Filter bar UI:**
+**UI** — "Export HAR" button at the start of the filter bar:
 ```jsx
-<div className="filter-bar">
-  <input type="text" className="filter-search"
-    placeholder="Search host, path, method..."
-    value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-  <select className="filter-select" value={methodFilter}
-    onChange={(e) => setMethodFilter(e.target.value)}>
-    <option value="ALL">All Methods</option>
-    <option value="GET">GET</option>
-    <option value="POST">POST</option>
-    <option value="PUT">PUT</option>
-    <option value="DELETE">DELETE</option>
-    <option value="WebSocket">WS</option>
-  </select>
-  <select className="filter-select" value={statusFilter}
-    onChange={(e) => setStatusFilter(e.target.value)}>
-    <option value="ALL">All Status</option>
-    <option value="2xx">2xx</option>
-    <option value="3xx">3xx</option>
-    <option value="4xx">4xx</option>
-    <option value="5xx">5xx</option>
-  </select>
-  <select className="filter-select" value={appFilter}
-    onChange={(e) => setAppFilter(e.target.value)}>
-    <option value="ALL">All Apps</option>
-    <option value="WeChat">WeChat</option>
-    <option value="Douyin">Douyin</option>
-    <option value="Alipay">Alipay</option>
-    <option value="Unknown">Unknown</option>
-  </select>
-  <button className="btn-clear" onClick={clearFilters}>Clear</button>
-</div>
+<button className="btn-export" onClick={exportHar}>Export HAR</button>
 ```
 
 ### src/App.css
 
 **Added styles:**
-- `.filter-bar` — flex container with gap, background, padding, rounded corners
-- `.filter-search` — input field with border, focus state, placeholder styling
-- `.filter-select` — dropdown select with border, focus state, min-width
-- `.btn-clear` — clear button with hover state
-- Dark mode variants for all elements
+- `.btn-export` — blue button matching the app's design language, light and dark mode variants
+
+## Key Design Decisions
+
+1. **No external time crate** — ISO 8601 formatting uses `libc::gmtime_r` + `libc::snprintf`, keeping the dependency list minimal
+2. **HAR version 1.2** — compatible with Chrome DevTools / Charles Proxy / Fiddler
+3. **Filtered export** — exports only the currently displayed (filtered) requests, not all captured requests
+4. **`Deserialize` on InterceptedRequest** — required because Tauri command parameters must implement `Deserialize<'de>`
 
 ## Acceptance Criteria
 
-- [x] Search "baidu" shows only requests with host/path containing "baidu"
-- [x] Method = POST shows only POST requests
-- [x] Status = 4xx shows only 4xx requests
-- [x] Combined: Method=GET + App=WeChat shows only WeChat GET requests
-- [x] Clear button resets all filter bar filters
-- [x] Tab filtering (All/WeChat/Douyin/Alipay/Unknown) still works alongside filter bar
-
-## Build Verification
-
-- `npm run build` with Node 20.20.2: **SUCCESS**
-- No TypeScript errors
-- No Rust changes needed (pure frontend)
+- [x] Click "Export HAR" → downloads `.har` file with name `proxybot-YYYY-MM-DD.har`
+- [x] HAR file contains all currently filtered requests
+- [x] Each entry has `startedDateTime`, `time`, `request`, `response`, `timings` fields
+- [x] Request/response headers are parsed from `"Name: value\r\n..."` format
+- [x] Response body is included in `content.text`
+- [x] `cargo check` in `src-tauri/` passes with 0 errors, 0 warnings
