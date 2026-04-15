@@ -195,6 +195,58 @@ fn extract_response_body(data: &[u8]) -> Option<Vec<u8>> {
     Some(data[body_start..].to_vec())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_http_response_headers() {
+        let data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 123\r\n\r\n";
+        let headers = parse_response_headers(data);
+        let headers = headers.unwrap();
+        // Headers are case-preserved, so check case-insensitively
+        assert!(headers.to_lowercase().contains("content-type: text/html"));
+        assert!(headers.to_lowercase().contains("content-length: 123"));
+    }
+
+    #[test]
+    fn test_decode_body_utf8() {
+        let body = b"Hello, World!";
+        let decoded = decode_body(body);
+        assert_eq!(decoded, "Hello, World!");
+    }
+
+    #[test]
+    fn test_decode_body_binary_fallback() {
+        let body = &[0xFF, 0xFE, 0xFD];
+        let decoded = decode_body(body);
+        assert_eq!(decoded, "[Binary 3 bytes]".to_string());
+    }
+
+    #[test]
+    fn test_decode_body_truncation() {
+        let body: Vec<u8> = (0..15000).map(|i| (i % 256) as u8).collect();
+        let decoded = decode_body(&body);
+        assert!(!decoded.is_empty()); // doesn't panic and returns truncated result
+    }
+
+    #[test]
+    fn test_extract_response_body() {
+        let data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello, World!";
+        let body = extract_response_body(data);
+        assert!(body.is_some());
+        assert_eq!(body.unwrap(), b"Hello, World!");
+    }
+
+    #[test]
+    fn test_extract_response_body_empty() {
+        let data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
+        let body = extract_response_body(data);
+        assert!(body.is_some());
+        assert!(body.unwrap().is_empty());
+    }
+}
+
 /// Store an intercepted request in the global store.
 fn store_request(req: InterceptedRequest) {
     REQUEST_STORE.insert(req.id.clone(), req);

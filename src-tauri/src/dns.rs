@@ -130,6 +130,43 @@ pub fn parse_dns_query(buf: &[u8]) -> Option<String> {
     Some(labels.join("."))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_domain() {
+        // DNS header (12 bytes) + QNAME for "example.com":
+        // [7] 'example' [3] 'com' [0]
+        let mut buf = vec![0u8; 12];
+        buf.extend_from_slice(&[7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0]);
+        assert_eq!(parse_dns_query(&buf), Some("example.com".to_string()));
+    }
+
+    #[test]
+    fn test_subdomain() {
+        // DNS header (12 bytes) + QNAME for "www.example.com":
+        // [3]www[7]example[3]com[0]
+        let mut buf = vec![0u8; 12];
+        buf.extend_from_slice(&[3, b'w', b'w', b'w', 7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0]);
+        assert_eq!(parse_dns_query(&buf), Some("www.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_empty_query() {
+        assert_eq!(parse_dns_query(&[]), None);
+    }
+
+    #[test]
+    fn test_truncated_query() {
+        // DNS header present but QNAME truncated: label length 5 but only 2 bytes available
+        let buf = [0u8; 12];
+        let mut full_buf = buf.to_vec();
+        full_buf.extend_from_slice(&[5, b'a', b'b']);
+        assert_eq!(parse_dns_query(&full_buf), None);
+    }
+}
+
 /// Handle a single DNS query: parse domain, record it, forward to upstream, relay response.
 async fn handle_dns_query(
     buf: &[u8],
