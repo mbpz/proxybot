@@ -56,7 +56,7 @@ function App() {
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
   const [selectedWssMsg, setSelectedWssMsg] = useState<WssMessage | null>(null);
-  const [detailTab, setDetailTab] = useState<"general" | "headers" | "body">("general");
+  const [detailTab, setDetailTab] = useState<"general" | "headers" | "body" | "ai">("general");
   const [caGuideTab, setCaGuideTab] = useState<"ios" | "android">("ios");
   const [searchQuery, setSearchQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState("ALL");
@@ -67,6 +67,9 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [mainTab, setMainTab] = useState<'http' | 'wss' | 'dns'>('http');
   const [certServerUrl, setCertServerUrl] = useState('');
+  const [aiConfig, setAiConfig] = useState({ provider: 'minimax', apiKey: '', endpoint: 'https://api.minimax.chat/v1/chat/completions', model: 'MiniMax-Text-01', enabled: false });
+  const [aiAnalysis, setAiAnalysis] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   const toggleTheme = () => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
@@ -320,6 +323,72 @@ function App() {
     }
   };
 
+  const buildChainPrompt = (targetReq: InterceptedRequest, allRequests: InterceptedRequest[], dnsAll: DnsEntry[], wssAll: WssMessage[]) => {
+    const targetTime = new Date(targetReq.timestamp.split('.')[0] + 'Z').getTime();
+    const window = 30000;
+    const relatedDns = dnsAll.filter(d => {
+      const t = d.timestamp_ms;
+      return t <= targetTime && t > targetTime - window &&
+        (d.domain.includes(targetReq.host) || targetReq.host.includes(d.domain));
+    });
+    const relatedWss = wssAll.filter(w => {
+      const t = new Date(w.timestamp.split('.')[0] + 'Z').getTime();
+      return Math.abs(t - targetTime) < window && w.host === targetReq.host;
+    });
+    const relatedHttp = allRequests.filter(r =>
+      r.id !== targetReq.id && r.host === targetReq.host &&
+      Math.abs(new Date(r.timestamp.split('.')[0] + 'Z').getTime() - targetTime) < window
+    );
+    const lines: string[] = ['# ProxyBot Call Chain', '## Target Request'];
+    lines.push(`[${targetReq.timestamp}] HTTP ${targetReq.method} ${targetReq.host}${targetReq.path} → ${targetReq.status || '...'}`);
+    if (targetReq.latency_ms) lines.push(`Latency: ${targetReq.latency_ms}ms`);
+    if (relatedDns.length > 0) {
+      lines.push('\n## Related DNS Queries');
+      relatedDns.forEach(d => lines.push(`[${new Date(d.timestamp_ms).toLocaleTimeString()}] DNS: ${d.domain}`));
+    }
+    if (relatedWss.length > 0) {
+      lines.push('\n## Related WSS Messages');
+      relatedWss.forEach(w => lines.push(`[${w.timestamp}] WSS ${w.direction === 'up' ? '↑' : '↓'} ${w.host} ${w.size}B`));
+    }
+    if (relatedHttp.length > 0) {
+      lines.push('\n## Related HTTP Requests (±30s, same host)');
+      relatedHttp.forEach(r => lines.push(`[${r.timestamp}] HTTP ${r.method} ${r.host}${r.path} → ${r.status || '...'}`));
+    }
+    lines.push('\n---\nPlease analyze: 1) What app/service is making these requests? 2) Purpose of each? 3) Any anomalies?');
+    return lines.join('\n');
+  };
+
+  const analyzeChain = async () => {
+    if (!aiConfig.enabled || !aiConfig.apiKey) {
+      setError('请先在 AI 配置中填写 API Key 并启用链路分析');
+      return;
+    }
+    if (!selectedRequest) return;
+    setAiLoading(true);
+    setAiAnalysis('');
+    try {
+      const prompt = buildChainPrompt(selectedRequest, requests, dnsQueries, wssMessages);
+      const response = await fetch(aiConfig.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${aiConfig.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: aiConfig.model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 1024,
+        }),
+      });
+      const data = await response.json();
+      setAiAnalysis(data.choices?.[0]?.message?.content || 'No response');
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const filterRequests = (reqs: InterceptedRequest[]) => {
     return reqs.filter((req) => {
       // Filter bar filters
@@ -511,6 +580,14 @@ function App() {
               >
                 Body
               </button>
+              {aiConfig.enabled && (
+                <button
+                  className={`detail-tab ${detailTab === "ai" ? "tab-active" : ""}`}
+                  onClick={() => setDetailTab("ai")}
+                >
+                  AI 分析
+                </button>
+              )}
             </div>
             <div className="detail-content">
               {detailTab === "general" && (
@@ -571,6 +648,31 @@ function App() {
                       {selectedRequest.response_body || "(no body)"}
                     </pre>
                   </div>
+                </div>
+              )}
+              {detailTab === "ai" && (
+                <div className="detail-ai">
+                  <p className="ai-intro">基于调用链上下文，让 AI 分析请求意图、依赖关系和异常。</p>
+                  {!aiConfig.enabled ? (
+                    <p className="ai-hint">⚠️ 请先在设置中启用 AI 链路分析并填写 API Key</p>
+                  ) : !aiConfig.apiKey ? (
+                    <p className="ai-hint">⚠️ 请先填写 API Key</p>
+                  ) : !aiAnalysis && !aiLoading ? (
+                    <button className="btn btn-enable" onClick={analyzeChain} style={{ marginTop: '8px' }}>
+                      🔍 开始 AI 分析
+                    </button>
+                  ) : aiLoading ? (
+                    <div className="ai-loading">
+                      <span className="ai-spinner">⏳</span> AI 分析中...
+                    </div>
+                  ) : (
+                    <div className="ai-result">
+                      <pre className="detail-pre">{aiAnalysis}</pre>
+                      <button className="btn btn-clear" onClick={() => setAiAnalysis('')} style={{ marginTop: '8px', fontSize: '12px' }}>
+                        重新分析
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -799,6 +901,65 @@ function App() {
                     <CertQRCode url={certServerUrl + '/ca.crt'} />
                   </div>
                 )}
+              </div>
+
+              <div className="settings-section">
+                <h4>🤖 AI 配置</h4>
+                <div className="settings-row">
+                  <span>Provider</span>
+                  <select
+                    value={aiConfig.provider}
+                    onChange={e => setAiConfig(c => ({ ...c, provider: e.target.value }))}
+                    style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd' }}
+                  >
+                    <option value="minimax">MiniMax</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude</option>
+                  </select>
+                </div>
+                <div className="settings-row">
+                  <span>API Key</span>
+                  <input
+                    type="password"
+                    value={aiConfig.apiKey}
+                    onChange={e => setAiConfig(c => ({ ...c, apiKey: e.target.value }))}
+                    placeholder="sk-..."
+                    style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd', width: '180px' }}
+                  />
+                </div>
+                <div className="settings-row">
+                  <span>Model</span>
+                  <input
+                    type="text"
+                    value={aiConfig.model}
+                    onChange={e => setAiConfig(c => ({ ...c, model: e.target.value }))}
+                    placeholder="MiniMax-Text-01"
+                    style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #ddd', width: '180px' }}
+                  />
+                </div>
+                <div className="settings-row">
+                  <span>启用链路分析</span>
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={aiConfig.enabled}
+                      onChange={e => setAiConfig(c => ({ ...c, enabled: e.target.checked }))}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h4>📖 使用说明</h4>
+                <ol className="ca-steps">
+                  <li>手机配置代理：设置 → WiFi → 代理 → PC 的 IP:8080</li>
+                  <li>安装 CA 证书：Settings → CA证书 → 扫码下载 → 安装并信任</li>
+                  <li>透明代理（可选）：pf 规则将手机所有流量重定向到 ProxyBot</li>
+                  <li>查看流量：HTTP / WSS / DNS 三个 Tab 切换查看</li>
+                  <li>AI 链路分析：点请求详情 → AI tab，了解调用链意图</li>
+                  <li>复制 cURL / 重放：每行右侧操作按钮</li>
+                </ol>
               </div>
 
               <div className="settings-section">
