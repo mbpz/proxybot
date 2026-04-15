@@ -1,82 +1,157 @@
 # Architect Brief — ProxyBot
 
-## Step 9 — 导出 HAR 文件 ✅ (完成)
+## Step 10 — CA 安装指引 UI ✅ (完成)
 
 ---
 
-## Step 10 — CA 安装指引 UI
+## Step 11 — 持久化历史
 
-目标：在 Setup 面板内直接展示 iOS/Android 的 CA 证书安装步骤，用户不需要离开 App 就能完成安装配置。
+目标：请求记录保存到本地文件，重启 App 后历史记录仍在。
 
-### UI 实现
+### 方案选择
 
-**Setup 面板新增「证书安装指引」区域**
+直接用 `serde_json` 读写 JSON 文件，不引入额外数据库依赖。
 
-分为两个 Tab：**iOS** 和 **Android**
+### 存储位置
 
-**iOS 步骤：**
-1. 点击「下载 CA 证书」按钮 → 调用 `get_ca_cert_path()` 获取路径
-2. 用 `tauri-plugin-opener` 或 `open` 命令在浏览器打开 `~/.proxybot/ca.crt`
-3. 或者直接显示：`safari://open?url=http://{PC_IP}:8080/ca.crt`
-4. iOS Safari 会提示「此网站下载一个配置描述文件」
-5. 用户依次：设置 → 通用 → VPN与设备管理 → 安装描述文件 → 通用 → 关于本机 → 证书信任设置 → 开启完全信任
+`~/.proxybot/history.json`
 
-**Android 步骤：**
-1. 点击「下载 CA 证书」
-2. 打开下载的 `ca.crt` 文件 → Android 提示输入锁屏密码 → 安装成功
-3. Android 7+：部分 App 不信任用户 CA（安全限制），需额外开启「安装未知应用」或使用 ADB
-
-**UI 设计：**
-
-```tsx
-<div className="ca-guide">
-  <div className="ca-guide-tabs">
-    <button className={activeTab === 'ios' ? 'active' : ''} onClick={() => setActiveTab('ios')}>iOS</button>
-    <button className={activeTab === 'android' ? 'active' : ''} onClick={() => setActiveTab('android')}>Android</button>
-  </div>
-
-  {activeTab === 'ios' && (
-    <ol className="ca-steps">
-      <li>点击「下载 CA 证书」，Safari 会打开证书页面</li>
-      <li>Safari 提示「此网站下载一个配置描述文件」→ 允许</li>
-      <li>打开「设置」→「通用」→「VPN与设备管理」→ 找到 ProxyBot CA</li>
-      <li>点击「安装」→ 输入锁屏密码 → 完成后在「关于本机」→「证书信任设置」开启完全信任</li>
-    </ol>
-  )}
-
-  {activeTab === 'android' && (
-    <ol className="ca-steps">
-      <li>点击「下载 CA 证书」，下载完成后打开文件</li>
-      <li>提示「为VPN和应用配置CA」→ 确认安装 → 输入锁屏密码</li>
-      <li>部分Android 7+ App默认不信任用户CA，需在「设置」→「安全」→「凭证」→「从存储设备安装」</li>
-    </ol>
-  )}
-
-  <button className="btn-download-ca" onClick={downloadCa}>
-    📥 下载 CA 证书
-  </button>
-</div>
+格式：
+```json
+{
+  "version": 1,
+  "last_updated": "2026-04-15T10:23:00Z",
+  "requests": [
+    {
+      "id": "req_001",
+      "timestamp": "2026-04-15T10:23:00.123Z",
+      "method": "GET",
+      "host": "httpbin.org",
+      "path": "/get",
+      "status": 200,
+      "latency_ms": 1281,
+      "app_name": null,
+      "app_icon": null,
+      "request_headers": "...",
+      "response_headers": "...",
+      "response_body": "...",
+      "request_body": null
+    }
+  ]
+}
 ```
 
-**下载 CA 功能：**
+### Rust 实现
+
+**1. 新文件 `src-tauri/src/history.rs`**
+
+```rust
+use std::fs::{File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::PathBuf;
+
+const HISTORY_FILE: &str = "history.json";
+const MAX_STORED: usize = 1000;  // 最多保留 1000 条
+
+pub struct HistoryStore {
+    path: PathBuf,
+}
+
+impl HistoryStore {
+    pub fn new() -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".proxybot");
+        std::fs::create_dir_all(&dir).ok();
+        Self { path: dir.join(HISTORY_FILE) }
+    }
+
+    pub fn load(&self) -> Vec<InterceptedRequest> {
+        let file = File::open(&self.path).ok()?;
+        let reader = BufReader::new(file);
+        let data: serde_json::Value = serde_json::from_reader(reader).ok()?;
+        data.get("requests")?.as_array()?
+            .iter()
+            .filter_map(|v| serde_json::from_value(v.clone()).ok())
+            .collect()
+    }
+
+    pub fn save(&self, requests: &[InterceptedRequest]) -> Result<(), String> {
+        let data = serde_json::json!({
+            "version": 1,
+            "last_updated": chrono_now(),
+            "requests": &requests[..requests.len().min(MAX_STORED)]
+        });
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&self.path)
+            .map_err(|e| e.to_string())?;
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer(&mut writer, &data).map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())
+    }
+}
+```
+
+**2. Tauri Command**
+
+```rust
+#[tauri::command]
+pub fn load_history() -> Vec<InterceptedRequest> {
+    HistoryStore::new().load()
+}
+
+#[tauri::command]
+pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
+    HistoryStore::new().save(&requests)
+}
+```
+
+**3. 自动保存**
+
+- 每次新请求到来时（emit event 前）：异步保存到文件
+- 关闭 App 时（tauri window `on_window_event`）：同步保存
+- 最多保留 1000 条，超出截断旧记录
+
+### UI 修改
+
+**1. 启动时加载**
 
 ```tsx
-const downloadCa = async () => {
-  const path = await invoke<string>("get_ca_cert_path");
-  // Use tauri-plugin-opener to open the file, or open in browser
-  await invoke("plugin:opener|open", { path: `file://${path}` });
+useEffect(() => {
+  invoke<Vec<InterceptedRequest>>("load_history").then(hist => {
+    if (hist.length > 0) setRequests(hist);
+  });
+}, []);
+```
+
+**2. 新增按钮**
+
+过滤栏旁加「保存历史」+「清空历史」按钮：
+```tsx
+<button onClick={saveHistory}>💾 保存</button>
+<button onClick={clearHistory}>🗑️ 清空</button>
+```
+
+**3. 清空历史**
+
+```tsx
+const clearHistory = async () => {
+  if (!confirm("确定清空所有历史记录？")) return;
+  await invoke("save_history", { requests: [] });
+  setRequests([]);
 };
 ```
 
 ### 不做
 
-- 扫码安装（二维码生成较复杂）
-- 自动安装（iOS/Android 都不支持静默安装）
-- Android ADB 辅助安装
+- 分页加载（1000 条以内全量加载）
+- 按时间/App 过滤历史
+- 历史记录搜索
 
 ### 验收标准
 
-1. iOS Tab 下显示完整 4 步安装流程
-2. Android Tab 下显示完整安装流程
-3. 「下载 CA 证书」按钮点击后可打开/下载证书文件
-4. 证书路径从 `get_ca_cert_path()` 获取
+1. 重启 App → 历史请求记录自动恢复
+2. 点「💾 保存」→ 手动触发一次保存
+3. 点「🗑️ 清空」→ 确认弹框 → 清空所有记录，文件同步清空

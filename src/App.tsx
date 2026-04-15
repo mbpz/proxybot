@@ -87,6 +87,13 @@ function App() {
       .then(setDnsQueries)
       .catch((e) => console.error("Failed to get DNS log:", e));
 
+    // Load history on mount
+    invoke<InterceptedRequest[]>("load_history")
+      .then((hist) => {
+        if (hist.length > 0) setRequests(hist);
+      })
+      .catch((e) => console.error("Failed to load history:", e));
+
     return () => {
       unlisten.then((fn) => fn());
       unlistenDns.then((fn) => fn());
@@ -181,6 +188,24 @@ function App() {
       a.download = `proxybot-${new Date().toISOString().slice(0, 10)}.har`;
       a.click();
       URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const saveHistory = async () => {
+    try {
+      await invoke("save_history", { requests });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const clearHistory = async () => {
+    if (!confirm("确定清空所有历史记录？")) return;
+    try {
+      await invoke("save_history", { requests: [] });
+      setRequests([]);
     } catch (e) {
       setError(String(e));
     }
@@ -362,6 +387,12 @@ function App() {
         <div className="filter-bar">
           <button className="btn-export" onClick={exportHar}>
             Export HAR
+          </button>
+          <button className="btn-save" onClick={saveHistory}>
+            💾 保存
+          </button>
+          <button className="btn-clear-history" onClick={clearHistory}>
+            🗑️ 清空
           </button>
           <input
             type="text"

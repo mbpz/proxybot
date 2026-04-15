@@ -1518,3 +1518,13 @@ pub fn export_har(requests: Vec<InterceptedRequest>) -> Result<String, String> {
     let har_log = crate::har::build_har(requests);
     serde_json::to_string_pretty(&har_log).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn load_history() -> Vec<InterceptedRequest> {
+    crate::history::HistoryStore::new().load()
+}
+
+#[tauri::command]
+pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
+    crate::history::HistoryStore::new().save(&requests)
+}

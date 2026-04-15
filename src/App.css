@@ -511,6 +511,31 @@
   background: #0077ed;
 }
 
+.btn-save,
+.btn-clear-history {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  background: white;
+  color: #515154;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-save:hover {
+  background: #f0f0f0;
+  border-color: #d5d5d5;
+}
+
+.btn-clear-history:hover {
+  background: #fff0f0;
+  border-color: #ffb3b3;
+  color: #ff3b30;
+}
+
 .no-requests {
   color: #86868b;
   padding: 40px;
