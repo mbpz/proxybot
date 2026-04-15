@@ -66,6 +66,7 @@ function App() {
   const [keepRunning, setKeepRunning] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [mainTab, setMainTab] = useState<'http' | 'wss' | 'dns'>('http');
+  const [certServerUrl, setCertServerUrl] = useState('');
 
   const toggleTheme = () => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
@@ -305,9 +306,15 @@ function App() {
 
   const downloadCaCert = async () => {
     try {
-      const path = await invoke<string>("get_ca_cert_path");
-      const { openPath } = await import('@tauri-apps/plugin-opener');
-      await openPath(path);
+      const certPath = await invoke<string>("get_ca_cert_path");
+      const netInfo = await invoke<{ lan_ip: string }>("get_network_info");
+      const url: string = await invoke<string>("start_cert_server", {
+        certPath,
+        localIp: netInfo.lan_ip,
+      });
+      setCertServerUrl(url);
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
     } catch (e) {
       setError(String(e));
     }
@@ -765,21 +772,33 @@ function App() {
                 </div>
                 {caGuideTab === "ios" ? (
                   <ol className="ca-steps">
-                    <li>Tap "Download CA Certificate" to open in Safari</li>
+                    <li>Tap "Start Cert Server" below</li>
+                    <li>Scan the QR code with Safari on your iPhone</li>
                     <li>iOS prompts "A profile was downloaded" — tap Allow</li>
                     <li>Settings → General → VPN and Device Management → Install</li>
                     <li>Settings → General → About → Certificate Trust Settings → Enable ProxyBot CA</li>
                   </ol>
                 ) : (
                   <ol className="ca-steps">
-                    <li>Download CA Certificate and open the downloaded <code>ca.crt</code></li>
+                    <li>Tap "Start Cert Server" below</li>
+                    <li>Scan the QR code with your Android browser</li>
+                    <li>Download and open the <code>ProxyBot_CA.crt</code> file</li>
                     <li>Enter lock screen PIN when prompted</li>
                     <li>For Android 7+: May need ADB or "Install unknown apps" for browser</li>
                   </ol>
                 )}
-                <button className="btn-download-ca" onClick={downloadCaCert}>
-                  Download CA Certificate
-                </button>
+                {!certServerUrl ? (
+                  <button className="btn-download-ca" onClick={downloadCaCert}>
+                    Start Cert Server
+                  </button>
+                ) : (
+                  <div className="cert-server-info">
+                    <p className="cert-url">
+                      <strong>Download:</strong> <a href={certServerUrl} target="_blank" rel="noreferrer">{certServerUrl}/ca.crt</a>
+                    </p>
+                    <CertQRCode url={certServerUrl + '/ca.crt'} />
+                  </div>
+                )}
               </div>
 
               <div className="settings-section">
@@ -807,7 +826,24 @@ function App() {
           </div>
         </div>
       )}
-    </main>
+</main>
+  );
+}
+
+function CertQRCode({ url }: { url: string }) {
+  const [qr, setQr] = useState('');
+
+  useEffect(() => {
+    import('qrcode').then(({ toDataURL }) => {
+      toDataURL(url, { width: 200, margin: 2 }).then(setQr).catch(console.error);
+    }).catch(console.error);
+  }, [url]);
+
+  if (!qr) return <p className="cert-url">Generating QR code...</p>;
+  return (
+    <div className="cert-qr">
+      <img src={qr} alt="CA Certificate QR Code" />
+    </div>
   );
 }
 

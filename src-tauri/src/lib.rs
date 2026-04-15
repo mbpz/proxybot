@@ -5,6 +5,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 
 mod app_rules;
 mod cert;
+mod cert_server;
 mod dns;
 mod har;
 mod history;
@@ -91,6 +92,7 @@ pub fn run() {
             proxy::hide_window,
             proxy::replay_request,
             dns::get_dns_log,
+            cert_server::start_cert_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
