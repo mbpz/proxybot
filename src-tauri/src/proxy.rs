@@ -23,6 +23,10 @@ use rustls::{
 };
 use libc;
 use std::fs::OpenOptions;
+use sha1::Digest;
+use base64::Engine;
+use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+use futures_util::{SinkExt, StreamExt};
 
 const PROXY_PORT: u16 = 8080;
 
@@ -42,10 +46,69 @@ pub struct InterceptedRequest {
     pub app_icon: Option<String>,
 }
 
+#[derive(Clone, serde::Serialize)]
+pub struct WssMessage {
+    pub id: String,
+    pub timestamp: String,
+    pub host: String,
+    pub direction: String,
+    pub size: usize,
+    pub content: String,
+    pub app_name: Option<String>,
+    pub app_icon: Option<String>,
+}
+
 struct ProxyContext {
     app_handle: AppHandle,
     #[allow(dead_code)]
     cert_manager: Arc<CertManager>,
+}
+
+/// Check if an HTTP request is a WebSocket upgrade request.
+/// Returns (Sec-WebSocket-Key, Sec-WebSocket-Protocol) if it is.
+fn is_websocket_upgrade(request_data: &[u8]) -> Option<(String, Option<String>)> {
+    // Look for "Upgrade: websocket" and "Connection: Upgrade" headers
+    let data_str = String::from_utf8_lossy(request_data);
+
+    let has_upgrade = data_str.lines()
+        .any(|line| line.eq_ignore_ascii_case("Upgrade: websocket"));
+
+    let has_connection = data_str.lines()
+        .any(|line| line.eq_ignore_ascii_case("Connection: Upgrade"));
+
+    if has_upgrade && has_connection {
+        let mut ws_key = None;
+        let mut ws_protocol = None;
+        for line in data_str.lines() {
+            if line.starts_with("Sec-WebSocket-Key:") {
+                let key = line.trim_start_matches("Sec-WebSocket-Key:").trim();
+                ws_key = Some(key.to_string());
+            }
+            if line.starts_with("Sec-WebSocket-Protocol:") {
+                let proto = line.trim_start_matches("Sec-WebSocket-Protocol:").trim();
+                ws_protocol = Some(proto.to_string());
+            }
+        }
+        if let Some(key) = ws_key {
+            return Some((key, ws_protocol));
+        }
+    }
+    None
+}
+
+/// Compute the Sec-WebSocket-Accept key from the client's key.
+/// RFC 6455: base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+fn compute_ws_accept_key(client_key: &str) -> String {
+    const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    let combined = format!("{}{}", client_key, GUID);
+    let mut hasher = sha1::Sha1::new();
+    hasher.update(combined.as_bytes());
+    let result = hasher.finalize();
+    base64_encode(&result)
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(data)
 }
 
 fn timestamp_now() -> String {
@@ -325,10 +388,217 @@ async fn pipe_tcp_bidirectional(
     }
 }
 
-/// Handle HTTPS CONNECT tunnel with TLS termination on both sides.
+/// Relay WebSocket frames bidirectionally between browser and server.
+/// Emits intercepted-wss events for each Text/Binary frame.
+async fn handle_websocket_relay(
+    ctx: ProxyContext,
+    client_stream: tokio_rustls::server::TlsStream<TcpStream>,
+    upstream_stream: tokio_rustls::client::TlsStream<TcpStream>,
+    target_host: String,
+) {
+    let app_info = app_rules::classify_host(&target_host);
+    let (app_name, app_icon) = app_info
+        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .unwrap_or((None, None));
+
+    let target_host_clone = target_host.clone();
+    let app_name_clone = app_name.clone();
+    let app_icon_clone = app_icon.clone();
+    let app_handle_clone = ctx.app_handle.clone();
+    let target_host_for_log = target_host.clone();
+
+    // Create WebSocket streams
+    use tokio_tungstenite::tungstenite::protocol::Role;
+    let browser_ws = WebSocketStream::from_raw_socket(client_stream, Role::Server, None).await;
+    let server_ws = WebSocketStream::from_raw_socket(upstream_stream, Role::Client, None).await;
+
+    let request_id_prefix = generate_request_id();
+    let request_id_prefix_clone = request_id_prefix.clone();
+
+    // Channels for relaying frames between browser and server
+    // browser_to_server: browser_ws sends TO server_ws
+    // server_to_browser: server_ws sends TO browser_ws
+    let (browser_to_server_tx, mut browser_to_server_rx) = tokio::sync::mpsc::channel::<Message>(100);
+    let (server_to_browser_tx, mut server_to_browser_rx) = tokio::sync::mpsc::channel::<Message>(100);
+
+    // Spawn browser -> server relay task
+    let browser_ws_handle = tokio::spawn(async move {
+        let mut ws = browser_ws;
+        let mut msg_id = 0;
+
+        loop {
+            tokio::select! {
+                // Read from browser WebSocket
+                msg_result = ws.next() => {
+                    match msg_result {
+                        Some(Ok(msg)) => {
+                            let forward_msg = match &msg {
+                                Message::Text(_) | Message::Binary(_) => true,
+                                Message::Close(_) => {
+                                    // Forward close to server via channel, then close locally
+                                    let _ = browser_to_server_tx.send(Message::Close(None)).await;
+                                    if let Err(e) = ws.send(Message::Close(None)).await {
+                                        log::error!("Failed to send Close to browser: {}", e);
+                                    }
+                                    break;
+                                }
+                                Message::Ping(data) => {
+                                    // Respond to ping directly to browser
+                                    if let Err(e) = ws.send(Message::Pong(data.clone())).await {
+                                        log::error!("Failed to send Pong to browser: {}", e);
+                                    }
+                                    false
+                                }
+                                Message::Pong(_) | Message::Frame(_) => false,
+                            };
+
+                            if forward_msg {
+                                // Emit intercepted event
+                                let content = match &msg {
+                                    Message::Text(s) => s.to_string(),
+                                    Message::Binary(b) => format!("[Binary {} bytes]", b.len()),
+                                    _ => String::new(),
+                                };
+
+                                let size = msg.len();
+                                let wss_msg = WssMessage {
+                                    id: format!("{}-ws-{}", request_id_prefix, msg_id),
+                                    timestamp: timestamp_now(),
+                                    host: target_host_clone.clone(),
+                                    direction: "up".to_string(),
+                                    size,
+                                    content,
+                                    app_name: app_name_clone.clone(),
+                                    app_icon: app_icon_clone.clone(),
+                                };
+                                let _ = app_handle_clone.emit("intercepted-wss", &wss_msg);
+
+                                // Forward to server via channel
+                                if browser_to_server_tx.send(msg).await.is_err() {
+                                    break;
+                                }
+                                msg_id += 1;
+                            }
+                        }
+                        Some(Err(e)) => {
+                            log::error!("WebSocket read error from browser: {}", e);
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+                // Receive from server -> browser channel and forward to browser WS
+                msg = server_to_browser_rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            if let Err(e) = ws.send(msg).await {
+                                log::error!("WebSocket send error to browser: {}", e);
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+    });
+
+    // Spawn server -> browser relay task
+    let server_ws_handle = tokio::spawn(async move {
+        let mut ws = server_ws;
+        let mut msg_id = 0;
+        let request_id = request_id_prefix_clone;
+        let target = target_host.clone();
+        let app_name = app_name.clone();
+        let app_icon = app_icon.clone();
+        let app_handle = ctx.app_handle.clone();
+
+        loop {
+            tokio::select! {
+                // Read from server WebSocket
+                msg_result = ws.next() => {
+                    match msg_result {
+                        Some(Ok(msg)) => {
+                            let forward_msg = match &msg {
+                                Message::Text(_) | Message::Binary(_) => true,
+                                Message::Close(_) => {
+                                    // Forward close to browser via channel, then close locally
+                                    let _ = server_to_browser_tx.send(Message::Close(None)).await;
+                                    if let Err(e) = ws.send(Message::Close(None)).await {
+                                        log::error!("Failed to send Close to server: {}", e);
+                                    }
+                                    break;
+                                }
+                                Message::Ping(data) => {
+                                    // Respond to ping directly to server
+                                    if let Err(e) = ws.send(Message::Pong(data.clone())).await {
+                                        log::error!("Failed to send Pong to server: {}", e);
+                                    }
+                                    false
+                                }
+                                Message::Pong(_) | Message::Frame(_) => false,
+                            };
+
+                            if forward_msg {
+                                // Emit intercepted event
+                                let content = match &msg {
+                                    Message::Text(s) => s.to_string(),
+                                    Message::Binary(b) => format!("[Binary {} bytes]", b.len()),
+                                    _ => String::new(),
+                                };
+
+                                let size = msg.len();
+                                let wss_msg = WssMessage {
+                                    id: format!("{}-ws-{}", request_id, msg_id),
+                                    timestamp: timestamp_now(),
+                                    host: target.clone(),
+                                    direction: "down".to_string(),
+                                    size,
+                                    content,
+                                    app_name: app_name.clone(),
+                                    app_icon: app_icon.clone(),
+                                };
+                                let _ = app_handle.emit("intercepted-wss", &wss_msg);
+
+                                // Forward to browser via channel
+                                if server_to_browser_tx.send(msg).await.is_err() {
+                                    break;
+                                }
+                                msg_id += 1;
+                            }
+                        }
+                        Some(Err(e)) => {
+                            log::error!("WebSocket read error from server: {}", e);
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+                // Receive from browser -> server channel and forward to server WS
+                msg = browser_to_server_rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            if let Err(e) = ws.send(msg).await {
+                                log::error!("WebSocket send error to server: {}", e);
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+    });
+
+    // Wait for both relay tasks to complete
+    let _ = tokio::join!(browser_ws_handle, server_ws_handle);
+
+    log::info!("WebSocket relay completed for {}", target_host_for_log);
+}
+
 async fn handle_https_connect(
     ctx: ProxyContext,
-    mut client_stream: TcpStream,
+    client_stream: TcpStream,
     client_addr: SocketAddr,
     target_host: String,
     target_port: u16,
@@ -337,15 +607,6 @@ async fn handle_https_connect(
     log::info!("HTTPS CONNECT tunnel to {} from {}", target_addr, client_addr);
 
     let start = std::time::Instant::now();
-
-    // Send HTTP 200 Connection Established to browser
-    if let Err(e) = client_stream
-        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-        .await
-    {
-        log::error!("Failed to send 200 response to browser {}: {}", client_addr, e);
-        return;
-    }
 
     // Generate certificate for the target host signed by our CA
     let (cert_pem, key_pem) = match ctx.cert_manager.generate_host_cert(&target_host) {
@@ -404,8 +665,8 @@ async fn handle_https_connect(
 
     let tls_acceptor = TlsAcceptor::from(Arc::new(server_config));
 
-    // Accept TLS from browser
-    let client_tls_stream = match tls_acceptor.accept(client_stream).await {
+    // Accept TLS from browser (browser sends TLS ClientHello after CONNECT for explicit proxy)
+    let mut client_tls_stream = match tls_acceptor.accept(client_stream).await {
         Ok(stream) => stream,
         Err(e) => {
             log::error!("TLS accept failed for browser {}: {}", client_addr, e);
@@ -414,6 +675,16 @@ async fn handle_https_connect(
     };
 
     log::debug!("TLS handshake completed with browser {}", client_addr);
+
+    // Send HTTP 200 Connection Established over TLS to browser
+    // This tells the browser the tunnel is ready
+    if let Err(e) = client_tls_stream
+        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        .await
+    {
+        log::error!("Failed to send 200 response to browser {}: {}", client_addr, e);
+        return;
+    }
 
     // Build client TLS config for connecting to upstream
     let client_config = match build_client_config(&ctx.cert_manager) {
@@ -446,7 +717,7 @@ async fn handle_https_connect(
     };
 
     let connector = TlsConnector::from(Arc::new(client_config));
-    let upstream_tls_stream = match connector.connect(server_name, upstream_tcp).await {
+    let mut upstream_tls_stream = match connector.connect(server_name, upstream_tcp).await {
         Ok(stream) => stream,
         Err(e) => {
             log::error!("TLS connect to upstream {} failed: {}", upstream_addr, e);
@@ -456,14 +727,187 @@ async fn handle_https_connect(
 
     log::debug!("TLS handshake completed with upstream {}", upstream_addr);
 
+    // Read the HTTP request from browser to check for WebSocket upgrade
+    let mut http_buf = vec![0u8; 16384];
+    let http_n = match client_tls_stream.read(&mut http_buf).await {
+        Ok(n) => n,
+        Err(e) => {
+            log::error!("Read HTTP request from browser TLS failed: {}", e);
+            return;
+        }
+    };
+
+    if http_n == 0 {
+        log::warn!("Browser closed connection before sending HTTP request");
+        return;
+    }
+
+    let http_data = http_buf[..http_n].to_vec();
+
+    // Check if this is a WebSocket upgrade request
+    if let Some((ws_key, ws_protocol)) = is_websocket_upgrade(&http_data) {
+        log::info!("WebSocket upgrade detected for {} from {}", target_addr, client_addr);
+
+        // Forward the HTTP upgrade request to upstream server
+        if let Err(e) = upstream_tls_stream.write_all(&http_data).await {
+            log::error!("Failed to forward upgrade request to upstream {}: {}", upstream_addr, e);
+            return;
+        }
+
+        // Read the HTTP response from upstream (including 101 or error)
+        let mut upstream_buf = vec![0u8; 16384];
+        let upstream_n = match upstream_tls_stream.read(&mut upstream_buf).await {
+            Ok(n) => n,
+            Err(e) => {
+                log::error!("Failed to read upgrade response from upstream {}: {}", upstream_addr, e);
+                return;
+            }
+        };
+
+        if upstream_n == 0 {
+            log::error!("Upstream closed connection during upgrade for {}", upstream_addr);
+            return;
+        }
+
+        let upstream_response = upstream_buf[..upstream_n].to_vec();
+
+        // Check if upstream returned 101 Switching Protocols
+        let response_str = String::from_utf8_lossy(&upstream_response);
+        let is_101 = response_str.starts_with("HTTP/1.1 101") || response_str.starts_with("HTTP/1.0 101");
+
+        if !is_101 {
+            // Upstream did not accept WebSocket upgrade - fall back to blind relay
+            log::warn!("Upstream {} did not accept WebSocket upgrade, falling back to relay", upstream_addr);
+
+            // Forward the non-101 response to browser
+            if let Err(e) = client_tls_stream.write_all(&upstream_response).await {
+                log::error!("Failed to forward non-101 to browser: {}", e);
+                return;
+            }
+
+            // Do blind relay - pipe data bidirectionally
+            let mut client_tls_stream = client_tls_stream;
+            let mut upstream_tls_stream = upstream_tls_stream;
+
+            let (mut client_read, mut client_write) = tokio::io::split(&mut client_tls_stream);
+            let (mut upstream_read, mut upstream_write) = tokio::io::split(&mut upstream_tls_stream);
+
+            let mut client_buf = vec![0u8; 16384];
+            let mut upstream_buf = vec![0u8; 16384];
+
+            // First send the browser's HTTP request to upstream (already read in http_data)
+            if let Err(e) = upstream_write.write_all(&http_data).await {
+                log::error!("Write to upstream failed: {}", e);
+                return;
+            }
+
+            // We've already read upstream's response into upstream_response, send it first
+            if !upstream_response.is_empty() {
+                if let Err(e) = client_write.write_all(&upstream_response).await {
+                    log::error!("Write to client failed: {}", e);
+                    return;
+                }
+            }
+
+            loop {
+                tokio::select! {
+                    n = client_read.read(&mut client_buf) => {
+                        let n = match n {
+                            Ok(n) => n,
+                            Err(e) => {
+                                log::error!("Read from client TLS failed: {}", e);
+                                break;
+                            }
+                        };
+                        if n == 0 {
+                            let _ = upstream_write.shutdown().await;
+                            break;
+                        }
+                        if let Err(e) = upstream_write.write_all(&client_buf[..n]).await {
+                            log::error!("Write to upstream failed: {}", e);
+                            break;
+                        }
+                    }
+                    n = upstream_read.read(&mut upstream_buf) => {
+                        let n = match n {
+                            Ok(n) => n,
+                            Err(e) => {
+                                log::error!("Read from upstream TLS failed: {}", e);
+                                break;
+                            }
+                        };
+                        if n == 0 {
+                            break;
+                        }
+                        if let Err(e) = client_write.write_all(&upstream_buf[..n]).await {
+                            log::error!("Write to client failed: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            log::info!("Blind relay completed for {}", target_addr);
+            return;
+        }
+
+        // Extract Sec-WebSocket-Protocol from upstream response if present
+        let upstream_protocol = response_str.lines()
+            .find(|line| line.starts_with("Sec-WebSocket-Protocol:"))
+            .map(|line| line.trim_start_matches("Sec-WebSocket-Protocol:").trim().to_string());
+
+        // Use upstream's protocol if present, otherwise use client's protocol
+        let final_protocol = upstream_protocol.or(ws_protocol);
+
+        // Compute Sec-WebSocket-Accept from client's key
+        let accept_key = compute_ws_accept_key(&ws_key);
+
+        // Build 101 response to send to browser
+        let mut upgrade_response = format!(
+            "HTTP/1.1 101 Switching Protocols\r\n\
+            Upgrade: websocket\r\n\
+            Connection: Upgrade\r\n\
+            Sec-WebSocket-Accept: {}\r\n",
+            accept_key
+        );
+
+        // Include Sec-WebSocket-Protocol if negotiated
+        if let Some(ref proto) = final_protocol {
+            upgrade_response.push_str(&format!("Sec-WebSocket-Protocol: {}\r\n", proto));
+        }
+
+        upgrade_response.push_str("\r\n");
+
+        // Send 101 Switching Protocols response to browser
+        if let Err(e) = client_tls_stream.write_all(upgrade_response.as_bytes()).await {
+            log::error!("Failed to send 101 response to browser {}: {}", client_addr, e);
+            return;
+        }
+
+        // Handle WebSocket relay
+        handle_websocket_relay(ctx, client_tls_stream, upstream_tls_stream, target_host.clone()).await;
+        return;
+    }
+
+    // Not a WebSocket upgrade - do blind relay (regular HTTPS)
+    // Forward the HTTP data to upstream
+    let mut client_tls_stream = client_tls_stream;
+    let mut upstream_tls_stream = upstream_tls_stream;
+
     // Pipe data bidirectionally between the two TLS streams
-    let (mut client_read, mut client_write) = tokio::io::split(client_tls_stream);
-    let (mut upstream_read, mut upstream_write) = tokio::io::split(upstream_tls_stream);
+    let (mut client_read, mut client_write) = tokio::io::split(&mut client_tls_stream);
+    let (mut upstream_read, mut upstream_write) = tokio::io::split(&mut upstream_tls_stream);
 
     let mut client_buf = vec![0u8; 16384];
     let mut upstream_buf = vec![0u8; 16384];
-    let mut request_data = Vec::new();
+    let mut request_data = http_data.clone();
     let mut response_data = Vec::new();
+
+    // First send the already-read HTTP data to upstream
+    if let Err(e) = upstream_write.write_all(&http_data).await {
+        log::error!("Write to upstream failed: {}", e);
+        return;
+    }
 
     loop {
         tokio::select! {
@@ -476,6 +920,7 @@ async fn handle_https_connect(
                     }
                 };
                 if n == 0 {
+                    let _ = upstream_write.shutdown().await;
                     break;
                 }
                 request_data.extend_from_slice(&client_buf[..n]);

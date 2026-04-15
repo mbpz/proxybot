@@ -16,6 +16,17 @@ interface InterceptedRequest {
   app_icon?: string;
 }
 
+interface WssMessage {
+  id: string;
+  timestamp: string;
+  host: string;
+  direction: string;
+  size: number;
+  content: string;
+  app_name?: string;
+  app_icon?: string;
+}
+
 type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
 
 interface NetworkInfo {
@@ -39,6 +50,8 @@ function App() {
   const [pfStatus, setPfStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
+  const [wssMessages, setWssMessages] = useState<WssMessage[]>([]);
+  const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -54,6 +67,10 @@ function App() {
       setDnsQueries((prev) => [event.payload, ...prev].slice(0, 50));
     });
 
+    const unlistenWss = listen<WssMessage>("intercepted-wss", (event) => {
+      setWssMessages((prev) => [event.payload, ...prev].slice(0, 200));
+    });
+
     // Load initial DNS log
     invoke<DnsEntry[]>("get_dns_log")
       .then(setDnsQueries)
@@ -62,6 +79,7 @@ function App() {
     return () => {
       unlisten.then((fn) => fn());
       unlistenDns.then((fn) => fn());
+      unlistenWss.then((fn) => fn());
     };
   }, []);
 
@@ -273,6 +291,61 @@ function App() {
                         {req.status || "-"}
                       </td>
                       <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="wss-messages">
+        <h2>WSS Messages ({wssMessages.length})</h2>
+        <div className="app-tabs">
+          {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
+            <button
+              key={tab}
+              className={`tab-btn ${selectedWssTab === tab ? "tab-active" : ""}`}
+              onClick={() => setSelectedWssTab(tab)}
+            >
+              {tab === "all" ? "All" : tab === "WeChat" ? "WeChat 💬" : tab === "Douyin" ? "Douyin 🎵" : tab === "Alipay" ? "Alipay 💳" : "Unknown"}
+            </button>
+          ))}
+        </div>
+        <div className="wss-messages-list">
+          {wssMessages.length === 0 ? (
+            <p className="no-wss-messages">No WebSocket messages yet. Open WeChat or Douyin on your phone to see WSS traffic.</p>
+          ) : (
+            <table className="wss-table">
+              <thead>
+                <tr>
+                  <th>App</th>
+                  <th>Time</th>
+                  <th>Direction</th>
+                  <th>Host</th>
+                  <th>Size</th>
+                  <th>Content Preview</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wssMessages
+                  .filter((msg) => {
+                    if (selectedWssTab === "all") return true;
+                    if (selectedWssTab === "Unknown") return !msg.app_name;
+                    return msg.app_name === selectedWssTab;
+                  })
+                  .map((msg) => (
+                    <tr key={msg.id}>
+                      <td className="app-cell">
+                        {msg.app_icon ? `${msg.app_icon} ${msg.app_name}` : "-"}
+                      </td>
+                      <td className="time">{formatTimestamp(msg.timestamp)}</td>
+                      <td className={`direction ${msg.direction === "up" ? "direction-up" : "direction-down"}`}>
+                        {msg.direction === "up" ? "↑" : "↓"}
+                      </td>
+                      <td className="host">{msg.host}</td>
+                      <td className="size">{msg.size}</td>
+                      <td className="content-preview">{msg.content.length > 50 ? msg.content.slice(0, 50) + "..." : msg.content}</td>
                     </tr>
                   ))}
               </tbody>

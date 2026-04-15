@@ -1,6 +1,52 @@
 # ProxyBot — Build Log
 
-## Step 3 — 内置 DNS 服务器 🚧
+## Step 5 — WSS (WebSocket over HTTPS) 拦截 ✅ (完成)
+**日期:** 2026-04-15
+**状态:** 构建完成，cargo check 0 errors, npm run build 成功
+
+### 完成内容
+- `proxy.rs`:
+  - `WssMessage` 结构体，字段：id, timestamp, host, direction, size, content, app_name, app_icon
+  - `is_websocket_upgrade()` 函数：解析 HTTP 请求检测 Upgrade: websocket 和 Connection: Upgrade 头
+  - `compute_ws_accept_key()` 函数：RFC 6455 SHA1+base64 计算 Sec-WebSocket-Accept
+  - 修改 `handle_https_connect`：TLS 握手后读取 HTTP 请求检测 WebSocket upgrade
+  - 检测到 WebSocket 时：发送 101 Switching Protocols，使用 `tokio-tungstenite::WebSocketStream::from_raw_socket` 包装 TLS 流
+  - `handle_websocket_relay()` 函数：双向 relay，每条 Text/Binary 帧触发 `intercepted-wss` event
+  - Ping/Pong/Close 帧处理：Ping 回复 Pong 并透传，Close 转发后断开
+- `Cargo.toml` 新增依赖：`tokio-tungstenite = "0.26"`, `tungstenite = "0.22"`, `sha1 = "0.10"`, `futures-util = "0.3"`
+- `App.tsx`:
+  - `WssMessage` 接口
+  - `wssMessages` state，最多 200 条
+  - 监听 `intercepted-wss` event
+  - WSS Tab 界面：Time | Direction | Host | Size | Content Preview
+
+### 依赖变更
+- 新增 `tokio-tungstenite`, `tungstenite`, `sha1`, `futures-util` crates
+- `proxy.rs` 新增 import
+
+### Known Gaps（后续步骤处理）
+- WSS 消息持久化（Step 6）
+- WSS 连接按 Host 分组
+
+### 验收标准
+待验证：手机打开微信（iOS），ProxyBot WSS Tab 出现 WebSocket 消息
+
+---
+
+## Step 4 — App 分类规则库 ✅ (完成)
+**日期:** 2026-04-14
+**状态:** 通过 Richard 二次 review，cargo test 4 passed
+
+### 完成内容
+- `app_rules.rs`：WeChat/Douyin/Alipay 域名规则库，精确匹配 + 子域名边界匹配
+- 防止 `qq.com.evil.com` 等 look-alike 域名攻击
+- 4 个单元测试覆盖正常匹配和误匹配场景
+- `proxy.rs`：HTTPS CONNECT + 透明 HTTP 两条路径都调用 `classify_host()`
+- App.tsx：Tab 过滤（All/WeChat/Douyin/Alipay/Unknown），请求表 App 列
+
+---
+
+## Step 3 — 内置 DNS 服务器 ✅
 **日期:** 2026-04-14
 **状态:** 构建完成，待 Richard review，cargo check 0 错误
 

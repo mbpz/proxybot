@@ -189,3 +189,177 @@ When `app_name` is `undefined`/`null`, `!req.app_name` is `true` — requests wi
 ### Conclusion
 
 **Step 4 is clear.** All five items verified correct. The Must Fix from Pass 1 (subdomain boundary bug) is resolved, tests cover the false positive case, and both frontend and backend handle the "Unknown" app case correctly.
+
+---
+
+## Step 5 Pass 2
+
+**Reviewer:** Richard
+**Date:** 2026-04-15
+
+### All Four Must-Fix Items Verified
+
+#### 1. MITM WebSocket relay — Upgrade request forwarded to upstream
+
+**Lines 751-755:** `upstream_tls_stream.write_all(&http_data).await` forwards the browser's HTTP upgrade request to the upstream server before any response is sent to the browser.
+
+**Flow confirmed:**
+1. Browser sends WebSocket upgrade request to proxy
+2. Proxy forwards upgrade request to upstream (line 752)
+3. Proxy reads 101 response from upstream (lines 758-765)
+4. Proxy sends 101 to browser (lines 881-885)
+5. Proxy starts frame relay (line 888)
+
+Per RFC 6455 MITM proxy behavior. **FIX VERIFIED.**
+
+#### 2. 101 response relay — 101 from upstream, not locally generated
+
+**Lines 774-776:** The code reads the response from upstream into `upstream_response` and checks `response_str.starts_with("HTTP/1.1 101")`.
+
+**Lines 865-879:** The 101 sent to the browser is constructed from:
+- Upstream's `Sec-WebSocket-Protocol` if present (line 860)
+- `Sec-WebSocket-Accept` computed from client's key (line 863) — correct per RFC 6455
+
+The proxy does NOT generate a 101 independently; it is derived from upstream's response. **FIX VERIFIED.**
+
+#### 3. Sec-WebSocket-Protocol — Properly included when negotiated
+
+**Lines 854-860:** Upstream's protocol extracted, fallback to client's protocol:
+```rust
+let upstream_protocol = response_str.lines()
+    .find(|line| line.starts_with("Sec-WebSocket-Protocol:"))
+    .map(|line| line.trim_start_matches("Sec-WebSocket-Protocol:").trim().to_string());
+let final_protocol = upstream_protocol.or(ws_protocol);
+```
+
+**Lines 874-877:** Included in 101 response when present:
+```rust
+if let Some(ref proto) = final_protocol {
+    upgrade_response.push_str(&format!("Sec-WebSocket-Protocol: {}\r\n", proto));
+}
+```
+
+Per RFC 6455 Section 4.1 (server must echo protocol if accepting). **FIX VERIFIED.**
+
+#### 4. base64 crate — Correctly imported and used
+
+**Line 27:** `use base64::Engine;`
+**Line 111:** `base64::engine::general_purpose::STANDARD.encode(data)`
+
+`compute_ws_accept_key` (line 107) calls `base64_encode(&result)`, which uses the standard RFC 4648 alphabet. **FIX VERIFIED.**
+
+---
+
+### Conclusion
+
+**Step 5 is clear.** All four Must-Fix items from Pass 1 are resolved:
+1. Upgrade request forwarded to upstream before 101
+2. 101 relay from upstream to browser
+3. Sec-WebSocket-Protocol negotiated correctly
+4. base64 crate replaces custom encoder
+
+No remaining blockers.
+
+---
+
+## Step 5 Review
+
+**Reviewer:** Richard
+**Date:** 2026-04-15
+**Ready for Builder:** NO
+
+---
+
+### Must Fix
+
+#### 1. `proxy.rs:759-781` — WebSocket upgrade request never forwarded to upstream server
+
+This is a fundamental protocol error that will break WebSocket functionality for WSS connections.
+
+**The bug:**
+
+After TLS handshakes complete (lines 680-740), the proxy reads the HTTP request from the browser (`http_n`, lines 743-756) and checks if it's a WebSocket upgrade (`is_websocket_upgrade`, line 759). If it is, the proxy sends a 101 Switching Protocols response directly to the browser (lines 764-777) and then calls `handle_websocket_relay`.
+
+The problem: the browser's HTTP WebSocket upgrade request is **never forwarded to the upstream server**. The `upstream_tls_stream` is a live TLS connection to the target server, but the proxy never writes the HTTP upgrade request to it. The upstream server has no idea this is supposed to be a WebSocket connection — it just sees an open TLS connection with random bytes (WebSocket frames) arriving.
+
+**Expected RFC 6455 behavior for a MITM proxy:**
+1. Proxy receives WebSocket upgrade request from browser
+2. Proxy forwards the HTTP upgrade request to the upstream server
+3. Proxy receives 101 response from upstream server
+4. Proxy forwards 101 response to browser
+5. Browser and server complete handshake (both now know it's WebSocket)
+6. Proxy relays WebSocket frames bidirectionally
+
+**What the code actually does:**
+1. Proxy receives WebSocket upgrade request from browser
+2. Proxy sends 101 to browser immediately (upstream never contacted)
+3. Proxy starts relaying WebSocket frames
+
+The upstream server sees TLS traffic with WebSocket frames but has not agreed to the WebSocket protocol. This will cause:
+- The server to potentially misinterpret WebSocket frame bytes as application data
+- Server responses that are not proper WebSocket frames
+- Connection failures or silent data corruption
+
+**How to fix:**
+
+After detecting WebSocket upgrade at line 759, instead of immediately sending 101 to the browser, the proxy must:
+1. Write the HTTP upgrade request (stored in `http_data`) to `upstream_tls_stream`
+2. Read the HTTP response from `upstream_tls_stream`
+3. Check if it's a 101 response
+4. If yes, send 101 to browser and start frame relay
+5. If no, fall back to the blind relay path
+
+The upstream connection currently uses `tokio_rustls::client::TlsStream` which is a raw TLS stream. The proxy needs to perform the HTTP upgrade handshake with the upstream server before completing the handshake with the browser.
+
+---
+
+### Should Fix
+
+#### 2. `proxy.rs:764-771` — 101 response omits `Sec-WebSocket-Protocol` header when offered by client
+
+RFC 6455 Section 4.1 requires that if the client includes `Sec-WebSocket-Protocol` in its request and the server wishes to accept it, the server MUST include the same protocol token in its 101 response.
+
+The current 101 response (lines 764-771) only includes `Upgrade`, `Connection`, and `Sec-WebSocket-Accept`. If a client sends `Sec-WebSocket-Protocol: chat`, the response should be:
+
+```
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: <accept>
+Sec-WebSocket-Protocol: chat
+
+```
+
+**Impact:** Some WebSocket clients or servers may fail or behave unexpectedly if protocol negotiation is not completed correctly. This is a compliance issue but may not block basic WSS functionality.
+
+#### 3. `proxy.rs:100-123` — Custom base64 implementation
+
+The `base64_encode` function is a hand-rolled implementation. While the RFC 6455 formula itself appears correct (SHA1 of key + magic GUID, base64 encoded), the custom base64 encoder has not been verified against the standard alphabet (RFC 4648).
+
+**Recommendation:** Use the `base64` crate from crates.io instead of a custom implementation. This eliminates the risk of encoding bugs that could cause handshake failures.
+
+---
+
+### Cleared
+
+1. **`is_websocket_upgrade()` (lines 67-87)** — Correctly detects WebSocket upgrade by checking for `Upgrade: websocket` and `Connection: Upgrade` headers using case-insensitive comparison. Correctly extracts `Sec-WebSocket-Key`. No issues found.
+
+2. **`compute_ws_accept_key()` (lines 91-98)** — RFC 6455 formula is correct: `base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))`. The magic GUID string is exactly as specified in RFC 6455. No issues found.
+
+3. **`handle_websocket_relay()` frame handling** — Ping frames correctly cause Pong response directly to sender rather than being relayed (lines 456-462, 543-549). Close frames are relayed to peer and then the local connection is closed (lines 448-455, 535-542). Text and Binary frames are emitted as `intercepted-wss` events and relayed. This is correct per RFC 6455.
+
+4. **tokio-tungstenite integration** — `WebSocketStream::from_raw_socket` is called with correct `Role::Server` for browser stream and `Role::Client` for upstream stream (lines 422-424). The bidirectional relay using `tokio::select!` with mpsc channels (lines 430-605) is a valid approach for concurrent bidirectional relay.
+
+5. **WssMessage event emission** — `intercepted-wss` event is emitted with all required fields: `id`, `timestamp`, `host`, `direction` ("up"/"down"), `size`, `content`, `app_name`, `app_icon` (lines 475-485, 562-572). App classification via `app_rules::classify_host(&target_host)` is correctly applied at the start of the relay.
+
+6. **App.tsx WSS tab** — WSS messages are correctly stored in a separate state (`wssMessages`, max 200), displayed in a separate tab section, filtered by app tabs (All/WeChat/Douyin/Alipay/Unknown), with direction shown as arrow (up/down) and content preview truncated to 50 characters. The tab is separated from HTTP requests. No issues found.
+
+7. **`WssMessage` Rust struct (lines 49-58) and TypeScript interface (App.tsx lines 19-28)** — Both match exactly with the same field names and types (with Rust `Option<String>` becoming TypeScript `?:`). No issues found.
+
+8. **Upstream TLS handshake (lines 701-737)** — Client TLS config correctly uses `NoVerification` for MITM mode. SNI is correctly set via `Box::leak`. TLS connection to upstream is established before WebSocket upgrade is checked. This portion is correct.
+
+---
+
+### Conclusion
+
+**Step 5 is NOT clear.** The WebSocket upgrade request is not forwarded to the upstream server, causing a protocol error. The proxy sends a 101 response to the browser without contacting the upstream server about the upgrade. This will cause WSS connections to fail or malfunction. This must be fixed before the step passes.
