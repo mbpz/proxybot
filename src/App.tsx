@@ -58,6 +58,7 @@ function App() {
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
   const [detailTab, setDetailTab] = useState<"general" | "headers" | "body">("general");
+  const [caGuideTab, setCaGuideTab] = useState<"ios" | "android">("ios");
   const [searchQuery, setSearchQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -185,6 +186,16 @@ function App() {
     }
   };
 
+  const downloadCaCert = async () => {
+    try {
+      const path = await invoke<string>("get_ca_cert_path");
+      const fileUrl = `file://${path}`;
+      await invoke("plugin:opener|open", { path: fileUrl });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const filterRequests = (reqs: InterceptedRequest[]) => {
     return reqs.filter((req) => {
       // Tab filter (app tabs)
@@ -295,12 +306,40 @@ function App() {
         </div>
       </section>
 
-      <section className="ca-info">
+      <section className="ca-guide">
         <h2>CA Certificate</h2>
         <p className="ca-path">{caCertPath}</p>
-        <p className="ca-instructions">
-          To intercept HTTPS traffic, install the CA certificate in your system/browser and trust it.
-        </p>
+        <div className="ca-guide-tabs">
+          <button
+            className={`ca-tab-btn ${caGuideTab === "ios" ? "ca-tab-active" : ""}`}
+            onClick={() => setCaGuideTab("ios")}
+          >
+            iOS
+          </button>
+          <button
+            className={`ca-tab-btn ${caGuideTab === "android" ? "ca-tab-active" : ""}`}
+            onClick={() => setCaGuideTab("android")}
+          >
+            Android
+          </button>
+        </div>
+        {caGuideTab === "ios" ? (
+          <ol className="ca-steps">
+            <li>Tap "Download CA Certificate" below to open the certificate in Safari</li>
+            <li>iOS will prompt "A profile was downloaded from..." — tap Allow</li>
+            <li>Go to Settings → General → VPN and Device Management → Install the profile</li>
+            <li>Go to Settings → General → About → Certificate Trust Settings → Enable full trust for ProxyBot CA</li>
+          </ol>
+        ) : (
+          <ol className="ca-steps">
+            <li>Tap "Download CA Certificate" below and open the downloaded <code>ca.crt</code> file</li>
+            <li>Enter your lock screen PIN when prompted — the certificate will be installed</li>
+            <li>For Android 7+: Some apps don't trust user CAs by default; you may need to use ADB or enable "Install unknown apps" for your browser</li>
+          </ol>
+        )}
+        <button className="btn-download-ca" onClick={downloadCaCert}>
+          Download CA Certificate
+        </button>
       </section>
 
       {error && (

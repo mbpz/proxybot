@@ -317,6 +317,96 @@
   color: #86868b;
 }
 
+.ca-guide {
+  margin-bottom: 32px;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  text-align: left;
+}
+
+.ca-guide h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1d1d1f;
+}
+
+.ca-path {
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  font-size: 12px;
+  padding: 8px 12px;
+  background: #f5f5f7;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  word-break: break-all;
+}
+
+.ca-guide-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ca-tab-btn {
+  padding: 8px 20px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  background: white;
+  font-size: 14px;
+  font-weight: 500;
+  color: #515154;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ca-tab-btn:hover {
+  background: #f5f5f7;
+}
+
+.ca-tab-btn.ca-tab-active {
+  background: #0071e3;
+  border-color: #0071e3;
+  color: white;
+}
+
+.ca-steps {
+  margin: 0 0 16px 0;
+  padding-left: 24px;
+  font-size: 14px;
+  color: #515154;
+  line-height: 1.8;
+}
+
+.ca-steps li {
+  margin-bottom: 8px;
+}
+
+.ca-steps code {
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  font-size: 12px;
+  background: #f5f5f7;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.btn-download-ca {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #0071e3;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-download-ca:hover {
+  background: #0077ed;
+}
+
 .error {
   padding: 16px;
   background: #fff2f2;
@@ -506,7 +596,7 @@
 
   .controls,
   .setup-panel,
-  .ca-info,
+  .ca-guide,
   .requests {
     background: #2c2c2e;
   }
@@ -563,6 +653,7 @@
   }
 
   .ca-info h2,
+  .ca-guide h2,
   .setup-panel h2,
   .requests h2,
   .requests-table th {
@@ -653,6 +744,38 @@
 
   .dns-table .domain {
     color: #f5f5f7;
+  }
+
+  .ca-tab-btn {
+    background: #1d1d1f;
+    border-color: #3a3a3c;
+    color: #a1a1a6;
+  }
+
+  .ca-tab-btn:hover {
+    background: #3a3a3c;
+  }
+
+  .ca-tab-btn.ca-tab-active {
+    background: #0a84ff;
+    border-color: #0a84ff;
+    color: white;
+  }
+
+  .ca-steps {
+    color: #a1a1a6;
+  }
+
+  .ca-steps code {
+    background: #1d1d1f;
+  }
+
+  .btn-download-ca {
+    background: #0a84ff;
+  }
+
+  .btn-download-ca:hover {
+    background: #409cff;
   }
 }
 
