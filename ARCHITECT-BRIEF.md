@@ -1,85 +1,95 @@
 # Architect Brief — ProxyBot
 
-## Step 5 — WSS (WebSocket over HTTPS) 拦截 ✅ (完成)
+## Step 7 — Production Build（macOS .app 打包）
 
----
+目标：生成可分发的 macOS .app 安装包，用户双击即可运行，无需命令行。
 
-## Step 6 — 请求详情面板
+### 1. 配置 tauri.conf.json
 
-目标：点击任意 HTTP 请求，弹出详情面板查看请求 Header / Response Body / 时间线。
-
-### Rust 后端修改
-
-**1. 扩展 InterceptedRequest**
-
-```rust
-struct InterceptedRequest {
-    pub id: String,
-    pub timestamp: String,
-    pub method: String,
-    pub host: String,
-    pub path: String,
-    pub status: u16,
-    pub latency_ms: u64,
-    pub app_name: Option<String>,
-    pub app_icon: Option<String>,
-    pub request_headers: Option<String>,    // "Header-Name: value\r\n..."
-    pub response_headers: Option<String>,
-    pub response_body: Option<String>,       // 最多 10KB，超出截断
-    pub request_body: Option<String>,
+```json
+{
+  "productName": "ProxyBot",
+  "version": "0.1.0",
+  "identifier": "com.proxybot.app",
+  "build": {
+    "devtools": true
+  },
+  "app": {
+    "windows": [{
+      "title": "ProxyBot",
+      "width": 1100,
+      "height": 750,
+      "minWidth": 900,
+      "minHeight": 600,
+      "center": true,
+      "resizable": true
+    }],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
+    "category": "Developer Tools",
+    "shortDescription": "HTTPS MITM Proxy Tool",
+    "longDescription": "A macOS desktop proxy tool for developers. Captures and decrypts HTTPS/WSS traffic from mobile devices on the same LAN."
+  }
 }
 ```
 
-**2. Response Body 读取**
+### 2. macOS 代码签名 +公证（可选但推荐）
 
-在 `handle_http` 里，读上游响应时：
-1. 解析 HTTP Status Line 和 Headers
-2. 读 body 到 buffer（最多 10KB）
-3. UTF-8 解码：成功存 `response_body`，失败存 `[Binary N bytes]`
+**签名（开发阶段可跳过）：**
+- 在 Apple Developer 申请 Developer ID
+- `codesign -f -s "Developer ID Application: Your Name" src-tauri/target/release/bundle/app/ProxyBot.app`
+- `codesign -f -s "Developer ID Application: Your Name" -i com.proxybot.app --entitlements src-tauri/entitlements.plist src-tauri/target/release/bundle/dmg/proxybot_0.1.0_aarch64.dmg`
 
-**3. Request Header 读取**
+**公证（分发必需）：**
+- `xcrun notarytool submit proxybot.dmg --apple-id "your@email.com" --password "app-password" --team-id "TEAMID"`
+- 如果不用签名+公证：Xcode 14+ 默认不允许运行未签名 app，需要右键"打开"或 `xattr -cr`
 
-读客户端请求时：
-1. 解析 Request Line + Headers
-2. 存 `request_headers`
-
-**4. Tauri Command**
-
-```rust
-#[tauri::command]
-pub fn get_request_detail(id: String) -> Option<InterceptedRequest>;
+**entitlements.plist（pf 功能必需）：**
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>
 ```
 
-前端按 ID 查找并返回完整信息。
+### 3. 构建命令
 
-### UI 修改（App.tsx）
+```bash
+npm run tauri build
+```
 
-**1. 请求列表点击**
+输出：`src-tauri/target/release/bundle/dmg/proxybot_0.1.0_aarch64.dmg`
 
-- 选中行高亮（`bg-blue-100 dark:bg-blue-900`）
-- 右侧滑出详情面板
+### 4. 自述文件 README
 
-**2. 详情面板布局（右侧 40%）**
-
-三个 Tab：
-- **General**: Method, URL, Status, Latency, App, Time
-- **Headers**: Request Headers (key-value) + Response Headers (key-value)
-- **Body**: Request Body + Response Body，超长截断显示
-
-**3. 关闭**
-
-点空白区域或 X 按钮关闭面板。
-
-### 不做
-
-- 流式响应实时展示
-- 请求重放
-- Binary body hex dump
-- WebSocket 帧详情
+创建 `README.md` 包含：
+- 功能介绍 + 截图
+- 安装步骤（下载 .dmg，双击安装）
+- iOS CA 证书安装指引（截图步骤）
+- 手机配置步骤（网关/DNS 设为 PC IP）
+- 常见问题（WeChat 证书固定处理）
 
 ### 验收标准
 
-1. 点请求 → 详情面板弹出，右侧展示
-2. Headers Tab 有完整的 Req + Resp headers
-3. Body Tab 有 Response Body（10KB 内）
-4. 点 X 或空白 → 面板关闭
+1. `npm run tauri build` 成功，无报错
+2. 生成的 `.dmg` 文件可用（双击挂载）
+3. 运行 ProxyBot.app，核心功能（透明代理/HTTPS 拦截/DNS 记录）正常

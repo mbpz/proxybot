@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "proxybot",
+  "productName": "ProxyBot",
   "version": "0.1.0",
   "identifier": "com.proxybot.app",
   "build": {
@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "ProxyBot - HTTPS MITM Proxy",
-        "width": 900,
-        "height": 700
+        "title": "ProxyBot",
+        "width": 1100,
+        "height": 750,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true
       }
     ],
     "security": {
@@ -23,13 +27,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["dmg", "app"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
+      "icons/icon.icns"
+    ],
+    "category": "Developer Tools",
+    "shortDescription": "HTTPS MITM Proxy Tool",
+    "longDescription": "A macOS desktop proxy tool for developers. Captures and decrypts HTTPS/WSS traffic from mobile devices on the same LAN."
   }
 }
