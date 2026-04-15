@@ -53,7 +53,6 @@ function App() {
   const [pfLoading, setPfLoading] = useState(false);
   const [pfStatus, setPfStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
-  const [selectedTab, setSelectedTab] = useState<AppTab>("all");
   const [wssMessages, setWssMessages] = useState<WssMessage[]>([]);
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
@@ -65,15 +64,38 @@ function App() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [appFilter, setAppFilter] = useState("ALL");
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [keepRunning, setKeepRunning] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [mainTab, setMainTab] = useState<'http' | 'wss' | 'dns'>('http');
 
   const toggleTheme = () => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  };
+
+  const toggleKeepRunning = async (value: boolean) => {
+    setKeepRunning(value);
+    await invoke("set_keep_running", { keep: value });
   };
 
   useEffect(() => {
     document.documentElement.classList.remove('dark', 'light');
     document.documentElement.classList.add(theme);
   }, [theme]);
+
+  useEffect(() => {
+    invoke<boolean>("get_keep_running").then(setKeepRunning).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (keepRunning) {
+        e.preventDefault();
+        invoke("hide_window").catch(console.error);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [keepRunning]);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -250,12 +272,32 @@ function App() {
     }
   };
 
+  const copyAsCurl = (req: InterceptedRequest) => {
+    const headers = req.request_headers || '';
+    const headerLines = headers.split('\n').filter((l: string) => l.trim());
+    const headerArgs = headerLines.map((l: string) => {
+      const idx = l.indexOf(': ');
+      if (idx < 0) return '';
+      return `-H "${l}"`;
+    }).filter(Boolean).join(' ');
+    const bodyArg = req.method === 'POST' && req.request_body ? `-d '${req.request_body}'` : '';
+    const curl = `curl ${headerArgs} ${bodyArg} 'https://${req.host}${req.path}'`;
+    navigator.clipboard.writeText(curl);
+  };
+
+  const replayRequest = async (id: string) => {
+    try {
+      await invoke("replay_request", { id });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const downloadCaCert = async () => {
     try {
       const path = await invoke<string>("get_ca_cert_path");
-      // Use @tauri-apps/plugin-opener directly (not via invoke)
-      const { open } = await import('@tauri-apps/plugin-opener');
-      await open(path);
+      const { openPath } = await import('@tauri-apps/plugin-opener');
+      await openPath(path);
     } catch (e) {
       setError(String(e));
     }
@@ -263,11 +305,6 @@ function App() {
 
   const filterRequests = (reqs: InterceptedRequest[]) => {
     return reqs.filter((req) => {
-      // Tab filter (app tabs)
-      if (selectedTab === "all") return true;
-      if (selectedTab === "Unknown") return !req.app_name;
-      if (req.app_name !== selectedTab) return false;
-
       // Filter bar filters
       const search = searchQuery.toLowerCase();
       const matchSearch =
@@ -287,10 +324,34 @@ function App() {
   return (
     <main className="container">
       <header className="header">
-        <h1>ProxyBot</h1>
-        <p className="subtitle">HTTPS MITM Proxy</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1>ProxyBot</h1>
+            <p className="subtitle">HTTPS MITM Proxy</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="btn-clear" onClick={toggleTheme} style={{ padding: '6px 12px', fontSize: '12px' }}>
+              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+            </button>
+            <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
+          </div>
+        </div>
       </header>
 
+      <div className="top-tabs">
+        <button className={mainTab === 'http' ? 'active' : ''} onClick={() => setMainTab('http')}>
+          HTTP Requests ({requests.length})
+        </button>
+        <button className={mainTab === 'wss' ? 'active' : ''} onClick={() => setMainTab('wss')}>
+          WSS Messages ({wssMessages.length})
+        </button>
+        <button className={mainTab === 'dns' ? 'active' : ''} onClick={() => setMainTab('dns')}>
+          DNS Queries ({dnsQueries.length})
+        </button>
+      </div>
+
+      {mainTab === 'http' && (
+      <>
       <section className="controls">
         <button
           className={`btn ${running ? "btn-stop" : "btn-start"}`}
@@ -305,6 +366,108 @@ function App() {
             {running ? `Listening on port 8080` : "Stopped"}
           </span>
         </div>
+      </section>
+
+      <section className="setup-panel">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0 }}>Transparent Proxy Setup</h2>
+        </div>
+        {networkInfo ? (
+          <div className="network-info">
+            <p className="lan-ip">
+              <strong>PC LAN IP:</strong> <span className="ip-address">{networkInfo.lan_ip}</span>
+            </p>
+            <p className="interface-name">
+              <strong>Interface:</strong> {networkInfo.interface}
+            </p>
+          </div>
+        ) : (
+          <p className="network-loading">Detecting network interface...</p>
+        )}
+
+        <div className="setup-buttons">
+          {!pfEnabled ? (
+            <button
+              className="btn btn-enable"
+              onClick={enableTransparentProxy}
+              disabled={!networkInfo || pfLoading}
+            >
+              {pfLoading ? "Enabling..." : "Enable Transparent Proxy"}
+            </button>
+          ) : (
+            <button
+              className="btn btn-disable"
+              onClick={disableTransparentProxy}
+              disabled={pfLoading}
+            >
+              {pfLoading ? "Disabling..." : "Disable Transparent Proxy"}
+            </button>
+          )}
+        </div>
+
+        {pfStatus && (
+          <p className={`pf-status ${pfEnabled ? "status-active" : "status-inactive"}`}>
+            {pfStatus}
+          </p>
+        )}
+
+        <div className="dns-status">
+          <span className="dns-label">DNS Server:</span>
+          <span className={`dns-indicator ${pfEnabled ? "dns-running" : "dns-stopped"}`}>
+            {pfEnabled ? "Listening on UDP 5300" : "Not running"}
+          </span>
+        </div>
+
+        <div className="setup-instructions">
+          <h3>Instructions</h3>
+          <ol>
+            <li>Enable transparent proxy above</li>
+            <li>On your phone, go to Wi-Fi settings</li>
+            <li>Set the HTTP proxy to this computer's IP ({networkInfo?.lan_ip || "..."})</li>
+            <li>Set proxy port to 8080</li>
+            <li>For HTTPS interception, install the ProxyBot CA certificate on your phone</li>
+          </ol>
+          <p className="note">
+            <strong>Note:</strong> For transparent proxy mode (no proxy configuration on phone),
+            enable the transparent proxy above. This requires administrator privileges.
+          </p>
+        </div>
+      </section>
+
+      <section className="ca-guide">
+        <h2>CA Certificate</h2>
+        <p className="ca-path">{caCertPath}</p>
+        <div className="ca-guide-tabs">
+          <button
+            className={`ca-tab-btn ${caGuideTab === "ios" ? "ca-tab-active" : ""}`}
+            onClick={() => setCaGuideTab("ios")}
+          >
+            iOS
+          </button>
+          <button
+            className={`ca-tab-btn ${caGuideTab === "android" ? "ca-tab-active" : ""}`}
+            onClick={() => setCaGuideTab("android")}
+          >
+            Android
+          </button>
+        </div>
+        {caGuideTab === "ios" ? (
+          <ol className="ca-steps">
+            <li>Tap "Download CA Certificate" below to open the certificate in Safari</li>
+            <li>iOS will prompt "A profile was downloaded from..." — tap Allow</li>
+            <li>Go to Settings → General → VPN and Device Management → Install the profile</li>
+            <li>Go to Settings → General → About → Certificate Trust Settings → Enable full trust for ProxyBot CA</li>
+          </ol>
+        ) : (
+          <ol className="ca-steps">
+            <li>Tap "Download CA Certificate" below and open the downloaded <code>ca.crt</code> file</li>
+            <li>Enter your lock screen PIN when prompted — the certificate will be installed</li>
+            <li>For Android 7+: Some apps don't trust user CAs by default; you may need to use ADB or enable "Install unknown apps" for your browser</li>
+          </ol>
+        )}
+        <button className="btn-download-ca" onClick={downloadCaCert}>
+          Download CA Certificate
+        </button>
       </section>
 
       <section className="setup-panel">
@@ -418,17 +581,6 @@ function App() {
 
       <section className="requests">
         <h2>Intercepted Requests ({filterRequests(requests).length})</h2>
-        <div className="app-tabs">
-          {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
-            <button
-              key={tab}
-              className={`tab-btn ${selectedTab === tab ? "tab-active" : ""}`}
-              onClick={() => setSelectedTab(tab)}
-            >
-              {tab === "all" ? "All" : tab === "WeChat" ? "WeChat 💬" : tab === "Douyin" ? "Douyin 🎵" : tab === "Alipay" ? "Alipay 💳" : "Unknown"}
-            </button>
-          ))}
-        </div>
         <div className="filter-bar">
           <button className="btn-export" onClick={exportHar}>
             📄 HAR
@@ -501,6 +653,7 @@ function App() {
                   <th>Path</th>
                   <th>Status</th>
                   <th>Latency</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -521,6 +674,10 @@ function App() {
                         {req.status || "-"}
                       </td>
                       <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
+                      <td className="actions">
+                        <button title="Copy as cURL" onClick={(e) => { e.stopPropagation(); copyAsCurl(req); }}>📋</button>
+                        <button title="Replay" onClick={(e) => { e.stopPropagation(); replayRequest(req.id); }}>⧉</button>
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -528,6 +685,8 @@ function App() {
           )}
         </div>
       </section>
+      </>
+      )}
 
       {selectedRequest && (
         <div className="detail-panel-overlay" onClick={() => setSelectedRequest(null)}>
@@ -667,6 +826,7 @@ function App() {
         </div>
       )}
 
+      {mainTab === 'wss' && (
       <section className="wss-messages">
         <h2>WSS Messages ({wssMessages.length})</h2>
         <div className="app-tabs">
@@ -725,7 +885,9 @@ function App() {
           )}
         </div>
       </section>
+      )}
 
+      {mainTab === 'dns' && (
       <section className="dns-log">
         <h2>DNS Queries ({dnsQueries.length})</h2>
         <div className="dns-log-list">
@@ -753,6 +915,93 @@ function App() {
           )}
         </div>
       </section>
+      )}
+
+      {showSettings && (
+        <div className="detail-panel-overlay" onClick={() => setShowSettings(false)}>
+          <div className="detail-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="detail-header">
+              <h3>⚙️ Settings</h3>
+              <button className="detail-close" onClick={() => setShowSettings(false)}>×</button>
+            </div>
+            <div className="detail-content">
+              <div className="settings-section">
+                <h4>🔐 透明代理</h4>
+                <div className="settings-row">
+                  <span>Status:</span>
+                  <span className={pfEnabled ? "status-running" : "status-stopped"}>
+                    {pfEnabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+                <button
+                  className={`btn ${pfEnabled ? "btn-disable" : "btn-enable"}`}
+                  onClick={() => pfEnabled ? disableTransparentProxy() : enableTransparentProxy()}
+                  disabled={pfLoading || !networkInfo}
+                >
+                  {pfLoading ? "Loading..." : pfEnabled ? "Disable Transparent Proxy" : "Enable Transparent Proxy"}
+                </button>
+              </div>
+
+              <div className="settings-section">
+                <h4>📜 CA证书</h4>
+                <div className="ca-guide-tabs">
+                  <button
+                    className={`ca-tab-btn ${caGuideTab === "ios" ? "ca-tab-active" : ""}`}
+                    onClick={() => setCaGuideTab("ios")}
+                  >
+                    iOS
+                  </button>
+                  <button
+                    className={`ca-tab-btn ${caGuideTab === "android" ? "ca-tab-active" : ""}`}
+                    onClick={() => setCaGuideTab("android")}
+                  >
+                    Android
+                  </button>
+                </div>
+                {caGuideTab === "ios" ? (
+                  <ol className="ca-steps">
+                    <li>Tap "Download CA Certificate" to open in Safari</li>
+                    <li>iOS prompts "A profile was downloaded" — tap Allow</li>
+                    <li>Settings → General → VPN and Device Management → Install</li>
+                    <li>Settings → General → About → Certificate Trust Settings → Enable ProxyBot CA</li>
+                  </ol>
+                ) : (
+                  <ol className="ca-steps">
+                    <li>Download CA Certificate and open the downloaded <code>ca.crt</code></li>
+                    <li>Enter lock screen PIN when prompted</li>
+                    <li>For Android 7+: May need ADB or "Install unknown apps" for browser</li>
+                  </ol>
+                )}
+                <button className="btn-download-ca" onClick={downloadCaCert}>
+                  Download CA Certificate
+                </button>
+              </div>
+
+              <div className="settings-section">
+                <h4>🔄 后台运行</h4>
+                <div className="settings-row">
+                  <span>Keep running when window closes</span>
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={keepRunning}
+                      onChange={(e) => toggleKeepRunning(e.target.checked)}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h4>🗑️ 清除历史</h4>
+                <button className="btn-clear-history" onClick={clearHistory}>
+                  Clear All History
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

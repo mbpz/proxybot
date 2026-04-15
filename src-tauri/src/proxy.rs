@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -1522,6 +1522,171 @@ pub fn export_har(requests: Vec<InterceptedRequest>) -> Result<String, String> {
 #[tauri::command]
 pub fn load_history() -> Vec<InterceptedRequest> {
     crate::history::HistoryStore::new().load()
+}
+
+/// State for persisting keep_running preference.
+pub struct KeepRunningState {
+    pub keep_running: std::sync::Mutex<bool>,
+}
+
+impl KeepRunningState {
+    pub fn new() -> Self {
+        Self {
+            keep_running: std::sync::Mutex::new(false),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn set_keep_running(state: State<'_, Arc<KeepRunningState>>, keep: bool) {
+    *state.keep_running.lock().unwrap() = keep;
+}
+
+#[tauri::command]
+pub fn get_keep_running(state: State<'_, Arc<KeepRunningState>>) -> bool {
+    *state.keep_running.lock().unwrap()
+}
+
+#[tauri::command]
+pub fn hide_window(app_handle: AppHandle) -> Result<(), String> {
+    app_handle
+        .get_webview_window("main")
+        .ok_or("no window")?
+        .hide()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn replay_request(app_handle: AppHandle, id: String) -> Result<(), String> {
+    let req = REQUEST_STORE.get(&id).ok_or("request not found")?;
+    let req = req.value().clone();
+
+    // Replay the request asynchronously
+    let app_handle_clone = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        // Build client config directly (NoVerification accepts all certs)
+        let client_config = ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoVerification))
+            .with_no_client_auth();
+
+        let connector = TlsConnector::from(Arc::new(client_config));
+        let target_host = req.host.clone();
+        let target_port = if req.scheme == "https" { 443 } else { 80 };
+        let target_addr = format!("{}:{}", target_host, target_port);
+
+        let upstream_tcp = match TcpStream::connect(&target_addr).await {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Replay failed to connect to {}: {}", target_addr, e);
+                return;
+            }
+        };
+
+        // Box::leak to get 'static lifetime for rustls ServerName requirement
+        let target_host_static: &'static str = Box::leak(target_host.clone().into_boxed_str());
+        let server_name: ServerName = match ServerName::try_from(target_host_static) {
+            Ok(name) => name,
+            Err(e) => {
+                log::error!("Invalid server name for replay: {}", e);
+                return;
+            }
+        };
+
+        let mut upstream_tls = match connector.connect(server_name, upstream_tcp).await {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Replay TLS connect failed: {}", e);
+                return;
+            }
+        };
+
+        // Build the HTTP request
+        let path = if req.path.is_empty() { "/" } else { &req.path };
+        let http_version = "HTTP/1.1";
+        let mut request = format!("{} {} {}\r\n", req.method, path, http_version);
+
+        if let Some(headers) = &req.request_headers {
+            for line in headers.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Some((name, value)) = line.split_once(':') {
+                    request.push_str(&format!("{}: {}\r\n", name.trim(), value.trim()));
+                }
+            }
+        }
+        // Add Host header if not present
+        if !request.contains("Host:") {
+            request.push_str(&format!("Host: {}\r\n", target_host));
+        }
+        request.push_str("\r\n");
+
+        // Send request
+        if let Err(e) = upstream_tls.write_all(request.as_bytes()).await {
+            log::error!("Replay write failed: {}", e);
+            return;
+        }
+
+        // Read response
+        let mut response_buf = Vec::new();
+        let mut buf = vec![0u8; 16384];
+        loop {
+            match upstream_tls.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    response_buf.extend_from_slice(&buf[..n]);
+                    if response_buf.len() > 4 && response_buf.ends_with(b"\r\n\r\n") {
+                        // Check if we have the full headers
+                        break;
+                    }
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        if !response_buf.is_empty() {
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Parse response and emit as new intercepted request
+        let status = parse_response_status(&response_buf);
+        let response_headers = parse_response_headers(&response_buf);
+        let response_body = extract_response_body(&response_buf).map(|b| decode_body(&b));
+
+        let latency_ms = req.latency_ms;
+        let app_info = app_rules::classify_host(&target_host);
+        let (app_name, app_icon) = app_info
+            .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+            .unwrap_or((None, None));
+
+        let new_req = InterceptedRequest {
+            id: generate_request_id(),
+            timestamp: timestamp_now(),
+            method: req.method.clone(),
+            host: req.host.clone(),
+            path: req.path.clone(),
+            status,
+            latency_ms,
+            scheme: req.scheme.clone(),
+            app_name,
+            app_icon,
+            request_headers: req.request_headers.clone(),
+            response_headers,
+            response_body,
+            request_body: req.request_body.clone(),
+        };
+
+        store_request(new_req.clone());
+        let _ = app_handle_clone.emit("intercepted-request", &new_req);
+        log::info!("Replayed request {} -> {}:{}", req.method, target_host, path);
+    });
+
+    Ok(())
 }
 
 #[tauri::command]
