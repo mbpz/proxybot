@@ -64,6 +64,16 @@ function App() {
   const [methodFilter, setMethodFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [appFilter, setAppFilter] = useState("ALL");
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  const toggleTheme = () => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  };
+
+  useEffect(() => {
+    document.documentElement.classList.remove('dark', 'light');
+    document.documentElement.classList.add(theme);
+  }, [theme]);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -243,8 +253,9 @@ function App() {
   const downloadCaCert = async () => {
     try {
       const path = await invoke<string>("get_ca_cert_path");
-      const fileUrl = `file://${path}`;
-      await invoke("plugin:opener|open", { path: fileUrl });
+      // Use @tauri-apps/plugin-opener directly (not via invoke)
+      const { open } = await import('@tauri-apps/plugin-opener');
+      await open(path);
     } catch (e) {
       setError(String(e));
     }
@@ -297,7 +308,12 @@ function App() {
       </section>
 
       <section className="setup-panel">
-        <h2>Transparent Proxy Setup</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0 }}>Transparent Proxy Setup</h2>
+          <button className="btn-clear" onClick={toggleTheme} style={{ padding: '6px 12px', fontSize: '12px' }}>
+            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+          </button>
+        </div>
         {networkInfo ? (
           <div className="network-info">
             <p className="lan-ip">
