@@ -1,47 +1,29 @@
-# Step 12 — WSS Detail Panel Review Request
+# Review Request: Add Export JSON Button
 
-## Changes Made
+## Summary
 
-### Frontend (App.tsx)
+Added an "Export JSON" button next to the existing "Export HAR" button in the requests filter bar. The button exports the currently filtered requests as a plain JSON file.
 
-1. **State**: Added `selectedWssMsg` state (`WssMessage | null`)
+## Changes
 
-2. **WSS row click handler**: Added `onClick={() => setSelectedWssMsg(msg)}` to each WSS table row with `row-selected` CSS class when active
+**File:** `/Users/jinguo.zeng/dmall/project/proxybot/src/App.tsx`
 
-3. **Binary detection helper** (`isBinaryContent`):
-   - Returns `true` if content contains null byte (`\0`)
-   - Returns `true` if >30% of characters are non-printable control chars (excluding \n, \r, \t)
+1. Added `exportJson` function:
+   - Serializes `filterRequests(requests)` to JSON with 2-space indentation
+   - Downloads as `proxybot-requests-YYYY-MM-DD.json`
 
-4. **Direction label helper** (`getWssDirectionLabel`): Maps `"up"`/`"down"` to `"↑ Sent"`/`"↓ Received"`
+2. Added "Export JSON" button next to "Export HAR" in the filter bar
 
-5. **Detail panel**: Slide-in overlay (reuses existing `.detail-panel-overlay` / `.detail-panel` CSS) showing:
-   - Direction: ↑/↓ with label
-   - Host
-   - Size in bytes
-   - App name + icon
-   - Timestamp
-   - Content: full text for Text frames, `[Binary N bytes — not displayed as text]` for Binary frames
-   - Close via overlay click or X button
+## No Backend Changes
 
-### Frontend (App.css)
+This is a pure frontend change. No Rust/Tauri changes required.
 
-1. **WSS section styles** (light + dark): `.wss-messages`, `.wss-table`, `.tab-btn`, direction colors, etc.
-2. **Dark mode variants** for all new WSS elements
-3. **Row selection**: `.wss-table tbody tr.row-selected` with same blue highlight as HTTP rows
+## Testing
 
-## Verification
+- Click "Export JSON" and verify a `.json` file is downloaded
+- Verify the JSON contains the correctly filtered requests
+- Verify existing "Export HAR" button still works
 
-- **TypeScript**: `npx tsc --noEmit` — clean, no errors
-- **Vite build**: Fails due to pre-existing environment issue (Node v14 + Vite 7 incompatibility — Vite internally uses `??=` which is ES2020 not supported in Node 14). This failure exists on main branch before these changes.
+## Risk
 
-## Acceptance Criteria (per ARCHITECT-BRIEF.md)
-
-1. Click any WSS message row → right-side detail panel slides in ✅
-2. Text frames show full content (scrollable) ✅
-3. Binary frames show `[Binary N bytes — not displayed as text]` ✅
-4. Click overlay or X → panel closes ✅
-
-## Files Changed
-
-- `/Users/jinguo.zeng/dmall/project/proxybot/src/App.tsx`
-- `/Users/jinguo.zeng/dmall/project/proxybot/src/App.css`
+- Low — only adds a new export option, no modifications to existing functionality

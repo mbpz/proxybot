@@ -194,6 +194,18 @@ function App() {
     setAppFilter("ALL");
   };
 
+  const exportJson = async () => {
+    const filtered = filterRequests(requests);
+    const data = JSON.stringify(filtered, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `proxybot-requests-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const exportHar = async () => {
     try {
       const filtered = filterRequests(requests);
@@ -403,7 +415,10 @@ function App() {
         </div>
         <div className="filter-bar">
           <button className="btn-export" onClick={exportHar}>
-            Export HAR
+            📄 HAR
+          </button>
+          <button className="btn-export" onClick={exportJson}>
+            📄 JSON
           </button>
           <button className="btn-save" onClick={saveHistory}>
             💾 保存
