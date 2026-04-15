@@ -33,6 +33,7 @@ pub fn run() {
         .manage(keep_running_state.clone())
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
+            proxy::stop_proxy,
             proxy::get_ca_cert_path,
             proxy::get_ca_cert_pem,
             proxy::get_network_info,

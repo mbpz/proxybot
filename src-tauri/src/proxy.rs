@@ -33,6 +33,8 @@ use std::sync::LazyLock;
 const PROXY_PORT: u16 = 8080;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
+static SHUTDOWN_TX: LazyLock<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(None));
 
 /// Global store for intercepted requests, keyed by request ID.
 static REQUEST_STORE: LazyLock<DashMap<String, InterceptedRequest>, fn() -> DashMap<String, InterceptedRequest>> =
@@ -1436,16 +1438,39 @@ pub fn start_proxy(
     let cm = cert_manager.inner().clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
+    // Store shutdown_tx so stop_proxy can signal shutdown
+    {
+        let mut guard = SHUTDOWN_TX.blocking_lock();
+        *guard = Some(shutdown_tx);
+    }
+
     tauri::async_runtime::spawn(async move {
-        // Keep shutdown_tx alive by dropping it at the end
-        let _shutdown_tx = shutdown_tx;
         if let Err(e) = run_proxy(app_handle, cm, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
+        let mut guard = SHUTDOWN_TX.blocking_lock();
+        *guard = None;
     });
 
     Ok(format!("Proxy starting on port {}", PROXY_PORT))
+}
+
+#[tauri::command]
+pub fn stop_proxy() -> Result<String, String> {
+    if !PROXY_RUNNING.load(Ordering::SeqCst) {
+        return Err("Proxy is not running".to_string());
+    }
+    let tx = {
+        let mut guard = SHUTDOWN_TX.blocking_lock();
+        guard.take()
+    };
+    if let Some(tx) = tx {
+        let _ = tx.send(());
+        Ok("Proxy shutdown signal sent".to_string())
+    } else {
+        Err("No shutdown channel available".to_string())
+    }
 }
 
 #[tauri::command]

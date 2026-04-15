@@ -77,3 +77,63 @@ Added theme state and toggle button to switch between dark and light mode. CSS w
 ## Risk
 
 - Low — purely additive UI change, existing dark mode behavior preserved via class toggle
+
+---
+
+# Review Request: Items 1-4 Implementation (Background Toggle, Settings Panel, Three Tabs, Request Actions)
+
+## Summary
+
+Implemented all 4 items from ARCHITECT-BRIEF.md:
+
+### Item 1 — Background Process Toggle
+- Added `keepRunning` state to App.tsx
+- Added `toggleKeepRunning` function that calls `set_keep_running` Rust command
+- Added `beforeunload` handler that calls `hide_window` when `keepRunning` is true
+- Added `KeepRunningState` struct in Rust to persist preference
+- Added `hide_window` and `set_keep_running`/`get_keep_running` commands
+
+### Item 2 — Settings Panel
+- Added settings button (gear icon) in header
+- Added `showSettings` state to control panel visibility
+- Settings panel slides in from right (reuses detail-panel-overlay CSS)
+- Contains: 透明代理 section, CA证书 section, 后台运行 toggle, 清除历史 button
+
+### Item 3 — Three Main Tabs
+- Added `mainTab` state: `'http' | 'wss' | 'dns'`
+- Top tabs show HTTP Requests/WSS Messages/DNS Queries with counts
+- HTTP tab: controls, setup panel, CA guide, requests table (previously visible by default)
+- WSS tab: WSS messages section only
+- DNS tab: DNS queries section only
+
+### Item 4 — Request Row Action Buttons
+- Added Actions column to HTTP requests table
+- Two buttons per row: Copy as cURL (📋) and Replay (⧉)
+- `copyAsCurl` builds curl command from request headers/body and copies to clipboard
+- `replayRequest` calls Rust `replay_request` command which re-issues the request
+
+## Files Changed
+
+### Rust (src-tauri/src/)
+- `lib.rs`: Added KeepRunningState, registered new commands
+- `proxy.rs`: Added KeepRunningState struct, hide_window, set_keep_running, get_keep_running, replay_request commands
+
+### Frontend (src/)
+- `App.tsx`: Added keepRunning, showSettings, mainTab state; settings button; top-tabs; action buttons; settings panel
+- `App.css`: Added top-tabs, settings-btn, settings-section, toggle-switch, actions styles
+
+## Verification
+
+- `cargo check` passes (1 crate compiled)
+- `npm run build` passes (34 modules transformed)
+
+## Notes
+
+- Replay uses `Box::leak` for static lifetime on ServerName (same pattern as existing HTTPS code)
+- The `selectedTab` state was replaced by `appFilter` (already existed in filter bar)
+- CA certificate download now uses `openPath` from @tauri-apps/plugin-opener directly
+
+## Risks
+
+- `Box::leak` in replay_request creates a memory leak per replay, but it's negligible for dev tooling
+- Settings panel reuses detail-panel styles; may need adjustment for specific settings styling

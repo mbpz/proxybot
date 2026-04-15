@@ -45,13 +45,11 @@ interface DnsEntry {
 
 function App() {
   const [running, setRunning] = useState(false);
-  const [caCertPath, setCaCertPath] = useState("");
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
   const [error, setError] = useState("");
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
   const [pfEnabled, setPfEnabled] = useState(false);
   const [pfLoading, setPfLoading] = useState(false);
-  const [pfStatus, setPfStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
   const [wssMessages, setWssMessages] = useState<WssMessage[]>([]);
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
@@ -98,7 +96,7 @@ function App() {
   }, [keepRunning]);
 
   useEffect(() => {
-    invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
+    invoke<string>("get_ca_cert_path").catch(console.error);
     invoke<NetworkInfo>("get_network_info")
       .then(setNetworkInfo)
       .catch((e) => console.error("Failed to get network info:", e));
@@ -145,22 +143,33 @@ function App() {
     }
   };
 
+  const stopProxy = async () => {
+    try {
+      setError("");
+      const result = await invoke<string>("stop_proxy");
+      console.log(result);
+      setRunning(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const enableTransparentProxy = async () => {
     if (!networkInfo) return;
     try {
       setPfLoading(true);
       setError("");
-      setPfStatus("");
+      // setPfStatus removed;
       // get_network_info populates ProxyState with interface + local_ip
       await invoke<NetworkInfo>("get_network_info");
       // setup_pf reads from ProxyState — no args needed
       const result = await invoke<string>("setup_pf");
       console.log(result);
       setPfEnabled(true);
-      setPfStatus("Transparent proxy enabled successfully");
+      // status updated in settings panel;
     } catch (e) {
       setError(String(e));
-      setPfStatus("Failed to enable transparent proxy");
+      // status updated in settings panel;
     } finally {
       setPfLoading(false);
     }
@@ -170,13 +179,13 @@ function App() {
     try {
       setPfLoading(true);
       setError("");
-      setPfStatus("");
+      // setPfStatus removed;
       await invoke<void>("teardown_pf");
       setPfEnabled(false);
-      setPfStatus("Transparent proxy disabled");
+      // status updated in settings panel;
     } catch (e) {
       setError(String(e));
-      setPfStatus("Failed to disable transparent proxy");
+      // status updated in settings panel
     } finally {
       setPfLoading(false);
     }
@@ -350,236 +359,10 @@ function App() {
         </button>
       </div>
 
-      {mainTab === 'http' && (
-      <>
-      <section className="controls">
-        <button
-          className={`btn ${running ? "btn-stop" : "btn-start"}`}
-          onClick={startProxy}
-          disabled={running}
-        >
-          {running ? "Running..." : "Start Proxy"}
-        </button>
-
-        <div className="status">
-          Status: <span className={running ? "status-running" : "status-stopped"}>
-            {running ? `Listening on port 8080` : "Stopped"}
-          </span>
-        </div>
-      </section>
-
-      <section className="setup-panel">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0 }}>Transparent Proxy Setup</h2>
-        </div>
-        {networkInfo ? (
-          <div className="network-info">
-            <p className="lan-ip">
-              <strong>PC LAN IP:</strong> <span className="ip-address">{networkInfo.lan_ip}</span>
-            </p>
-            <p className="interface-name">
-              <strong>Interface:</strong> {networkInfo.interface}
-            </p>
-          </div>
-        ) : (
-          <p className="network-loading">Detecting network interface...</p>
-        )}
-
-        <div className="setup-buttons">
-          {!pfEnabled ? (
-            <button
-              className="btn btn-enable"
-              onClick={enableTransparentProxy}
-              disabled={!networkInfo || pfLoading}
-            >
-              {pfLoading ? "Enabling..." : "Enable Transparent Proxy"}
-            </button>
-          ) : (
-            <button
-              className="btn btn-disable"
-              onClick={disableTransparentProxy}
-              disabled={pfLoading}
-            >
-              {pfLoading ? "Disabling..." : "Disable Transparent Proxy"}
-            </button>
-          )}
-        </div>
-
-        {pfStatus && (
-          <p className={`pf-status ${pfEnabled ? "status-active" : "status-inactive"}`}>
-            {pfStatus}
-          </p>
-        )}
-
-        <div className="dns-status">
-          <span className="dns-label">DNS Server:</span>
-          <span className={`dns-indicator ${pfEnabled ? "dns-running" : "dns-stopped"}`}>
-            {pfEnabled ? "Listening on UDP 5300" : "Not running"}
-          </span>
-        </div>
-
-        <div className="setup-instructions">
-          <h3>Instructions</h3>
-          <ol>
-            <li>Enable transparent proxy above</li>
-            <li>On your phone, go to Wi-Fi settings</li>
-            <li>Set the HTTP proxy to this computer's IP ({networkInfo?.lan_ip || "..."})</li>
-            <li>Set proxy port to 8080</li>
-            <li>For HTTPS interception, install the ProxyBot CA certificate on your phone</li>
-          </ol>
-          <p className="note">
-            <strong>Note:</strong> For transparent proxy mode (no proxy configuration on phone),
-            enable the transparent proxy above. This requires administrator privileges.
-          </p>
-        </div>
-      </section>
-
-      <section className="ca-guide">
-        <h2>CA Certificate</h2>
-        <p className="ca-path">{caCertPath}</p>
-        <div className="ca-guide-tabs">
-          <button
-            className={`ca-tab-btn ${caGuideTab === "ios" ? "ca-tab-active" : ""}`}
-            onClick={() => setCaGuideTab("ios")}
-          >
-            iOS
-          </button>
-          <button
-            className={`ca-tab-btn ${caGuideTab === "android" ? "ca-tab-active" : ""}`}
-            onClick={() => setCaGuideTab("android")}
-          >
-            Android
-          </button>
-        </div>
-        {caGuideTab === "ios" ? (
-          <ol className="ca-steps">
-            <li>Tap "Download CA Certificate" below to open the certificate in Safari</li>
-            <li>iOS will prompt "A profile was downloaded from..." — tap Allow</li>
-            <li>Go to Settings → General → VPN and Device Management → Install the profile</li>
-            <li>Go to Settings → General → About → Certificate Trust Settings → Enable full trust for ProxyBot CA</li>
-          </ol>
-        ) : (
-          <ol className="ca-steps">
-            <li>Tap "Download CA Certificate" below and open the downloaded <code>ca.crt</code> file</li>
-            <li>Enter your lock screen PIN when prompted — the certificate will be installed</li>
-            <li>For Android 7+: Some apps don't trust user CAs by default; you may need to use ADB or enable "Install unknown apps" for your browser</li>
-          </ol>
-        )}
-        <button className="btn-download-ca" onClick={downloadCaCert}>
-          Download CA Certificate
-        </button>
-      </section>
-
-      <section className="setup-panel">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ margin: 0 }}>Transparent Proxy Setup</h2>
-          <button className="btn-clear" onClick={toggleTheme} style={{ padding: '6px 12px', fontSize: '12px' }}>
-            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-          </button>
-        </div>
-        {networkInfo ? (
-          <div className="network-info">
-            <p className="lan-ip">
-              <strong>PC LAN IP:</strong> <span className="ip-address">{networkInfo.lan_ip}</span>
-            </p>
-            <p className="interface-name">
-              <strong>Interface:</strong> {networkInfo.interface}
-            </p>
-          </div>
-        ) : (
-          <p className="network-loading">Detecting network interface...</p>
-        )}
-
-        <div className="setup-buttons">
-          {!pfEnabled ? (
-            <button
-              className="btn btn-enable"
-              onClick={enableTransparentProxy}
-              disabled={!networkInfo || pfLoading}
-            >
-              {pfLoading ? "Enabling..." : "Enable Transparent Proxy"}
-            </button>
-          ) : (
-            <button
-              className="btn btn-disable"
-              onClick={disableTransparentProxy}
-              disabled={pfLoading}
-            >
-              {pfLoading ? "Disabling..." : "Disable Transparent Proxy"}
-            </button>
-          )}
-        </div>
-
-        {pfStatus && (
-          <p className={`pf-status ${pfEnabled ? "status-active" : "status-inactive"}`}>
-            {pfStatus}
-          </p>
-        )}
-
-        <div className="dns-status">
-          <span className="dns-label">DNS Server:</span>
-          <span className={`dns-indicator ${pfEnabled ? "dns-running" : "dns-stopped"}`}>
-            {pfEnabled ? "Listening on UDP 5300" : "Not running"}
-          </span>
-        </div>
-
-        <div className="setup-instructions">
-          <h3>Instructions</h3>
-          <ol>
-            <li>Enable transparent proxy above</li>
-            <li>On your phone, go to Wi-Fi settings</li>
-            <li>Set the HTTP proxy to this computer's IP ({networkInfo?.lan_ip || "..."})</li>
-            <li>Set proxy port to 8080</li>
-            <li>For HTTPS interception, install the ProxyBot CA certificate on your phone</li>
-          </ol>
-          <p className="note">
-            <strong>Note:</strong> For transparent proxy mode (no proxy configuration on phone),
-            enable the transparent proxy above. This requires administrator privileges.
-          </p>
-        </div>
-      </section>
-
-      <section className="ca-guide">
-        <h2>CA Certificate</h2>
-        <p className="ca-path">{caCertPath}</p>
-        <div className="ca-guide-tabs">
-          <button
-            className={`ca-tab-btn ${caGuideTab === "ios" ? "ca-tab-active" : ""}`}
-            onClick={() => setCaGuideTab("ios")}
-          >
-            iOS
-          </button>
-          <button
-            className={`ca-tab-btn ${caGuideTab === "android" ? "ca-tab-active" : ""}`}
-            onClick={() => setCaGuideTab("android")}
-          >
-            Android
-          </button>
-        </div>
-        {caGuideTab === "ios" ? (
-          <ol className="ca-steps">
-            <li>Tap "Download CA Certificate" below to open the certificate in Safari</li>
-            <li>iOS will prompt "A profile was downloaded from..." — tap Allow</li>
-            <li>Go to Settings → General → VPN and Device Management → Install the profile</li>
-            <li>Go to Settings → General → About → Certificate Trust Settings → Enable full trust for ProxyBot CA</li>
-          </ol>
-        ) : (
-          <ol className="ca-steps">
-            <li>Tap "Download CA Certificate" below and open the downloaded <code>ca.crt</code> file</li>
-            <li>Enter your lock screen PIN when prompted — the certificate will be installed</li>
-            <li>For Android 7+: Some apps don't trust user CAs by default; you may need to use ADB or enable "Install unknown apps" for your browser</li>
-          </ol>
-        )}
-        <button className="btn-download-ca" onClick={downloadCaCert}>
-          Download CA Certificate
-        </button>
-      </section>
-
-      {error && (
-        <div className="error">{error}</div>
-      )}
-
-      <section className="requests">
+                  {mainTab === 'http' && (
+        <>
+        {error && <div className="error">{error}</div>}
+        <section className="requests">
         <h2>Intercepted Requests ({filterRequests(requests).length})</h2>
         <div className="filter-bar">
           <button className="btn-export" onClick={exportHar}>
@@ -685,7 +468,7 @@ function App() {
           )}
         </div>
       </section>
-      </>
+        </>
       )}
 
       {selectedRequest && (
@@ -925,6 +708,21 @@ function App() {
               <button className="detail-close" onClick={() => setShowSettings(false)}>×</button>
             </div>
             <div className="detail-content">
+              <div className="settings-section">
+                <h4>🚀 代理服务</h4>
+                <div className="settings-row">
+                  <span>Status:</span>
+                  <span className={running ? "status-running" : "status-stopped"}>
+                    {running ? `Listening on port 8080` : "Stopped"}
+                  </span>
+                </div>
+                {!running ? (
+                  <button className="btn btn-start" onClick={startProxy}>Start Proxy</button>
+                ) : (
+                  <button className="btn btn-stop" onClick={stopProxy}>Stop Proxy</button>
+                )}
+              </div>
+
               <div className="settings-section">
                 <h4>🔐 透明代理</h4>
                 <div className="settings-row">
