@@ -1,5 +1,41 @@
 # ProxyBot — Build Log
 
+## Step 6 — 请求详情面板 ✅ (完成)
+**日期:** 2026-04-15
+**状态:** 构建完成，cargo check 0 errors
+
+### 完成内容
+- `proxy.rs`:
+  - `InterceptedRequest` 新增字段：`request_headers`, `response_headers`, `response_body`, `request_body`
+  - `format_headers()` 函数：将 headers vec 格式化为 "Header-Name: value\r\n..." 字符串
+  - `decode_body()` 函数：UTF-8 解码，失败返回 `[Binary N bytes]`，body 限制 10KB
+  - `parse_response_headers()` 函数：解析 HTTP response headers
+  - `extract_response_body()` 函数：从 HTTP response 提取 body bytes
+  - `store_request()` 函数：将请求存入全局 DashMap
+  - `get_request_detail(id)` Tauri command：按 ID 查找完整请求
+  - `handle_http`：捕获 request_headers, response_headers, response_body
+  - `handle_https_connect`：捕获 request_headers, response_headers, response_body
+- `Cargo.toml` 新增：`dashmap = "5"`
+- `lib.rs`：注册 `get_request_detail` command
+- `App.tsx`:
+  - `InterceptedRequest` 接口新增字段
+  - `selectedRequest` state，`detailTab` state
+  - 请求表行点击高亮 (`row-selected`)
+  - 右侧详情面板：3 tabs (General / Headers / Body)
+  - 点击 overlay 或 X 按钮关闭面板
+- `App.css`：详情面板样式 (40% 宽度，overlay backdrop)
+
+### 依赖变更
+- 新增 `dashmap = "5"` crate
+
+### 验收标准
+1. 点请求 → 详情面板弹出，右侧展示
+2. Headers Tab 有完整的 Req + Resp headers
+3. Body Tab 有 Response Body（10KB 内）
+4. 点 X 或空白 → 面板关闭
+
+---
+
 ## Step 5 — WSS (WebSocket over HTTPS) 拦截 ✅ (完成)
 **日期:** 2026-04-15
 **状态:** 构建完成，cargo check 0 errors, npm run build 成功

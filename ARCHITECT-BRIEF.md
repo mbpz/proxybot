@@ -1,90 +1,85 @@
 # Architect Brief — ProxyBot
 
-## Step 5 — WSS (WebSocket over HTTPS) 拦截
+## Step 5 — WSS (WebSocket over HTTPS) 拦截 ✅ (完成)
 
-目标：拦截微信/抖音的 WebSocket 长连接请求，分类并展示在 UI 中。
+---
 
-### 背景
+## Step 6 — 请求详情面板
 
-微信和抖音大量使用 WebSocket（wss://）进行实时通信：
-- 微信：消息推送、心跳、实时状态
-- 抖音：直播评论、互动、推送
-- 传统 MITM 代理只能拦截 HTTP CONNECT 隧道里的 HTTP 请求，WebSocket 在 TLS 层之上直接升级为 WebSocket 帧流，现有代理逻辑未处理
+目标：点击任意 HTTP 请求，弹出详情面板查看请求 Header / Response Body / 时间线。
 
 ### Rust 后端修改
 
-**1. WebSocket 检测（proxy.rs）**
-
-在 HTTPS CONNECT 隧道建立后，检测 HTTP Upgrade 请求头：
-```
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Key: ...
-```
-
-检测到后：
-1. 复用现有的 TLS 连接（不关闭）
-2. 完成 WebSocket 握手（101 Switching Protocols）
-3. 替换 `handle_https_connect` 中的盲转发为 `tokio-tungstenite` 的 WebSocket 帧中继
-4. 中继过程中：解析 WebSocket 帧（Text/Binary），记录消息内容 + 时间戳
-5. 对每条消息调用 `classify_host()` 分类（用 WebSocket 握手时的 Host 头）
-6. 通过 Tauri event `intercepted-wss` 推送消息到前端
-7. 支持双向中继：client → server 和 server → client 都要记录
-
-**2. 新增 Tauri event**
+**1. 扩展 InterceptedRequest**
 
 ```rust
-struct WssMessage {
+struct InterceptedRequest {
     pub id: String,
-    pub timestamp: String,    // "HH:MM:SS.mmm"
+    pub timestamp: String,
+    pub method: String,
     pub host: String,
-    pub direction: String,    // "↑" (send) 或 "↓" (recv)
-    pub size: usize,         // bytes
-    pub content: String,      // Text 帧内容，Binary 帧显示 "[Binary N bytes]"
+    pub path: String,
+    pub status: u16,
+    pub latency_ms: u64,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
+    pub request_headers: Option<String>,    // "Header-Name: value\r\n..."
+    pub response_headers: Option<String>,
+    pub response_body: Option<String>,       // 最多 10KB，超出截断
+    pub request_body: Option<String>,
 }
 ```
 
-Event name: `"intercepted-wss"`
+**2. Response Body 读取**
 
-**3. WebSocket 握手处理**
+在 `handle_http` 里，读上游响应时：
+1. 解析 HTTP Status Line 和 Headers
+2. 读 body 到 buffer（最多 10KB）
+3. UTF-8 解码：成功存 `response_body`，失败存 `[Binary N bytes]`
+
+**3. Request Header 读取**
+
+读客户端请求时：
+1. 解析 Request Line + Headers
+2. 存 `request_headers`
+
+**4. Tauri Command**
 
 ```rust
-// 在 TLS 隧道握手完成后，读取 HTTP Upgrade 请求
-// 如果是 WebSocket 升级：
-//   1. 读取 Sec-WebSocket-Key，构造 Sec-WebSocket-Accept
-//   2. 发送 101 Switching Protocols 响应
-//   3. 把 TCP 连接升级为 WebSocket 帧处理
-//   4. 用 tokio-tungstenite 的 ws_util::util::derive_server_key 计算 accept key
+#[tauri::command]
+pub fn get_request_detail(id: String) -> Option<InterceptedRequest>;
 ```
 
-**4. 帧解析**
+前端按 ID 查找并返回完整信息。
 
-```rust
-// 使用 tokio-tungstenite::ws_util::frame::Frame 解析
-// opcode: 0x1 = Text, 0x2 = Binary, 0x8 = Close, 0x9 = Ping, 0xA = Pong
-// 只记录 Text/Binary 帧内容和方向
-// Close 帧：记录后断开连接
-// Ping/Pong：透传，不单独记录
-```
+### UI 修改（App.tsx）
 
-### UI 新增
+**1. 请求列表点击**
 
-- 请求列表增加 **WSS** Tab（与 HTTP 请求列表并列）
-- WSS Tab 展示消息流：时间 | 方向 | Host | App | 内容预览
-- 点击消息展开详情（完整 Text 内容 或 Binary 十六进制）
-- WSS 连接按 Host 分组（同一个 Host 的请求在一起）
+- 选中行高亮（`bg-blue-100 dark:bg-blue-900`）
+- 右侧滑出详情面板
+
+**2. 详情面板布局（右侧 40%）**
+
+三个 Tab：
+- **General**: Method, URL, Status, Latency, App, Time
+- **Headers**: Request Headers (key-value) + Response Headers (key-value)
+- **Body**: Request Body + Response Body，超长截断显示
+
+**3. 关闭**
+
+点空白区域或 X 按钮关闭面板。
 
 ### 不做
 
-- WebSocket 帧修改/注入（只记录，不篡改内容）
-- WSS 消息持久化（Step 6 持久化历史再做）
-- 浏览器开发者工具风格的全帧调试面板
+- 流式响应实时展示
+- 请求重放
+- Binary body hex dump
+- WebSocket 帧详情
 
 ### 验收标准
 
-1. 手机打开微信（iOS），ProxyBot WSS Tab 出现 WebSocket 消息
-2. 手机打开抖音，WSS Tab 出现抖音 WebSocket 消息（需手机安装并信任 CA）
-3. WSS 消息按 App 分类（WeChat/Douyin）
-4. HTTP 请求列表和 WSS 消息列表分离，互不干扰
+1. 点请求 → 详情面板弹出，右侧展示
+2. Headers Tab 有完整的 Req + Resp headers
+3. Body Tab 有 Response Body（10KB 内）
+4. 点 X 或空白 → 面板关闭

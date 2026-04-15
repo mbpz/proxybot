@@ -14,6 +14,10 @@ interface InterceptedRequest {
   scheme: string;
   app_name?: string;
   app_icon?: string;
+  request_headers?: string;
+  response_headers?: string;
+  response_body?: string;
+  request_body?: string;
 }
 
 interface WssMessage {
@@ -52,6 +56,8 @@ function App() {
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
   const [wssMessages, setWssMessages] = useState<WssMessage[]>([]);
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
+  const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
+  const [detailTab, setDetailTab] = useState<"general" | "headers" | "body">("general");
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -279,7 +285,11 @@ function App() {
                     return req.app_name === selectedTab;
                   })
                   .map((req) => (
-                    <tr key={req.id}>
+                    <tr
+                      key={req.id}
+                      className={selectedRequest?.id === req.id ? "row-selected" : ""}
+                      onClick={() => setSelectedRequest(req)}
+                    >
                       <td className="app-cell">
                         {req.app_icon ? `${req.app_icon} ${req.app_name}` : "-"}
                       </td>
@@ -298,6 +308,99 @@ function App() {
           )}
         </div>
       </section>
+
+      {selectedRequest && (
+        <div className="detail-panel-overlay" onClick={() => setSelectedRequest(null)}>
+          <div className="detail-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="detail-header">
+              <h3>Request Details</h3>
+              <button className="detail-close" onClick={() => setSelectedRequest(null)}>×</button>
+            </div>
+            <div className="detail-tabs">
+              <button
+                className={`detail-tab ${detailTab === "general" ? "tab-active" : ""}`}
+                onClick={() => setDetailTab("general")}
+              >
+                General
+              </button>
+              <button
+                className={`detail-tab ${detailTab === "headers" ? "tab-active" : ""}`}
+                onClick={() => setDetailTab("headers")}
+              >
+                Headers
+              </button>
+              <button
+                className={`detail-tab ${detailTab === "body" ? "tab-active" : ""}`}
+                onClick={() => setDetailTab("body")}
+              >
+                Body
+              </button>
+            </div>
+            <div className="detail-content">
+              {detailTab === "general" && (
+                <div className="detail-general">
+                  <div className="detail-row">
+                    <span className="detail-label">Method:</span>
+                    <span className="detail-value">{selectedRequest.method}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">URL:</span>
+                    <span className="detail-value">{selectedRequest.scheme}://{selectedRequest.host}{selectedRequest.path}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Status:</span>
+                    <span className="detail-value">{selectedRequest.status || "-"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Latency:</span>
+                    <span className="detail-value">{selectedRequest.latency_ms ? `${selectedRequest.latency_ms}ms` : "-"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">App:</span>
+                    <span className="detail-value">{selectedRequest.app_name || "Unknown"}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Time:</span>
+                    <span className="detail-value">{formatTimestamp(selectedRequest.timestamp)}</span>
+                  </div>
+                </div>
+              )}
+              {detailTab === "headers" && (
+                <div className="detail-headers">
+                  <div className="detail-section">
+                    <h4>Request Headers</h4>
+                    <pre className="detail-pre">
+                      {selectedRequest.request_headers || "(no headers)"}
+                    </pre>
+                  </div>
+                  <div className="detail-section">
+                    <h4>Response Headers</h4>
+                    <pre className="detail-pre">
+                      {selectedRequest.response_headers || "(no headers)"}
+                    </pre>
+                  </div>
+                </div>
+              )}
+              {detailTab === "body" && (
+                <div className="detail-body">
+                  <div className="detail-section">
+                    <h4>Request Body</h4>
+                    <pre className="detail-pre">
+                      {selectedRequest.request_body || "(no body)"}
+                    </pre>
+                  </div>
+                  <div className="detail-section">
+                    <h4>Response Body</h4>
+                    <pre className="detail-pre">
+                      {selectedRequest.response_body || "(no body)"}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="wss-messages">
         <h2>WSS Messages ({wssMessages.length})</h2>

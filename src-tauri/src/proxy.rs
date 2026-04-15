@@ -27,10 +27,19 @@ use sha1::Digest;
 use base64::Engine;
 use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 use futures_util::{SinkExt, StreamExt};
+use dashmap::DashMap;
+use std::sync::LazyLock;
 
 const PROXY_PORT: u16 = 8080;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Global store for intercepted requests, keyed by request ID.
+static REQUEST_STORE: LazyLock<DashMap<String, InterceptedRequest>, fn() -> DashMap<String, InterceptedRequest>> =
+    LazyLock::new(|| DashMap::new());
+
+/// Maximum response body size to store (10KB).
+const MAX_BODY_SIZE: usize = 10 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 pub struct InterceptedRequest {
@@ -44,6 +53,10 @@ pub struct InterceptedRequest {
     pub scheme: String,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
+    pub request_headers: Option<String>,
+    pub response_headers: Option<String>,
+    pub response_body: Option<String>,
+    pub request_body: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -123,6 +136,68 @@ fn generate_request_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|dur| format!("req-{}", dur.as_nanos()))
         .unwrap_or_else(|_| format!("req-{}", std::time::Instant::now().elapsed().as_nanos()))
+}
+
+/// Format headers as "Header-Name: value\r\n..." string.
+fn format_headers(headers: &[(String, String)]) -> String {
+    headers
+        .iter()
+        .map(|(k, v)| format!("{}: {}", k, v))
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+/// Decode body bytes to UTF-8 string, fallback to binary marker if invalid.
+fn decode_body(body: &[u8]) -> String {
+    let body = if body.len() > MAX_BODY_SIZE {
+        &body[..MAX_BODY_SIZE]
+    } else {
+        body
+    };
+    match String::from_utf8(body.to_vec()) {
+        Ok(s) => s,
+        Err(_) => format!("[Binary {} bytes]", body.len()),
+    }
+}
+
+/// Parse HTTP response headers from raw response data.
+fn parse_response_headers(data: &[u8]) -> Option<String> {
+    let header_end = data.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let header_slice = &data[..header_end];
+    let mut headers = Vec::new();
+    for line in header_slice.split(|&b| b == b'\n') {
+        let line_trimmed = if line.ends_with(b"\r") {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if line_trimmed.is_empty() {
+            continue;
+        }
+        if let Some(colon_pos) = line_trimmed.iter().position(|&b| b == b':') {
+            let name_bytes = &line_trimmed[..colon_pos];
+            let value_bytes = &line_trimmed[colon_pos + 1..];
+            let name = String::from_utf8_lossy(name_bytes).trim().to_string();
+            let value = String::from_utf8_lossy(value_bytes).trim().to_string();
+            headers.push((name, value));
+        }
+    }
+    Some(format_headers(&headers))
+}
+
+/// Extract response body from raw HTTP response data.
+fn extract_response_body(data: &[u8]) -> Option<Vec<u8>> {
+    let header_end = data.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let body_start = header_end + 4;
+    if body_start >= data.len() {
+        return Some(Vec::new());
+    }
+    Some(data[body_start..].to_vec())
+}
+
+/// Store an intercepted request in the global store.
+fn store_request(req: InterceptedRequest) {
+    REQUEST_STORE.insert(req.id.clone(), req);
 }
 
 fn parse_host_port(s: &str) -> Option<(&str, u16)> {
@@ -959,6 +1034,12 @@ async fn handle_https_connect(
 
     let status = parse_response_status(&response_data);
     let request_id = generate_request_id();
+    let response_headers = parse_response_headers(&response_data);
+    let response_body = extract_response_body(&response_data).map(|b| decode_body(&b));
+
+    // Parse request headers from request_data
+    let request_headers = parse_http_request(&request_data)
+        .map(|(_, _, _, headers)| format_headers(&headers));
 
     let app_info = app_rules::classify_host(&target_host);
     let (app_name, app_icon) = app_info
@@ -966,7 +1047,7 @@ async fn handle_https_connect(
         .unwrap_or((None, None));
 
     let req = InterceptedRequest {
-        id: request_id,
+        id: request_id.clone(),
         timestamp: timestamp_now(),
         method,
         host: target_host.clone(),
@@ -976,8 +1057,13 @@ async fn handle_https_connect(
         scheme: "https".to_string(),
         app_name,
         app_icon,
+        request_headers,
+        response_headers,
+        response_body,
+        request_body: None,
     };
 
+    store_request(req.clone());
     let _ = ctx.app_handle.emit("intercepted-request", &req);
 
     log::info!(
@@ -1050,6 +1136,8 @@ async fn handle_http(
     let request_id = generate_request_id();
 
     let status = parse_response_status(&response_buf);
+    let response_headers = parse_response_headers(&response_buf);
+    let response_body = extract_response_body(&response_buf).map(|b| decode_body(&b));
 
     let app_info = app_rules::classify_host(host);
     let (app_name, app_icon) = app_info
@@ -1057,7 +1145,7 @@ async fn handle_http(
         .unwrap_or((None, None));
 
     let req = InterceptedRequest {
-        id: request_id,
+        id: request_id.clone(),
         timestamp: timestamp_now(),
         method: method.to_string(),
         host: host.to_string(),
@@ -1067,8 +1155,13 @@ async fn handle_http(
         scheme: if port == 443 { "https" } else { "http" }.to_string(),
         app_name,
         app_icon,
+        request_headers: Some(format_headers(headers)),
+        response_headers,
+        response_body,
+        request_body: if body.is_empty() { None } else { Some(decode_body(body)) },
     };
 
+    store_request(req.clone());
     let _ = ctx.app_handle.emit("intercepted-request", &req);
     Ok(())
 }
@@ -1361,4 +1454,9 @@ pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
     dns::stop_dns_server(dns_state.inner());
     // Then tear down pf
     crate::pf::teardown_pf()
+}
+
+#[tauri::command]
+pub fn get_request_detail(id: String) -> Option<InterceptedRequest> {
+    REQUEST_STORE.get(&id).map(|entry| entry.value().clone())
 }

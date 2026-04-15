@@ -34,6 +34,7 @@ pub fn run() {
             proxy::get_network_info,
             proxy::setup_pf,
             proxy::teardown_pf,
+            proxy::get_request_detail,
             dns::get_dns_log,
         ])
         .run(tauri::generate_context!())

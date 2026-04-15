@@ -34,6 +34,7 @@ tungstenite = "0.22"
 sha1 = "0.10"
 base64 = "0.22"
 futures-util = "0.3"
+dashmap = "5"
 
 [profile.release]
 strip = true

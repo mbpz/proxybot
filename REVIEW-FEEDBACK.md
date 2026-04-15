@@ -363,3 +363,57 @@ The `base64_encode` function is a hand-rolled implementation. While the RFC 6455
 ### Conclusion
 
 **Step 5 is NOT clear.** The WebSocket upgrade request is not forwarded to the upstream server, causing a protocol error. The proxy sends a 101 response to the browser without contacting the upstream server about the upgrade. This will cause WSS connections to fail or malfunction. This must be fixed before the step passes.
+
+---
+
+## Step 6 Review
+
+**Reviewer:** Richard
+**Date:** 2026-04-15
+**Ready for Builder:** YES
+
+---
+
+### Must Fix
+
+None.
+
+---
+
+### Should Fix
+
+#### 1. `proxy.rs:1460-1461` — `get_request_detail` is dead code
+
+The Tauri command `get_request_detail(id)` is implemented and registered in `lib.rs:37`, but the frontend never calls it. The detail panel uses `selectedRequest` directly from the `intercepted-request` event payload (App.tsx lines 312-394). The command retrieves from `REQUEST_STORE` which is populated correctly, but nothing consumes it.
+
+This is not a bug — the panel works because the event payload contains all fields. However, the command exists without purpose. If `REQUEST_STORE` is ever cleared (it is not currently), the panel would still show stale data from the event payload.
+
+**Recommendation:** Either wire `get_request_detail` into the panel's tab switching (call it when switching to Headers or Body tab to get the latest data), or remove it. For now, this is minor.
+
+---
+
+### Escalate to Architect
+
+None.
+
+---
+
+### Cleared
+
+1. **REQUEST_STORE thread safety (proxy.rs:38-39, 199-201, 1066-1067, 1164-1165)** — `LazyLock<DashMap<String, InterceptedRequest>>` is correctly used for global concurrent storage. `store_request(req.clone())` is called BEFORE `emit("intercepted-request", ...)` in both the HTTPS CONNECT blind relay path (line 1066) and the HTTP path (line 1164). DashMap's internal locking handles concurrent access between the Tauri main thread and tokio workers. `get_request_detail` clones on return. All correct.
+
+2. **Body capture — 10KB cap and UTF-8 fallback (proxy.rs:151-160, 189-195)** — `decode_body` truncates to `MAX_BODY_SIZE` (10 * 1024) before calling `String::from_utf8`. If UTF-8 fails, falls back to `[Binary N bytes]`. Empty body results in `None` (shown as "(no body)" in UI). In `handle_http` (line 1140), `extract_response_body` is applied before `decode_body` via `.map()`. All correct.
+
+3. **Header parsing (proxy.rs:163-186, 141-148)** — `parse_response_headers` finds `\r\n\r\n` boundary via `data.windows(4).position(...)`, splits header block by `\n`, trims trailing `\r` from each line, extracts `name: value` pairs using `String::from_utf8_lossy` for safe conversion, and calls `format_headers` to produce `"Name: value\r\n..."` format. Returns `None` if no `\r\n\r\n` found. Correct.
+
+4. **`get_request_detail` lookup (proxy.rs:1460-1461)** — Returns `REQUEST_STORE.get(&id).map(|entry| entry.value().clone())`. Correctly returns `Option<InterceptedRequest>` with a cloned copy.
+
+5. **UI detail panel — three tabs and close behavior (App.tsx:312-394, App.css:533-639)** — Detail panel renders with three tabs (General/Headers/Body), tab switching via `detailTab` state, overlay click handler `onClick={() => setSelectedRequest(null)}` closes the panel, panel `onClick={(e) => e.stopPropagation()}` prevents close when clicking inside, close button calls `setSelectedRequest(null)`. CSS: `.detail-panel-overlay` is fixed positioning with flex-end alignment (slides in from right). `.detail-tab.tab-active` uses `color: #0071e3; border-bottom-color: #0071e3`. All correct.
+
+6. **No regression in request event emission (proxy.rs:1066-1067, 1164-1165)** — In both the HTTPS CONNECT blind relay path and HTTP path, `store_request(req.clone())` is called before `ctx.app_handle.emit("intercepted-request", &req)`. The `InterceptedRequest` struct fields are all populated before storage. No existing request event emission is broken.
+
+---
+
+### Conclusion
+
+**Step 6 is clear.** All six focus areas pass. DashMap is used correctly with proper store-before-emit ordering, body capture respects the 10KB limit and UTF-8 fallback, header parsing handles the HTTP format correctly, `get_request_detail` correctly retrieves from the store, the UI panel has correct tab structure and close behavior, and no regression in existing request event emission. The `get_request_detail` command is unused by the frontend but is not causing any bug.
