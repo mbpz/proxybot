@@ -1,4 +1,7 @@
 use std::sync::Arc;
+use tauri::menu::{Menu, MenuItem};
+use tauri::Manager;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 mod app_rules;
 mod cert;
@@ -31,6 +34,46 @@ pub fn run() {
         .manage(dns_state.clone())
         .manage(proxy_state.clone())
         .manage(keep_running_state.clone())
+        .setup(|app| {
+            let show_item = MenuItem::with_id(app, "show", "Show ProxyBot", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .tooltip("ProxyBot")
+                .build(app)?;
+
+            let app_handle = app.handle().clone();
+            tray.on_menu_event(move |_app, event| {
+                match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app_handle.exit(0);
+                    }
+                    _ => {}
+                }
+            });
+
+            let app_handle2 = app.handle().clone();
+            tray.on_tray_icon_event(move |_tray, event| {
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                    if let Some(window) = app_handle2.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            });
+
+            let _ = tray;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
             proxy::stop_proxy,

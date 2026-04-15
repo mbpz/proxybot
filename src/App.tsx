@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
 interface InterceptedRequest {
@@ -85,14 +86,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    const window = getCurrentWindow();
+    const unlisten = window.onCloseRequested(async (event) => {
       if (keepRunning) {
-        e.preventDefault();
-        invoke("hide_window").catch(console.error);
+        event.preventDefault();
+        await invoke("hide_window");
       }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    });
+    return () => { unlisten.then(fn => fn()); };
   }, [keepRunning]);
 
   useEffect(() => {
@@ -347,6 +348,13 @@ function App() {
         </div>
       </header>
 
+      {error && (
+        <div className="error global-notice">
+          <span>{error}</span>
+          <button onClick={() => setError("")}>×</button>
+        </div>
+      )}
+
       <div className="top-tabs">
         <button className={mainTab === 'http' ? 'active' : ''} onClick={() => setMainTab('http')}>
           HTTP Requests ({requests.length})
@@ -361,7 +369,6 @@ function App() {
 
                   {mainTab === 'http' && (
         <>
-        {error && <div className="error">{error}</div>}
         <section className="requests">
         <h2>Intercepted Requests ({filterRequests(requests).length})</h2>
         <div className="filter-bar">
