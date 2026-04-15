@@ -58,6 +58,10 @@ function App() {
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
   const [detailTab, setDetailTab] = useState<"general" | "headers" | "body">("general");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [methodFilter, setMethodFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [appFilter, setAppFilter] = useState("ALL");
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -147,6 +151,45 @@ function App() {
     } catch {
       return ts;
     }
+  };
+
+  const matchesStatusGroup = (status: number | null, group: string): boolean => {
+    if (group === "ALL" || !status) return true;
+    if (group === "2xx") return status >= 200 && status < 300;
+    if (group === "3xx") return status >= 300 && status < 400;
+    if (group === "4xx") return status >= 400 && status < 500;
+    if (group === "5xx") return status >= 500;
+    return status === parseInt(group);
+  };
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setMethodFilter("ALL");
+    setStatusFilter("ALL");
+    setAppFilter("ALL");
+  };
+
+  const filterRequests = (reqs: InterceptedRequest[]) => {
+    return reqs.filter((req) => {
+      // Tab filter (app tabs)
+      if (selectedTab === "all") return true;
+      if (selectedTab === "Unknown") return !req.app_name;
+      if (req.app_name !== selectedTab) return false;
+
+      // Filter bar filters
+      const search = searchQuery.toLowerCase();
+      const matchSearch =
+        !search ||
+        req.host.toLowerCase().includes(search) ||
+        req.path.toLowerCase().includes(search) ||
+        req.method.toLowerCase().includes(search.toUpperCase());
+
+      const matchMethod = methodFilter === "ALL" || req.method === methodFilter;
+      const matchStatus = matchesStatusGroup(req.status, statusFilter);
+      const matchApp = appFilter === "ALL" || req.app_name === appFilter;
+
+      return matchSearch && matchMethod && matchStatus && matchApp;
+    });
   };
 
   return (
@@ -249,7 +292,7 @@ function App() {
       )}
 
       <section className="requests">
-        <h2>Intercepted Requests ({requests.length})</h2>
+        <h2>Intercepted Requests ({filterRequests(requests).length})</h2>
         <div className="app-tabs">
           {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
             <button
@@ -261,9 +304,55 @@ function App() {
             </button>
           ))}
         </div>
+        <div className="filter-bar">
+          <input
+            type="text"
+            className="filter-search"
+            placeholder="Search host, path, method..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <select
+            className="filter-select"
+            value={methodFilter}
+            onChange={(e) => setMethodFilter(e.target.value)}
+          >
+            <option value="ALL">All Methods</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="WebSocket">WS</option>
+          </select>
+          <select
+            className="filter-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="ALL">All Status</option>
+            <option value="2xx">2xx</option>
+            <option value="3xx">3xx</option>
+            <option value="4xx">4xx</option>
+            <option value="5xx">5xx</option>
+          </select>
+          <select
+            className="filter-select"
+            value={appFilter}
+            onChange={(e) => setAppFilter(e.target.value)}
+          >
+            <option value="ALL">All Apps</option>
+            <option value="WeChat">WeChat</option>
+            <option value="Douyin">Douyin</option>
+            <option value="Alipay">Alipay</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+          <button className="btn-clear" onClick={clearFilters}>
+            Clear
+          </button>
+        </div>
         <div className="requests-list">
-          {requests.length === 0 ? (
-            <p className="no-requests">No requests yet. Configure your browser or device to use ProxyBot as the proxy.</p>
+          {filterRequests(requests).length === 0 ? (
+            <p className="no-requests">No requests match the current filters.</p>
           ) : (
             <table className="requests-table">
               <thead>
@@ -278,13 +367,7 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {requests
-                  .filter((req) => {
-                    if (selectedTab === "all") return true;
-                    if (selectedTab === "Unknown") return !req.app_name;
-                    return req.app_name === selectedTab;
-                  })
-                  .map((req) => (
+                {filterRequests(requests).map((req) => (
                     <tr
                       key={req.id}
                       className={selectedRequest?.id === req.id ? "row-selected" : ""}
