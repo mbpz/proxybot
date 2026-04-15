@@ -960,6 +960,118 @@
   background: #e8f0fe !important;
 }
 
+/* WSS Messages */
+.wss-messages {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.wss-messages h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1d1d1f;
+  text-align: left;
+}
+
+.no-wss-messages {
+  color: #86868b;
+  padding: 40px;
+  text-align: center;
+}
+
+.wss-messages-list {
+  overflow-x: auto;
+}
+
+.wss-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wss-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #f5f5f7;
+  color: #515154;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.wss-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.wss-table tbody tr {
+  cursor: pointer;
+}
+
+.wss-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.wss-table tbody tr.row-selected {
+  background: #e8f0fe !important;
+}
+
+.direction-up {
+  color: #34c759;
+  font-weight: 600;
+}
+
+.direction-down {
+  color: #0071e3;
+  font-weight: 600;
+}
+
+.size {
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  font-size: 12px;
+  color: #86868b;
+}
+
+.content-preview {
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  font-size: 12px;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  font-weight: 500;
+  color: #515154;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  background: #f5f5f7;
+}
+
+.tab-btn.tab-active {
+  background: #0071e3;
+  border-color: #0071e3;
+  color: white;
+}
+
 @media (prefers-color-scheme: dark) {
   .detail-panel {
     background: #2c2c2e;
@@ -1019,5 +1131,50 @@
 
   .requests-table tbody tr.row-selected {
     background: #1a3a5c !important;
+  }
+
+  .wss-messages {
+    background: #2c2c2e;
+  }
+
+  .wss-messages h2 {
+    color: #f5f5f7;
+  }
+
+  .wss-table th {
+    background: #3a3a3c;
+    color: #f5f5f7;
+  }
+
+  .wss-table td {
+    border-bottom-color: #3a3a3c;
+  }
+
+  .wss-table tbody tr:hover {
+    background: #3a3a3c;
+  }
+
+  .wss-table tbody tr.row-selected {
+    background: #1a3a5c !important;
+  }
+
+  .no-wss-messages {
+    color: #a1a1a6;
+  }
+
+  .tab-btn {
+    background: #1d1d1f;
+    border-color: #3a3a3c;
+    color: #a1a1a6;
+  }
+
+  .tab-btn:hover {
+    background: #3a3a3c;
+  }
+
+  .tab-btn.tab-active {
+    background: #0a84ff;
+    border-color: #0a84ff;
+    color: white;
   }
 }

@@ -57,6 +57,7 @@ function App() {
   const [wssMessages, setWssMessages] = useState<WssMessage[]>([]);
   const [selectedWssTab, setSelectedWssTab] = useState<AppTab>("all");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
+  const [selectedWssMsg, setSelectedWssMsg] = useState<WssMessage | null>(null);
   const [detailTab, setDetailTab] = useState<"general" | "headers" | "body">("general");
   const [caGuideTab, setCaGuideTab] = useState<"ios" | "android">("ios");
   const [searchQuery, setSearchQuery] = useState("");
@@ -159,6 +160,22 @@ function App() {
     } catch {
       return ts;
     }
+  };
+
+  const isBinaryContent = (content: string): boolean => {
+    // Null byte or high proportion of non-printable control chars (excluding \n\r\t) indicates binary
+    if (content.includes("\0")) return true;
+    const nonPrintable = content.split("").filter((c) => {
+      const code = c.charCodeAt(0);
+      return code < 32 && code !== 9 && code !== 10 && code !== 13;
+    }).length;
+    return content.length > 0 && nonPrintable / content.length > 0.3;
+  };
+
+  const getWssDirectionLabel = (dir: string) => {
+    if (dir === "up") return "↑ Sent";
+    if (dir === "down") return "↓ Received";
+    return dir;
   };
 
   const matchesStatusGroup = (status: number | null, group: string): boolean => {
@@ -574,6 +591,51 @@ function App() {
         </div>
       )}
 
+      {selectedWssMsg && (
+        <div className="detail-panel-overlay" onClick={() => setSelectedWssMsg(null)}>
+          <div className="detail-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="detail-header">
+              <h3>WSS Frame Details</h3>
+              <button className="detail-close" onClick={() => setSelectedWssMsg(null)}>×</button>
+            </div>
+            <div className="detail-content">
+              <div className="detail-general">
+                <div className="detail-row">
+                  <span className="detail-label">Direction:</span>
+                  <span className="detail-value">{getWssDirectionLabel(selectedWssMsg.direction)}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Host:</span>
+                  <span className="detail-value">{selectedWssMsg.host}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Size:</span>
+                  <span className="detail-value">{selectedWssMsg.size} bytes</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">App:</span>
+                  <span className="detail-value">
+                    {selectedWssMsg.app_icon ? `${selectedWssMsg.app_icon} ` : ""}{selectedWssMsg.app_name || "Unknown"}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Time:</span>
+                  <span className="detail-value">{formatTimestamp(selectedWssMsg.timestamp)}</span>
+                </div>
+              </div>
+              <div className="detail-section">
+                <h4>Content</h4>
+                {isBinaryContent(selectedWssMsg.content) ? (
+                  <pre className="detail-pre">[Binary {selectedWssMsg.size} bytes — not displayed as text]</pre>
+                ) : (
+                  <pre className="detail-pre">{selectedWssMsg.content}</pre>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <section className="wss-messages">
         <h2>WSS Messages ({wssMessages.length})</h2>
         <div className="app-tabs">
@@ -610,7 +672,11 @@ function App() {
                     return msg.app_name === selectedWssTab;
                   })
                   .map((msg) => (
-                    <tr key={msg.id}>
+                    <tr
+                      key={msg.id}
+                      className={`wss-row ${msg.direction} ${selectedWssMsg?.id === msg.id ? "row-selected" : ""}`}
+                      onClick={() => setSelectedWssMsg(msg)}
+                    >
                       <td className="app-cell">
                         {msg.app_icon ? `${msg.app_icon} ${msg.app_name}` : "-"}
                       </td>

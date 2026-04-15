@@ -1,157 +1,79 @@
 # Architect Brief — ProxyBot
 
-## Step 10 — CA 安装指引 UI ✅ (完成)
+## Step 11 — 持久化历史 ✅ (完成)
 
 ---
 
-## Step 11 — 持久化历史
+## Step 12 — WSS 详情面板
 
-目标：请求记录保存到本地文件，重启 App 后历史记录仍在。
+目标：点 WSS 消息条目，弹出详情查看完整帧内容（Text 帧全文）。
 
-### 方案选择
+### UI 实现
 
-直接用 `serde_json` 读写 JSON 文件，不引入额外数据库依赖。
+**1. WSS 消息列表已有字段**
 
-### 存储位置
+WSS Tab 当前显示：Time | Direction | Host | Size | Content Preview
 
-`~/.proxybot/history.json`
+Content Preview 只显示前 20-30 字符。
 
-格式：
-```json
-{
-  "version": 1,
-  "last_updated": "2026-04-15T10:23:00Z",
-  "requests": [
-    {
-      "id": "req_001",
-      "timestamp": "2026-04-15T10:23:00.123Z",
-      "method": "GET",
-      "host": "httpbin.org",
-      "path": "/get",
-      "status": 200,
-      "latency_ms": 1281,
-      "app_name": null,
-      "app_icon": null,
-      "request_headers": "...",
-      "response_headers": "...",
-      "response_body": "...",
-      "request_body": null
-    }
-  ]
-}
-```
-
-### Rust 实现
-
-**1. 新文件 `src-tauri/src/history.rs`**
-
-```rust
-use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
-
-const HISTORY_FILE: &str = "history.json";
-const MAX_STORED: usize = 1000;  // 最多保留 1000 条
-
-pub struct HistoryStore {
-    path: PathBuf,
-}
-
-impl HistoryStore {
-    pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let dir = PathBuf::from(home).join(".proxybot");
-        std::fs::create_dir_all(&dir).ok();
-        Self { path: dir.join(HISTORY_FILE) }
-    }
-
-    pub fn load(&self) -> Vec<InterceptedRequest> {
-        let file = File::open(&self.path).ok()?;
-        let reader = BufReader::new(file);
-        let data: serde_json::Value = serde_json::from_reader(reader).ok()?;
-        data.get("requests")?.as_array()?
-            .iter()
-            .filter_map(|v| serde_json::from_value(v.clone()).ok())
-            .collect()
-    }
-
-    pub fn save(&self, requests: &[InterceptedRequest]) -> Result<(), String> {
-        let data = serde_json::json!({
-            "version": 1,
-            "last_updated": chrono_now(),
-            "requests": &requests[..requests.len().min(MAX_STORED)]
-        });
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&self.path)
-            .map_err(|e| e.to_string())?;
-        let mut writer = BufWriter::new(file);
-        serde_json::to_writer(&mut writer, &data).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())
-    }
-}
-```
-
-**2. Tauri Command**
-
-```rust
-#[tauri::command]
-pub fn load_history() -> Vec<InterceptedRequest> {
-    HistoryStore::new().load()
-}
-
-#[tauri::command]
-pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
-    HistoryStore::new().save(&requests)
-}
-```
-
-**3. 自动保存**
-
-- 每次新请求到来时（emit event 前）：异步保存到文件
-- 关闭 App 时（tauri window `on_window_event`）：同步保存
-- 最多保留 1000 条，超出截断旧记录
-
-### UI 修改
-
-**1. 启动时加载**
+**2. 点击展开**
 
 ```tsx
-useEffect(() => {
-  invoke<Vec<InterceptedRequest>>("load_history").then(hist => {
-    if (hist.length > 0) setRequests(hist);
-  });
-}, []);
+const [selectedWssMsg, setSelectedWssMsg] = useState<WssMessage | null>(null);
 ```
 
-**2. 新增按钮**
-
-过滤栏旁加「保存历史」+「清空历史」按钮：
-```tsx
-<button onClick={saveHistory}>💾 保存</button>
-<button onClick={clearHistory}>🗑️ 清空</button>
-```
-
-**3. 清空历史**
+WSS 消息行加 `onClick`：
 
 ```tsx
-const clearHistory = async () => {
-  if (!confirm("确定清空所有历史记录？")) return;
-  await invoke("save_history", { requests: [] });
-  setRequests([]);
-};
+<div className="wss-list">
+  {filteredWssMsgs.map(msg => (
+    <div
+      key={msg.id}
+      className={`wss-row ${msg.direction}`}
+      onClick={() => setSelectedWssMsg(msg)}
+    >
+      <span>{msg.timestamp}</span>
+      <span>{msg.direction === '↑' ? '↑' : '↓'}</span>
+      <span>{msg.host}</span>
+      <span>{msg.app_icon} {msg.app_name || ''}</span>
+      <span className="wss-preview">{msg.content.slice(0, 30)}</span>
+    </div>
+  ))}
+</div>
 ```
+
+**3. 详情面板**
+
+和 HTTP 请求详情面板相同的右侧 Slide-in 面板（复用样式）：
+
+```
+WSS 详情
+─────────────────
+Direction: ↑ (send)
+Host: wss://api.weixin.qq.com
+Size: 1024 bytes
+App: 💬 WeChat
+Time: 22:45:33.123
+
+Content:
+[完整 Text 帧内容，可滚动]
+```
+
+Binary 帧显示：`[Binary {msg.size} bytes — not displayed as text]`
+
+**4. 关闭**
+
+点 overlay 或 X 关闭。
 
 ### 不做
 
-- 分页加载（1000 条以内全量加载）
-- 按时间/App 过滤历史
-- 历史记录搜索
+- 二进制帧 hex dump
+- WSS 消息搜索（和 HTTP 请求共用搜索栏后再说）
+- WSS 消息持久化（Step 11 的历史不包含 WSS）
 
 ### 验收标准
 
-1. 重启 App → 历史请求记录自动恢复
-2. 点「💾 保存」→ 手动触发一次保存
-3. 点「🗑️ 清空」→ 确认弹框 → 清空所有记录，文件同步清空
+1. 点任意 WSS 消息行 → 右侧弹出详情面板
+2. Text 帧显示完整内容（可滚动）
+3. Binary 帧显示 `[Binary N bytes]` 而非乱码
+4. 点 overlay 或 X → 关闭面板
