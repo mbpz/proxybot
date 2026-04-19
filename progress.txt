@@ -1,0 +1,24 @@
+## Codebase Patterns
+- Tauri v2 state management: wrap state in `Arc<T>` and use `.manage(state.clone())` then `State<'_, Arc<T>>` in commands
+- SQLite in Rust: use `rusqlite` crate with `bundled` feature for cross-platform compilation
+- Database path: use `~/.proxybot/` directory for all persistent data
+- WAL mode: enable with `PRAGMA journal_mode=WAL;` for concurrent read/write
+
+## 2026-04-20 02:52 - US-001
+- What was implemented: Database schema for traffic storage
+  - Added rusqlite dependency to Cargo.toml with bundled SQLite
+  - Created db.rs module with DbState struct managing SQLite connection
+  - Schema: http_requests, dns_queries, devices, app_tags tables with proper columns
+  - WAL mode enabled for concurrent access
+  - Indexes on host, timestamp, device_id for fast lookups
+  - Added get_db_stats Tauri command for querying table counts
+- Files changed:
+  - src-tauri/Cargo.toml (added rusqlite dependency)
+  - src-tauri/src/db.rs (new file - database module)
+  - src-tauri/src/lib.rs (added db module, DbState management, get_db_stats command)
+- **Learnings for future iterations:**
+  - Tauri commands that take `State<'_, Arc<T>>` need the type wrapped in Arc when passed to `.manage()`
+  - SQLite schema initialization should use `CREATE TABLE IF NOT EXISTS` for idempotency
+  - Private helper functions used only by tests should use `pub(crate)` visibility
+  - WAL mode is important for concurrent read/write in a proxy server
+---

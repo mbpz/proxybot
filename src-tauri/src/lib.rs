@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 mod app_rules;
 mod cert;
+mod db;
 mod dns;
 mod network;
 mod pf;
 mod proxy;
 
 use cert::CertManager;
+use db::DbState;
 use dns::DnsState;
 use proxy::ProxyState;
 
@@ -16,6 +18,7 @@ pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("Starting ProxyBot");
 
+    let db_state = Arc::new(DbState::new().expect("Failed to initialize database"));
     let cert_manager = Arc::new(
         CertManager::new().expect("Failed to initialize certificate manager"),
     );
@@ -24,6 +27,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(db_state.clone())
         .manage(cert_manager.clone())
         .manage(dns_state.clone())
         .manage(proxy_state.clone())
@@ -35,6 +39,7 @@ pub fn run() {
             proxy::setup_pf,
             proxy::teardown_pf,
             dns::get_dns_log,
+            db::get_db_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
