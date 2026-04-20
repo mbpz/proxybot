@@ -14,6 +14,8 @@ use tokio::sync::broadcast;
 use tokio::time::{timeout, Duration};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::db::DbState;
+
 /// DNS server listening port (pf redirects 53 -> 5300).
 const DNS_PORT: u16 = 5300;
 /// Upstream DNS server.
@@ -35,6 +37,7 @@ pub struct DnsState {
     pub entries: Arc<Mutex<VecDeque<DnsEntry>>>,
     pub running: Arc<AtomicBool>,
     pub shutdown_tx: Arc<Mutex<Option<broadcast::Sender<()>>>>,
+    pub db_state: Option<Arc<DbState>>,
 }
 
 impl DnsState {
@@ -43,30 +46,124 @@ impl DnsState {
             entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_DNS_ENTRIES))),
             running: Arc::new(AtomicBool::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
+            db_state: None,
         }
     }
 
-    /// Record a DNS query entry and emit a Tauri event.
-    fn record_query(&self, domain: String, app_handle: &AppHandle) {
-        let timestamp_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
-        let entry = DnsEntry {
-            domain: domain.clone(),
-            timestamp_ms,
-        };
-
-        let mut entries = self.entries.lock().unwrap();
-        if entries.len() >= MAX_DNS_ENTRIES {
-            entries.pop_front();
+    pub fn with_db(db: Arc<DbState>) -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_DNS_ENTRIES))),
+            running: Arc::new(AtomicBool::new(false)),
+            shutdown_tx: Arc::new(Mutex::new(None)),
+            db_state: Some(db),
         }
-        entries.push_back(entry);
-
-        // Emit event to frontend
-        let _ = app_handle.emit("dns-query", &DnsEntry { domain, timestamp_ms });
     }
+}
+
+/// Get current timestamp in milliseconds since UNIX epoch.
+fn timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Record a DNS query entry and emit a Tauri event.
+fn record_query(
+    state: &DnsState,
+    domain: String,
+    response_ips: &[String],
+    app_handle: &AppHandle,
+) {
+    let timestamp_ms_val = timestamp_ms();
+
+    let entry = DnsEntry {
+        domain: domain.clone(),
+        timestamp_ms: timestamp_ms_val,
+    };
+
+    let mut entries = state.entries.lock().unwrap();
+    if entries.len() >= MAX_DNS_ENTRIES {
+        entries.pop_front();
+    }
+    entries.push_back(entry);
+
+    // Emit event to frontend
+    let _ = app_handle.emit("dns-query", &DnsEntry {
+        domain,
+        timestamp_ms: timestamp_ms_val,
+    });
+
+    // Log to database if db_state is available
+    if let Some(db) = &state.db_state {
+        if let Ok(conn) = db.conn.lock() {
+            let timestamp_str = chrono_lite_timestamp();
+            let query_type = 1; // A record
+            let response_ips_json = serde_json::to_string(response_ips).unwrap_or_else(|_| "[]".to_string());
+
+            let _ = conn.execute(
+                "INSERT INTO dns_queries (timestamp, query_name, query_type, response_ips, device_id)
+                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                rusqlite::params![timestamp_str, domain, query_type, response_ips_json],
+            );
+        }
+    }
+}
+
+/// Get a lightweight timestamp string for SQLite (YYYY-MM-DD HH:MM:SS).
+fn chrono_lite_timestamp() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Calculate year/month/day from epoch
+    let mut year = 1970;
+    let mut remaining_days = now as i64 / 86400;
+
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days < days_in_year as i64 {
+            break;
+        }
+        remaining_days -= days_in_year as i64;
+        year += 1;
+    }
+
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1;
+    for days_in_month in days_in_months.iter() {
+        if remaining_days < *days_in_month as i64 {
+            break;
+        }
+        remaining_days -= *days_in_month as i64;
+        month += 1;
+    }
+
+    let day = remaining_days + 1;
+    let seconds_in_day = now as i64 % 86400;
+    let hours = seconds_in_day / 3600;
+    let minutes = (seconds_in_day % 3600) / 60;
+    let seconds = seconds_in_day % 60;
+
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        year,
+        month,
+        day,
+        hours,
+        minutes,
+        seconds
+    )
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 /// Parse a domain name from DNS question section (RFC 1035 QNAME format).
@@ -130,6 +227,106 @@ pub fn parse_dns_query(buf: &[u8]) -> Option<String> {
     Some(labels.join("."))
 }
 
+/// Parse response IPs from a DNS response packet.
+///
+/// The DNS response format after the question section is:
+/// - 2 bytes: query ID
+/// - 2 bytes: flags
+/// - 2 bytes: QDCOUNT (questions)
+/// - 2 bytes: ANCOUNT (answer RRs)
+/// ... then answer RRs contain A records with IP addresses
+///
+/// This extracts IPv4 addresses from A records in the response.
+fn parse_response_ips(response: &[u8]) -> Vec<String> {
+    let mut ips = Vec::new();
+
+    // DNS header is 12 bytes
+    if response.len() < 12 {
+        return ips;
+    }
+
+    // Skip past the question section first
+    // Start after header
+    let mut pos = 12;
+
+    // Skip QNAME in question section
+    loop {
+        if pos >= response.len() {
+            return ips;
+        }
+        let label_len = response[pos];
+        if label_len == 0 {
+            pos += 1;
+            break;
+        }
+        if label_len & 0xC0 != 0 {
+            // Compression pointer - skip 2 bytes
+            pos += 2;
+            break;
+        }
+        pos += 1 + label_len as usize;
+    }
+
+    // Skip QTYPE (2 bytes) and QCLASS (2 bytes)
+    pos += 4;
+    if pos > response.len() {
+        return ips;
+    }
+
+    // Now parse answer RRs
+    // Each RR: name (compressed), type (2), class (2), TTL (4), rdlength (2), rdata
+    while pos < response.len() - 12 {
+        // Check for compression pointer at start of name
+        if response[pos] & 0xC0 == 0xC0 {
+            pos += 2;
+        } else {
+            // Skip the name
+            loop {
+                if pos >= response.len() {
+                    return ips;
+                }
+                let label_len = response[pos];
+                if label_len == 0 {
+                    pos += 1;
+                    break;
+                }
+                if label_len > 63 {
+                    return ips;
+                }
+                pos += 1 + label_len as usize;
+            }
+        }
+
+        // Need at least 10 more bytes for type, class, TTL, rdlength
+        if pos + 10 > response.len() {
+            break;
+        }
+
+        let rr_type = u16::from_be_bytes([response[pos], response[pos + 1]]);
+        pos += 2; // type
+        pos += 2; // class
+        pos += 4; // TTL
+        let rdlength = u16::from_be_bytes([response[pos], response[pos + 1]]);
+        pos += 2;
+
+        // A record: 4 bytes IP
+        if rr_type == 1 && rdlength == 4 && pos + 4 <= response.len() {
+            let ip = format!(
+                "{}.{}.{}.{}",
+                response[pos],
+                response[pos + 1],
+                response[pos + 2],
+                response[pos + 3]
+            );
+            ips.push(ip);
+        }
+
+        pos += rdlength as usize;
+    }
+
+    ips
+}
+
 /// Handle a single DNS query: parse domain, record it, forward to upstream, relay response.
 async fn handle_dns_query(
     buf: &[u8],
@@ -144,10 +341,9 @@ async fn handle_dns_query(
     // Parse domain name from question section
     let domain = parse_dns_query(data).unwrap_or_else(|| "unknown".to_string());
 
-    // Record the query
-    state.record_query(domain.clone(), app_handle);
-
     log::debug!("DNS query from {} for domain: {}", src, domain);
+
+    let mut response_ips: Vec<String> = Vec::new();
 
     // Forward to upstream DNS (8.8.8.8:53)
     match timeout(
@@ -166,6 +362,9 @@ async fn handle_dns_query(
             .await
             {
                 Ok(Ok((resp_len, _))) => {
+                    // Extract response IPs from the DNS response
+                    response_ips = parse_response_ips(&response_buf[..resp_len]);
+
                     // Send response back to client
                     if let Err(e) = socket
                         .send_to(&response_buf[..resp_len], src)
@@ -189,6 +388,9 @@ async fn handle_dns_query(
             log::warn!("DNS query to {} timed out", UPSTREAM_DNS);
         }
     }
+
+    // Record the query with response IPs
+    record_query(state, domain, &response_ips, app_handle);
 }
 
 /// Run the DNS server loop.

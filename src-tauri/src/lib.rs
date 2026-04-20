@@ -22,7 +22,7 @@ pub fn run() {
     let cert_manager = Arc::new(
         CertManager::new().expect("Failed to initialize certificate manager"),
     );
-    let dns_state = Arc::new(DnsState::new());
+    let dns_state = Arc::new(DnsState::with_db(db_state.clone()));
     let proxy_state = Arc::new(ProxyState::new());
 
     tauri::Builder::default()
