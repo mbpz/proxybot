@@ -7,12 +7,14 @@ mod dns;
 mod network;
 mod pf;
 mod proxy;
+mod rules;
 mod tun;
 
 use cert::CertManager;
 use db::DbState;
 use dns::DnsState;
 use proxy::ProxyState;
+use rules::RulesEngine;
 use tun::TunState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,6 +29,8 @@ pub fn run() {
     let dns_state = Arc::new(DnsState::with_db(db_state.clone()));
     let proxy_state = Arc::new(ProxyState::new());
     let tun_state = Arc::new(TunState::new());
+    let rules_engine = Arc::new(RulesEngine::new());
+    rules_engine.clone().start_watcher();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -35,6 +39,7 @@ pub fn run() {
         .manage(dns_state.clone())
         .manage(proxy_state.clone())
         .manage(tun_state.clone())
+        .manage(rules_engine.clone())
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
             proxy::get_ca_cert_path,
@@ -50,6 +55,12 @@ pub fn run() {
             tun::setup_tun,
             tun::teardown_tun,
             tun::is_tun_enabled,
+            rules::get_rules,
+            rules::save_rule,
+            rules::delete_rule,
+            rules::reorder_rules,
+            rules::list_rule_files,
+            rules::match_host,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

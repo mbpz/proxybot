@@ -50,6 +50,15 @@ interface CaMetadata {
   serial: string;
 }
 
+type RulePattern = "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "IP-CIDR" | "GEOIP" | "RULE-SET";
+type RuleAction = "DIRECT" | "PROXY" | "REJECT";
+
+interface Rule {
+  pattern: RulePattern;
+  value: string;
+  action: RuleAction;
+}
+
 function App() {
   const [running, setRunning] = useState(false);
   const [caCertPath, setCaCertPath] = useState("");
@@ -69,6 +78,11 @@ function App() {
   const [keywordFilter, setKeywordFilter] = useState("");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
   const [selectedDetailTab, setSelectedDetailTab] = useState<"headers" | "body" | "params" | "ws">("headers");
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [ruleFiles, setRuleFiles] = useState<string[]>([]);
+  const [selectedRuleFile, setSelectedRuleFile] = useState<string>("rules.yaml");
+  const [showRuleEditor, setShowRuleEditor] = useState(false);
+  const [editingRule, setEditingRule] = useState<Rule | null>(null);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -103,6 +117,33 @@ function App() {
       unlistenDns.then((fn) => fn());
     };
   }, []);
+
+  useEffect(() => {
+    loadRuleFiles();
+    loadRules();
+  }, []);
+
+  const loadRuleFiles = async () => {
+    try {
+      const files = await invoke<string[]>("list_rule_files");
+      setRuleFiles(files.length > 0 ? files : ["rules.yaml"]);
+      if (files.length > 0 && !files.includes(selectedRuleFile)) {
+        setSelectedRuleFile(files[0]);
+      }
+    } catch (e) {
+      console.error("Failed to load rule files:", e);
+      setRuleFiles(["rules.yaml"]);
+    }
+  };
+
+  const loadRules = async () => {
+    try {
+      const loadedRules = await invoke<Rule[]>("get_rules");
+      setRules(loadedRules);
+    } catch (e) {
+      console.error("Failed to load rules:", e);
+    }
+  };
 
   const startProxy = async () => {
     try {
@@ -212,6 +253,39 @@ function App() {
       await invoke<void>("regenerate_ca");
       setCaMetadata(null);
       invoke<CaMetadata | null>("get_ca_metadata").then(setCaMetadata).catch(console.error);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const saveRule = async (rule: Rule) => {
+    try {
+      await invoke("save_rule", { rule, filename: selectedRuleFile });
+      await loadRules();
+      setShowRuleEditor(false);
+      setEditingRule(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const deleteRule = async (rule: Rule) => {
+    try {
+      await invoke("delete_rule", { rule, filename: selectedRuleFile });
+      await loadRules();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const moveRule = async (index: number, direction: "up" | "down") => {
+    const newRules = [...rules];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newRules.length) return;
+    [newRules[index], newRules[targetIndex]] = [newRules[targetIndex], newRules[index]];
+    try {
+      await invoke("reorder_rules", { rules: newRules, filename: selectedRuleFile });
+      await loadRules();
     } catch (e) {
       setError(String(e));
     }
@@ -642,6 +716,135 @@ function App() {
             </table>
           )}
         </div>
+      </section>
+
+      <section className="rules-editor">
+        <div className="rules-header">
+          <h2>Routing Rules ({rules.length})</h2>
+          <div className="rules-actions">
+            <select
+              className="rule-file-select"
+              value={selectedRuleFile}
+              onChange={(e) => setSelectedRuleFile(e.target.value)}
+            >
+              {ruleFiles.map((f) => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+            <button
+              className="btn btn-rule-add"
+              onClick={() => { setEditingRule({ pattern: "DOMAIN-SUFFIX", value: "", action: "DIRECT" }); setShowRuleEditor(true); }}
+            >
+              Add Rule
+            </button>
+          </div>
+        </div>
+
+        {rules.length === 0 ? (
+          <p className="no-rules">
+            No rules defined. Click "Add Rule" to create your first routing rule.
+          </p>
+        ) : (
+          <div className="rules-list">
+            <table className="rules-table">
+              <thead>
+                <tr>
+                  <th>Pattern</th>
+                  <th>Value</th>
+                  <th>Action</th>
+                  <th>Controls</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rules.map((rule, idx) => (
+                  <tr key={`${rule.pattern}-${rule.value}-${idx}`}>
+                    <td className="rule-pattern">
+                      <span className={`pattern-badge pattern-${rule.pattern.toLowerCase().replace(/-/g, "")}`}>
+                        {rule.pattern}
+                      </span>
+                    </td>
+                    <td className="rule-value">{rule.value}</td>
+                    <td className="rule-action">
+                      <span className={`action-badge action-${rule.action.toLowerCase()}`}>
+                        {rule.action}
+                      </span>
+                    </td>
+                    <td className="rule-controls">
+                      <button
+                        className="btn-move btn-move-up"
+                        onClick={() => moveRule(idx, "up")}
+                        disabled={idx === 0}
+                        title="Move up"
+                      >↑</button>
+                      <button
+                        className="btn-move btn-move-down"
+                        onClick={() => moveRule(idx, "down")}
+                        disabled={idx === rules.length - 1}
+                        title="Move down"
+                      >↓</button>
+                      <button
+                        className="btn-rule-edit"
+                        onClick={() => { setEditingRule(rule); setShowRuleEditor(true); }}
+                        title="Edit"
+                      >Edit</button>
+                      <button
+                        className="btn-rule-delete"
+                        onClick={() => deleteRule(rule)}
+                        title="Delete"
+                      >×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {showRuleEditor && editingRule && (
+          <div className="rule-editor-modal">
+            <div className="rule-editor-content">
+              <h3>{rules.some(r => r.pattern === editingRule.pattern && r.value === editingRule.value) ? "Edit Rule" : "Add Rule"}</h3>
+              <div className="rule-editor-form">
+                <div className="form-group">
+                  <label>Pattern</label>
+                  <select
+                    value={editingRule.pattern}
+                    onChange={(e) => setEditingRule({ ...editingRule, pattern: e.target.value as RulePattern })}
+                  >
+                    <option value="DOMAIN">DOMAIN (exact match)</option>
+                    <option value="DOMAIN-SUFFIX">DOMAIN-SUFFIX (example.com matches sub.example.com)</option>
+                    <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD (matches if value appears anywhere)</option>
+                    <option value="IP-CIDR">IP-CIDR (e.g., 10.0.0.0/8)</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Value</label>
+                  <input
+                    type="text"
+                    value={editingRule.value}
+                    onChange={(e) => setEditingRule({ ...editingRule, value: e.target.value })}
+                    placeholder={editingRule.pattern === "IP-CIDR" ? "10.0.0.0/8" : "example.com"}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Action</label>
+                  <select
+                    value={editingRule.action}
+                    onChange={(e) => setEditingRule({ ...editingRule, action: e.target.value as RuleAction })}
+                  >
+                    <option value="DIRECT">DIRECT (bypass proxy)</option>
+                    <option value="PROXY">PROXY (send through proxy)</option>
+                    <option value="REJECT">REJECT (block connection)</option>
+                  </select>
+                </div>
+                <div className="form-actions">
+                  <button className="btn btn-save" onClick={() => saveRule(editingRule)}>Save</button>
+                  <button className="btn btn-cancel" onClick={() => { setShowRuleEditor(false); setEditingRule(null); }}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </main>
   );
