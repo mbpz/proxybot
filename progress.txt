@@ -14,6 +14,9 @@
 ---
 
 ## Codebase Patterns
+- YAML rule files: use `serde_yaml` crate with `RuleFile` struct for both Serialize and Deserialize
+- File watcher: use `notify` crate with debounced reload (500ms) using tokio sleep
+- Tauri commands with Arc<Self>: when method takes `self: Arc<Self>`, caller must clone before calling
 - Tauri v2 state management: wrap state in `Arc<T>` and use `.manage(state.clone())` then `State<'_, Arc<T>>` in commands
 - SQLite in Rust: use `rusqlite` crate with `bundled` feature for cross-platform compilation
 - Database path: use `~/.proxybot/` directory for all persistent data
@@ -171,4 +174,28 @@
   - classify_host returns Option<(String, String)> now, not Option<(&str, &str)> - update tests accordingly
   - ProxyContext now carries dns_state Arc for correlation within request handlers
   - When using unwrap_or_else with Option<String>, need to .clone() before moving into log macro
+---
+
+## 2026-04-20 23:30 - US-009
+- What was implemented: YAML rule engine with hot reload
+  - Created rules.rs module with Rule, RulePattern, RuleAction types
+  - YAML parsing from ~/.proxybot/rules/*.yaml using serde_yaml
+  - Supported patterns: DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR
+  - Supported actions: DIRECT, PROXY, REJECT
+  - File watcher using notify crate with 500ms debounce for hot reload
+  - Tauri commands: get_rules, save_rule, delete_rule, reorder_rules, list_rule_files, match_host
+  - Web UI with rule editor modal, up/down reordering, edit/delete controls
+  - Dark mode CSS support for all rule editor elements
+- Files changed:
+  - src-tauri/Cargo.toml (added serde_yaml, notify, ipnetwork dependencies)
+  - src-tauri/src/rules.rs (new file - rule engine module)
+  - src-tauri/src/lib.rs (added rules module, RulesEngine state, rules commands)
+  - src/App.tsx (added Rule interface, rule state, CRUD functions, rule editor UI)
+  - src/App.css (added rule editor styles, modal, dark mode)
+- **Learnings for future iterations:**
+  - Arc::from(&self) doesn't work - use `self: Arc<Self>` parameter when method needs ownership
+  - RuleFile needs both Serialize and Deserialize derives for serde_yaml round-trip
+  - notify watcher must call .watch() successfully before starting the event loop
+  - tokio::spawn in Tauri v2 works fine since Tauri sets up the runtime before run() is called
+  - Pattern badge CSS classes use lowercase names like pattern-domain not pattern-DOMAIN
 ---

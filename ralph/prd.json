@@ -153,8 +153,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented rules.rs with Rule, RulePattern, RuleAction types. YAML files in ~/.proxybot/rules/. Supports DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR patterns with DIRECT, PROXY, REJECT actions. File watcher via notify crate with 500ms debounce for hot reload. Tauri commands: get_rules, save_rule, delete_rule, reorder_rules, list_rule_files, match_host. UI in App.tsx with rule editor modal."
     },
     {
       "id": "US-010",
