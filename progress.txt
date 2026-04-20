@@ -295,3 +295,25 @@
   - When spawning async tasks in a loop, clone any values needed by the task before the loop or use Arc
   - For line-by-line diff, iterate through both line arrays simultaneously with index tracking
   - Dark mode CSS: diff highlighting uses background colors (added=#e8f5e9, removed=#ffebee, modified=#fff3e0)
+
+## 2026-04-21 04:15 - US-014
+- What was implemented: Traffic normalizer with body parsing
+  - Created normalize.rs module with body parsing for JSON, Protobuf, GraphQL, FormData, Text, and Binary formats
+  - Added get_normalized_traffic and get_traffic_page Tauri commands for paginated access
+  - Added inferred_apis table to database schema for storing AI-inferred API specifications
+  - NormalizedRecord struct includes: method, path, query (JSON), request/response headers (JSON), request/response bodies (all parsed)
+  - Body parser uses Content-Type hints and heuristics for Protobuf detection
+  - GraphQL detection via "query"/"variables"/"operationName" keys in JSON
+  - Binary data encoded as base64 for Protobuf handling
+- Files changed:
+  - src-tauri/src/normalize.rs (new file - traffic normalizer module)
+  - src-tauri/src/lib.rs (added normalize module and commands)
+  - src-tauri/src/db.rs (added inferred_apis table)
+  - ralph/prd.json (marked US-014 as passes: true)
+- **Learnings for future iterations:**
+  - serde_json::Map::insert() takes String for key, not Value - use url_decode() that returns String
+  - url_decode function should return String, not Value - create separate url_decode_value() for Value
+  - Body format detection: check Content-Type header first, then try JSON parsing, then check for Protobuf heuristics
+  - GraphQL detection: JSON with "query", "variables", or "operationName" keys indicates GraphQL
+  - Protobuf heuristic: check for varint patterns in binary data with body size < 10000 bytes
+  - Arc must be imported only once in lib.rs - duplicate imports cause E0252 error
