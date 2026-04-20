@@ -202,8 +202,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented HAR 1.2 export with export_har and save_har_file commands. HAR includes request (url, method, headers, postData), response (status, headers, content), and timing. Session naming via UI dialog. HAR files saved to ~/.proxybot/exports/. pcap export not implemented (requires significant additional work for packet-level capture)."
     },
     {
       "id": "US-013",

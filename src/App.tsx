@@ -97,6 +97,9 @@ function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null);
   const [editingDevice, setEditingDevice] = useState<DeviceInfo | null>(null);
+  const [sessionName, setSessionName] = useState<string>("");
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -388,6 +391,23 @@ function App() {
     }
   };
 
+  const exportHar = async () => {
+    try {
+      setExporting(true);
+      const name = sessionName.trim() || `session-${Date.now()}`;
+      const har = await invoke<any>("export_har", { sessionName: name });
+      const harJson = JSON.stringify(har, null, 2);
+      const path = await invoke<string>("save_har_file", { harJson, sessionName: name });
+      alert(`HAR file saved to:\n${path}`);
+      setShowExportDialog(false);
+      setSessionName("");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const formatBytes = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -556,7 +576,18 @@ function App() {
       )}
 
       <section className="requests">
-        <h2>Intercepted Requests ({requests.length})</h2>
+        <div className="requests-header">
+          <h2>Intercepted Requests ({requests.length})</h2>
+          <button
+            className="btn btn-export"
+            onClick={() => {
+              setSessionName(`session-${Date.now()}`);
+              setShowExportDialog(true);
+            }}
+          >
+            Export HAR
+          </button>
+        </div>
         <div className="app-tabs">
           {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
             <button
@@ -1003,6 +1034,47 @@ function App() {
           </div>
         )}
       </section>
+
+      {showExportDialog && (
+        <div className="export-dialog-overlay">
+          <div className="export-dialog">
+            <h3>Export HAR File</h3>
+            <div className="export-dialog-content">
+              <p>Export all recorded HTTP requests to a HAR (HTTP Archive) file.</p>
+              <div className="form-group">
+                <label>Session Name</label>
+                <input
+                  type="text"
+                  value={sessionName}
+                  onChange={(e) => setSessionName(e.target.value)}
+                  placeholder="session-1234567890"
+                />
+              </div>
+              <p className="export-note">
+                The HAR file will be saved to ~/.proxybot/exports/
+              </p>
+            </div>
+            <div className="export-dialog-actions">
+              <button
+                className="btn btn-export"
+                onClick={exportHar}
+                disabled={exporting}
+              >
+                {exporting ? "Exporting..." : "Export"}
+              </button>
+              <button
+                className="btn btn-cancel"
+                onClick={() => {
+                  setShowExportDialog(false);
+                  setSessionName("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

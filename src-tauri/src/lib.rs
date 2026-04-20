@@ -4,6 +4,7 @@ mod app_rules;
 mod cert;
 mod db;
 mod dns;
+mod har;
 mod network;
 mod pf;
 mod proxy;
@@ -70,6 +71,8 @@ pub fn run() {
             rules::reorder_rules,
             rules::list_rule_files,
             rules::match_host,
+            har::export_har,
+            har::save_har_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

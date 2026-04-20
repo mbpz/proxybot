@@ -1,3 +1,25 @@
+## 2026-04-21 02:30 - US-012
+- What was implemented: Traffic recording and HAR export
+  - Created har.rs module with HAR 1.2 specification structures
+  - Implemented export_har command to query http_requests from SQLite and generate HAR JSON
+  - Implemented save_har_file command to save HAR JSON to ~/.proxybot/exports/
+  - Added Export HAR button in Intercepted Requests header
+  - Added export dialog modal for naming sessions before export
+  - HAR includes: request (url, method, headers, postData), response (status, headers, content), timing
+  - Session name defaults to timestamp-based name if not provided
+- Files changed:
+  - src-tauri/src/har.rs (new file - HAR export module)
+  - src-tauri/src/lib.rs (added har module and commands)
+  - src/App.tsx (added export button and dialog)
+  - src/App.css (added export dialog styles)
+  - ralph/prd.json (marked US-012 as passes: true)
+- **Learnings for future iterations:**
+  - HAR 1.2 format: use "startedDateTime" (ISO 8601), "httpVersion" as "HTTP/1.1", timings with -1 for unavailable
+  - HAR query string parsing: split path by '?' and parse & separated key=value pairs
+  - Tauri commands returning Result<T, String> work well with serde serialization
+  - When modifying JSX conditionals, be careful not to delete closing tags for parent elements
+---
+
 ## 2026-04-20 10:30 - US-005
 - What was implemented: TLS MITM with dynamic leaf certificates (already complete in codebase)
   - Verified implementation: handle_https_connect performs full MITM with TlsAcceptor and TlsConnector
