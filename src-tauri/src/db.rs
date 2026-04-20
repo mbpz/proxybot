@@ -157,6 +157,21 @@ impl DbState {
                 domain_rule TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS inferred_apis (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                method          TEXT NOT NULL,
+                path            TEXT NOT NULL,
+                params          TEXT NOT NULL DEFAULT '{}',
+                auth_required   INTEGER NOT NULL DEFAULT 0,
+                request_ids     TEXT NOT NULL DEFAULT '[]',
+                score           REAL,
+                created_at      TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inferred_apis_session ON inferred_apis(session_id);
+
             CREATE INDEX IF NOT EXISTS idx_http_requests_host ON http_requests(host);
             CREATE INDEX IF NOT EXISTS idx_http_requests_timestamp ON http_requests(timestamp);
             CREATE INDEX IF NOT EXISTS idx_http_requests_device_id ON http_requests(device_id);

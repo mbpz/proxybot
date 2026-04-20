@@ -6,6 +6,7 @@ mod db;
 mod dns;
 mod har;
 mod network;
+mod normalize;
 mod pf;
 mod proxy;
 mod replay;
@@ -81,6 +82,8 @@ pub fn run() {
             replay::get_requests_for_replay,
             replay::get_recorded_responses,
             replay::start_replay,
+            normalize::get_normalized_traffic,
+            normalize::get_traffic_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
