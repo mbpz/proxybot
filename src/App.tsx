@@ -41,6 +41,8 @@ interface NetworkInfo {
 interface DnsEntry {
   domain: string;
   timestamp_ms: number;
+  app_name?: string;
+  app_icon?: string;
 }
 
 interface CaMetadata {
@@ -619,6 +621,7 @@ function App() {
             <table className="dns-table">
               <thead>
                 <tr>
+                  <th>App</th>
                   <th>Time</th>
                   <th>Domain</th>
                 </tr>
@@ -626,6 +629,9 @@ function App() {
               <tbody>
                 {dnsQueries.map((query, idx) => (
                   <tr key={`${query.timestamp_ms}-${idx}`}>
+                    <td className="app-cell">
+                      {query.app_icon ? `${query.app_icon} ${query.app_name}` : "-"}
+                    </td>
                     <td className="time">
                       {new Date(query.timestamp_ms).toLocaleTimeString()}
                     </td>

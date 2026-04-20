@@ -62,6 +62,7 @@ struct ProxyContext {
     app_handle: AppHandle,
     #[allow(dead_code)]
     cert_manager: Arc<CertManager>,
+    dns_state: Arc<DnsState>,
 }
 
 fn timestamp_now() -> String {
@@ -84,6 +85,130 @@ fn parse_host_port(s: &str) -> Option<(&str, u16)> {
     } else {
         None
     }
+}
+
+/// Extract SNI (Server Name Indication) from TLS ClientHello data.
+/// Returns the hostname if SNI extension is found, None otherwise.
+fn extract_sni_from_client_hello(data: &[u8]) -> Option<String> {
+    // TLS record header: content_type (1) + version (2) + length (2)
+    // ClientHello starts after the record header
+    if data.len() < 5 {
+        return None;
+    }
+
+    // Verify this is a TLS handshake (content_type = 0x16)
+    if data[0] != 0x16 {
+        return None;
+    }
+
+    let mut pos = 5; // Skip TLS record header
+
+    // ClientHello format:
+    // - handshake_type (1) = 0x01 for ClientHello
+    // - length (3)
+    // - version (2)
+    // - random (32)
+    // - session_id_length (1)
+    // - cipher_suites_length (2)
+    // - compression_methods_length (1)
+    // - extensions_length (2)
+    // - extensions...
+
+    if pos + 4 > data.len() {
+        return None;
+    }
+
+    // Verify handshake type is ClientHello (0x01)
+    if data[pos] != 0x01 {
+        return None;
+    }
+    pos += 4; // skip handshake type (1) + length (3)
+
+    // Skip client version (2) + random (32) = 34 bytes
+    if pos + 34 > data.len() {
+        return None;
+    }
+    pos += 34;
+
+    // Skip session_id_length (1) + session_id
+    if pos + 1 > data.len() {
+        return None;
+    }
+    let session_id_len = data[pos] as usize;
+    pos += 1 + session_id_len;
+
+    // Skip cipher_suites_length (2) + cipher_suites
+    if pos + 2 > data.len() {
+        return None;
+    }
+    let cipher_suites_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    pos += 2 + cipher_suites_len;
+
+    // Skip compression_methods_length (1) + compression_methods
+    if pos + 1 > data.len() {
+        return None;
+    }
+    let compression_len = data[pos] as usize;
+    pos += 1 + compression_len;
+
+    // Skip extensions_length (2)
+    if pos + 2 > data.len() {
+        return None;
+    }
+    let extensions_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    pos += 2;
+
+    // Now parse extensions
+    let extensions_end = (pos + extensions_len).min(data.len());
+    while pos + 4 < extensions_end {
+        let ext_type = u16::from_be_bytes([data[pos], data[pos + 1]]);
+        let ext_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+        pos += 4;
+
+        // SNI extension type is 0x0000
+        if ext_type == 0x0000 {
+            // SNI format: list of (type, length, value) where type=0 means hostname
+            if pos + 2 > extensions_end {
+                return None;
+            }
+            let sni_list_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+            pos += 2;
+
+            if pos + sni_list_len > extensions_end {
+                return None;
+            }
+
+            // Parse hostname from SNI list
+            let sni_end = pos + sni_list_len;
+            while pos + 3 < sni_end {
+                let name_type = data[pos];
+                let name_len = u16::from_be_bytes([data[pos + 1], data[pos + 2]]) as usize;
+                pos += 3;
+
+                if pos + name_len > sni_end {
+                    return None;
+                }
+
+                if name_type == 0 {
+                    // hostname (DNS)
+                    let hostname = String::from_utf8_lossy(&data[pos..pos + name_len]).to_string();
+                    return Some(hostname);
+                }
+
+                pos += name_len;
+            }
+
+            return None;
+        }
+
+        // Skip this extension
+        if pos + ext_len > extensions_end {
+            break;
+        }
+        pos += ext_len;
+    }
+
+    None
 }
 
 /// macOS pf NAT lookup via DIOCNATLOOK ioctl.
@@ -193,6 +318,7 @@ async fn handle_transparent_https(
     client_stream: TcpStream,
     client_addr: SocketAddr,
     original_dst: SocketAddr,
+    tls_data: Vec<u8>,
 ) {
     let target_host = original_dst.ip().to_string();
     let target_port = original_dst.port();
@@ -204,8 +330,21 @@ async fn handle_transparent_https(
         target_port
     );
 
-    // Use the existing HTTPS CONNECT handler but with the original destination.
-    handle_https_connect(ctx, client_stream, client_addr, target_host, target_port).await;
+    // Try to extract SNI from TLS ClientHello for better app classification
+    let sni_host = extract_sni_from_client_hello(&tls_data);
+
+    // Use SNI if available, otherwise fall back to original destination
+    let effective_host = sni_host.clone().unwrap_or_else(|| target_host.clone());
+
+    log::debug!(
+        "Transparent HTTPS effective host: {} (SNI: {:?}, original: {})",
+        effective_host,
+        sni_host,
+        target_host
+    );
+
+    // Use the existing HTTPS CONNECT handler with the SNI-based host if available.
+    handle_https_connect(ctx, client_stream, client_addr, effective_host, target_port).await;
 }
 
 /// A ServerCertVerifier that accepts all certificates.
@@ -579,9 +718,17 @@ async fn handle_https_connect(
     let req_body_str = body_to_string(&req_body);
     let resp_body_str = body_to_string(&resp_body);
 
-    let app_info = app_rules::classify_host(&target_host);
+    // Classify by direct domain match first, then fall back to DNS correlation
+    let app_info = app_rules::classify_host(&target_host)
+        .or_else(|| {
+            let request_ts_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            ctx.dns_state.correlate_app(&target_host, request_ts_ms)
+        });
     let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
 
     let req = InterceptedRequest {
@@ -683,9 +830,17 @@ async fn handle_http(
     let req_body_str = body_to_string(body);
     let resp_body_str = body_to_string(&resp_body);
 
-    let app_info = app_rules::classify_host(host);
+    // Classify by direct domain match first, then fall back to DNS correlation
+    let app_info = app_rules::classify_host(host)
+        .or_else(|| {
+            let request_ts_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            ctx.dns_state.correlate_app(host, request_ts_ms)
+        });
     let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
 
     let req = InterceptedRequest {
@@ -769,7 +924,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
                 client_addr,
                 original_dst
             );
-            handle_transparent_https(ctx, client_stream, client_addr, original_dst).await;
+            handle_transparent_https(ctx, client_stream, client_addr, original_dst, data.to_vec()).await;
             return;
         } else {
             log::warn!("Could not get original destination for TLS connection from {}", client_addr);
@@ -886,7 +1041,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
     }
 }
 
-async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, mut shutdown_rx: tokio::sync::oneshot::Receiver<()>) -> Result<(), String> {
+async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, dns_state: Arc<DnsState>, mut shutdown_rx: tokio::sync::oneshot::Receiver<()>) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", PROXY_PORT);
     let listener = TcpListener::bind(&addr).await
         .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
@@ -901,6 +1056,7 @@ async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, mut sh
                         let ctx = ProxyContext {
                             app_handle: app_handle.clone(),
                             cert_manager: cert_manager.clone(),
+                            dns_state: dns_state.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -922,6 +1078,7 @@ async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, mut sh
 pub fn start_proxy(
     app_handle: AppHandle,
     cert_manager: State<'_, Arc<CertManager>>,
+    dns_state: State<'_, Arc<DnsState>>,
 ) -> Result<String, String> {
     // Prevent starting proxy multiple times
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
@@ -929,12 +1086,13 @@ pub fn start_proxy(
     }
 
     let cm = cert_manager.inner().clone();
+    let ds = dns_state.inner().clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(app_handle, cm, shutdown_rx).await {
+        if let Err(e) = run_proxy(app_handle, cm, ds, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);

@@ -124,3 +124,28 @@
   - Always clone values before emitting Tauri events when they might be used afterwards
   - When using rusqlite::params! macro, values are moved - clone if needed after
   - The tun crate API requires specifying associated type Queue for Device trait
+
+## 2026-04-20 22:30 - US-007
+- What was implemented: Traffic dashboard with request list, filtering, and detail expansion
+  - Enhanced InterceptedRequest struct in proxy.rs to capture full request/response headers and bodies
+  - Added parse_http_response function for parsing HTTP response status and headers
+  - Added extract_query_params and body_to_string helper functions
+  - Updated App.tsx with host filter dropdown, keyword search, expandable request detail panel
+  - Added Headers/Body/Params tabs in request detail view
+  - JSON body formatting via formatBody function
+  - Image thumbnail rendering via isImageContent and buildImageDataUrl functions
+  - WebSocket frame infrastructure (WsFrame struct, is_websocket flag, ws_frames field) in place
+  - Dark mode CSS support added for all new UI elements
+- Files changed:
+  - src-tauri/src/proxy.rs (added req_headers, req_body, resp_headers, resp_body, resp_size fields to InterceptedRequest; parse_http_response function)
+  - src/App.tsx (added host filter, keyword search, request detail panel with tabs, helper functions)
+  - src/App.css (added styles for toolbar, detail panel, WebSocket frames, dark mode)
+  - ralph/prd.json (marked US-007 as passes: true)
+- **Learnings for future iterations:**
+  - parse_http_response returns (u16, Vec, Vec) not Option - need to handle the Option wrapper from the function itself
+  - When using unwrap_or on parse_http_response, use 0u16 as default not None since the tuple contains u16 directly
+  - In JSX template literals, be careful with syntax: ${"body" === x ? "active" : ""} not ${"body"} followed by `
+  - Rust split() on String returns &str items, not &u8 - use split(' ') not split(|&b| b == b' ')
+  - InterceptedRequest status field is Option<u16> so wrap status in Some() when creating the struct
+  - Image detection: check Content-Type header for image/ prefix, then use data: URL with base64 encoding
+---

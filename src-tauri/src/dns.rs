@@ -25,11 +25,13 @@ const MAX_DNS_ENTRIES: usize = 10000;
 /// Upstream query timeout.
 const DNS_TIMEOUT_SECS: u64 = 3;
 
-/// A single DNS query entry.
+/// A single DNS query entry with app classification.
 #[derive(Clone, serde::Serialize)]
 pub struct DnsEntry {
     pub domain: String,
     pub timestamp_ms: u64,
+    pub app_name: Option<String>,
+    pub app_icon: Option<String>,
 }
 
 /// Shared DNS state.
@@ -58,6 +60,35 @@ impl DnsState {
             db_state: Some(db),
         }
     }
+
+    /// Find the most recent DNS query matching the given host within a time window.
+    /// Returns app_name and app_icon if found within the window.
+    pub fn correlate_app(&self, host: &str, request_timestamp_ms: u64) -> Option<(String, String)> {
+        // 5 second correlation window
+        let window_ms = 5000u64;
+
+        let entries = self.entries.lock().unwrap();
+
+        // Find DNS queries within the window that match the host
+        for entry in entries.iter().rev() {
+            if request_timestamp_ms < entry.timestamp_ms {
+                continue;
+            }
+            if request_timestamp_ms - entry.timestamp_ms > window_ms {
+                break;
+            }
+
+            // Check if host matches the DNS query domain
+            let domain = &entry.domain;
+            if host == domain || host.ends_with(&format!(".{}", domain)) {
+                if let (Some(name), Some(icon)) = (&entry.app_name, &entry.app_icon) {
+                    return Some((name.clone(), icon.clone()));
+                }
+            }
+        }
+
+        None
+    }
 }
 
 /// Get current timestamp in milliseconds since UNIX epoch.
@@ -77,22 +108,27 @@ fn record_query(
 ) {
     let timestamp_ms_val = timestamp_ms();
 
+    // Classify the domain for app tagging
+    let app_info = crate::app_rules::classify_host(&domain);
+    let (app_name, app_icon) = app_info
+        .map(|(n, i)| (Some(n), Some(i)))
+        .unwrap_or((None, None));
+
     let entry = DnsEntry {
         domain: domain.clone(),
         timestamp_ms: timestamp_ms_val,
+        app_name: app_name.clone(),
+        app_icon: app_icon.clone(),
     };
 
     let mut entries = state.entries.lock().unwrap();
     if entries.len() >= MAX_DNS_ENTRIES {
         entries.pop_front();
     }
-    entries.push_back(entry);
+    entries.push_back(entry.clone());
 
     // Emit event to frontend
-    let _ = app_handle.emit("dns-query", &DnsEntry {
-        domain: domain.clone(),
-        timestamp_ms: timestamp_ms_val,
-    });
+    let _ = app_handle.emit("dns-query", &entry);
 
     // Log to database if db_state is available
     if let Some(db) = &state.db_state {
@@ -100,11 +136,12 @@ fn record_query(
             let timestamp_str = chrono_lite_timestamp();
             let query_type = 1; // A record
             let response_ips_json = serde_json::to_string(response_ips).unwrap_or_else(|_| "[]".to_string());
+            let app_tag = app_name.unwrap_or_else(|| "unknown".to_string());
 
             let _ = conn.execute(
-                "INSERT INTO dns_queries (timestamp, query_name, query_type, response_ips, device_id)
-                 VALUES (?1, ?2, ?3, ?4, NULL)",
-                rusqlite::params![timestamp_str, domain, query_type, response_ips_json],
+                "INSERT INTO dns_queries (timestamp, query_name, query_type, response_ips, device_id, app_tag)
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+                rusqlite::params![timestamp_str, domain, query_type, response_ips_json, app_tag],
             );
         }
     }

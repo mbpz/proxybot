@@ -70,6 +70,7 @@ impl DbState {
                 query_type   INTEGER NOT NULL,
                 response_ips TEXT NOT NULL DEFAULT '[]',
                 device_id    INTEGER,
+                app_tag      TEXT,
                 FOREIGN KEY (device_id) REFERENCES devices(id)
             );
 
