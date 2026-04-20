@@ -1,4 +1,28 @@
-## 2026-04-21 02:30 - US-012
+## 2026-04-21 08:30 - US-018
+- What was implemented: State machine visualizer for auth flows
+  - Created state_machine.rs module with AuthFlowExtractor
+  - Extracts login → token → resource lifecycle from DAG data
+  - Generates Mermaid markdown diagrams for visualization
+  - Detects anomalous transitions (resource accessed before login)
+  - Added alerts table to db.rs for storing anomalies
+  - Tauri commands: get_auth_state_machine, get_alerts_cmd, acknowledge_alert_cmd, get_alert_count
+  - Added state machine panel and alerts section to App.tsx
+  - Alerts section with severity badges and acknowledge functionality
+- Files changed:
+  - src-tauri/src/state_machine.rs (new file - state machine module)
+  - src-tauri/src/db.rs (added alerts table to schema)
+  - src-tauri/src/lib.rs (added state_machine module and commands)
+  - src/App.tsx (added state machine and alerts UI)
+  - src/App.css (added state machine and alerts styles)
+  - ralph/prd.json (marked US-018 as passes: true)
+- **Learnings for future iterations:**
+  - rusqlite MappedRows closures have different types even if identical - collect inside each if/else branch
+  - Rust lifetime issues with closures in if/else branches - collect immediately after query_map
+  - When editing React useEffect hooks, be careful not to break the closure structure with `}, []);`
+  - chrono_lite_timestamp is internal to db.rs - needed to make it pub(crate) for state_machine.rs to use
+  - AlertSeverity and AlertType enums in state_machine.rs need to match the serde serialization
+---
+
 - What was implemented: Traffic recording and HAR export
   - Created har.rs module with HAR 1.2 specification structures
   - Implemented export_har command to query http_requests from SQLite and generate HAR JSON
