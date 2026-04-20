@@ -40,6 +40,7 @@ pub fn run() {
             proxy::get_network_info,
             proxy::setup_pf,
             proxy::teardown_pf,
+            proxy::is_pf_enabled,
             dns::get_dns_log,
             db::get_db_stats,
         ])

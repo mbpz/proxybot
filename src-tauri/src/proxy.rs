@@ -927,3 +927,8 @@ pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
     // Then tear down pf
     crate::pf::teardown_pf()
 }
+
+#[tauri::command]
+pub fn is_pf_enabled() -> bool {
+    crate::pf::is_pf_enabled()
+}

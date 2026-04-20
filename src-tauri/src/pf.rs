@@ -115,7 +115,6 @@ pub fn teardown_pf() -> Result<(), String> {
 }
 
 /// Check if pf is currently enabled.
-#[allow(dead_code)]
 pub fn is_pf_enabled() -> bool {
     let output = Command::new("pfctl")
         .args(["-s", "info"])

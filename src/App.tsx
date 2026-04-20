@@ -54,6 +54,9 @@ function App() {
     invoke<NetworkInfo>("get_network_info")
       .then(setNetworkInfo)
       .catch((e) => console.error("Failed to get network info:", e));
+    invoke<boolean>("is_pf_enabled")
+      .then((enabled) => setPfEnabled(enabled))
+      .catch((e) => console.error("Failed to get pf status:", e));
 
     const unlisten = listen<InterceptedRequest>("intercepted-request", (event) => {
       setRequests((prev) => [event.payload, ...prev].slice(0, 100));
@@ -91,6 +94,15 @@ function App() {
       setPfLoading(true);
       setError("");
       setPfStatus("");
+
+      // Check if pf is already enabled — if so, skip setup to avoid redundant admin prompt
+      const alreadyEnabled = await invoke<boolean>("is_pf_enabled");
+      if (alreadyEnabled) {
+        setPfEnabled(true);
+        setPfStatus("Transparent proxy is already enabled");
+        return;
+      }
+
       // get_network_info populates ProxyState with interface + local_ip
       await invoke<NetworkInfo>("get_network_info");
       // setup_pf reads from ProxyState — no args needed

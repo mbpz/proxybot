@@ -3,6 +3,8 @@
 - SQLite in Rust: use `rusqlite` crate with `bundled` feature for cross-platform compilation
 - Database path: use `~/.proxybot/` directory for all persistent data
 - WAL mode: enable with `PRAGMA journal_mode=WAL;` for concurrent read/write
+- Certificate storage: use PEM strings instead of Certificate objects for easier serialization and file I/O
+- Interior mutability: when Tauri manages state as Arc<T>, use Mutex<T> inside T for fields that need mutation (e.g., regenerate_ca)
 
 ## 2026-04-20 02:52 - US-001
 - What was implemented: Database schema for traffic storage
@@ -22,3 +24,42 @@
   - Private helper functions used only by tests should use `pub(crate)` visibility
   - WAL mode is important for concurrent read/write in a proxy server
 ---
+
+## 2026-04-20 04:35 - US-002
+- What was implemented: Root CA generation and storage
+  - Updated CertManager to load existing CA from ~/.proxybot/ca.pem if present
+  - Generate RSA key pair using rcgen KeyPair::generate() on first launch
+  - CA PEM stored at ~/.proxybot/ca.pem with metadata in ~/.proxybot/ca.meta.json
+  - Metadata includes created_at timestamp and serial number
+  - Added regenerate_ca command - clears host cert cache but keeps in-memory certs valid for existing sessions
+  - Added get_ca_metadata command for UI display
+  - Download button copies CA PEM to clipboard for easy export
+  - Regenerate button with confirmation dialog
+- Files changed:
+  - src-tauri/src/cert.rs (restructured to store PEM strings, added metadata support)
+  - src-tauri/src/lib.rs (added regenerate_ca and get_ca_metadata to invoke_handler)
+  - src-tauri/src/proxy.rs (added regenerate_ca and get_ca_metadata commands)
+  - src/App.tsx (added download and regenerate buttons, CaMetadata interface)
+- **Learnings for future iterations:**
+  - When CertManager is behind Arc and needs mutation, use Mutex<T> for interior mutability on the fields that change (ca_cert_pem, ca_key_pem)
+  - rcgen KeyPair::generate() creates RSA key pair by default - no special configuration needed for RSA 2048
+  - For CA persistence, storing PEM strings is simpler than Certificate objects and sufficient for signing operations
+  - Download/export in Tauri v2 web UI can use navigator.clipboard.writeText() for simple clipboard copy
+  - When changing file paths (ca.crt -> ca.pem), update get_ca_cert_path Tauri command to reflect new location
+---
+
+## 2026-04-20 08:45 - US-003
+- What was implemented: macOS pf transparent proxy setup - admin prompt optimization
+  - Exposed is_pf_enabled() as a Tauri command so UI can check pf state without re-prompting
+  - Updated App.tsx to call is_pf_enabled on mount, initializing UI state correctly
+  - Updated enableTransparentProxy to check is_pf_enabled before calling setup_pf, avoiding redundant admin prompts
+  - Removed #[allow(dead_code)] from is_pf_enabled() since it's now used
+- Files changed:
+  - src-tauri/src/pf.rs (removed #[allow(dead_code)] from is_pf_enabled)
+  - src-tauri/src/proxy.rs (added is_pf_enabled Tauri command)
+  - src-tauri/src/lib.rs (added is_pf_enabled to invoke_handler)
+  - src/App.tsx (check is_pf_enabled on mount and before calling setup_pf)
+- **Learnings for future iterations:**
+  - The pf anchor file (/etc/pf.anchors/proxybot) is removed on teardown, so re-enabling always requires admin credentials — this is correct security behavior
+  - The is_pf_enabled() check prevents redundant admin prompts when pf is already active (e.g., app restart)
+  - For transparent proxy, pf rdr rules redirect TCP 80/443 to proxy port 8080, and DNS UDP 53 to port 5300
