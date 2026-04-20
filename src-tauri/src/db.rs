@@ -6,7 +6,7 @@
 use rusqlite::{Connection, Result as SqlResult};
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 /// Database state managed by Tauri.

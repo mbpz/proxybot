@@ -42,6 +42,9 @@ function App() {
   const [pfEnabled, setPfEnabled] = useState(false);
   const [pfLoading, setPfLoading] = useState(false);
   const [pfStatus, setPfStatus] = useState("");
+  const [tunEnabled, setTunEnabled] = useState(false);
+  const [tunLoading, setTunLoading] = useState(false);
+  const [tunStatus, setTunStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
   const [caMetadata, setCaMetadata] = useState<CaMetadata | null>(null);
@@ -57,6 +60,9 @@ function App() {
     invoke<boolean>("is_pf_enabled")
       .then((enabled) => setPfEnabled(enabled))
       .catch((e) => console.error("Failed to get pf status:", e));
+    invoke<boolean>("is_tun_enabled")
+      .then((enabled) => setTunEnabled(enabled))
+      .catch((e) => console.error("Failed to get TUN status:", e));
 
     const unlisten = listen<InterceptedRequest>("intercepted-request", (event) => {
       setRequests((prev) => [event.payload, ...prev].slice(0, 100));
@@ -131,6 +137,39 @@ function App() {
       setPfStatus("Failed to disable transparent proxy");
     } finally {
       setPfLoading(false);
+    }
+  };
+
+  const enableTunMode = async () => {
+    try {
+      setTunLoading(true);
+      setError("");
+      setTunStatus("");
+      const result = await invoke<string>("setup_tun");
+      console.log(result);
+      setTunEnabled(true);
+      setTunStatus(result);
+    } catch (e) {
+      setError(String(e));
+      setTunStatus("Failed to enable TUN/VPN mode");
+    } finally {
+      setTunLoading(false);
+    }
+  };
+
+  const disableTunMode = async () => {
+    try {
+      setTunLoading(true);
+      setError("");
+      setTunStatus("");
+      await invoke<void>("teardown_tun");
+      setTunEnabled(false);
+      setTunStatus("TUN/VPN mode disabled");
+    } catch (e) {
+      setError(String(e));
+      setTunStatus("Failed to disable TUN/VPN mode");
+    } finally {
+      setTunLoading(false);
     }
   };
 
@@ -252,6 +291,54 @@ function App() {
           <p className="note">
             <strong>Note:</strong> For transparent proxy mode (no proxy configuration on phone),
             enable the transparent proxy above. This requires administrator privileges.
+          </p>
+        </div>
+      </section>
+
+      <section className="setup-panel">
+        <h2>VPN/TUN Mode (Fallback)</h2>
+        <p className="tun-description">
+          For devices that cannot use transparent proxy (Android 7+ without MDM, iOS without MDM),
+          use TUN/VPN mode instead. This creates a VPN interface that captures all device traffic.
+        </p>
+
+        <div className="setup-buttons">
+          {!tunEnabled ? (
+            <button
+              className="btn btn-enable"
+              onClick={enableTunMode}
+              disabled={tunLoading}
+            >
+              {tunLoading ? "Enabling..." : "Enable TUN/VPN Mode"}
+            </button>
+          ) : (
+            <button
+              className="btn btn-disable"
+              onClick={disableTunMode}
+              disabled={tunLoading}
+            >
+              {tunLoading ? "Disabling..." : "Disable TUN/VPN Mode"}
+            </button>
+          )}
+        </div>
+
+        {tunStatus && (
+          <p className={`tun-status ${tunEnabled ? "status-active" : "status-inactive"}`}>
+            {tunStatus}
+          </p>
+        )}
+
+        <div className="setup-instructions">
+          <h3>TUN/VPN Instructions</h3>
+          <ol>
+            <li>Enable TUN/VPN mode above</li>
+            <li>On your phone, install a VPN profile pointing to this computer's IP ({networkInfo?.lan_ip || "..."})</li>
+            <li>Connect to the VPN from your phone</li>
+            <li>All traffic will be captured by ProxyBot</li>
+          </ol>
+          <p className="note">
+            <strong>Note:</strong> TUN/VPN mode captures all device traffic without requiring
+            proxy configuration on the device.
           </p>
         </div>
       </section>

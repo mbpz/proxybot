@@ -90,7 +90,7 @@ fn record_query(
 
     // Emit event to frontend
     let _ = app_handle.emit("dns-query", &DnsEntry {
-        domain,
+        domain: domain.clone(),
         timestamp_ms: timestamp_ms_val,
     });
 

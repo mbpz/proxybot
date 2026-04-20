@@ -1,3 +1,18 @@
+## 2026-04-20 10:30 - US-005
+- What was implemented: TLS MITM with dynamic leaf certificates (already complete in codebase)
+  - Verified implementation: handle_https_connect performs full MITM with TlsAcceptor and TlsConnector
+  - CertManager::generate_host_cert creates RSA leaf certs signed by root CA
+  - Leaf certificates cached in host_certs HashMap for session reuse
+  - Undecryptable traffic gracefully falls back to raw TCP tunnel
+  - No code changes needed - implementation was already complete
+- Files changed: None (code review only - implementation was already in place)
+- **Learnings for future iterations:**
+  - US-005 was already fully implemented before this review - the implementation in proxy.rs and cert.rs is complete
+  - The TLS MITM architecture uses double TLS termination: browser->proxy (TlsAcceptor) and proxy->upstream (TlsConnector)
+  - NoVerification struct accepts all upstream certificates for MITM inspection
+  - DIOCNATLOOK ioctl recovers original destination for transparent HTTPS proxying on macOS
+---
+
 ## Codebase Patterns
 - Tauri v2 state management: wrap state in `Arc<T>` and use `.manage(state.clone())` then `State<'_, Arc<T>>` in commands
 - SQLite in Rust: use `rusqlite` crate with `bundled` feature for cross-platform compilation
@@ -5,6 +20,9 @@
 - WAL mode: enable with `PRAGMA journal_mode=WAL;` for concurrent read/write
 - Certificate storage: use PEM strings instead of Certificate objects for easier serialization and file I/O
 - Interior mutability: when Tauri manages state as Arc<T>, use Mutex<T> inside T for fields that need mutation (e.g., regenerate_ca)
+- macOS TUN interface: use `libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTOCOL_CONTROL)` to create utun control socket
+- DNS database logging: clone domain before emitting Tauri event since params! macro takes ownership
+- Tauri commands using State<'_, Arc<T>> need Arc<T> type in State parameter
 
 ## 2026-04-20 02:52 - US-001
 - What was implemented: Database schema for traffic storage
@@ -63,3 +81,46 @@
   - The pf anchor file (/etc/pf.anchors/proxybot) is removed on teardown, so re-enabling always requires admin credentials — this is correct security behavior
   - The is_pf_enabled() check prevents redundant admin prompts when pf is already active (e.g., app restart)
   - For transparent proxy, pf rdr rules redirect TCP 80/443 to proxy port 8080, and DNS UDP 53 to port 5300
+
+## 2026-04-20 09:15 - US-004
+- What was implemented: Local DNS server with query logging
+  - Added DnsState::with_db() constructor that takes DbState
+  - DnsState now stores optional db_state for SQLite logging
+  - Added parse_response_ips() to extract A record IPs from DNS response
+  - record_query() now logs to dns_queries table with timestamp and response IPs
+  - Added chrono_lite_timestamp() for SQLite-compatible date formatting (YYYY-MM-DD HH:MM:SS)
+  - handle_dns_query() extracts response IPs after upstream response and passes to record_query
+  - Updated lib.rs to create DnsState with database reference via with_db()
+- Files changed:
+  - src-tauri/src/dns.rs (added db logging, response IP parsing, chrono_lite_timestamp)
+  - src-tauri/src/lib.rs (use with_db constructor)
+- **Learnings for future iterations:**
+  - DNS responses contain A records at type=1 with 4-byte IPv4 addresses in rdata section
+  - parse_response_ips must skip past the question section (QNAME + QTYPE + QCLASS) before parsing answer RRs
+  - DNS compression pointers (top 2 bits set) must be handled when parsing names in answer RRs
+  - chrono-lite timestamp implementation: loop through years, then months, to convert epoch seconds to YMD HMS format
+  - DnsState can be constructed with with_db() even when cargo isn't available for type checking - code review was used to verify correctness
+---
+
+## 2026-04-20 21:45 - US-006
+- What was implemented: TUN/VPN mode fallback
+  - Created tun.rs module for macOS utun interface management using native PF_SYSTEM socket
+  - Implemented setup_tun, teardown_tun, is_tun_enabled Tauri commands
+  - Added TUN/VPN mode section in App.tsx UI with enable/disable buttons
+  - TUN interface configured with IP 10.0.0.1/24 using ifconfig
+  - Routing configured via route command to capture device traffic
+  - Fixed pre-existing bug in db.rs (missing Arc import)
+  - Fixed pre-existing bug in dns.rs (domain moved before rusqlite::params! usage)
+- Files changed:
+  - src-tauri/src/tun.rs (new file - TUN interface module)
+  - src-tauri/src/lib.rs (added tun module, TunState management, tun commands)
+  - src-tauri/src/db.rs (added Arc import)
+  - src-tauri/src/dns.rs (fixed domain clone before params! macro)
+  - src/App.tsx (added TUN/VPN mode state, functions, and UI section)
+  - ralph/prd.json (updated US-006 notes)
+- **Learnings for future iterations:**
+  - tokio-tun and tun crates don't compile well on macOS - use native libc syscalls instead
+  - macOS utun interfaces: use PF_SYSTEM (32) socket family with SYSPROTOCOL_CONTROL (2)
+  - Always clone values before emitting Tauri events when they might be used afterwards
+  - When using rusqlite::params! macro, values are moved - clone if needed after
+  - The tun crate API requires specifying associated type Queue for Device trait
