@@ -9,11 +9,26 @@ interface InterceptedRequest {
   method: string;
   host: string;
   path: string;
+  query_params?: string;
   status: number | null;
   latency_ms: number | null;
   scheme: string;
+  req_headers: [string, string][];
+  req_body?: string;
+  resp_headers: [string, string][];
+  resp_body?: string;
+  resp_size?: number;
   app_name?: string;
   app_icon?: string;
+  is_websocket: boolean;
+  ws_frames?: WsFrame[];
+}
+
+interface WsFrame {
+  direction: string;
+  timestamp: string;
+  payload: string;
+  size: number;
 }
 
 type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
@@ -48,6 +63,10 @@ function App() {
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
   const [caMetadata, setCaMetadata] = useState<CaMetadata | null>(null);
+  const [selectedHost, setSelectedHost] = useState<string>("all");
+  const [keywordFilter, setKeywordFilter] = useState("");
+  const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
+  const [selectedDetailTab, setSelectedDetailTab] = useState<"headers" | "body" | "params" | "ws">("headers");
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -206,6 +225,43 @@ function App() {
     } catch {
       return ts;
     }
+  };
+
+  const formatSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  };
+
+  const formatHeaders = (headers: [string, string][]): string => {
+    return headers.map(([name, value]) => `${name}: ${value}`).join("\n");
+  };
+
+  const formatBody = (body: string | undefined, headers: [string, string][]): string => {
+    if (!body) return "";
+    const contentType = headers.find(([name]) => name.toLowerCase() === "content-type");
+    if (contentType && contentType[1].includes("application/json")) {
+      try {
+        return JSON.stringify(JSON.parse(body), null, 2);
+      } catch {
+        return body;
+      }
+    }
+    return body;
+  };
+
+  const isImageContent = (req: InterceptedRequest): boolean => {
+    const contentType = req.resp_headers.find(([name]) => name.toLowerCase() === "content-type");
+    if (!contentType) return false;
+    const ct = contentType[1].toLowerCase();
+    return ct.startsWith("image/");
+  };
+
+  const buildImageDataUrl = (req: InterceptedRequest): string => {
+    const contentType = req.resp_headers.find(([name]) => name.toLowerCase() === "content-type");
+    const ct = contentType ? contentType[1] : "image/png";
+    const base64 = btoa(req.resp_body || "");
+    return `data:${ct};base64,${base64}`;
   };
 
   return (
@@ -382,6 +438,25 @@ function App() {
           ))}
         </div>
         <div className="requests-list">
+          <div className="requests-toolbar">
+            <select
+              className="host-filter"
+              value={selectedHost}
+              onChange={(e) => setSelectedHost(e.target.value)}
+            >
+              <option value="all">All Hosts</option>
+              {[...new Set(requests.map((r) => r.host))].map((host) => (
+                <option key={host} value={host}>{host}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              className="keyword-filter"
+              placeholder="Filter by keyword..."
+              value={keywordFilter}
+              onChange={(e) => setKeywordFilter(e.target.value)}
+            />
+          </div>
           {requests.length === 0 ? (
             <p className="no-requests">No requests yet. Configure your browser or device to use ProxyBot as the proxy.</p>
           ) : (
@@ -394,6 +469,7 @@ function App() {
                   <th>Host</th>
                   <th>Path</th>
                   <th>Status</th>
+                  <th>Size</th>
                   <th>Latency</th>
                 </tr>
               </thead>
@@ -404,8 +480,26 @@ function App() {
                     if (selectedTab === "Unknown") return !req.app_name;
                     return req.app_name === selectedTab;
                   })
+                  .filter((req) => {
+                    if (selectedHost === "all") return true;
+                    return req.host === selectedHost;
+                  })
+                  .filter((req) => {
+                    if (!keywordFilter) return true;
+                    const kw = keywordFilter.toLowerCase();
+                    return (
+                      req.host.toLowerCase().includes(kw) ||
+                      req.path.toLowerCase().includes(kw) ||
+                      req.method.toLowerCase().includes(kw) ||
+                      (req.resp_body && req.resp_body.toLowerCase().includes(kw))
+                    );
+                  })
                   .map((req) => (
-                    <tr key={req.id}>
+                    <tr
+                      key={req.id}
+                      className={selectedRequest?.id === req.id ? "selected" : ""}
+                      onClick={() => setSelectedRequest(selectedRequest?.id === req.id ? null : req)}
+                    >
                       <td className="app-cell">
                         {req.app_icon ? `${req.app_icon} ${req.app_name}` : "-"}
                       </td>
@@ -416,6 +510,7 @@ function App() {
                       <td className={`status-code ${req.status && req.status >= 400 ? "status-error" : ""}`}>
                         {req.status || "-"}
                       </td>
+                      <td className="size">{req.resp_size ? formatSize(req.resp_size) : "-"}</td>
                       <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
                     </tr>
                   ))}
@@ -423,6 +518,96 @@ function App() {
             </table>
           )}
         </div>
+
+        {selectedRequest && (
+          <div className="request-detail">
+            <div className="detail-header">
+              <h3>{selectedRequest.method} {selectedRequest.host}{selectedRequest.path}</h3>
+              <button className="close-btn" onClick={() => setSelectedRequest(null)}>×</button>
+            </div>
+            <div className="detail-tabs">
+              <button
+                className={`detail-tab ${"headers" === selectedDetailTab ? "active" : ""}`}
+                onClick={() => setSelectedDetailTab("headers")}
+              >
+                Headers
+              </button>
+              <button
+                className={`detail-tab ${"body" === selectedDetailTab ? "active" : ""}`}
+                onClick={() => setSelectedDetailTab("body")}
+              >
+                Body
+              </button>
+              <button
+                className={`detail-tab ${"params" === selectedDetailTab ? "active" : ""}`}
+                onClick={() => setSelectedDetailTab("params")}
+              >
+                Params
+              </button>
+              {selectedRequest.is_websocket && (
+                <button
+                  className={`detail-tab ${"ws" === selectedDetailTab ? "active" : ""}`}
+                  onClick={() => setSelectedDetailTab("ws")}
+                >
+                  WebSocket
+                </button>
+              )}
+            </div>
+            <div className="detail-content">
+              {selectedDetailTab === "headers" && (
+                <div className="headers-section">
+                  <div className="headers-group">
+                    <h4>Request Headers</h4>
+                    {selectedRequest.req_headers.length > 0 ? (
+                      <pre className="headers-pre">{formatHeaders(selectedRequest.req_headers)}</pre>
+                    ) : (
+                      <p className="no-data">No request headers</p>
+                    )}
+                  </div>
+                  <div className="headers-group">
+                    <h4>Response Headers</h4>
+                    {selectedRequest.resp_headers.length > 0 ? (
+                      <pre className="headers-pre">{formatHeaders(selectedRequest.resp_headers)}</pre>
+                    ) : (
+                      <p className="no-data">No response headers</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {selectedDetailTab === "body" && (
+                <div className="body-section">
+                  {isImageContent(selectedRequest) ? (
+                    <div className="image-preview">
+                      <img src={buildImageDataUrl(selectedRequest)} alt="Response" />
+                    </div>
+                  ) : (
+                    <pre className="body-pre">{formatBody(selectedRequest.resp_body, selectedRequest.resp_headers)}</pre>
+                  )}
+                </div>
+              )}
+              {selectedDetailTab === "params" && (
+                <div className="params-section">
+                  {selectedRequest.query_params ? (
+                    <pre className="params-pre">{selectedRequest.query_params}</pre>
+                  ) : (
+                    <p className="no-data">No query parameters</p>
+                  )}
+                </div>
+              )}
+              {selectedDetailTab === "ws" && selectedRequest.ws_frames && (
+                <div className="ws-section">
+                  {selectedRequest.ws_frames.map((frame, idx) => (
+                    <div key={idx} className={`ws-frame ${frame.direction.toLowerCase()}`}>
+                      <span className="ws-direction">{frame.direction}</span>
+                      <span className="ws-time">{formatTimestamp(frame.timestamp)}</span>
+                      <pre className="ws-payload">{frame.payload}</pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="dns-log">

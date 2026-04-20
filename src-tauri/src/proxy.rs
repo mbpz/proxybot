@@ -35,11 +35,27 @@ pub struct InterceptedRequest {
     pub method: String,
     pub host: String,
     pub path: String,
+    pub query_params: Option<String>,
     pub status: Option<u16>,
     pub latency_ms: Option<u64>,
     pub scheme: String,
+    pub req_headers: Vec<(String, String)>,
+    pub req_body: Option<String>,
+    pub resp_headers: Vec<(String, String)>,
+    pub resp_body: Option<String>,
+    pub resp_size: Option<usize>,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
+    pub is_websocket: bool,
+    pub ws_frames: Option<Vec<WsFrame>>,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct WsFrame {
+    pub direction: String,
+    pub timestamp: String,
+    pub payload: String,
+    pub size: usize,
 }
 
 struct ProxyContext {
@@ -253,8 +269,8 @@ fn build_client_config(_cert_manager: &CertManager) -> Result<ClientConfig, Stri
     Ok(config)
 }
 
-/// Parse HTTP request line and headers from buffered data.
-fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(String, String)>)> {
+/// Parse HTTP request line, headers, and body from buffered data.
+fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(String, String)>, Vec<u8>)> {
     let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
     let first_line = String::from_utf8_lossy(&data[..first_line_end]);
     let parts: Vec<&str> = first_line.split_whitespace().collect();
@@ -267,11 +283,13 @@ fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(Strin
 
     let mut headers = Vec::new();
     let mut pos = first_line_end + 2;
-    while pos < data.len() {
+    let mut body_start = data.len();
+    while pos < data.len().saturating_sub(3) {
         let rest = &data[pos..];
         let line_end = rest.windows(2).position(|w| w == b"\r\n")?;
         pos += line_end + 2;
         if line_end == 0 {
+            body_start = pos;
             break;
         }
         let line = String::from_utf8_lossy(&data[pos - line_end - 2..pos - 2]);
@@ -280,18 +298,59 @@ fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(Strin
         }
     }
 
-    Some((method, path, version, headers))
+    let body = if body_start < data.len() {
+        data[body_start..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Some((method, path, version, headers, body))
 }
 
-/// Find status code from HTTP response.
-fn parse_response_status(data: &[u8]) -> Option<u16> {
-    let first_line = data.split(|&b| b == b'\r').next()?;
-    let parts: Vec<&[u8]> = first_line.split(|&b| b == b' ').collect();
-    if parts.len() >= 2 {
-        String::from_utf8_lossy(parts[1]).parse().ok()
-    } else {
-        None
+/// Parse HTTP response status and headers from buffered data.
+fn parse_http_response(data: &[u8]) -> Option<(u16, Vec<(String, String)>, Vec<u8>)> {
+    let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
+    let first_line = String::from_utf8_lossy(&data[..first_line_end]);
+    let parts: Vec<&str> = first_line.split(' ').collect();
+    if parts.len() < 2 {
+        return None;
     }
+    let status: u16 = parts[1].parse().ok()?;
+
+    let mut headers = Vec::new();
+    let mut pos = first_line_end + 2;
+    let mut body_start = data.len();
+    while pos < data.len().saturating_sub(3) {
+        let rest = &data[pos..];
+        let line_end = rest.windows(2).position(|w| w == b"\r\n")?;
+        pos += line_end + 2;
+        if line_end == 0 {
+            body_start = pos;
+            break;
+        }
+        let line = String::from_utf8_lossy(&data[pos - line_end - 2..pos - 2]);
+        if let Some((name, value)) = line.split_once(':') {
+            headers.push((name.trim().to_string(), value.trim().to_string()));
+        }
+    }
+
+    let body = if body_start < data.len() {
+        data[body_start..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Some((status, headers, body))
+}
+
+/// Extract query parameters from URL path.
+fn extract_query_params(path: &str) -> Option<String> {
+    path.split_once('?').map(|(_, query)| query.to_string())
+}
+
+/// Try to parse body as UTF-8 string, fall back to hex representation.
+fn body_to_string(body: &[u8]) -> Option<String> {
+    String::from_utf8(body.to_vec()).ok()
 }
 
 /// Pipe data between client and upstream using plain TCP (for tunnel mode).
@@ -508,12 +567,17 @@ async fn handle_https_connect(
     let latency = start.elapsed().as_millis() as u64;
 
     // Parse request and response for logging
-    let (method, path) = parse_http_request(&request_data)
-        .map(|(m, p, _, _)| (m, p))
-        .unwrap_or_else(|| ("CONNECT".to_string(), "/".to_string()));
+    let (method, path, _, req_headers, req_body) = parse_http_request(&request_data)
+        .unwrap_or_else(|| ("CONNECT".to_string(), "/".to_string(), "1.1".to_string(), Vec::new(), Vec::new()));
 
-    let status = parse_response_status(&response_data);
+    let (status, resp_headers, resp_body) = parse_http_response(&response_data)
+        .unwrap_or((0u16, Vec::new(), Vec::new()));
+
     let request_id = generate_request_id();
+    let query_params = extract_query_params(&path);
+    let resp_size = response_data.len();
+    let req_body_str = body_to_string(&req_body);
+    let resp_body_str = body_to_string(&resp_body);
 
     let app_info = app_rules::classify_host(&target_host);
     let (app_name, app_icon) = app_info
@@ -526,11 +590,19 @@ async fn handle_https_connect(
         method,
         host: target_host.clone(),
         path,
-        status,
+        query_params,
+        status: Some(status),
         latency_ms: Some(latency),
         scheme: "https".to_string(),
+        req_headers,
+        req_body: req_body_str,
+        resp_headers,
+        resp_body: resp_body_str,
+        resp_size: Some(resp_size),
         app_name,
         app_icon,
+        is_websocket: false,
+        ws_frames: None,
     };
 
     let _ = ctx.app_handle.emit("intercepted-request", &req);
@@ -604,7 +676,12 @@ async fn handle_http(
     let latency = start.elapsed().as_millis() as u64;
     let request_id = generate_request_id();
 
-    let status = parse_response_status(&response_buf);
+    let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
+        .unwrap_or((0u16, Vec::new(), Vec::new()));
+    let resp_size = response_buf.len();
+    let query_params = extract_query_params(path);
+    let req_body_str = body_to_string(body);
+    let resp_body_str = body_to_string(&resp_body);
 
     let app_info = app_rules::classify_host(host);
     let (app_name, app_icon) = app_info
@@ -617,11 +694,19 @@ async fn handle_http(
         method: method.to_string(),
         host: host.to_string(),
         path: path.to_string(),
-        status,
+        query_params,
+        status: Some(status),
         latency_ms: Some(latency),
         scheme: if port == 443 { "https" } else { "http" }.to_string(),
+        req_headers: headers.to_vec(),
+        req_body: req_body_str,
+        resp_headers,
+        resp_body: resp_body_str,
+        resp_size: Some(resp_size),
         app_name,
         app_icon,
+        is_websocket: false,
+        ws_frames: None,
     };
 
     let _ = ctx.app_handle.emit("intercepted-request", &req);
