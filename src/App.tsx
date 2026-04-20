@@ -70,6 +70,64 @@ interface DeviceInfo {
   rule_override: string | null;
 }
 
+interface ReplayTarget {
+  host: string;
+  request_count: number;
+  path_count: number;
+}
+
+interface ReplayResult {
+  request_id: number;
+  method: string;
+  url: string;
+  recorded_response: RecordedResponse;
+  mock_response: MockResponse | null;
+  diff: DiffResult | null;
+  delay_ms: number;
+  error: string | null;
+}
+
+interface RecordedResponse {
+  status: number;
+  headers: [string, string][];
+  body: string | null;
+}
+
+interface MockResponse {
+  status: number;
+  headers: [string, string][];
+  body: string | null;
+}
+
+interface DiffResult {
+  header_diffs: HeaderDiff[];
+  body_diff: BodyDiff | null;
+  has_changes: boolean;
+}
+
+interface HeaderDiff {
+  header: string;
+  recorded: string | null;
+  mock: string | null;
+  diff_type: "Added" | "Removed" | "Modified" | "Unchanged";
+}
+
+interface BodyDiff {
+  recorded: string | null;
+  mock: string | null;
+  recorded_lines: string[];
+  mock_lines: string[];
+  line_diffs: LineDiff[];
+}
+
+interface LineDiff {
+  line_number_recorded: number | null;
+  line_number_mock: number | null;
+  recorded_text: string | null;
+  mock_text: string | null;
+  diff_type: "Added" | "Removed" | "Modified" | "Unchanged";
+}
+
 function App() {
   const [running, setRunning] = useState(false);
   const [caCertPath, setCaCertPath] = useState("");
@@ -100,6 +158,13 @@ function App() {
   const [sessionName, setSessionName] = useState<string>("");
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [replayTargets, setReplayTargets] = useState<ReplayTarget[]>([]);
+  const [selectedReplayHost, setSelectedReplayHost] = useState<string>("");
+  const [replayDelay, setReplayDelay] = useState<number>(100);
+  const [replayResults, setReplayResults] = useState<ReplayResult[]>([]);
+  const [replaying, setReplaying] = useState(false);
+  const [selectedReplayResult, setSelectedReplayResult] = useState<ReplayResult | null>(null);
+  const [showReplayPanel, setShowReplayPanel] = useState(false);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -408,6 +473,41 @@ function App() {
     }
   };
 
+  const loadReplayTargets = async () => {
+    try {
+      const targets = await invoke<ReplayTarget[]>("get_replay_targets");
+      setReplayTargets(targets);
+    } catch (e) {
+      console.error("Failed to load replay targets:", e);
+    }
+  };
+
+  const startReplay = async () => {
+    if (!selectedReplayHost) {
+      alert("Please select a host to replay");
+      return;
+    }
+    try {
+      setReplaying(true);
+      setReplayResults([]);
+      setSelectedReplayResult(null);
+      const results = await invoke<ReplayResult[]>("start_replay", {
+        host: selectedReplayHost,
+        delayMs: replayDelay,
+      });
+      setReplayResults(results);
+      setShowReplayPanel(true);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setReplaying(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReplayTargets();
+  }, []);
+
   const formatBytes = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -569,6 +669,48 @@ function App() {
             Regenerate CA
           </button>
         </div>
+      </section>
+
+      <section className="replay-section">
+        <h2>Traffic Replay</h2>
+        <p className="replay-description">
+          Replay recorded requests against a local mock server and see differences.
+        </p>
+        <div className="replay-controls">
+          <select
+            className="replay-host-select"
+            value={selectedReplayHost}
+            onChange={(e) => setSelectedReplayHost(e.target.value)}
+          >
+            <option value="">Select a host...</option>
+            {replayTargets.map((target) => (
+              <option key={target.host} value={target.host}>
+                {target.host} ({target.request_count} requests)
+              </option>
+            ))}
+          </select>
+          <div className="replay-delay">
+            <label>Delay (ms):</label>
+            <input
+              type="number"
+              min="0"
+              max="5000"
+              step="100"
+              value={replayDelay}
+              onChange={(e) => setReplayDelay(Number(e.target.value))}
+            />
+          </div>
+          <button
+            className="btn btn-replay"
+            onClick={startReplay}
+            disabled={replaying || !selectedReplayHost}
+          >
+            {replaying ? "Replaying..." : "Start Replay"}
+          </button>
+        </div>
+        {replaying && (
+          <p className="replay-status">Replaying requests against mock server...</p>
+        )}
       </section>
 
       {error && (
@@ -771,6 +913,130 @@ function App() {
           </div>
         )}
       </section>
+
+      {showReplayPanel && replayResults.length > 0 && (
+        <section className="replay-results">
+          <div className="replay-results-header">
+            <h2>Replay Results ({replayResults.length})</h2>
+            <button className="close-btn" onClick={() => setShowReplayPanel(false)}>×</button>
+          </div>
+          <div className="replay-results-content">
+            <div className="replay-results-list">
+              <table className="replay-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Method</th>
+                    <th>URL</th>
+                    <th>Diff</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replayResults.map((result) => (
+                    <tr
+                      key={result.request_id}
+                      className={selectedReplayResult?.request_id === result.request_id ? "selected" : ""}
+                      onClick={() => setSelectedReplayResult(selectedReplayResult?.request_id === result.request_id ? null : result)}
+                    >
+                      <td className={`replay-status ${result.error ? "error" : result.diff?.has_changes ? "changed" : "match"}`}>
+                        {result.error ? "Error" : result.mock_response?.status || "?"}
+                      </td>
+                      <td className="replay-method">{result.method}</td>
+                      <td className="replay-url" title={result.url}>{result.url.length > 50 ? result.url.substring(0, 50) + "..." : result.url}</td>
+                      <td className="replay-diff">
+                        {result.diff?.has_changes ? (
+                          <span className="diff-badge changed">Changed</span>
+                        ) : (
+                          <span className="diff-badge match">Match</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {selectedReplayResult && (
+              <div className="replay-detail">
+                <h3>{selectedReplayResult.method} {selectedReplayResult.url}</h3>
+                <div className="diff-section">
+                  <h4>Headers Diff</h4>
+                  {selectedReplayResult.diff?.header_diffs && selectedReplayResult.diff.header_diffs.length > 0 ? (
+                    <table className="diff-headers-table">
+                      <thead>
+                        <tr>
+                          <th>Header</th>
+                          <th>Recorded</th>
+                          <th>Mock</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedReplayResult.diff.header_diffs.map((diff, idx) => (
+                          <tr key={idx} className={`diff-row diff-${diff.diff_type.toLowerCase()}`}>
+                            <td className="diff-header-name">{diff.header}</td>
+                            <td className="diff-recorded">{diff.recorded || "-"}</td>
+                            <td className="diff-mock">{diff.mock || "-"}</td>
+                            <td className="diff-type">
+                              <span className={`diff-badge diff-${diff.diff_type.toLowerCase()}`}>
+                                {diff.diff_type}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="no-diff">No header differences</p>
+                  )}
+                </div>
+
+                {selectedReplayResult.diff?.body_diff && (
+                  <div className="diff-section">
+                    <h4>Body Diff</h4>
+                    <div className="body-diff-view">
+                      <div className="body-diff-recorded">
+                        <h5>Recorded</h5>
+                        <pre>{selectedReplayResult.recorded_response.body || "(empty)"}</pre>
+                      </div>
+                      <div className="body-diff-mock">
+                        <h5>Mock</h5>
+                        <pre>{selectedReplayResult.mock_response?.body || "(empty)"}</pre>
+                      </div>
+                    </div>
+                    <div className="line-diff-view">
+                      <h5>Line-by-Line Diff</h5>
+                      <table className="line-diff-table">
+                        <tbody>
+                          {selectedReplayResult.diff.body_diff.line_diffs.map((lineDiff, idx) => (
+                            <tr key={idx} className={`diff-row diff-${lineDiff.diff_type.toLowerCase()}`}>
+                              <td className="line-num-recorded">{lineDiff.line_number_recorded || ""}</td>
+                              <td className="line-num-mock">{lineDiff.line_number_mock || ""}</td>
+                              <td className={`line-content recorded ${lineDiff.diff_type === "Removed" || lineDiff.diff_type === "Modified" ? "highlight" : ""}`}>
+                                {lineDiff.recorded_text || ""}
+                              </td>
+                              <td className={`line-content mock ${lineDiff.diff_type === "Added" || lineDiff.diff_type === "Modified" ? "highlight" : ""}`}>
+                                {lineDiff.mock_text || ""}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {selectedReplayResult.error && (
+                  <div className="error-section">
+                    <h4>Error</h4>
+                    <pre className="error-message">{selectedReplayResult.error}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="dns-log">
         <h2>DNS Queries ({dnsQueries.length})</h2>

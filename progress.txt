@@ -72,6 +72,9 @@
 - macOS TUN interface: use `libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTOCOL_CONTROL)` to create utun control socket
 - DNS database logging: clone domain before emitting Tauri event since params! macro takes ownership
 - Tauri commands using State<'_, Arc<T>> need Arc<T> type in State parameter
+- Mock server: use `tokio::net::TcpListener` with `AsyncReadExt` and `AsyncWriteExt` for async HTTP server
+- reqwest Client with `danger_accept_invalid_certs(true)` for testing against local mock servers
+- serde `from_utf8_lossy` takes `&[u8]`, not `Vec<u8>` - use `.as_ref()` when mapping over Option<Vec<u8>>
 
 ## 2026-04-20 02:52 - US-001
 - What was implemented: Database schema for traffic storage
@@ -269,3 +272,26 @@
   - Devices auto-register on first connection using IP as identifier
   - chrono_lite_timestamp uses u64 for all calculations - days_in_months array must be &[u64] not &[i64]
 ---
+
+## 2026-04-21 - US-013
+- What was implemented: Traffic replay with diff view
+  - Created replay.rs module with mock server and diff engine
+  - Mock server listens on port 19998 and serves recorded responses as fixtures
+  - Replay replays requests with configurable delay between requests
+  - Diff computation compares headers (Added/Removed/Modified/Unchanged) and body line-by-line
+  - Tauri commands: get_replay_targets, get_requests_for_replay, get_recorded_responses, start_replay
+  - UI in App.tsx shows: host selector, delay input, replay results table, diff view panel
+  - Diff view shows side-by-side header table and body comparison with line-by-line diff highlighting
+- Files changed:
+  - src-tauri/src/replay.rs (new file - replay module with mock server and diff engine)
+  - src-tauri/src/lib.rs (added replay module and commands)
+  - src/App.tsx (added ReplayTarget, ReplayResult, DiffResult interfaces; added replay state and functions; added replay UI section and diff view panel)
+  - src/App.css (added replay section styles, replay results styles, diff view styles)
+  - ralph/prd.json (marked US-013 as passes: true)
+- **Learnings for future iterations:**
+  - Mock server implementation: use tokio::net::TcpListener for async server, AsyncReadExt for reading request data
+  - reqwest Client with danger_accept_invalid_certs(true) allows mocking HTTPS endpoints locally
+  - serde `from_utf8_lossy` takes `&[u8]`, not `Vec<u8>` - use `.as_ref()` when mapping
+  - When spawning async tasks in a loop, clone any values needed by the task before the loop or use Arc
+  - For line-by-line diff, iterate through both line arrays simultaneously with index tracking
+  - Dark mode CSS: diff highlighting uses background colors (added=#e8f5e9, removed=#ffebee, modified=#fff3e0)

@@ -8,6 +8,7 @@ mod har;
 mod network;
 mod pf;
 mod proxy;
+mod replay;
 mod rules;
 mod tun;
 
@@ -15,6 +16,7 @@ use cert::CertManager;
 use db::DbState;
 use dns::DnsState;
 use proxy::ProxyState;
+use replay::ReplayState;
 use rules::RulesEngine;
 use tun::TunState;
 
@@ -32,6 +34,7 @@ pub fn run() {
     let dns_state = Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
     let proxy_state = Arc::new(ProxyState::new());
     let tun_state = Arc::new(TunState::new());
+    let replay_state = Arc::new(ReplayState::default());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -41,6 +44,7 @@ pub fn run() {
         .manage(proxy_state.clone())
         .manage(tun_state.clone())
         .manage(rules_engine.clone())
+        .manage(replay_state.clone())
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
             proxy::get_ca_cert_path,
@@ -73,6 +77,10 @@ pub fn run() {
             rules::match_host,
             har::export_har,
             har::save_har_file,
+            replay::get_replay_targets,
+            replay::get_requests_for_replay,
+            replay::get_recorded_responses,
+            replay::start_replay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
