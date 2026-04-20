@@ -169,8 +169,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented DoH and plain UDP upstream support. Default is DoH (https://1.1.1.1/dns-query). Falls back to plain UDP on DoH failure. Hosts file at ~/.proxybot/hosts checked first. Blocklist at ~/.proxybot/blocklist.txt checked second. DNS resolutions fed to rules engine for routing decisions. Tauri commands: get_dns_upstream, set_dns_upstream, reload_dns_lists."
     },
     {
       "id": "US-011",
@@ -186,8 +186,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented devices table with upload_bytes, download_bytes, rule_override columns. Device identified by IP address (stored in mac_address field) since MAC is not available from TCP connections in userspace. Tauri commands: get_devices, register_device, update_device_last_seen, update_device_stats, set_device_rule_override, get_device_by_mac. DeviceContext added to proxy for tracking device per request. UI shows device list with topology diagram."
     },
     {
       "id": "US-012",

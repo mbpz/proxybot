@@ -26,11 +26,11 @@ pub fn run() {
     let cert_manager = Arc::new(
         CertManager::new().expect("Failed to initialize certificate manager"),
     );
-    let dns_state = Arc::new(DnsState::with_db(db_state.clone()));
-    let proxy_state = Arc::new(ProxyState::new());
-    let tun_state = Arc::new(TunState::new());
     let rules_engine = Arc::new(RulesEngine::new());
     rules_engine.clone().start_watcher();
+    let dns_state = Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
+    let proxy_state = Arc::new(ProxyState::new());
+    let tun_state = Arc::new(TunState::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -51,7 +51,16 @@ pub fn run() {
             proxy::teardown_pf,
             proxy::is_pf_enabled,
             dns::get_dns_log,
+            dns::get_dns_upstream,
+            dns::set_dns_upstream,
+            dns::reload_dns_lists,
             db::get_db_stats,
+            db::get_devices,
+            db::register_device,
+            db::update_device_last_seen,
+            db::update_device_stats,
+            db::set_device_rule_override,
+            db::get_device_by_mac,
             tun::setup_tun,
             tun::teardown_tun,
             tun::is_tun_enabled,

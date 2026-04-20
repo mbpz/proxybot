@@ -1205,3 +1205,291 @@
     background: #3a3a3c;
   }
 }
+
+/* Devices Panel */
+.devices-panel {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.devices-panel h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d1d1f;
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.no-devices {
+  color: #86868b;
+  padding: 40px;
+  text-align: center;
+}
+
+.devices-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.devices-list {
+  overflow-x: auto;
+}
+
+.devices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.devices-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #f5f5f7;
+  color: #515154;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.devices-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.devices-table tr:hover {
+  background: #fafafa;
+}
+
+.devices-table tr.selected {
+  background: #e8f0fe;
+}
+
+.device-name input {
+  padding: 4px 8px;
+  border: 1px solid #0071e3;
+  border-radius: 4px;
+  font-size: 13px;
+  width: 120px;
+}
+
+.device-mac {
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  font-size: 11px;
+  color: #515154;
+}
+
+.device-last-seen {
+  font-size: 12px;
+  color: #86868b;
+}
+
+.device-upload,
+.device-download {
+  font-size: 12px;
+  color: #515154;
+}
+
+.device-upload {
+  color: #34c759;
+}
+
+.device-download {
+  color: #0071e3;
+}
+
+.device-rule select {
+  padding: 4px 8px;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  font-size: 12px;
+  background: white;
+  color: #1a1a1a;
+}
+
+/* Device Topology */
+.device-topology {
+  background: #f5f5f7;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.device-topology h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 16px;
+}
+
+.topology-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.topology-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+  border-radius: 12px;
+  min-width: 120px;
+}
+
+.topology-pc {
+  background: #e3f2fd;
+  border: 2px solid #0071e3;
+}
+
+.topology-device {
+  background: #e8f5e9;
+  border: 2px solid #34c759;
+}
+
+.node-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.topology-pc .node-icon {
+  font-weight: bold;
+  color: #0071e3;
+}
+
+.node-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.node-ip {
+  font-size: 11px;
+  font-family: "SF Mono", Monaco, "Courier New", monospace;
+  color: #515154;
+  margin-top: 4px;
+}
+
+.node-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.topology-device .node-stats span:first-child {
+  color: #34c759;
+}
+
+.topology-device .node-stats span:last-child {
+  color: #0071e3;
+}
+
+.topology-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.line-arrow {
+  font-size: 24px;
+  color: #86868b;
+}
+
+.line-label {
+  font-size: 11px;
+  color: #86868b;
+  text-transform: uppercase;
+}
+
+@media (prefers-color-scheme: dark) {
+  .devices-panel {
+    background: #2c2c2e;
+  }
+
+  .devices-panel h2 {
+    color: #f5f5f7;
+  }
+
+  .devices-table th {
+    background: #3a3a3c;
+    color: #f5f5f7;
+  }
+
+  .devices-table td {
+    border-bottom-color: #3a3a3c;
+  }
+
+  .devices-table tr:hover {
+    background: #3a3a3c;
+  }
+
+  .devices-table tr.selected {
+    background: #1a3a5c;
+  }
+
+  .device-mac {
+    color: #a1a1a6;
+  }
+
+  .device-last-seen {
+    color: #86868b;
+  }
+
+  .device-upload {
+    color: #81c784;
+  }
+
+  .device-download {
+    color: #64b5f6;
+  }
+
+  .device-rule select {
+    background: #1d1d1f;
+    border-color: #3a3a3c;
+    color: #f5f5f7;
+  }
+
+  .device-topology {
+    background: #1d1d1f;
+  }
+
+  .device-topology h3 {
+    color: #f5f5f7;
+  }
+
+  .topology-pc {
+    background: #1a3a5c;
+    border-color: #64b5f6;
+  }
+
+  .topology-pc .node-icon {
+    color: #64b5f6;
+  }
+
+  .topology-device {
+    background: #1b3d1f;
+    border-color: #81c784;
+  }
+
+  .node-label {
+    color: #f5f5f7;
+  }
+
+  .node-ip {
+    color: #a1a1a6;
+  }
+
+  .line-arrow {
+    color: #515154;
+  }
+
+  .line-label {
+    color: #515154;
+  }
+}

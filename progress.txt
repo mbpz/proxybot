@@ -13,6 +13,30 @@
   - DIOCNATLOOK ioctl recovers original destination for transparent HTTPS proxying on macOS
 ---
 
+## 2026-04-21 01:15 - US-010
+- What was implemented: DNS enhanced layer with DoH/DoT support
+  - Added DoH (DNS over HTTPS) support via reqwest with rustls
+  - Added plain UDP fallback when DoH fails
+  - Default upstream: https://1.1.1.1/dns-query (DoH)
+  - Local hosts file at ~/.proxybot/hosts loaded and checked before upstream
+  - Blocklist at ~/.proxybot/blocklist.txt (hosts format) loaded and checked
+  - DNS resolutions fed to routing engine for policy decisions
+  - Added DnsEntry::action field for routing action (DIRECT, PROXY, REJECT)
+  - Tauri commands: get_dns_upstream, set_dns_upstream, reload_dns_lists
+  - DnsUpstreamType enum: PlainUdp, Doh (DoT removed for simplicity)
+- Files changed:
+  - src-tauri/Cargo.toml (added reqwest with rustls-tls)
+  - src-tauri/src/dns.rs (complete rewrite with DoH, hosts, blocklist, routing)
+  - src-tauri/src/lib.rs (reordered initialization, added dns commands)
+  - ralph/prd.json (marked US-010 as passes: true)
+- **Learnings for future iterations:**
+  - DoH implementation: use reqwest with rustls-tls for HTTPS, base64url encode DNS query
+  - trust-dns-proto API has changed significantly in newer versions - manual DNS message construction is simpler
+  - DNS response building: manually construct response with ID copy, flags, question copy, and answer section
+  - Always define Arc<Self> variables before dependent variables (rules_engine before dns_state)
+  - reqwest Client::builder().use_rustls_tls() for rustls without native-tls
+---
+
 ## Codebase Patterns
 - YAML rule files: use `serde_yaml` crate with `RuleFile` struct for both Serialize and Deserialize
 - File watcher: use `notify` crate with debounced reload (500ms) using tokio sleep
@@ -198,4 +222,28 @@
   - notify watcher must call .watch() successfully before starting the event loop
   - tokio::spawn in Tauri v2 works fine since Tauri sets up the runtime before run() is called
   - Pattern badge CSS classes use lowercase names like pattern-domain not pattern-DOMAIN
+---
+
+## 2026-04-21 01:45 - US-011
+- What was implemented: Multi-device registry and per-device policies
+  - Added upload_bytes, download_bytes, rule_override columns to devices table
+  - Device identified by IP address (stored in mac_address field) since MAC is not available from TCP in userspace
+  - Added Tauri commands: get_devices, register_device, update_device_last_seen, update_device_stats, set_device_rule_override, get_device_by_mac
+  - Added DeviceContext to proxy for per-request device tracking
+  - InterceptedRequest now includes device_id, device_name, client_ip fields
+  - UI shows device list with name, IP/MAC, last seen, upload/download bytes, rule override selector
+  - Device topology diagram showing PC-to-device relationship
+- Files changed:
+  - src-tauri/src/db.rs (schema update, device management functions, chrono_lite_timestamp fix)
+  - src-tauri/src/proxy.rs (DeviceContext, device tracking in requests)
+  - src-tauri/src/lib.rs (added device commands to invoke_handler)
+  - src/App.tsx (DeviceInfo interface, device state, device UI section)
+  - src/App.css (devices panel styles, topology diagram styles)
+  - ralph/prd.json (marked US-011 as passes: true)
+- **Learnings for future iterations:**
+  - In transparent proxy mode, device is identified by source IP since MAC isn't available from TCP connection - real MAC requires ARP lookup or kernel-level access
+  - DeviceContext struct passed through handler chain for tracking device per request
+  - InterceptedRequest captures device_id, device_name, client_ip for association
+  - Devices auto-register on first connection using IP as identifier
+  - chrono_lite_timestamp uses u64 for all calculations - days_in_months array must be &[u64] not &[i64]
 ---

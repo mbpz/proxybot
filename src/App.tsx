@@ -59,6 +59,17 @@ interface Rule {
   action: RuleAction;
 }
 
+interface DeviceInfo {
+  id: number;
+  mac_address: string;
+  name: string;
+  created_at: string;
+  last_seen_at: string;
+  upload_bytes: number;
+  download_bytes: number;
+  rule_override: string | null;
+}
+
 function App() {
   const [running, setRunning] = useState(false);
   const [caCertPath, setCaCertPath] = useState("");
@@ -83,6 +94,9 @@ function App() {
   const [selectedRuleFile, setSelectedRuleFile] = useState<string>("rules.yaml");
   const [showRuleEditor, setShowRuleEditor] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null);
+  const [editingDevice, setEditingDevice] = useState<DeviceInfo | null>(null);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
@@ -111,6 +125,11 @@ function App() {
     invoke<DnsEntry[]>("get_dns_log")
       .then(setDnsQueries)
       .catch((e) => console.error("Failed to get DNS log:", e));
+
+    // Load devices
+    invoke<DeviceInfo[]>("get_devices")
+      .then(setDevices)
+      .catch((e) => console.error("Failed to get devices:", e));
 
     return () => {
       unlisten.then((fn) => fn());
@@ -338,6 +357,42 @@ function App() {
     const ct = contentType ? contentType[1] : "image/png";
     const base64 = btoa(req.resp_body || "");
     return `data:${ct};base64,${base64}`;
+  };
+
+  const loadDevices = async () => {
+    try {
+      const deviceList = await invoke<DeviceInfo[]>("get_devices");
+      setDevices(deviceList);
+    } catch (e) {
+      console.error("Failed to load devices:", e);
+    }
+  };
+
+  const updateDeviceName = async (macAddress: string, name: string) => {
+    try {
+      // Use register_device to update the name (upsert behavior)
+      await invoke("register_device", { macAddress, name });
+      await loadDevices();
+      setEditingDevice(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const updateDeviceRuleOverride = async (macAddress: string, ruleOverride: string | null) => {
+    try {
+      await invoke("set_device_rule_override", { macAddress, ruleOverride });
+      await loadDevices();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
   };
 
   return (
@@ -716,6 +771,108 @@ function App() {
             </table>
           )}
         </div>
+      </section>
+
+      <section className="devices-panel">
+        <h2>Devices ({devices.length})</h2>
+        {devices.length === 0 ? (
+          <p className="no-devices">No devices yet. Devices are registered when they connect through the proxy.</p>
+        ) : (
+          <div className="devices-content">
+            <div className="devices-list">
+              <table className="devices-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>IP/MAC</th>
+                    <th>Last Seen</th>
+                    <th>Upload</th>
+                    <th>Download</th>
+                    <th>Rule Override</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devices.map((device) => (
+                    <tr
+                      key={device.id}
+                      className={selectedDevice?.id === device.id ? "selected" : ""}
+                      onClick={() => setSelectedDevice(selectedDevice?.id === device.id ? null : device)}
+                    >
+                      <td className="device-name">
+                        {editingDevice?.id === device.id ? (
+                          <input
+                            type="text"
+                            value={editingDevice.name}
+                            onChange={(e) => setEditingDevice({ ...editingDevice, name: e.target.value })}
+                            onBlur={() => updateDeviceName(device.mac_address, editingDevice.name)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                updateDeviceName(device.mac_address, editingDevice.name);
+                              } else if (e.key === "Escape") {
+                                setEditingDevice(null);
+                              }
+                            }}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <span onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setEditingDevice(device);
+                          }}>{device.name}</span>
+                        )}
+                      </td>
+                      <td className="device-mac">{device.mac_address}</td>
+                      <td className="device-last-seen">
+                        {new Date(device.last_seen_at).toLocaleString()}
+                      </td>
+                      <td className="device-upload">{formatBytes(device.upload_bytes)}</td>
+                      <td className="device-download">{formatBytes(device.download_bytes)}</td>
+                      <td className="device-rule">
+                        <select
+                          value={device.rule_override || ""}
+                          onChange={(e) => updateDeviceRuleOverride(device.mac_address, e.target.value || null)}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="">Default</option>
+                          <option value="DIRECT">DIRECT</option>
+                          <option value="PROXY">PROXY</option>
+                          <option value="REJECT">REJECT</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {selectedDevice && (
+              <div className="device-topology">
+                <h3>Device Topology</h3>
+                <div className="topology-diagram">
+                  <div className="topology-node topology-pc">
+                    <div className="node-icon">PC</div>
+                    <div className="node-label">ProxyBot PC</div>
+                    <div className="node-ip">{networkInfo?.lan_ip || "..."}</div>
+                  </div>
+                  <div className="topology-line">
+                    <div className="line-arrow">→</div>
+                    <div className="line-label">proxy</div>
+                  </div>
+                  <div className="topology-node topology-device">
+                    <div className="node-icon">📱</div>
+                    <div className="node-label">{selectedDevice.name}</div>
+                    <div className="node-ip">{selectedDevice.mac_address}</div>
+                    <div className="node-stats">
+                      <span>↑ {formatBytes(selectedDevice.upload_bytes)}</span>
+                      <span>↓ {formatBytes(selectedDevice.download_bytes)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="rules-editor">

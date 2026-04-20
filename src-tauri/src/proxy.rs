@@ -1,5 +1,6 @@
 use crate::app_rules;
 use crate::cert::{CaMetadata, CertManager};
+use crate::db::DbState;
 use crate::dns;
 use crate::dns::DnsState;
 use crate::network::NetworkInfo;
@@ -46,6 +47,9 @@ pub struct InterceptedRequest {
     pub resp_size: Option<usize>,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
+    pub device_id: Option<i64>,
+    pub device_name: Option<String>,
+    pub client_ip: Option<String>,
     pub is_websocket: bool,
     pub ws_frames: Option<Vec<WsFrame>>,
 }
@@ -63,6 +67,15 @@ struct ProxyContext {
     #[allow(dead_code)]
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
+    db_state: Arc<DbState>,
+}
+
+/// Device context for tracking which device made a request.
+#[derive(Clone)]
+struct DeviceContext {
+    device_id: i64,
+    device_name: String,
+    ip_address: String,
 }
 
 fn timestamp_now() -> String {
@@ -315,6 +328,7 @@ fn get_original_dst_addr(socket: &tokio::net::TcpStream) -> Option<SocketAddr> {
 /// the encrypted traffic.
 async fn handle_transparent_https(
     ctx: ProxyContext,
+    device_ctx: Option<DeviceContext>,
     client_stream: TcpStream,
     client_addr: SocketAddr,
     original_dst: SocketAddr,
@@ -344,7 +358,7 @@ async fn handle_transparent_https(
     );
 
     // Use the existing HTTPS CONNECT handler with the SNI-based host if available.
-    handle_https_connect(ctx, client_stream, client_addr, effective_host, target_port).await;
+    handle_https_connect(ctx, device_ctx, client_stream, client_addr, effective_host, target_port).await;
 }
 
 /// A ServerCertVerifier that accepts all certificates.
@@ -526,6 +540,7 @@ async fn pipe_tcp_bidirectional(
 /// Handle HTTPS CONNECT tunnel with TLS termination on both sides.
 async fn handle_https_connect(
     ctx: ProxyContext,
+    device_ctx: Option<DeviceContext>,
     mut client_stream: TcpStream,
     client_addr: SocketAddr,
     target_host: String,
@@ -731,6 +746,11 @@ async fn handle_https_connect(
         .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
 
+    let client_ip = client_addr.ip().to_string();
+    let (device_id, device_name) = device_ctx
+        .map(|d| (Some(d.device_id), Some(d.device_name)))
+        .unwrap_or((None, None));
+
     let req = InterceptedRequest {
         id: request_id,
         timestamp: timestamp_now(),
@@ -748,6 +768,9 @@ async fn handle_https_connect(
         resp_size: Some(resp_size),
         app_name,
         app_icon,
+        device_id,
+        device_name,
+        client_ip: Some(client_ip),
         is_websocket: false,
         ws_frames: None,
     };
@@ -765,6 +788,7 @@ async fn handle_https_connect(
 
 async fn handle_http(
     ctx: ProxyContext,
+    device_ctx: Option<DeviceContext>,
     client_stream: TcpStream,
     client_addr: SocketAddr,
     method: &str,
@@ -843,6 +867,11 @@ async fn handle_http(
         .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
 
+    let client_ip = client_addr.ip().to_string();
+    let (device_id, device_name) = device_ctx
+        .map(|d| (Some(d.device_id), Some(d.device_name)))
+        .unwrap_or((None, None));
+
     let req = InterceptedRequest {
         id: request_id,
         timestamp: timestamp_now(),
@@ -860,6 +889,9 @@ async fn handle_http(
         resp_size: Some(resp_size),
         app_name,
         app_icon,
+        device_id,
+        device_name,
+        client_ip: Some(client_ip),
         is_websocket: false,
         ws_frames: None,
     };
@@ -883,7 +915,40 @@ fn find_colon(line: &[u8]) -> Option<(&[u8], &[u8])> {
     None
 }
 
+/// Get or create a device for the given IP address.
+/// Uses IP as the identifier since MAC is not available from TCP connections.
+/// Returns DeviceContext with device info.
+async fn get_or_create_device(db_state: &Arc<DbState>, ip_address: &str) -> Option<DeviceContext> {
+    // Try to get existing device first
+    let device = db_state.get_device_by_ip_internal(ip_address);
+    if let Some(d) = device {
+        return Some(DeviceContext {
+            device_id: d.id,
+            device_name: d.name,
+            ip_address: ip_address.to_string(),
+        });
+    }
+
+    // Create new device with IP as name/identifier
+    let name = format!("Device-{}", ip_address);
+    match db_state.register_device_internal(ip_address, &name) {
+        Ok(d) => Some(DeviceContext {
+            device_id: d.id,
+            device_name: d.name,
+            ip_address: ip_address.to_string(),
+        }),
+        Err(e) => {
+            log::warn!("Failed to register device {}: {}", ip_address, e);
+            None
+        }
+    }
+}
+
 async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr: SocketAddr) {
+    // Get or create device for this client IP
+    let client_ip = client_addr.ip().to_string();
+    let device_ctx = get_or_create_device(&ctx.db_state, &client_ip).await;
+
     // Peek at the first byte to detect TLS without consuming it.
     // TcpStream::peek() in tokio reads without advancing the cursor,
     // so the TLS acceptor will still see the full ClientHello starting at byte 0.
@@ -924,7 +989,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
                 client_addr,
                 original_dst
             );
-            handle_transparent_https(ctx, client_stream, client_addr, original_dst, data.to_vec()).await;
+            handle_transparent_https(ctx, device_ctx.clone(), client_stream, client_addr, original_dst, data.to_vec()).await;
             return;
         } else {
             log::warn!("Could not get original destination for TLS connection from {}", client_addr);
@@ -948,7 +1013,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 
     if method == "CONNECT" {
         if let Some((host, port)) = parse_host_port(path) {
-            handle_https_connect(ctx, client_stream, client_addr, host.to_string(), port).await;
+            handle_https_connect(ctx, device_ctx.clone(), client_stream, client_addr, host.to_string(), port).await;
         }
         return;
     }
@@ -1026,6 +1091,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 
     if let Err(e) = handle_http(
         ctx,
+        device_ctx,
         client_stream,
         client_addr,
         method,
@@ -1041,7 +1107,13 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
     }
 }
 
-async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, dns_state: Arc<DnsState>, mut shutdown_rx: tokio::sync::oneshot::Receiver<()>) -> Result<(), String> {
+async fn run_proxy(
+    app_handle: AppHandle,
+    cert_manager: Arc<CertManager>,
+    dns_state: Arc<DnsState>,
+    db_state: Arc<DbState>,
+    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", PROXY_PORT);
     let listener = TcpListener::bind(&addr).await
         .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
@@ -1057,6 +1129,7 @@ async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, dns_st
                             app_handle: app_handle.clone(),
                             cert_manager: cert_manager.clone(),
                             dns_state: dns_state.clone(),
+                            db_state: db_state.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -1079,6 +1152,7 @@ pub fn start_proxy(
     app_handle: AppHandle,
     cert_manager: State<'_, Arc<CertManager>>,
     dns_state: State<'_, Arc<DnsState>>,
+    db_state: State<'_, Arc<DbState>>,
 ) -> Result<String, String> {
     // Prevent starting proxy multiple times
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
@@ -1087,12 +1161,13 @@ pub fn start_proxy(
 
     let cm = cert_manager.inner().clone();
     let ds = dns_state.inner().clone();
+    let db = db_state.inner().clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(app_handle, cm, ds, shutdown_rx).await {
+        if let Err(e) = run_proxy(app_handle, cm, ds, db, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
