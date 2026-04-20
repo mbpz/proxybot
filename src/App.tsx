@@ -128,9 +128,51 @@ interface LineDiff {
   diff_type: "Added" | "Removed" | "Modified" | "Unchanged";
 }
 
+interface Alert {
+  id: number;
+  device_id: number | null;
+  severity: "Info" | "Warning" | "Critical";
+  alert_type: string;
+  details: string;
+  created_at: string;
+  acknowledged: boolean;
+}
+
+interface AuthState {
+  id: string;
+  label: string;
+  state_type: "Initial" | "Login" | "Authenticated" | "Resource" | "Logout" | "Error";
+}
+
+interface AuthTransition {
+  from_state: string;
+  to_state: string;
+  request_id: number;
+  method: string;
+  path: string;
+  token_type: string | null;
+  is_anomalous: boolean;
+  anomaly_reason: string | null;
+}
+
+interface AuthStateMachine {
+  device_id: number | null;
+  states: AuthState[];
+  transitions: AuthTransition[];
+  mermaid_md: string;
+  anomalies: Anomaly[];
+}
+
+interface Anomaly {
+  request_id: number;
+  anomaly_type: string;
+  description: string;
+  severity: "Info" | "Warning" | "Critical";
+}
+
 function App() {
   const [running, setRunning] = useState(false);
-  const [caCertPath, setCaCertPath] = useState("");
+  const [caCertPath] = useState("");
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
   const [error, setError] = useState("");
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
@@ -165,9 +207,13 @@ function App() {
   const [replaying, setReplaying] = useState(false);
   const [selectedReplayResult, setSelectedReplayResult] = useState<ReplayResult | null>(null);
   const [showReplayPanel, setShowReplayPanel] = useState(false);
+  const [authStateMachine, setAuthStateMachine] = useState<AuthStateMachine | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alertCount, setAlertCount] = useState(0);
+  const [showStateMachinePanel, setShowStateMachinePanel] = useState(false);
 
   useEffect(() => {
-    invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
+    invoke<number>("get_alert_count").then(setAlertCount).catch(console.error);
     invoke<CaMetadata | null>("get_ca_metadata")
       .then(setCaMetadata)
       .catch(console.error);
@@ -507,6 +553,42 @@ function App() {
   useEffect(() => {
     loadReplayTargets();
   }, []);
+
+  const loadAuthStateMachine = async () => {
+    try {
+      const machine = await invoke<AuthStateMachine>("get_auth_state_machine", {
+        deviceId: selectedDevice?.id || null,
+      });
+      setAuthStateMachine(machine);
+      setShowStateMachinePanel(true);
+    } catch (e) {
+      console.error("Failed to load auth state machine:", e);
+    }
+  };
+
+  const loadAlerts = async () => {
+    try {
+      const alertList = await invoke<Alert[]>("get_alerts_cmd", {
+        deviceId: null,
+        severity: null,
+        limit: 50,
+      });
+      setAlerts(alertList);
+    } catch (e) {
+      console.error("Failed to load alerts:", e);
+    }
+  };
+
+  const acknowledgeAlert = async (alertId: number) => {
+    try {
+      await invoke("acknowledge_alert_cmd", { alertId });
+      await loadAlerts();
+      const count = await invoke<number>("get_alert_count");
+      setAlertCount(count);
+    } catch (e) {
+      console.error("Failed to acknowledge alert:", e);
+    }
+  };
 
   const formatBytes = (bytes: number): string => {
     if (bytes < 1024) return `${bytes}B`;
@@ -1297,6 +1379,67 @@ function App() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+      </section>
+
+      {showStateMachinePanel && authStateMachine && (
+        <section className="state-machine-panel">
+          <div className="state-machine-header">
+            <h2>Auth Flow State Machine</h2>
+            <button className="close-btn" onClick={() => setShowStateMachinePanel(false)}>×</button>
+          </div>
+          <div className="state-machine-content">
+            {authStateMachine.anomalies.length > 0 && (
+              <div className="anomalies-section">
+                <h3>Anomalies Detected ({authStateMachine.anomalies.length})</h3>
+                {authStateMachine.anomalies.map((anomaly, idx) => (
+                  <div key={idx} className={`anomaly-item severity-${anomaly.severity.toLowerCase()}`}>
+                    <span className="anomaly-badge">{anomaly.severity}</span>
+                    <span className="anomaly-desc">{anomaly.description}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mermaid-container">
+              <h3>Mermaid Diagram</h3>
+              <pre className="mermaid-code">{authStateMachine.mermaid_md}</pre>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="alerts-section">
+        <div className="alerts-header">
+          <h2>Alerts ({alertCount > 0 && `!${alertCount}`})</h2>
+          <div className="alerts-actions">
+            <button className="btn btn-sm" onClick={loadAlerts}>
+              Load Alerts
+            </button>
+            <button className="btn btn-sm" onClick={loadAuthStateMachine}>
+              View State Machine
+            </button>
+          </div>
+        </div>
+        {alerts.length === 0 ? (
+          <p className="no-alerts">No alerts. Alerts are generated when anomalies are detected.</p>
+        ) : (
+          <div className="alerts-list">
+            {alerts.map((alert) => (
+              <div key={alert.id} className={`alert-item severity-${alert.severity.toLowerCase()} ${alert.acknowledged ? "acknowledged" : ""}`}>
+                <div className="alert-header">
+                  <span className="alert-badge">{alert.severity}</span>
+                  <span className="alert-type">{alert.alert_type}</span>
+                  <span className="alert-time">{new Date(alert.created_at).toLocaleString()}</span>
+                </div>
+                <p className="alert-details">{alert.details}</p>
+                {!alert.acknowledged && (
+                  <button className="btn btn-sm" onClick={() => acknowledgeAlert(alert.id)}>
+                    Acknowledge
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </section>

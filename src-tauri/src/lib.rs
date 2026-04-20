@@ -13,6 +13,7 @@ mod pf;
 mod proxy;
 mod replay;
 mod rules;
+mod state_machine;
 mod tun;
 
 use cert::CertManager;
@@ -96,6 +97,10 @@ pub fn run() {
             infer::generate_openapi_yaml,
             infer::evaluate_inference,
             infer::get_evaluation_result,
+            state_machine::get_auth_state_machine,
+            state_machine::get_alerts_cmd,
+            state_machine::acknowledge_alert_cmd,
+            state_machine::get_alert_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

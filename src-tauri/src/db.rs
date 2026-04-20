@@ -210,6 +210,20 @@ impl DbState {
 
             CREATE INDEX IF NOT EXISTS idx_dag_edges_from ON dag_edges(from_node_id);
             CREATE INDEX IF NOT EXISTS idx_dag_edges_to ON dag_edges(to_node_id);
+
+            CREATE TABLE IF NOT EXISTS alerts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id       INTEGER,
+                severity        TEXT NOT NULL,
+                alert_type      TEXT NOT NULL,
+                details         TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                acknowledged    INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (device_id) REFERENCES devices(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_alerts_device_id ON alerts(device_id);
+            CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
             "#,
         )?;
         Ok(())
@@ -420,7 +434,7 @@ pub fn get_device_by_mac(
 }
 
 /// Format timestamp for SQLite (YYYY-MM-DD HH:MM:SS).
-fn chrono_lite_timestamp() -> String {
+pub(crate) fn chrono_lite_timestamp() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap();
