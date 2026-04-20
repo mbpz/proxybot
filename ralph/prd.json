@@ -279,8 +279,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added evaluate_inference and get_evaluation_result Tauri commands. Created inference_evaluations table to store evaluation results (valid, errors, score, evaluated_at). build_evaluation_prompt was already implemented in infer.rs. Retry logic (up to 2 retries if score < 0.8) is handled in both infer_api_semantics and evaluate_inference. EvaluationResult struct stores valid, errors, and score."
     },
     {
       "id": "US-018",

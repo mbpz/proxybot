@@ -172,6 +172,17 @@ impl DbState {
 
             CREATE INDEX IF NOT EXISTS idx_inferred_apis_session ON inferred_apis(session_id);
 
+            CREATE TABLE IF NOT EXISTS inference_evaluations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL,
+                valid           INTEGER NOT NULL DEFAULT 0,
+                errors          TEXT NOT NULL DEFAULT '[]',
+                score           REAL NOT NULL,
+                evaluated_at    TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inference_evaluations_session ON inference_evaluations(session_id);
+
             CREATE INDEX IF NOT EXISTS idx_http_requests_host ON http_requests(host);
             CREATE INDEX IF NOT EXISTS idx_http_requests_timestamp ON http_requests(timestamp);
             CREATE INDEX IF NOT EXISTS idx_http_requests_device_id ON http_requests(device_id);

@@ -517,6 +517,170 @@ pub fn generate_openapi_yaml(
     serde_yaml::to_string(&spec).map_err(|e| e.to_string())
 }
 
+/// Evaluate stored inference results using LLM.
+#[tauri::command]
+pub async fn evaluate_inference(
+    db_state: State<'_, Arc<DbState>>,
+    session_id: String,
+) -> Result<EvaluationResult, String> {
+    let api_key = get_anthropic_api_key()
+        .ok_or("ANTHROPIC_API_KEY not set")?;
+
+    // Get stored inferences for the session directly
+    let apis = {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        let query = "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
+                     FROM inferred_apis WHERE session_id = ?1 ORDER BY id";
+
+        let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
+
+        let result: Result<Vec<InferredApi>, _> = stmt.query_map(params![session_id], |row| {
+            Ok(InferredApi {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                name: row.get(2)?,
+                method: row.get(3)?,
+                path: row.get(4)?,
+                params: row.get(5)?,
+                auth_required: row.get::<_, i32>(6)? != 0,
+                request_ids: row.get(7)?,
+                score: row.get(8)?,
+                created_at: row.get(9)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect();
+
+        result.map_err(|e| e.to_string())?
+    };
+
+    if apis.is_empty() {
+        return Err("No inferred APIs found for this session".to_string());
+    }
+
+    // Build interfaces list for evaluation
+    let interfaces: Vec<ApiInterface> = apis.iter().map(|a| ApiInterface {
+        name: a.name.clone(),
+        method: a.method.clone(),
+        path: a.path.clone(),
+        params: a.params.clone(),
+        auth_required: a.auth_required,
+    }).collect();
+
+    // Build inference result for evaluation
+    let inference = InferenceResult {
+        interfaces,
+        modules: Vec::new(), // Modules not stored yet
+        valid: false,
+        errors: Vec::new(),
+        score: 0.0,
+    };
+
+    // Build evaluation prompt and call LLM
+    let eval_prompt = build_evaluation_prompt(&inference);
+    let eval_output = call_claude_api(&eval_prompt, &api_key).await?;
+
+    // Parse evaluation result
+    let mut eval_result: EvaluationResult = serde_json::from_str(&eval_output)
+        .map_err(|e| format!("Failed to parse evaluation result as JSON: {}. Output was: {}", e, &eval_output))?;
+
+    // Store evaluation result in database
+    {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        let now = chrono_lite_timestamp();
+        let errors_json = serde_json::to_string(&eval_result.errors).unwrap_or_default();
+
+        conn.execute(
+            "INSERT INTO inference_evaluations (session_id, valid, errors, score, evaluated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                session_id,
+                eval_result.valid as i32,
+                errors_json,
+                eval_result.score,
+                now,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Retry up to 2 times if score < 0.8
+    let mut retries = 0;
+    while eval_result.score < 0.8 && retries < 2 {
+        // Build feedback prompt with current errors
+        let feedback_prompt = format!(
+            "{}\n\nPrevious evaluation score was {:.1}. Errors found: {:?}. \
+             Please re-evaluate with these corrections in mind.",
+            eval_prompt,
+            eval_result.score,
+            eval_result.errors
+        );
+
+        let retry_output = call_claude_api(&feedback_prompt, &api_key).await?;
+
+        if let Ok(new_result) = serde_json::from_str::<EvaluationResult>(&retry_output) {
+            eval_result = new_result;
+
+            // Update stored evaluation
+            let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+            let errors_json = serde_json::to_string(&eval_result.errors).unwrap_or_default();
+
+            conn.execute(
+                "INSERT INTO inference_evaluations (session_id, valid, errors, score, evaluated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    session_id,
+                    eval_result.valid as i32,
+                    errors_json,
+                    eval_result.score,
+                    chrono_lite_timestamp(),
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        retries += 1;
+    }
+
+    Ok(eval_result)
+}
+
+/// Get evaluation result for a session.
+#[tauri::command]
+pub fn get_evaluation_result(
+    db_state: State<'_, Arc<DbState>>,
+    session_id: String,
+) -> Result<Option<EvaluationResult>, String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+
+    let query = "SELECT valid, errors, score, evaluated_at \
+                 FROM inference_evaluations WHERE session_id = ?1 \
+                 ORDER BY evaluated_at DESC LIMIT 1";
+
+    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
+
+    let result = stmt.query_row(params![session_id], |row| {
+        let valid: i32 = row.get(0)?;
+        let errors_json: String = row.get(1)?;
+        let score: f64 = row.get(2)?;
+        let _evaluated_at: String = row.get(3)?;
+
+        let errors: Vec<String> = serde_json::from_str(&errors_json).unwrap_or_default();
+
+        Ok(EvaluationResult {
+            valid: valid != 0,
+            errors,
+            score,
+        })
+    });
+
+    match result {
+        Ok(eval) => Ok(Some(eval)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 // ============================================================================
 // Utility
 // ============================================================================

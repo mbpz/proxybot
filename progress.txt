@@ -343,3 +343,44 @@
   - Token minimum length filter (>= 8) prevents short values like "ref456" from being treated as tokens
   - Use r"(?i)..." raw string syntax for case-insensitive regex patterns
   - rustls regex crate interprets \\s as whitespace escape (not literal backslash-s)
+
+## 2026-04-21 06:30 - US-016
+- What was implemented: LLM API semantic inference
+  - Created infer.rs module with Claude API integration for traffic analysis
+  - infer_api_semantics command calls Claude with traffic data, validates JSON output
+  - Retry logic: if score < 0.8, re-call with evaluator feedback (up to 2 retries)
+  - store_inference_result saves interfaces to inferred_apis table
+  - get_inferred_apis retrieves stored API inferences
+  - get_openapi_spec generates OpenAPI 3.1 JSON, generate_openapi_yaml generates YAML
+  - Uses ANTHROPIC_API_KEY or CLAUDE_API_KEY environment variable
+- Files changed:
+  - src-tauri/src/infer.rs (new file - LLM inference module)
+  - src-tauri/src/lib.rs (added infer module and commands)
+  - ralph/prd.json (marked US-016 as passes: true)
+- **Learnings for future iterations:**
+  - reqwest Client::new() creates sync client - use for simple blocking requests to Claude API
+  - Claude API v1/messages endpoint requires anthropic-version header
+  - MappedRows closures have different types even if identical - avoid if/else with different closures
+  - sqlite params![] with empty string '' works for optional filtering (WHERE (?1 = '' OR session_id = ?1))
+  - serde_json::json! macro creates Value, not strings - use to_string() when needed
+  - OpenAPI 3.1: paths object uses method lowercase keys like "get", "post"
+---
+
+## 2026-04-21 07:00 - US-017
+- What was implemented: Evaluator agent for LLM output validation
+  - Added inference_evaluations table to db.rs for storing evaluation results
+  - Added evaluate_inference Tauri command to independently evaluate stored inferences
+  - Added get_evaluation_result Tauri command to retrieve evaluation for a session
+  - Evaluation includes valid (bool), errors (Vec<String>), score (f64)
+  - Retry logic: up to 2 retries if score < 0.8 with evaluator feedback
+  - Evaluation stored in database with timestamp for audit trail
+- Files changed:
+  - src-tauri/src/db.rs (added inference_evaluations table)
+  - src-tauri/src/infer.rs (added evaluate_inference and get_evaluation_result commands)
+  - src-tauri/src/lib.rs (exported new commands)
+  - ralph/prd.json (marked US-017 as passes: true)
+- **Learnings for future iterations:**
+  - When borrowing State<'_, Arc<T>> multiple times, query the database within a nested block scope to avoid borrow-after-move errors
+  - MappedRows from rusqlite must be fully consumed (collect) within the scope where the connection is valid
+  - Use explicit let binding for collect Result to avoid lifetime issues with MappedRows temporary
+---

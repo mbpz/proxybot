@@ -94,6 +94,8 @@ pub fn run() {
             infer::get_inferred_apis,
             infer::get_openapi_spec,
             infer::generate_openapi_yaml,
+            infer::evaluate_inference,
+            infer::get_evaluation_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
