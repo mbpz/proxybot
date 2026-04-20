@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 mod app_rules;
 mod cert;
+mod dag;
 mod db;
 mod dns;
 mod har;
@@ -84,6 +85,9 @@ pub fn run() {
             replay::start_replay,
             normalize::get_normalized_traffic,
             normalize::get_traffic_page,
+            dag::build_traffic_dag,
+            dag::get_traffic_dag,
+            dag::get_device_dag,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

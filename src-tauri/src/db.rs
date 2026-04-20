@@ -177,6 +177,28 @@ impl DbState {
             CREATE INDEX IF NOT EXISTS idx_http_requests_device_id ON http_requests(device_id);
             CREATE INDEX IF NOT EXISTS idx_dns_queries_timestamp ON dns_queries(timestamp);
             CREATE INDEX IF NOT EXISTS idx_dns_queries_device_id ON dns_queries(device_id);
+
+            CREATE TABLE IF NOT EXISTS dag_nodes (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                method TEXT NOT NULL,
+                path TEXT NOT NULL,
+                host TEXT NOT NULL,
+                device_id INTEGER,
+                FOREIGN KEY (device_id) REFERENCES devices(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS dag_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_node_id INTEGER NOT NULL,
+                to_node_id INTEGER NOT NULL,
+                token_value TEXT NOT NULL,
+                FOREIGN KEY (from_node_id) REFERENCES dag_nodes(id),
+                FOREIGN KEY (to_node_id) REFERENCES dag_nodes(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dag_edges_from ON dag_edges(from_node_id);
+            CREATE INDEX IF NOT EXISTS idx_dag_edges_to ON dag_edges(to_node_id);
             "#,
         )?;
         Ok(())

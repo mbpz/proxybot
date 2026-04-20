@@ -34,6 +34,7 @@ serde_yaml = "0.9"
 notify = "8"
 ipnetwork = "0.20"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+regex = "1"
 
 [profile.release]
 strip = true
