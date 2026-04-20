@@ -28,6 +28,11 @@ interface DnsEntry {
   timestamp_ms: number;
 }
 
+interface CaMetadata {
+  created_at: number;
+  serial: string;
+}
+
 function App() {
   const [running, setRunning] = useState(false);
   const [caCertPath, setCaCertPath] = useState("");
@@ -39,9 +44,13 @@ function App() {
   const [pfStatus, setPfStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
+  const [caMetadata, setCaMetadata] = useState<CaMetadata | null>(null);
 
   useEffect(() => {
     invoke<string>("get_ca_cert_path").then(setCaCertPath).catch(console.error);
+    invoke<CaMetadata | null>("get_ca_metadata")
+      .then(setCaMetadata)
+      .catch(console.error);
     invoke<NetworkInfo>("get_network_info")
       .then(setNetworkInfo)
       .catch((e) => console.error("Failed to get network info:", e));
@@ -110,6 +119,29 @@ function App() {
       setPfStatus("Failed to disable transparent proxy");
     } finally {
       setPfLoading(false);
+    }
+  };
+
+  const downloadCaCert = async () => {
+    try {
+      const caPem = await invoke<string>("get_ca_cert_pem");
+      await navigator.clipboard.writeText(caPem);
+      alert("CA certificate copied to clipboard. Paste it to a file with .pem extension.");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const regenerateCa = async () => {
+    try {
+      if (!window.confirm("Regenerating the CA will break existing HTTPS intercept sessions. Continue?")) {
+        return;
+      }
+      await invoke<void>("regenerate_ca");
+      setCaMetadata(null);
+      invoke<CaMetadata | null>("get_ca_metadata").then(setCaMetadata).catch(console.error);
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -215,9 +247,22 @@ function App() {
       <section className="ca-info">
         <h2>CA Certificate</h2>
         <p className="ca-path">{caCertPath}</p>
+        {caMetadata && (
+          <p className="ca-meta">
+            Created: {new Date(caMetadata.created_at * 1000).toLocaleString()} | Serial: {caMetadata.serial}
+          </p>
+        )}
         <p className="ca-instructions">
-          To intercept HTTPS traffic, install the CA certificate in your system/browser and trust it.
+          To intercept HTTPS traffic, install the CA certificate on your device and trust it.
         </p>
+        <div className="ca-buttons">
+          <button className="btn btn-download" onClick={downloadCaCert}>
+            Download CA Certificate
+          </button>
+          <button className="btn btn-regenerate" onClick={regenerateCa}>
+            Regenerate CA
+          </button>
+        </div>
       </section>
 
       {error && (

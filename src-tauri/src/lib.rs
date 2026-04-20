@@ -35,6 +35,8 @@ pub fn run() {
             proxy::start_proxy,
             proxy::get_ca_cert_path,
             proxy::get_ca_cert_pem,
+            proxy::regenerate_ca,
+            proxy::get_ca_metadata,
             proxy::get_network_info,
             proxy::setup_pf,
             proxy::teardown_pf,

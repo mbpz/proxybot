@@ -1,5 +1,5 @@
 use crate::app_rules;
-use crate::cert::CertManager;
+use crate::cert::{CaMetadata, CertManager};
 use crate::dns;
 use crate::dns::DnsState;
 use crate::network::NetworkInfo;
@@ -861,12 +861,22 @@ pub fn start_proxy(
 #[tauri::command]
 pub fn get_ca_cert_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".proxybot").join("ca.crt").to_string_lossy().to_string()
+    PathBuf::from(home).join(".proxybot").join("ca.pem").to_string_lossy().to_string()
 }
 
 #[tauri::command]
 pub fn get_ca_cert_pem(cert_manager: State<Arc<CertManager>>) -> String {
     cert_manager.get_ca_cert_pem()
+}
+
+#[tauri::command]
+pub fn regenerate_ca(cert_manager: State<Arc<CertManager>>) -> Result<(), String> {
+    cert_manager.regenerate_ca()
+}
+
+#[tauri::command]
+pub fn get_ca_metadata(cert_manager: State<Arc<CertManager>>) -> Option<CaMetadata> {
+    cert_manager.get_ca_metadata()
 }
 
 /// Shared proxy state — stores network config set by get_network_info.
