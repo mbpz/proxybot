@@ -6,6 +6,7 @@ mod dag;
 mod db;
 mod dns;
 mod har;
+mod infer;
 mod network;
 mod normalize;
 mod pf;
@@ -88,6 +89,11 @@ pub fn run() {
             dag::build_traffic_dag,
             dag::get_traffic_dag,
             dag::get_device_dag,
+            infer::infer_api_semantics,
+            infer::store_inference_result,
+            infer::get_inferred_apis,
+            infer::get_openapi_spec,
+            infer::generate_openapi_yaml,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
