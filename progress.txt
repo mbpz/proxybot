@@ -149,3 +149,26 @@
   - InterceptedRequest status field is Option<u16> so wrap status in Some() when creating the struct
   - Image detection: check Content-Type header for image/ prefix, then use data: URL with base64 encoding
 ---
+
+## 2026-04-20 22:45 - US-008
+- What was implemented: App classification by DNS correlation and SNI
+  - Added SNI (Server Name Indication) extraction from TLS ClientHello in proxy.rs
+  - DNS query log now stores app_name and app_icon for each query
+  - Added DnsState::correlate_app() for 5-second window DNS-to-request correlation
+  - App rules now loadable from ~/.proxybot/app_rules.json (extensible via serde)
+  - Default rules for WeChat, Douyin, Alipay with domain suffix matching
+  - UI updated to show app tags on both request list and DNS log
+- Files changed:
+  - src-tauri/src/app_rules.rs (serde support, load_app_rules, String-based rules)
+  - src-tauri/src/dns.rs (DnsEntry with app fields, correlate_app method)
+  - src-tauri/src/db.rs (added app_tag column to dns_queries table)
+  - src-tauri/src/proxy.rs (SNI extraction, DNS correlation, ProxyContext with dns_state)
+  - src/App.tsx (App column in DNS log, DnsEntry interface update)
+- **Learnings for future iterations:**
+  - AppRule uses String instead of &'static str for serde compatibility - requires heap allocation but allows dynamic loading
+  - SNI extraction: content_type=0x16 indicates TLS record, then parse ClientHello structure (handshake_type=0x01 at pos 5)
+  - DNS correlation uses 5s window: request_timestamp_ms - dns_timestamp_ms <= 5000ms
+  - classify_host returns Option<(String, String)> now, not Option<(&str, &str)> - update tests accordingly
+  - ProxyContext now carries dns_state Arc for correlation within request handlers
+  - When using unwrap_or_else with Option<String>, need to .clone() before moving into log macro
+---

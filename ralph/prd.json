@@ -135,8 +135,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented SNI extraction from TLS ClientHello in proxy.rs. DNS queries now store app_name and app_icon. DnsState::correlate_app() uses 5s window for DNS-to-request correlation. App rules loadable from ~/.proxybot/app_rules.json with serde support. Default rules for WeChat, Douyin, Alipay with domain suffix matching."
     },
     {
       "id": "US-009",
