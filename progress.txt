@@ -317,3 +317,29 @@
   - GraphQL detection: JSON with "query", "variables", or "operationName" keys indicates GraphQL
   - Protobuf heuristic: check for varint patterns in binary data with body size < 10000 bytes
   - Arc must be imported only once in lib.rs - duplicate imports cause E0252 error
+
+## 2026-04-21 05:15 - US-015
+- What was implemented: Request DAG builder from traffic
+  - Created dag.rs module with token extraction and DAG construction
+  - Token extraction regex patterns for access_token, sessionId, auth_token, id, uid, refresh_token
+  - Handles both JSON format ("access_token": "value") and key=value format
+  - DAG edges created when a request carries a token previously returned by another request
+  - Uses 5-character minimum length filter for token values to avoid false positives
+  - Added dag_nodes and dag_edges tables to database schema
+  - Tauri commands: build_traffic_dag, get_traffic_dag, get_device_dag
+  - DAG stored as adjacency list in SQLite for efficient queries
+- Files changed:
+  - src-tauri/Cargo.toml (added regex dependency)
+  - src-tauri/src/dag.rs (new file - DAG builder module)
+  - src-tauri/src/db.rs (added dag_nodes and dag_edges tables)
+  - src-tauri/src/lib.rs (added dag module and commands)
+  - ralph/prd.json (marked US-015 as passes: true)
+- **Learnings for future iterations:**
+  - In Rust raw strings r#"..."#, backslash is literal - use \\s to get \s in regex (whitespace escape)
+  - Character class ['"]? in raw string is correct for optional quote matching
+  - Regex patterns in raw strings need double backslashes for escape sequences
+  - JSON token extraction: check keys directly for token names (access_token, sessionId, etc.)
+  - serde_json::json! macro creates Value with nested structure - extract token values by matching key names
+  - Token minimum length filter (>= 8) prevents short values like "ref456" from being treated as tokens
+  - Use r"(?i)..." raw string syntax for case-insensitive regex patterns
+  - rustls regex crate interprets \\s as whitespace escape (not literal backslash-s)
