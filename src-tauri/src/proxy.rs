@@ -1,5 +1,7 @@
 use crate::app_rules;
-use crate::cert::CertManager;
+use crate::history::HistoryStore;
+use crate::cert::{CaMetadata, CertManager};
+use crate::db::DbState;
 use crate::dns;
 use crate::dns::DnsState;
 use crate::network::NetworkInfo;
@@ -7,6 +9,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -23,25 +26,13 @@ use rustls::{
 };
 use libc;
 use std::fs::OpenOptions;
-use sha1::Digest;
-use base64::Engine;
-use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
-use futures_util::{SinkExt, StreamExt};
-use dashmap::DashMap;
-use std::sync::LazyLock;
 
 const PROXY_PORT: u16 = 8080;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
-static SHUTDOWN_TX: LazyLock<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
-    LazyLock::new(|| tokio::sync::Mutex::new(None));
 
-/// Global store for intercepted requests, keyed by request ID.
-static REQUEST_STORE: LazyLock<DashMap<String, InterceptedRequest>, fn() -> DashMap<String, InterceptedRequest>> =
-    LazyLock::new(|| DashMap::new());
-
-/// Maximum response body size to store (10KB).
-const MAX_BODY_SIZE: usize = 10 * 1024;
+static SHUTDOWN_TX: LazyLock<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
+    LazyLock::new(|| std::sync::Mutex::new(None));
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct InterceptedRequest {
@@ -50,80 +41,46 @@ pub struct InterceptedRequest {
     pub method: String,
     pub host: String,
     pub path: String,
+    pub query_params: Option<String>,
     pub status: Option<u16>,
     pub latency_ms: Option<u64>,
     pub scheme: String,
+    pub req_headers: Vec<(String, String)>,
+    pub req_body: Option<String>,
+    pub resp_headers: Vec<(String, String)>,
+    pub resp_body: Option<String>,
+    pub resp_size: Option<usize>,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
-    pub request_headers: Option<String>,
-    pub response_headers: Option<String>,
-    pub response_body: Option<String>,
-    pub request_body: Option<String>,
+    pub device_id: Option<i64>,
+    pub device_name: Option<String>,
+    pub client_ip: Option<String>,
+    pub is_websocket: bool,
+    pub ws_frames: Option<Vec<WsFrame>>,
 }
 
-#[derive(Clone, serde::Serialize)]
-pub struct WssMessage {
-    pub id: String,
-    pub timestamp: String,
-    pub host: String,
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct WsFrame {
     pub direction: String,
+    pub timestamp: String,
+    pub payload: String,
     pub size: usize,
-    pub content: String,
-    pub app_name: Option<String>,
-    pub app_icon: Option<String>,
 }
 
 struct ProxyContext {
     app_handle: AppHandle,
     #[allow(dead_code)]
     cert_manager: Arc<CertManager>,
+    dns_state: Arc<DnsState>,
+    db_state: Arc<DbState>,
 }
 
-/// Check if an HTTP request is a WebSocket upgrade request.
-/// Returns (Sec-WebSocket-Key, Sec-WebSocket-Protocol) if it is.
-fn is_websocket_upgrade(request_data: &[u8]) -> Option<(String, Option<String>)> {
-    // Look for "Upgrade: websocket" and "Connection: Upgrade" headers
-    let data_str = String::from_utf8_lossy(request_data);
-
-    let has_upgrade = data_str.lines()
-        .any(|line| line.eq_ignore_ascii_case("Upgrade: websocket"));
-
-    let has_connection = data_str.lines()
-        .any(|line| line.eq_ignore_ascii_case("Connection: Upgrade"));
-
-    if has_upgrade && has_connection {
-        let mut ws_key = None;
-        let mut ws_protocol = None;
-        for line in data_str.lines() {
-            if line.starts_with("Sec-WebSocket-Key:") {
-                let key = line.trim_start_matches("Sec-WebSocket-Key:").trim();
-                ws_key = Some(key.to_string());
-            }
-            if line.starts_with("Sec-WebSocket-Protocol:") {
-                let proto = line.trim_start_matches("Sec-WebSocket-Protocol:").trim();
-                ws_protocol = Some(proto.to_string());
-            }
-        }
-        if let Some(key) = ws_key {
-            return Some((key, ws_protocol));
-        }
-    }
-    None
-}
-
-/// Compute the Sec-WebSocket-Accept key from the client's key.
-/// RFC 6455: base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
-fn compute_ws_accept_key(client_key: &str) -> String {
-    const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-    let combined = format!("{}{}", client_key, GUID);
-    let mut hasher = sha1::Sha1::new();
-    hasher.update(combined.as_bytes());
-    let result = hasher.finalize();
-    base64_encode(&result)
-}
-
-fn base64_encode(data: &[u8]) -> String {
-    base64::engine::general_purpose::STANDARD.encode(data)
+/// Device context for tracking which device made a request.
+#[derive(Clone)]
+struct DeviceContext {
+    device_id: i64,
+    device_name: String,
+    ip_address: String,
 }
 
 fn timestamp_now() -> String {
@@ -140,126 +97,136 @@ fn generate_request_id() -> String {
         .unwrap_or_else(|_| format!("req-{}", std::time::Instant::now().elapsed().as_nanos()))
 }
 
-/// Format headers as "Header-Name: value\r\n..." string.
-fn format_headers(headers: &[(String, String)]) -> String {
-    headers
-        .iter()
-        .map(|(k, v)| format!("{}: {}", k, v))
-        .collect::<Vec<_>>()
-        .join("\r\n")
-}
-
-/// Decode body bytes to UTF-8 string, fallback to binary marker if invalid.
-fn decode_body(body: &[u8]) -> String {
-    let body = if body.len() > MAX_BODY_SIZE {
-        &body[..MAX_BODY_SIZE]
-    } else {
-        body
-    };
-    match String::from_utf8(body.to_vec()) {
-        Ok(s) => s,
-        Err(_) => format!("[Binary {} bytes]", body.len()),
-    }
-}
-
-/// Parse HTTP response headers from raw response data.
-fn parse_response_headers(data: &[u8]) -> Option<String> {
-    let header_end = data.windows(4).position(|w| w == b"\r\n\r\n")?;
-    let header_slice = &data[..header_end];
-    let mut headers = Vec::new();
-    for line in header_slice.split(|&b| b == b'\n') {
-        let line_trimmed = if line.ends_with(b"\r") {
-            &line[..line.len() - 1]
-        } else {
-            line
-        };
-        if line_trimmed.is_empty() {
-            continue;
-        }
-        if let Some(colon_pos) = line_trimmed.iter().position(|&b| b == b':') {
-            let name_bytes = &line_trimmed[..colon_pos];
-            let value_bytes = &line_trimmed[colon_pos + 1..];
-            let name = String::from_utf8_lossy(name_bytes).trim().to_string();
-            let value = String::from_utf8_lossy(value_bytes).trim().to_string();
-            headers.push((name, value));
-        }
-    }
-    Some(format_headers(&headers))
-}
-
-/// Extract response body from raw HTTP response data.
-fn extract_response_body(data: &[u8]) -> Option<Vec<u8>> {
-    let header_end = data.windows(4).position(|w| w == b"\r\n\r\n")?;
-    let body_start = header_end + 4;
-    if body_start >= data.len() {
-        return Some(Vec::new());
-    }
-    Some(data[body_start..].to_vec())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_http_response_headers() {
-        let data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 123\r\n\r\n";
-        let headers = parse_response_headers(data);
-        let headers = headers.unwrap();
-        // Headers are case-preserved, so check case-insensitively
-        assert!(headers.to_lowercase().contains("content-type: text/html"));
-        assert!(headers.to_lowercase().contains("content-length: 123"));
-    }
-
-    #[test]
-    fn test_decode_body_utf8() {
-        let body = b"Hello, World!";
-        let decoded = decode_body(body);
-        assert_eq!(decoded, "Hello, World!");
-    }
-
-    #[test]
-    fn test_decode_body_binary_fallback() {
-        let body = &[0xFF, 0xFE, 0xFD];
-        let decoded = decode_body(body);
-        assert_eq!(decoded, "[Binary 3 bytes]".to_string());
-    }
-
-    #[test]
-    fn test_decode_body_truncation() {
-        let body: Vec<u8> = (0..15000).map(|i| (i % 256) as u8).collect();
-        let decoded = decode_body(&body);
-        assert!(!decoded.is_empty()); // doesn't panic and returns truncated result
-    }
-
-    #[test]
-    fn test_extract_response_body() {
-        let data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello, World!";
-        let body = extract_response_body(data);
-        assert!(body.is_some());
-        assert_eq!(body.unwrap(), b"Hello, World!");
-    }
-
-    #[test]
-    fn test_extract_response_body_empty() {
-        let data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-        let body = extract_response_body(data);
-        assert!(body.is_some());
-        assert!(body.unwrap().is_empty());
-    }
-}
-
-/// Store an intercepted request in the global store.
-fn store_request(req: InterceptedRequest) {
-    REQUEST_STORE.insert(req.id.clone(), req);
-}
-
 fn parse_host_port(s: &str) -> Option<(&str, u16)> {
     if let Some((host, port_str)) = s.split_once(':') {
         port_str.parse().ok().map(|p| (host, p))
     } else {
         None
     }
+}
+
+/// Extract SNI (Server Name Indication) from TLS ClientHello data.
+/// Returns the hostname if SNI extension is found, None otherwise.
+fn extract_sni_from_client_hello(data: &[u8]) -> Option<String> {
+    // TLS record header: content_type (1) + version (2) + length (2)
+    // ClientHello starts after the record header
+    if data.len() < 5 {
+        return None;
+    }
+
+    // Verify this is a TLS handshake (content_type = 0x16)
+    if data[0] != 0x16 {
+        return None;
+    }
+
+    let mut pos = 5; // Skip TLS record header
+
+    // ClientHello format:
+    // - handshake_type (1) = 0x01 for ClientHello
+    // - length (3)
+    // - version (2)
+    // - random (32)
+    // - session_id_length (1)
+    // - cipher_suites_length (2)
+    // - compression_methods_length (1)
+    // - extensions_length (2)
+    // - extensions...
+
+    if pos + 4 > data.len() {
+        return None;
+    }
+
+    // Verify handshake type is ClientHello (0x01)
+    if data[pos] != 0x01 {
+        return None;
+    }
+    pos += 4; // skip handshake type (1) + length (3)
+
+    // Skip client version (2) + random (32) = 34 bytes
+    if pos + 34 > data.len() {
+        return None;
+    }
+    pos += 34;
+
+    // Skip session_id_length (1) + session_id
+    if pos + 1 > data.len() {
+        return None;
+    }
+    let session_id_len = data[pos] as usize;
+    pos += 1 + session_id_len;
+
+    // Skip cipher_suites_length (2) + cipher_suites
+    if pos + 2 > data.len() {
+        return None;
+    }
+    let cipher_suites_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    pos += 2 + cipher_suites_len;
+
+    // Skip compression_methods_length (1) + compression_methods
+    if pos + 1 > data.len() {
+        return None;
+    }
+    let compression_len = data[pos] as usize;
+    pos += 1 + compression_len;
+
+    // Skip extensions_length (2)
+    if pos + 2 > data.len() {
+        return None;
+    }
+    let extensions_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    pos += 2;
+
+    // Now parse extensions
+    let extensions_end = (pos + extensions_len).min(data.len());
+    while pos + 4 < extensions_end {
+        let ext_type = u16::from_be_bytes([data[pos], data[pos + 1]]);
+        let ext_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+        pos += 4;
+
+        // SNI extension type is 0x0000
+        if ext_type == 0x0000 {
+            // SNI format: list of (type, length, value) where type=0 means hostname
+            if pos + 2 > extensions_end {
+                return None;
+            }
+            let sni_list_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+            pos += 2;
+
+            if pos + sni_list_len > extensions_end {
+                return None;
+            }
+
+            // Parse hostname from SNI list
+            let sni_end = pos + sni_list_len;
+            while pos + 3 < sni_end {
+                let name_type = data[pos];
+                let name_len = u16::from_be_bytes([data[pos + 1], data[pos + 2]]) as usize;
+                pos += 3;
+
+                if pos + name_len > sni_end {
+                    return None;
+                }
+
+                if name_type == 0 {
+                    // hostname (DNS)
+                    let hostname = String::from_utf8_lossy(&data[pos..pos + name_len]).to_string();
+                    return Some(hostname);
+                }
+
+                pos += name_len;
+            }
+
+            return None;
+        }
+
+        // Skip this extension
+        if pos + ext_len > extensions_end {
+            break;
+        }
+        pos += ext_len;
+    }
+
+    None
 }
 
 /// macOS pf NAT lookup via DIOCNATLOOK ioctl.
@@ -366,9 +333,11 @@ fn get_original_dst_addr(socket: &tokio::net::TcpStream) -> Option<SocketAddr> {
 /// the encrypted traffic.
 async fn handle_transparent_https(
     ctx: ProxyContext,
+    device_ctx: Option<DeviceContext>,
     client_stream: TcpStream,
     client_addr: SocketAddr,
     original_dst: SocketAddr,
+    tls_data: Vec<u8>,
 ) {
     let target_host = original_dst.ip().to_string();
     let target_port = original_dst.port();
@@ -380,8 +349,21 @@ async fn handle_transparent_https(
         target_port
     );
 
-    // Use the existing HTTPS CONNECT handler but with the original destination.
-    handle_https_connect(ctx, client_stream, client_addr, target_host, target_port).await;
+    // Try to extract SNI from TLS ClientHello for better app classification
+    let sni_host = extract_sni_from_client_hello(&tls_data);
+
+    // Use SNI if available, otherwise fall back to original destination
+    let effective_host = sni_host.clone().unwrap_or_else(|| target_host.clone());
+
+    log::debug!(
+        "Transparent HTTPS effective host: {} (SNI: {:?}, original: {})",
+        effective_host,
+        sni_host,
+        target_host
+    );
+
+    // Use the existing HTTPS CONNECT handler with the SNI-based host if available.
+    handle_https_connect(ctx, device_ctx, client_stream, client_addr, effective_host, target_port).await;
 }
 
 /// A ServerCertVerifier that accepts all certificates.
@@ -445,8 +427,8 @@ fn build_client_config(_cert_manager: &CertManager) -> Result<ClientConfig, Stri
     Ok(config)
 }
 
-/// Parse HTTP request line and headers from buffered data.
-fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(String, String)>)> {
+/// Parse HTTP request line, headers, and body from buffered data.
+fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(String, String)>, Vec<u8>)> {
     let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
     let first_line = String::from_utf8_lossy(&data[..first_line_end]);
     let parts: Vec<&str> = first_line.split_whitespace().collect();
@@ -459,11 +441,13 @@ fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(Strin
 
     let mut headers = Vec::new();
     let mut pos = first_line_end + 2;
-    while pos < data.len() {
+    let mut body_start = data.len();
+    while pos < data.len().saturating_sub(3) {
         let rest = &data[pos..];
         let line_end = rest.windows(2).position(|w| w == b"\r\n")?;
         pos += line_end + 2;
         if line_end == 0 {
+            body_start = pos;
             break;
         }
         let line = String::from_utf8_lossy(&data[pos - line_end - 2..pos - 2]);
@@ -472,18 +456,59 @@ fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(Strin
         }
     }
 
-    Some((method, path, version, headers))
+    let body = if body_start < data.len() {
+        data[body_start..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Some((method, path, version, headers, body))
 }
 
-/// Find status code from HTTP response.
-fn parse_response_status(data: &[u8]) -> Option<u16> {
-    let first_line = data.split(|&b| b == b'\r').next()?;
-    let parts: Vec<&[u8]> = first_line.split(|&b| b == b' ').collect();
-    if parts.len() >= 2 {
-        String::from_utf8_lossy(parts[1]).parse().ok()
-    } else {
-        None
+/// Parse HTTP response status and headers from buffered data.
+fn parse_http_response(data: &[u8]) -> Option<(u16, Vec<(String, String)>, Vec<u8>)> {
+    let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
+    let first_line = String::from_utf8_lossy(&data[..first_line_end]);
+    let parts: Vec<&str> = first_line.split(' ').collect();
+    if parts.len() < 2 {
+        return None;
     }
+    let status: u16 = parts[1].parse().ok()?;
+
+    let mut headers = Vec::new();
+    let mut pos = first_line_end + 2;
+    let mut body_start = data.len();
+    while pos < data.len().saturating_sub(3) {
+        let rest = &data[pos..];
+        let line_end = rest.windows(2).position(|w| w == b"\r\n")?;
+        pos += line_end + 2;
+        if line_end == 0 {
+            body_start = pos;
+            break;
+        }
+        let line = String::from_utf8_lossy(&data[pos - line_end - 2..pos - 2]);
+        if let Some((name, value)) = line.split_once(':') {
+            headers.push((name.trim().to_string(), value.trim().to_string()));
+        }
+    }
+
+    let body = if body_start < data.len() {
+        data[body_start..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Some((status, headers, body))
+}
+
+/// Extract query parameters from URL path.
+fn extract_query_params(path: &str) -> Option<String> {
+    path.split_once('?').map(|(_, query)| query.to_string())
+}
+
+/// Try to parse body as UTF-8 string, fall back to hex representation.
+fn body_to_string(body: &[u8]) -> Option<String> {
+    String::from_utf8(body.to_vec()).ok()
 }
 
 /// Pipe data between client and upstream using plain TCP (for tunnel mode).
@@ -517,217 +542,11 @@ async fn pipe_tcp_bidirectional(
     }
 }
 
-/// Relay WebSocket frames bidirectionally between browser and server.
-/// Emits intercepted-wss events for each Text/Binary frame.
-async fn handle_websocket_relay(
-    ctx: ProxyContext,
-    client_stream: tokio_rustls::server::TlsStream<TcpStream>,
-    upstream_stream: tokio_rustls::client::TlsStream<TcpStream>,
-    target_host: String,
-) {
-    let app_info = app_rules::classify_host(&target_host);
-    let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
-        .unwrap_or((None, None));
-
-    let target_host_clone = target_host.clone();
-    let app_name_clone = app_name.clone();
-    let app_icon_clone = app_icon.clone();
-    let app_handle_clone = ctx.app_handle.clone();
-    let target_host_for_log = target_host.clone();
-
-    // Create WebSocket streams
-    use tokio_tungstenite::tungstenite::protocol::Role;
-    let browser_ws = WebSocketStream::from_raw_socket(client_stream, Role::Server, None).await;
-    let server_ws = WebSocketStream::from_raw_socket(upstream_stream, Role::Client, None).await;
-
-    let request_id_prefix = generate_request_id();
-    let request_id_prefix_clone = request_id_prefix.clone();
-
-    // Channels for relaying frames between browser and server
-    // browser_to_server: browser_ws sends TO server_ws
-    // server_to_browser: server_ws sends TO browser_ws
-    let (browser_to_server_tx, mut browser_to_server_rx) = tokio::sync::mpsc::channel::<Message>(100);
-    let (server_to_browser_tx, mut server_to_browser_rx) = tokio::sync::mpsc::channel::<Message>(100);
-
-    // Spawn browser -> server relay task
-    let browser_ws_handle = tokio::spawn(async move {
-        let mut ws = browser_ws;
-        let mut msg_id = 0;
-
-        loop {
-            tokio::select! {
-                // Read from browser WebSocket
-                msg_result = ws.next() => {
-                    match msg_result {
-                        Some(Ok(msg)) => {
-                            let forward_msg = match &msg {
-                                Message::Text(_) | Message::Binary(_) => true,
-                                Message::Close(_) => {
-                                    // Forward close to server via channel, then close locally
-                                    let _ = browser_to_server_tx.send(Message::Close(None)).await;
-                                    if let Err(e) = ws.send(Message::Close(None)).await {
-                                        log::error!("Failed to send Close to browser: {}", e);
-                                    }
-                                    break;
-                                }
-                                Message::Ping(data) => {
-                                    // Respond to ping directly to browser
-                                    if let Err(e) = ws.send(Message::Pong(data.clone())).await {
-                                        log::error!("Failed to send Pong to browser: {}", e);
-                                    }
-                                    false
-                                }
-                                Message::Pong(_) | Message::Frame(_) => false,
-                            };
-
-                            if forward_msg {
-                                // Emit intercepted event
-                                let content = match &msg {
-                                    Message::Text(s) => s.to_string(),
-                                    Message::Binary(b) => format!("[Binary {} bytes]", b.len()),
-                                    _ => String::new(),
-                                };
-
-                                let size = msg.len();
-                                let wss_msg = WssMessage {
-                                    id: format!("{}-ws-{}", request_id_prefix, msg_id),
-                                    timestamp: timestamp_now(),
-                                    host: target_host_clone.clone(),
-                                    direction: "up".to_string(),
-                                    size,
-                                    content,
-                                    app_name: app_name_clone.clone(),
-                                    app_icon: app_icon_clone.clone(),
-                                };
-                                let _ = app_handle_clone.emit("intercepted-wss", &wss_msg);
-
-                                // Forward to server via channel
-                                if browser_to_server_tx.send(msg).await.is_err() {
-                                    break;
-                                }
-                                msg_id += 1;
-                            }
-                        }
-                        Some(Err(e)) => {
-                            log::error!("WebSocket read error from browser: {}", e);
-                            break;
-                        }
-                        None => break,
-                    }
-                }
-                // Receive from server -> browser channel and forward to browser WS
-                msg = server_to_browser_rx.recv() => {
-                    match msg {
-                        Some(msg) => {
-                            if let Err(e) = ws.send(msg).await {
-                                log::error!("WebSocket send error to browser: {}", e);
-                                break;
-                            }
-                        }
-                        None => break,
-                    }
-                }
-            }
-        }
-    });
-
-    // Spawn server -> browser relay task
-    let server_ws_handle = tokio::spawn(async move {
-        let mut ws = server_ws;
-        let mut msg_id = 0;
-        let request_id = request_id_prefix_clone;
-        let target = target_host.clone();
-        let app_name = app_name.clone();
-        let app_icon = app_icon.clone();
-        let app_handle = ctx.app_handle.clone();
-
-        loop {
-            tokio::select! {
-                // Read from server WebSocket
-                msg_result = ws.next() => {
-                    match msg_result {
-                        Some(Ok(msg)) => {
-                            let forward_msg = match &msg {
-                                Message::Text(_) | Message::Binary(_) => true,
-                                Message::Close(_) => {
-                                    // Forward close to browser via channel, then close locally
-                                    let _ = server_to_browser_tx.send(Message::Close(None)).await;
-                                    if let Err(e) = ws.send(Message::Close(None)).await {
-                                        log::error!("Failed to send Close to server: {}", e);
-                                    }
-                                    break;
-                                }
-                                Message::Ping(data) => {
-                                    // Respond to ping directly to server
-                                    if let Err(e) = ws.send(Message::Pong(data.clone())).await {
-                                        log::error!("Failed to send Pong to server: {}", e);
-                                    }
-                                    false
-                                }
-                                Message::Pong(_) | Message::Frame(_) => false,
-                            };
-
-                            if forward_msg {
-                                // Emit intercepted event
-                                let content = match &msg {
-                                    Message::Text(s) => s.to_string(),
-                                    Message::Binary(b) => format!("[Binary {} bytes]", b.len()),
-                                    _ => String::new(),
-                                };
-
-                                let size = msg.len();
-                                let wss_msg = WssMessage {
-                                    id: format!("{}-ws-{}", request_id, msg_id),
-                                    timestamp: timestamp_now(),
-                                    host: target.clone(),
-                                    direction: "down".to_string(),
-                                    size,
-                                    content,
-                                    app_name: app_name.clone(),
-                                    app_icon: app_icon.clone(),
-                                };
-                                let _ = app_handle.emit("intercepted-wss", &wss_msg);
-
-                                // Forward to browser via channel
-                                if server_to_browser_tx.send(msg).await.is_err() {
-                                    break;
-                                }
-                                msg_id += 1;
-                            }
-                        }
-                        Some(Err(e)) => {
-                            log::error!("WebSocket read error from server: {}", e);
-                            break;
-                        }
-                        None => break,
-                    }
-                }
-                // Receive from browser -> server channel and forward to server WS
-                msg = browser_to_server_rx.recv() => {
-                    match msg {
-                        Some(msg) => {
-                            if let Err(e) = ws.send(msg).await {
-                                log::error!("WebSocket send error to server: {}", e);
-                                break;
-                            }
-                        }
-                        None => break,
-                    }
-                }
-            }
-        }
-    });
-
-    // Wait for both relay tasks to complete
-    let _ = tokio::join!(browser_ws_handle, server_ws_handle);
-
-    log::info!("WebSocket relay completed for {}", target_host_for_log);
-}
-
+/// Handle HTTPS CONNECT tunnel with TLS termination on both sides.
 async fn handle_https_connect(
     ctx: ProxyContext,
-    client_stream: TcpStream,
+    device_ctx: Option<DeviceContext>,
+    mut client_stream: TcpStream,
     client_addr: SocketAddr,
     target_host: String,
     target_port: u16,
@@ -736,6 +555,15 @@ async fn handle_https_connect(
     log::info!("HTTPS CONNECT tunnel to {} from {}", target_addr, client_addr);
 
     let start = std::time::Instant::now();
+
+    // Send HTTP 200 Connection Established to browser
+    if let Err(e) = client_stream
+        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        .await
+    {
+        log::error!("Failed to send 200 response to browser {}: {}", client_addr, e);
+        return;
+    }
 
     // Generate certificate for the target host signed by our CA
     let (cert_pem, key_pem) = match ctx.cert_manager.generate_host_cert(&target_host) {
@@ -794,8 +622,8 @@ async fn handle_https_connect(
 
     let tls_acceptor = TlsAcceptor::from(Arc::new(server_config));
 
-    // Accept TLS from browser (browser sends TLS ClientHello after CONNECT for explicit proxy)
-    let mut client_tls_stream = match tls_acceptor.accept(client_stream).await {
+    // Accept TLS from browser
+    let client_tls_stream = match tls_acceptor.accept(client_stream).await {
         Ok(stream) => stream,
         Err(e) => {
             log::error!("TLS accept failed for browser {}: {}", client_addr, e);
@@ -804,16 +632,6 @@ async fn handle_https_connect(
     };
 
     log::debug!("TLS handshake completed with browser {}", client_addr);
-
-    // Send HTTP 200 Connection Established over TLS to browser
-    // This tells the browser the tunnel is ready
-    if let Err(e) = client_tls_stream
-        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-        .await
-    {
-        log::error!("Failed to send 200 response to browser {}: {}", client_addr, e);
-        return;
-    }
 
     // Build client TLS config for connecting to upstream
     let client_config = match build_client_config(&ctx.cert_manager) {
@@ -846,7 +664,7 @@ async fn handle_https_connect(
     };
 
     let connector = TlsConnector::from(Arc::new(client_config));
-    let mut upstream_tls_stream = match connector.connect(server_name, upstream_tcp).await {
+    let upstream_tls_stream = match connector.connect(server_name, upstream_tcp).await {
         Ok(stream) => stream,
         Err(e) => {
             log::error!("TLS connect to upstream {} failed: {}", upstream_addr, e);
@@ -856,187 +674,14 @@ async fn handle_https_connect(
 
     log::debug!("TLS handshake completed with upstream {}", upstream_addr);
 
-    // Read the HTTP request from browser to check for WebSocket upgrade
-    let mut http_buf = vec![0u8; 16384];
-    let http_n = match client_tls_stream.read(&mut http_buf).await {
-        Ok(n) => n,
-        Err(e) => {
-            log::error!("Read HTTP request from browser TLS failed: {}", e);
-            return;
-        }
-    };
-
-    if http_n == 0 {
-        log::warn!("Browser closed connection before sending HTTP request");
-        return;
-    }
-
-    let http_data = http_buf[..http_n].to_vec();
-
-    // Check if this is a WebSocket upgrade request
-    if let Some((ws_key, ws_protocol)) = is_websocket_upgrade(&http_data) {
-        log::info!("WebSocket upgrade detected for {} from {}", target_addr, client_addr);
-
-        // Forward the HTTP upgrade request to upstream server
-        if let Err(e) = upstream_tls_stream.write_all(&http_data).await {
-            log::error!("Failed to forward upgrade request to upstream {}: {}", upstream_addr, e);
-            return;
-        }
-
-        // Read the HTTP response from upstream (including 101 or error)
-        let mut upstream_buf = vec![0u8; 16384];
-        let upstream_n = match upstream_tls_stream.read(&mut upstream_buf).await {
-            Ok(n) => n,
-            Err(e) => {
-                log::error!("Failed to read upgrade response from upstream {}: {}", upstream_addr, e);
-                return;
-            }
-        };
-
-        if upstream_n == 0 {
-            log::error!("Upstream closed connection during upgrade for {}", upstream_addr);
-            return;
-        }
-
-        let upstream_response = upstream_buf[..upstream_n].to_vec();
-
-        // Check if upstream returned 101 Switching Protocols
-        let response_str = String::from_utf8_lossy(&upstream_response);
-        let is_101 = response_str.starts_with("HTTP/1.1 101") || response_str.starts_with("HTTP/1.0 101");
-
-        if !is_101 {
-            // Upstream did not accept WebSocket upgrade - fall back to blind relay
-            log::warn!("Upstream {} did not accept WebSocket upgrade, falling back to relay", upstream_addr);
-
-            // Forward the non-101 response to browser
-            if let Err(e) = client_tls_stream.write_all(&upstream_response).await {
-                log::error!("Failed to forward non-101 to browser: {}", e);
-                return;
-            }
-
-            // Do blind relay - pipe data bidirectionally
-            let mut client_tls_stream = client_tls_stream;
-            let mut upstream_tls_stream = upstream_tls_stream;
-
-            let (mut client_read, mut client_write) = tokio::io::split(&mut client_tls_stream);
-            let (mut upstream_read, mut upstream_write) = tokio::io::split(&mut upstream_tls_stream);
-
-            let mut client_buf = vec![0u8; 16384];
-            let mut upstream_buf = vec![0u8; 16384];
-
-            // First send the browser's HTTP request to upstream (already read in http_data)
-            if let Err(e) = upstream_write.write_all(&http_data).await {
-                log::error!("Write to upstream failed: {}", e);
-                return;
-            }
-
-            // We've already read upstream's response into upstream_response, send it first
-            if !upstream_response.is_empty() {
-                if let Err(e) = client_write.write_all(&upstream_response).await {
-                    log::error!("Write to client failed: {}", e);
-                    return;
-                }
-            }
-
-            loop {
-                tokio::select! {
-                    n = client_read.read(&mut client_buf) => {
-                        let n = match n {
-                            Ok(n) => n,
-                            Err(e) => {
-                                log::error!("Read from client TLS failed: {}", e);
-                                break;
-                            }
-                        };
-                        if n == 0 {
-                            let _ = upstream_write.shutdown().await;
-                            break;
-                        }
-                        if let Err(e) = upstream_write.write_all(&client_buf[..n]).await {
-                            log::error!("Write to upstream failed: {}", e);
-                            break;
-                        }
-                    }
-                    n = upstream_read.read(&mut upstream_buf) => {
-                        let n = match n {
-                            Ok(n) => n,
-                            Err(e) => {
-                                log::error!("Read from upstream TLS failed: {}", e);
-                                break;
-                            }
-                        };
-                        if n == 0 {
-                            break;
-                        }
-                        if let Err(e) = client_write.write_all(&upstream_buf[..n]).await {
-                            log::error!("Write to client failed: {}", e);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            log::info!("Blind relay completed for {}", target_addr);
-            return;
-        }
-
-        // Extract Sec-WebSocket-Protocol from upstream response if present
-        let upstream_protocol = response_str.lines()
-            .find(|line| line.starts_with("Sec-WebSocket-Protocol:"))
-            .map(|line| line.trim_start_matches("Sec-WebSocket-Protocol:").trim().to_string());
-
-        // Use upstream's protocol if present, otherwise use client's protocol
-        let final_protocol = upstream_protocol.or(ws_protocol);
-
-        // Compute Sec-WebSocket-Accept from client's key
-        let accept_key = compute_ws_accept_key(&ws_key);
-
-        // Build 101 response to send to browser
-        let mut upgrade_response = format!(
-            "HTTP/1.1 101 Switching Protocols\r\n\
-            Upgrade: websocket\r\n\
-            Connection: Upgrade\r\n\
-            Sec-WebSocket-Accept: {}\r\n",
-            accept_key
-        );
-
-        // Include Sec-WebSocket-Protocol if negotiated
-        if let Some(ref proto) = final_protocol {
-            upgrade_response.push_str(&format!("Sec-WebSocket-Protocol: {}\r\n", proto));
-        }
-
-        upgrade_response.push_str("\r\n");
-
-        // Send 101 Switching Protocols response to browser
-        if let Err(e) = client_tls_stream.write_all(upgrade_response.as_bytes()).await {
-            log::error!("Failed to send 101 response to browser {}: {}", client_addr, e);
-            return;
-        }
-
-        // Handle WebSocket relay
-        handle_websocket_relay(ctx, client_tls_stream, upstream_tls_stream, target_host.clone()).await;
-        return;
-    }
-
-    // Not a WebSocket upgrade - do blind relay (regular HTTPS)
-    // Forward the HTTP data to upstream
-    let mut client_tls_stream = client_tls_stream;
-    let mut upstream_tls_stream = upstream_tls_stream;
-
     // Pipe data bidirectionally between the two TLS streams
-    let (mut client_read, mut client_write) = tokio::io::split(&mut client_tls_stream);
-    let (mut upstream_read, mut upstream_write) = tokio::io::split(&mut upstream_tls_stream);
+    let (mut client_read, mut client_write) = tokio::io::split(client_tls_stream);
+    let (mut upstream_read, mut upstream_write) = tokio::io::split(upstream_tls_stream);
 
     let mut client_buf = vec![0u8; 16384];
     let mut upstream_buf = vec![0u8; 16384];
-    let mut request_data = http_data.clone();
+    let mut request_data = Vec::new();
     let mut response_data = Vec::new();
-
-    // First send the already-read HTTP data to upstream
-    if let Err(e) = upstream_write.write_all(&http_data).await {
-        log::error!("Write to upstream failed: {}", e);
-        return;
-    }
 
     loop {
         tokio::select! {
@@ -1049,7 +694,6 @@ async fn handle_https_connect(
                     }
                 };
                 if n == 0 {
-                    let _ = upstream_write.shutdown().await;
                     break;
                 }
                 request_data.extend_from_slice(&client_buf[..n]);
@@ -1082,42 +726,60 @@ async fn handle_https_connect(
     let latency = start.elapsed().as_millis() as u64;
 
     // Parse request and response for logging
-    let (method, path) = parse_http_request(&request_data)
-        .map(|(m, p, _, _)| (m, p))
-        .unwrap_or_else(|| ("CONNECT".to_string(), "/".to_string()));
+    let (method, path, _, req_headers, req_body) = parse_http_request(&request_data)
+        .unwrap_or_else(|| ("CONNECT".to_string(), "/".to_string(), "1.1".to_string(), Vec::new(), Vec::new()));
 
-    let status = parse_response_status(&response_data);
+    let (status, resp_headers, resp_body) = parse_http_response(&response_data)
+        .unwrap_or((0u16, Vec::new(), Vec::new()));
+
     let request_id = generate_request_id();
-    let response_headers = parse_response_headers(&response_data);
-    let response_body = extract_response_body(&response_data).map(|b| decode_body(&b));
+    let query_params = extract_query_params(&path);
+    let resp_size = response_data.len();
+    let req_body_str = body_to_string(&req_body);
+    let resp_body_str = body_to_string(&resp_body);
 
-    // Parse request headers from request_data
-    let request_headers = parse_http_request(&request_data)
-        .map(|(_, _, _, headers)| format_headers(&headers));
-
-    let app_info = app_rules::classify_host(&target_host);
+    // Classify by direct domain match first, then fall back to DNS correlation
+    let app_info = app_rules::classify_host(&target_host)
+        .or_else(|| {
+            let request_ts_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            ctx.dns_state.correlate_app(&target_host, request_ts_ms)
+        });
     let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .map(|(n, i)| (Some(n), Some(i)))
+        .unwrap_or((None, None));
+
+    let client_ip = client_addr.ip().to_string();
+    let (device_id, device_name) = device_ctx
+        .map(|d| (Some(d.device_id), Some(d.device_name)))
         .unwrap_or((None, None));
 
     let req = InterceptedRequest {
-        id: request_id.clone(),
+        id: request_id,
         timestamp: timestamp_now(),
         method,
         host: target_host.clone(),
         path,
-        status,
+        query_params,
+        status: Some(status),
         latency_ms: Some(latency),
         scheme: "https".to_string(),
+        req_headers,
+        req_body: req_body_str,
+        resp_headers,
+        resp_body: resp_body_str,
+        resp_size: Some(resp_size),
         app_name,
         app_icon,
-        request_headers,
-        response_headers,
-        response_body,
-        request_body: None,
+        device_id,
+        device_name,
+        client_ip: Some(client_ip),
+        is_websocket: false,
+        ws_frames: None,
     };
 
-    store_request(req.clone());
     let _ = ctx.app_handle.emit("intercepted-request", &req);
 
     log::info!(
@@ -1131,6 +793,7 @@ async fn handle_https_connect(
 
 async fn handle_http(
     ctx: ProxyContext,
+    device_ctx: Option<DeviceContext>,
     client_stream: TcpStream,
     client_addr: SocketAddr,
     method: &str,
@@ -1189,33 +852,55 @@ async fn handle_http(
     let latency = start.elapsed().as_millis() as u64;
     let request_id = generate_request_id();
 
-    let status = parse_response_status(&response_buf);
-    let response_headers = parse_response_headers(&response_buf);
-    let response_body = extract_response_body(&response_buf).map(|b| decode_body(&b));
+    let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
+        .unwrap_or((0u16, Vec::new(), Vec::new()));
+    let resp_size = response_buf.len();
+    let query_params = extract_query_params(path);
+    let req_body_str = body_to_string(body);
+    let resp_body_str = body_to_string(&resp_body);
 
-    let app_info = app_rules::classify_host(host);
+    // Classify by direct domain match first, then fall back to DNS correlation
+    let app_info = app_rules::classify_host(host)
+        .or_else(|| {
+            let request_ts_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            ctx.dns_state.correlate_app(host, request_ts_ms)
+        });
     let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
+        .map(|(n, i)| (Some(n), Some(i)))
+        .unwrap_or((None, None));
+
+    let client_ip = client_addr.ip().to_string();
+    let (device_id, device_name) = device_ctx
+        .map(|d| (Some(d.device_id), Some(d.device_name)))
         .unwrap_or((None, None));
 
     let req = InterceptedRequest {
-        id: request_id.clone(),
+        id: request_id,
         timestamp: timestamp_now(),
         method: method.to_string(),
         host: host.to_string(),
         path: path.to_string(),
-        status,
+        query_params,
+        status: Some(status),
         latency_ms: Some(latency),
         scheme: if port == 443 { "https" } else { "http" }.to_string(),
+        req_headers: headers.to_vec(),
+        req_body: req_body_str,
+        resp_headers,
+        resp_body: resp_body_str,
+        resp_size: Some(resp_size),
         app_name,
         app_icon,
-        request_headers: Some(format_headers(headers)),
-        response_headers,
-        response_body,
-        request_body: if body.is_empty() { None } else { Some(decode_body(body)) },
+        device_id,
+        device_name,
+        client_ip: Some(client_ip),
+        is_websocket: false,
+        ws_frames: None,
     };
 
-    store_request(req.clone());
     let _ = ctx.app_handle.emit("intercepted-request", &req);
     Ok(())
 }
@@ -1235,7 +920,40 @@ fn find_colon(line: &[u8]) -> Option<(&[u8], &[u8])> {
     None
 }
 
+/// Get or create a device for the given IP address.
+/// Uses IP as the identifier since MAC is not available from TCP connections.
+/// Returns DeviceContext with device info.
+async fn get_or_create_device(db_state: &Arc<DbState>, ip_address: &str) -> Option<DeviceContext> {
+    // Try to get existing device first
+    let device = db_state.get_device_by_ip_internal(ip_address);
+    if let Some(d) = device {
+        return Some(DeviceContext {
+            device_id: d.id,
+            device_name: d.name,
+            ip_address: ip_address.to_string(),
+        });
+    }
+
+    // Create new device with IP as name/identifier
+    let name = format!("Device-{}", ip_address);
+    match db_state.register_device_internal(ip_address, &name) {
+        Ok(d) => Some(DeviceContext {
+            device_id: d.id,
+            device_name: d.name,
+            ip_address: ip_address.to_string(),
+        }),
+        Err(e) => {
+            log::warn!("Failed to register device {}: {}", ip_address, e);
+            None
+        }
+    }
+}
+
 async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr: SocketAddr) {
+    // Get or create device for this client IP
+    let client_ip = client_addr.ip().to_string();
+    let device_ctx = get_or_create_device(&ctx.db_state, &client_ip).await;
+
     // Peek at the first byte to detect TLS without consuming it.
     // TcpStream::peek() in tokio reads without advancing the cursor,
     // so the TLS acceptor will still see the full ClientHello starting at byte 0.
@@ -1276,7 +994,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
                 client_addr,
                 original_dst
             );
-            handle_transparent_https(ctx, client_stream, client_addr, original_dst).await;
+            handle_transparent_https(ctx, device_ctx.clone(), client_stream, client_addr, original_dst, data.to_vec()).await;
             return;
         } else {
             log::warn!("Could not get original destination for TLS connection from {}", client_addr);
@@ -1300,7 +1018,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 
     if method == "CONNECT" {
         if let Some((host, port)) = parse_host_port(path) {
-            handle_https_connect(ctx, client_stream, client_addr, host.to_string(), port).await;
+            handle_https_connect(ctx, device_ctx.clone(), client_stream, client_addr, host.to_string(), port).await;
         }
         return;
     }
@@ -1378,6 +1096,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 
     if let Err(e) = handle_http(
         ctx,
+        device_ctx,
         client_stream,
         client_addr,
         method,
@@ -1393,7 +1112,13 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
     }
 }
 
-async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, mut shutdown_rx: tokio::sync::oneshot::Receiver<()>) -> Result<(), String> {
+async fn run_proxy(
+    app_handle: AppHandle,
+    cert_manager: Arc<CertManager>,
+    dns_state: Arc<DnsState>,
+    db_state: Arc<DbState>,
+    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", PROXY_PORT);
     let listener = TcpListener::bind(&addr).await
         .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
@@ -1408,6 +1133,8 @@ async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, mut sh
                         let ctx = ProxyContext {
                             app_handle: app_handle.clone(),
                             cert_manager: cert_manager.clone(),
+                            dns_state: dns_state.clone(),
+                            db_state: db_state.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -1429,6 +1156,8 @@ async fn run_proxy(app_handle: AppHandle, cert_manager: Arc<CertManager>, mut sh
 pub fn start_proxy(
     app_handle: AppHandle,
     cert_manager: State<'_, Arc<CertManager>>,
+    dns_state: State<'_, Arc<DnsState>>,
+    db_state: State<'_, Arc<DbState>>,
 ) -> Result<String, String> {
     // Prevent starting proxy multiple times
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
@@ -1436,52 +1165,41 @@ pub fn start_proxy(
     }
 
     let cm = cert_manager.inner().clone();
+    let ds = dns_state.inner().clone();
+    let db = db_state.inner().clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
-    // Store shutdown_tx so stop_proxy can signal shutdown
-    {
-        let mut guard = SHUTDOWN_TX.blocking_lock();
-        *guard = Some(shutdown_tx);
-    }
-
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_proxy(app_handle, cm, shutdown_rx).await {
+        // Keep shutdown_tx alive by dropping it at the end
+        let _shutdown_tx = shutdown_tx;
+        if let Err(e) = run_proxy(app_handle, cm, ds, db, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
-        let mut guard = SHUTDOWN_TX.blocking_lock();
-        *guard = None;
     });
 
     Ok(format!("Proxy starting on port {}", PROXY_PORT))
 }
 
 #[tauri::command]
-pub fn stop_proxy() -> Result<String, String> {
-    if !PROXY_RUNNING.load(Ordering::SeqCst) {
-        return Err("Proxy is not running".to_string());
-    }
-    let tx = {
-        let mut guard = SHUTDOWN_TX.blocking_lock();
-        guard.take()
-    };
-    if let Some(tx) = tx {
-        let _ = tx.send(());
-        Ok("Proxy shutdown signal sent".to_string())
-    } else {
-        Err("No shutdown channel available".to_string())
-    }
-}
-
-#[tauri::command]
 pub fn get_ca_cert_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".proxybot").join("ca.crt").to_string_lossy().to_string()
+    PathBuf::from(home).join(".proxybot").join("ca.pem").to_string_lossy().to_string()
 }
 
 #[tauri::command]
 pub fn get_ca_cert_pem(cert_manager: State<Arc<CertManager>>) -> String {
     cert_manager.get_ca_cert_pem()
+}
+
+#[tauri::command]
+pub fn regenerate_ca(cert_manager: State<Arc<CertManager>>) -> Result<(), String> {
+    cert_manager.regenerate_ca()
+}
+
+#[tauri::command]
+pub fn get_ca_metadata(cert_manager: State<Arc<CertManager>>) -> Option<CaMetadata> {
+    cert_manager.get_ca_metadata()
 }
 
 /// Shared proxy state — stores network config set by get_network_info.
@@ -1534,22 +1252,14 @@ pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_request_detail(id: String) -> Option<InterceptedRequest> {
-    REQUEST_STORE.get(&id).map(|entry| entry.value().clone())
+pub fn is_pf_enabled() -> bool {
+    crate::pf::is_pf_enabled()
 }
 
-#[tauri::command]
-pub fn export_har(requests: Vec<InterceptedRequest>) -> Result<String, String> {
-    let har_log = crate::har::build_har(requests);
-    serde_json::to_string_pretty(&har_log).map_err(|e| e.to_string())
-}
+// ---------------------------------------------------------------------------
+// Keep Running State
+// ---------------------------------------------------------------------------
 
-#[tauri::command]
-pub fn load_history() -> Vec<InterceptedRequest> {
-    crate::history::HistoryStore::new().load()
-}
-
-/// State for persisting keep_running preference.
 pub struct KeepRunningState {
     pub keep_running: std::sync::Mutex<bool>,
 }
@@ -1560,6 +1270,61 @@ impl KeepRunningState {
             keep_running: std::sync::Mutex::new(false),
         }
     }
+}
+
+#[tauri::command]
+pub fn stop_proxy() -> Result<String, String> {
+    PROXY_RUNNING.store(false, Ordering::SeqCst);
+    if let Some(tx) = SHUTDOWN_TX.lock().unwrap().take() {
+        let _ = tx.send(());
+    }
+    Ok("Proxy stopped".to_string())
+}
+
+#[tauri::command]
+pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Result<InterceptedRequest, String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT id, timestamp, method, scheme, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms, app_name, app_icon FROM http_requests WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    stmt.query_row([&id], |row| {
+        Ok(InterceptedRequest {
+            id: row.get(0)?,
+            timestamp: row.get(1)?,
+            method: row.get(2)?,
+            scheme: row.get(3)?,
+            host: row.get(4)?,
+            path: row.get(5)?,
+            query_params: None,
+            status: row.get(8)?,
+            latency_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
+            req_headers: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
+            req_body: row.get::<_, Option<Vec<u8>>>(7)?.map(|b| String::from_utf8_lossy(&b).to_string()),
+            resp_headers: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
+            resp_body: row.get::<_, Option<Vec<u8>>>(10)?.map(|b| String::from_utf8_lossy(&b).to_string()),
+            resp_size: None,
+            app_name: row.get(12)?,
+            app_icon: row.get(13)?,
+            device_id: None,
+            device_name: None,
+            client_ip: None,
+            is_websocket: false,
+            ws_frames: None,
+        })
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_history() -> Result<Vec<InterceptedRequest>, String> {
+    let store = HistoryStore::new();
+    Ok(store.load())
+}
+
+#[tauri::command]
+pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
+    let store = HistoryStore::new();
+    store.save(&requests)
 }
 
 #[tauri::command]
@@ -1574,147 +1339,26 @@ pub fn get_keep_running(state: State<'_, Arc<KeepRunningState>>) -> bool {
 
 #[tauri::command]
 pub fn hide_window(app_handle: AppHandle) -> Result<(), String> {
-    app_handle
-        .get_webview_window("main")
-        .ok_or("no window")?
-        .hide()
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn replay_request(app_handle: AppHandle, id: String) -> Result<(), String> {
-    let req = REQUEST_STORE.get(&id).ok_or("request not found")?;
-    let req = req.value().clone();
-
-    // Replay the request asynchronously
-    let app_handle_clone = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        // Build client config directly (NoVerification accepts all certs)
-        let client_config = ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(NoVerification))
-            .with_no_client_auth();
-
-        let connector = TlsConnector::from(Arc::new(client_config));
-        let target_host = req.host.clone();
-        let target_port = if req.scheme == "https" { 443 } else { 80 };
-        let target_addr = format!("{}:{}", target_host, target_port);
-
-        let upstream_tcp = match TcpStream::connect(&target_addr).await {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("Replay failed to connect to {}: {}", target_addr, e);
-                return;
-            }
-        };
-
-        // Box::leak to get 'static lifetime for rustls ServerName requirement
-        let target_host_static: &'static str = Box::leak(target_host.clone().into_boxed_str());
-        let server_name: ServerName = match ServerName::try_from(target_host_static) {
-            Ok(name) => name,
-            Err(e) => {
-                log::error!("Invalid server name for replay: {}", e);
-                return;
-            }
-        };
-
-        let mut upstream_tls = match connector.connect(server_name, upstream_tcp).await {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("Replay TLS connect failed: {}", e);
-                return;
-            }
-        };
-
-        // Build the HTTP request
-        let path = if req.path.is_empty() { "/" } else { &req.path };
-        let http_version = "HTTP/1.1";
-        let mut request = format!("{} {} {}\r\n", req.method, path, http_version);
-
-        if let Some(headers) = &req.request_headers {
-            for line in headers.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if let Some((name, value)) = line.split_once(':') {
-                    request.push_str(&format!("{}: {}\r\n", name.trim(), value.trim()));
-                }
-            }
-        }
-        // Add Host header if not present
-        if !request.contains("Host:") {
-            request.push_str(&format!("Host: {}\r\n", target_host));
-        }
-        request.push_str("\r\n");
-
-        // Send request
-        if let Err(e) = upstream_tls.write_all(request.as_bytes()).await {
-            log::error!("Replay write failed: {}", e);
-            return;
-        }
-
-        // Read response
-        let mut response_buf = Vec::new();
-        let mut buf = vec![0u8; 16384];
-        loop {
-            match upstream_tls.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    response_buf.extend_from_slice(&buf[..n]);
-                    if response_buf.len() > 4 && response_buf.ends_with(b"\r\n\r\n") {
-                        // Check if we have the full headers
-                        break;
-                    }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        if !response_buf.is_empty() {
-                            break;
-                        }
-                        continue;
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Parse response and emit as new intercepted request
-        let status = parse_response_status(&response_buf);
-        let response_headers = parse_response_headers(&response_buf);
-        let response_body = extract_response_body(&response_buf).map(|b| decode_body(&b));
-
-        let latency_ms = req.latency_ms;
-        let app_info = app_rules::classify_host(&target_host);
-        let (app_name, app_icon) = app_info
-            .map(|(n, i)| (Some(n.to_string()), Some(i.to_string())))
-            .unwrap_or((None, None));
-
-        let new_req = InterceptedRequest {
-            id: generate_request_id(),
-            timestamp: timestamp_now(),
-            method: req.method.clone(),
-            host: req.host.clone(),
-            path: req.path.clone(),
-            status,
-            latency_ms,
-            scheme: req.scheme.clone(),
-            app_name,
-            app_icon,
-            request_headers: req.request_headers.clone(),
-            response_headers,
-            response_body,
-            request_body: req.request_body.clone(),
-        };
-
-        store_request(new_req.clone());
-        let _ = app_handle_clone.emit("intercepted-request", &new_req);
-        log::info!("Replayed request {} -> {}:{}", req.method, target_host, path);
-    });
-
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
-    crate::history::HistoryStore::new().save(&requests)
+pub fn replay_request(id: String) -> Result<String, String> {
+    Ok(format!("Replay of {} not yet implemented", id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keep_running_state() {
+        let state = KeepRunningState::new();
+        assert!(!*state.keep_running.lock().unwrap());
+        *state.keep_running.lock().unwrap() = true;
+        assert!(*state.keep_running.lock().unwrap());
+    }
 }

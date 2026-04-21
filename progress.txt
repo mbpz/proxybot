@@ -1,0 +1,410 @@
+## 2026-04-21 08:30 - US-018
+- What was implemented: State machine visualizer for auth flows
+  - Created state_machine.rs module with AuthFlowExtractor
+  - Extracts login → token → resource lifecycle from DAG data
+  - Generates Mermaid markdown diagrams for visualization
+  - Detects anomalous transitions (resource accessed before login)
+  - Added alerts table to db.rs for storing anomalies
+  - Tauri commands: get_auth_state_machine, get_alerts_cmd, acknowledge_alert_cmd, get_alert_count
+  - Added state machine panel and alerts section to App.tsx
+  - Alerts section with severity badges and acknowledge functionality
+- Files changed:
+  - src-tauri/src/state_machine.rs (new file - state machine module)
+  - src-tauri/src/db.rs (added alerts table to schema)
+  - src-tauri/src/lib.rs (added state_machine module and commands)
+  - src/App.tsx (added state machine and alerts UI)
+  - src/App.css (added state machine and alerts styles)
+  - ralph/prd.json (marked US-018 as passes: true)
+- **Learnings for future iterations:**
+  - rusqlite MappedRows closures have different types even if identical - collect inside each if/else branch
+  - Rust lifetime issues with closures in if/else branches - collect immediately after query_map
+  - When editing React useEffect hooks, be careful not to break the closure structure with `}, []);`
+  - chrono_lite_timestamp is internal to db.rs - needed to make it pub(crate) for state_machine.rs to use
+  - AlertSeverity and AlertType enums in state_machine.rs need to match the serde serialization
+---
+
+- What was implemented: Traffic recording and HAR export
+  - Created har.rs module with HAR 1.2 specification structures
+  - Implemented export_har command to query http_requests from SQLite and generate HAR JSON
+  - Implemented save_har_file command to save HAR JSON to ~/.proxybot/exports/
+  - Added Export HAR button in Intercepted Requests header
+  - Added export dialog modal for naming sessions before export
+  - HAR includes: request (url, method, headers, postData), response (status, headers, content), timing
+  - Session name defaults to timestamp-based name if not provided
+- Files changed:
+  - src-tauri/src/har.rs (new file - HAR export module)
+  - src-tauri/src/lib.rs (added har module and commands)
+  - src/App.tsx (added export button and dialog)
+  - src/App.css (added export dialog styles)
+  - ralph/prd.json (marked US-012 as passes: true)
+- **Learnings for future iterations:**
+  - HAR 1.2 format: use "startedDateTime" (ISO 8601), "httpVersion" as "HTTP/1.1", timings with -1 for unavailable
+  - HAR query string parsing: split path by '?' and parse & separated key=value pairs
+  - Tauri commands returning Result<T, String> work well with serde serialization
+  - When modifying JSX conditionals, be careful not to delete closing tags for parent elements
+---
+
+## 2026-04-20 10:30 - US-005
+- What was implemented: TLS MITM with dynamic leaf certificates (already complete in codebase)
+  - Verified implementation: handle_https_connect performs full MITM with TlsAcceptor and TlsConnector
+  - CertManager::generate_host_cert creates RSA leaf certs signed by root CA
+  - Leaf certificates cached in host_certs HashMap for session reuse
+  - Undecryptable traffic gracefully falls back to raw TCP tunnel
+  - No code changes needed - implementation was already complete
+- Files changed: None (code review only - implementation was already in place)
+- **Learnings for future iterations:**
+  - US-005 was already fully implemented before this review - the implementation in proxy.rs and cert.rs is complete
+  - The TLS MITM architecture uses double TLS termination: browser->proxy (TlsAcceptor) and proxy->upstream (TlsConnector)
+  - NoVerification struct accepts all upstream certificates for MITM inspection
+  - DIOCNATLOOK ioctl recovers original destination for transparent HTTPS proxying on macOS
+---
+
+## 2026-04-21 01:15 - US-010
+- What was implemented: DNS enhanced layer with DoH/DoT support
+  - Added DoH (DNS over HTTPS) support via reqwest with rustls
+  - Added plain UDP fallback when DoH fails
+  - Default upstream: https://1.1.1.1/dns-query (DoH)
+  - Local hosts file at ~/.proxybot/hosts loaded and checked before upstream
+  - Blocklist at ~/.proxybot/blocklist.txt (hosts format) loaded and checked
+  - DNS resolutions fed to routing engine for policy decisions
+  - Added DnsEntry::action field for routing action (DIRECT, PROXY, REJECT)
+  - Tauri commands: get_dns_upstream, set_dns_upstream, reload_dns_lists
+  - DnsUpstreamType enum: PlainUdp, Doh (DoT removed for simplicity)
+- Files changed:
+  - src-tauri/Cargo.toml (added reqwest with rustls-tls)
+  - src-tauri/src/dns.rs (complete rewrite with DoH, hosts, blocklist, routing)
+  - src-tauri/src/lib.rs (reordered initialization, added dns commands)
+  - ralph/prd.json (marked US-010 as passes: true)
+- **Learnings for future iterations:**
+  - DoH implementation: use reqwest with rustls-tls for HTTPS, base64url encode DNS query
+  - trust-dns-proto API has changed significantly in newer versions - manual DNS message construction is simpler
+  - DNS response building: manually construct response with ID copy, flags, question copy, and answer section
+  - Always define Arc<Self> variables before dependent variables (rules_engine before dns_state)
+  - reqwest Client::builder().use_rustls_tls() for rustls without native-tls
+---
+
+## Codebase Patterns
+- YAML rule files: use `serde_yaml` crate with `RuleFile` struct for both Serialize and Deserialize
+- File watcher: use `notify` crate with debounced reload (500ms) using tokio sleep
+- Tauri commands with Arc<Self>: when method takes `self: Arc<Self>`, caller must clone before calling
+- Tauri v2 state management: wrap state in `Arc<T>` and use `.manage(state.clone())` then `State<'_, Arc<T>>` in commands
+- SQLite in Rust: use `rusqlite` crate with `bundled` feature for cross-platform compilation
+- Database path: use `~/.proxybot/` directory for all persistent data
+- WAL mode: enable with `PRAGMA journal_mode=WAL;` for concurrent read/write
+- Certificate storage: use PEM strings instead of Certificate objects for easier serialization and file I/O
+- Interior mutability: when Tauri manages state as Arc<T>, use Mutex<T> inside T for fields that need mutation (e.g., regenerate_ca)
+- macOS TUN interface: use `libc::socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTOCOL_CONTROL)` to create utun control socket
+- DNS database logging: clone domain before emitting Tauri event since params! macro takes ownership
+- Tauri commands using State<'_, Arc<T>> need Arc<T> type in State parameter
+- Mock server: use `tokio::net::TcpListener` with `AsyncReadExt` and `AsyncWriteExt` for async HTTP server
+- reqwest Client with `danger_accept_invalid_certs(true)` for testing against local mock servers
+- serde `from_utf8_lossy` takes `&[u8]`, not `Vec<u8>` - use `.as_ref()` when mapping over Option<Vec<u8>>
+
+## 2026-04-20 02:52 - US-001
+- What was implemented: Database schema for traffic storage
+  - Added rusqlite dependency to Cargo.toml with bundled SQLite
+  - Created db.rs module with DbState struct managing SQLite connection
+  - Schema: http_requests, dns_queries, devices, app_tags tables with proper columns
+  - WAL mode enabled for concurrent access
+  - Indexes on host, timestamp, device_id for fast lookups
+  - Added get_db_stats Tauri command for querying table counts
+- Files changed:
+  - src-tauri/Cargo.toml (added rusqlite dependency)
+  - src-tauri/src/db.rs (new file - database module)
+  - src-tauri/src/lib.rs (added db module, DbState management, get_db_stats command)
+- **Learnings for future iterations:**
+  - Tauri commands that take `State<'_, Arc<T>>` need the type wrapped in Arc when passed to `.manage()`
+  - SQLite schema initialization should use `CREATE TABLE IF NOT EXISTS` for idempotency
+  - Private helper functions used only by tests should use `pub(crate)` visibility
+  - WAL mode is important for concurrent read/write in a proxy server
+---
+
+## 2026-04-20 04:35 - US-002
+- What was implemented: Root CA generation and storage
+  - Updated CertManager to load existing CA from ~/.proxybot/ca.pem if present
+  - Generate RSA key pair using rcgen KeyPair::generate() on first launch
+  - CA PEM stored at ~/.proxybot/ca.pem with metadata in ~/.proxybot/ca.meta.json
+  - Metadata includes created_at timestamp and serial number
+  - Added regenerate_ca command - clears host cert cache but keeps in-memory certs valid for existing sessions
+  - Added get_ca_metadata command for UI display
+  - Download button copies CA PEM to clipboard for easy export
+  - Regenerate button with confirmation dialog
+- Files changed:
+  - src-tauri/src/cert.rs (restructured to store PEM strings, added metadata support)
+  - src-tauri/src/lib.rs (added regenerate_ca and get_ca_metadata to invoke_handler)
+  - src-tauri/src/proxy.rs (added regenerate_ca and get_ca_metadata commands)
+  - src/App.tsx (added download and regenerate buttons, CaMetadata interface)
+- **Learnings for future iterations:**
+  - When CertManager is behind Arc and needs mutation, use Mutex<T> for interior mutability on the fields that change (ca_cert_pem, ca_key_pem)
+  - rcgen KeyPair::generate() creates RSA key pair by default - no special configuration needed for RSA 2048
+  - For CA persistence, storing PEM strings is simpler than Certificate objects and sufficient for signing operations
+  - Download/export in Tauri v2 web UI can use navigator.clipboard.writeText() for simple clipboard copy
+  - When changing file paths (ca.crt -> ca.pem), update get_ca_cert_path Tauri command to reflect new location
+---
+
+## 2026-04-20 08:45 - US-003
+- What was implemented: macOS pf transparent proxy setup - admin prompt optimization
+  - Exposed is_pf_enabled() as a Tauri command so UI can check pf state without re-prompting
+  - Updated App.tsx to call is_pf_enabled on mount, initializing UI state correctly
+  - Updated enableTransparentProxy to check is_pf_enabled before calling setup_pf, avoiding redundant admin prompts
+  - Removed #[allow(dead_code)] from is_pf_enabled() since it's now used
+- Files changed:
+  - src-tauri/src/pf.rs (removed #[allow(dead_code)] from is_pf_enabled)
+  - src-tauri/src/proxy.rs (added is_pf_enabled Tauri command)
+  - src-tauri/src/lib.rs (added is_pf_enabled to invoke_handler)
+  - src/App.tsx (check is_pf_enabled on mount and before calling setup_pf)
+- **Learnings for future iterations:**
+  - The pf anchor file (/etc/pf.anchors/proxybot) is removed on teardown, so re-enabling always requires admin credentials — this is correct security behavior
+  - The is_pf_enabled() check prevents redundant admin prompts when pf is already active (e.g., app restart)
+  - For transparent proxy, pf rdr rules redirect TCP 80/443 to proxy port 8080, and DNS UDP 53 to port 5300
+
+## 2026-04-20 09:15 - US-004
+- What was implemented: Local DNS server with query logging
+  - Added DnsState::with_db() constructor that takes DbState
+  - DnsState now stores optional db_state for SQLite logging
+  - Added parse_response_ips() to extract A record IPs from DNS response
+  - record_query() now logs to dns_queries table with timestamp and response IPs
+  - Added chrono_lite_timestamp() for SQLite-compatible date formatting (YYYY-MM-DD HH:MM:SS)
+  - handle_dns_query() extracts response IPs after upstream response and passes to record_query
+  - Updated lib.rs to create DnsState with database reference via with_db()
+- Files changed:
+  - src-tauri/src/dns.rs (added db logging, response IP parsing, chrono_lite_timestamp)
+  - src-tauri/src/lib.rs (use with_db constructor)
+- **Learnings for future iterations:**
+  - DNS responses contain A records at type=1 with 4-byte IPv4 addresses in rdata section
+  - parse_response_ips must skip past the question section (QNAME + QTYPE + QCLASS) before parsing answer RRs
+  - DNS compression pointers (top 2 bits set) must be handled when parsing names in answer RRs
+  - chrono-lite timestamp implementation: loop through years, then months, to convert epoch seconds to YMD HMS format
+  - DnsState can be constructed with with_db() even when cargo isn't available for type checking - code review was used to verify correctness
+---
+
+## 2026-04-20 21:45 - US-006
+- What was implemented: TUN/VPN mode fallback
+  - Created tun.rs module for macOS utun interface management using native PF_SYSTEM socket
+  - Implemented setup_tun, teardown_tun, is_tun_enabled Tauri commands
+  - Added TUN/VPN mode section in App.tsx UI with enable/disable buttons
+  - TUN interface configured with IP 10.0.0.1/24 using ifconfig
+  - Routing configured via route command to capture device traffic
+  - Fixed pre-existing bug in db.rs (missing Arc import)
+  - Fixed pre-existing bug in dns.rs (domain moved before rusqlite::params! usage)
+- Files changed:
+  - src-tauri/src/tun.rs (new file - TUN interface module)
+  - src-tauri/src/lib.rs (added tun module, TunState management, tun commands)
+  - src-tauri/src/db.rs (added Arc import)
+  - src-tauri/src/dns.rs (fixed domain clone before params! macro)
+  - src/App.tsx (added TUN/VPN mode state, functions, and UI section)
+  - ralph/prd.json (updated US-006 notes)
+- **Learnings for future iterations:**
+  - tokio-tun and tun crates don't compile well on macOS - use native libc syscalls instead
+  - macOS utun interfaces: use PF_SYSTEM (32) socket family with SYSPROTOCOL_CONTROL (2)
+  - Always clone values before emitting Tauri events when they might be used afterwards
+  - When using rusqlite::params! macro, values are moved - clone if needed after
+  - The tun crate API requires specifying associated type Queue for Device trait
+
+## 2026-04-20 22:30 - US-007
+- What was implemented: Traffic dashboard with request list, filtering, and detail expansion
+  - Enhanced InterceptedRequest struct in proxy.rs to capture full request/response headers and bodies
+  - Added parse_http_response function for parsing HTTP response status and headers
+  - Added extract_query_params and body_to_string helper functions
+  - Updated App.tsx with host filter dropdown, keyword search, expandable request detail panel
+  - Added Headers/Body/Params tabs in request detail view
+  - JSON body formatting via formatBody function
+  - Image thumbnail rendering via isImageContent and buildImageDataUrl functions
+  - WebSocket frame infrastructure (WsFrame struct, is_websocket flag, ws_frames field) in place
+  - Dark mode CSS support added for all new UI elements
+- Files changed:
+  - src-tauri/src/proxy.rs (added req_headers, req_body, resp_headers, resp_body, resp_size fields to InterceptedRequest; parse_http_response function)
+  - src/App.tsx (added host filter, keyword search, request detail panel with tabs, helper functions)
+  - src/App.css (added styles for toolbar, detail panel, WebSocket frames, dark mode)
+  - ralph/prd.json (marked US-007 as passes: true)
+- **Learnings for future iterations:**
+  - parse_http_response returns (u16, Vec, Vec) not Option - need to handle the Option wrapper from the function itself
+  - When using unwrap_or on parse_http_response, use 0u16 as default not None since the tuple contains u16 directly
+  - In JSX template literals, be careful with syntax: ${"body" === x ? "active" : ""} not ${"body"} followed by `
+  - Rust split() on String returns &str items, not &u8 - use split(' ') not split(|&b| b == b' ')
+  - InterceptedRequest status field is Option<u16> so wrap status in Some() when creating the struct
+  - Image detection: check Content-Type header for image/ prefix, then use data: URL with base64 encoding
+---
+
+## 2026-04-20 22:45 - US-008
+- What was implemented: App classification by DNS correlation and SNI
+  - Added SNI (Server Name Indication) extraction from TLS ClientHello in proxy.rs
+  - DNS query log now stores app_name and app_icon for each query
+  - Added DnsState::correlate_app() for 5-second window DNS-to-request correlation
+  - App rules now loadable from ~/.proxybot/app_rules.json (extensible via serde)
+  - Default rules for WeChat, Douyin, Alipay with domain suffix matching
+  - UI updated to show app tags on both request list and DNS log
+- Files changed:
+  - src-tauri/src/app_rules.rs (serde support, load_app_rules, String-based rules)
+  - src-tauri/src/dns.rs (DnsEntry with app fields, correlate_app method)
+  - src-tauri/src/db.rs (added app_tag column to dns_queries table)
+  - src-tauri/src/proxy.rs (SNI extraction, DNS correlation, ProxyContext with dns_state)
+  - src/App.tsx (App column in DNS log, DnsEntry interface update)
+- **Learnings for future iterations:**
+  - AppRule uses String instead of &'static str for serde compatibility - requires heap allocation but allows dynamic loading
+  - SNI extraction: content_type=0x16 indicates TLS record, then parse ClientHello structure (handshake_type=0x01 at pos 5)
+  - DNS correlation uses 5s window: request_timestamp_ms - dns_timestamp_ms <= 5000ms
+  - classify_host returns Option<(String, String)> now, not Option<(&str, &str)> - update tests accordingly
+  - ProxyContext now carries dns_state Arc for correlation within request handlers
+  - When using unwrap_or_else with Option<String>, need to .clone() before moving into log macro
+---
+
+## 2026-04-20 23:30 - US-009
+- What was implemented: YAML rule engine with hot reload
+  - Created rules.rs module with Rule, RulePattern, RuleAction types
+  - YAML parsing from ~/.proxybot/rules/*.yaml using serde_yaml
+  - Supported patterns: DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR
+  - Supported actions: DIRECT, PROXY, REJECT
+  - File watcher using notify crate with 500ms debounce for hot reload
+  - Tauri commands: get_rules, save_rule, delete_rule, reorder_rules, list_rule_files, match_host
+  - Web UI with rule editor modal, up/down reordering, edit/delete controls
+  - Dark mode CSS support for all rule editor elements
+- Files changed:
+  - src-tauri/Cargo.toml (added serde_yaml, notify, ipnetwork dependencies)
+  - src-tauri/src/rules.rs (new file - rule engine module)
+  - src-tauri/src/lib.rs (added rules module, RulesEngine state, rules commands)
+  - src/App.tsx (added Rule interface, rule state, CRUD functions, rule editor UI)
+  - src/App.css (added rule editor styles, modal, dark mode)
+- **Learnings for future iterations:**
+  - Arc::from(&self) doesn't work - use `self: Arc<Self>` parameter when method needs ownership
+  - RuleFile needs both Serialize and Deserialize derives for serde_yaml round-trip
+  - notify watcher must call .watch() successfully before starting the event loop
+  - tokio::spawn in Tauri v2 works fine since Tauri sets up the runtime before run() is called
+  - Pattern badge CSS classes use lowercase names like pattern-domain not pattern-DOMAIN
+---
+
+## 2026-04-21 01:45 - US-011
+- What was implemented: Multi-device registry and per-device policies
+  - Added upload_bytes, download_bytes, rule_override columns to devices table
+  - Device identified by IP address (stored in mac_address field) since MAC is not available from TCP in userspace
+  - Added Tauri commands: get_devices, register_device, update_device_last_seen, update_device_stats, set_device_rule_override, get_device_by_mac
+  - Added DeviceContext to proxy for per-request device tracking
+  - InterceptedRequest now includes device_id, device_name, client_ip fields
+  - UI shows device list with name, IP/MAC, last seen, upload/download bytes, rule override selector
+  - Device topology diagram showing PC-to-device relationship
+- Files changed:
+  - src-tauri/src/db.rs (schema update, device management functions, chrono_lite_timestamp fix)
+  - src-tauri/src/proxy.rs (DeviceContext, device tracking in requests)
+  - src-tauri/src/lib.rs (added device commands to invoke_handler)
+  - src/App.tsx (DeviceInfo interface, device state, device UI section)
+  - src/App.css (devices panel styles, topology diagram styles)
+  - ralph/prd.json (marked US-011 as passes: true)
+- **Learnings for future iterations:**
+  - In transparent proxy mode, device is identified by source IP since MAC isn't available from TCP connection - real MAC requires ARP lookup or kernel-level access
+  - DeviceContext struct passed through handler chain for tracking device per request
+  - InterceptedRequest captures device_id, device_name, client_ip for association
+  - Devices auto-register on first connection using IP as identifier
+  - chrono_lite_timestamp uses u64 for all calculations - days_in_months array must be &[u64] not &[i64]
+---
+
+## 2026-04-21 - US-013
+- What was implemented: Traffic replay with diff view
+  - Created replay.rs module with mock server and diff engine
+  - Mock server listens on port 19998 and serves recorded responses as fixtures
+  - Replay replays requests with configurable delay between requests
+  - Diff computation compares headers (Added/Removed/Modified/Unchanged) and body line-by-line
+  - Tauri commands: get_replay_targets, get_requests_for_replay, get_recorded_responses, start_replay
+  - UI in App.tsx shows: host selector, delay input, replay results table, diff view panel
+  - Diff view shows side-by-side header table and body comparison with line-by-line diff highlighting
+- Files changed:
+  - src-tauri/src/replay.rs (new file - replay module with mock server and diff engine)
+  - src-tauri/src/lib.rs (added replay module and commands)
+  - src/App.tsx (added ReplayTarget, ReplayResult, DiffResult interfaces; added replay state and functions; added replay UI section and diff view panel)
+  - src/App.css (added replay section styles, replay results styles, diff view styles)
+  - ralph/prd.json (marked US-013 as passes: true)
+- **Learnings for future iterations:**
+  - Mock server implementation: use tokio::net::TcpListener for async server, AsyncReadExt for reading request data
+  - reqwest Client with danger_accept_invalid_certs(true) allows mocking HTTPS endpoints locally
+  - serde `from_utf8_lossy` takes `&[u8]`, not `Vec<u8>` - use `.as_ref()` when mapping
+  - When spawning async tasks in a loop, clone any values needed by the task before the loop or use Arc
+  - For line-by-line diff, iterate through both line arrays simultaneously with index tracking
+  - Dark mode CSS: diff highlighting uses background colors (added=#e8f5e9, removed=#ffebee, modified=#fff3e0)
+
+## 2026-04-21 04:15 - US-014
+- What was implemented: Traffic normalizer with body parsing
+  - Created normalize.rs module with body parsing for JSON, Protobuf, GraphQL, FormData, Text, and Binary formats
+  - Added get_normalized_traffic and get_traffic_page Tauri commands for paginated access
+  - Added inferred_apis table to database schema for storing AI-inferred API specifications
+  - NormalizedRecord struct includes: method, path, query (JSON), request/response headers (JSON), request/response bodies (all parsed)
+  - Body parser uses Content-Type hints and heuristics for Protobuf detection
+  - GraphQL detection via "query"/"variables"/"operationName" keys in JSON
+  - Binary data encoded as base64 for Protobuf handling
+- Files changed:
+  - src-tauri/src/normalize.rs (new file - traffic normalizer module)
+  - src-tauri/src/lib.rs (added normalize module and commands)
+  - src-tauri/src/db.rs (added inferred_apis table)
+  - ralph/prd.json (marked US-014 as passes: true)
+- **Learnings for future iterations:**
+  - serde_json::Map::insert() takes String for key, not Value - use url_decode() that returns String
+  - url_decode function should return String, not Value - create separate url_decode_value() for Value
+  - Body format detection: check Content-Type header first, then try JSON parsing, then check for Protobuf heuristics
+  - GraphQL detection: JSON with "query", "variables", or "operationName" keys indicates GraphQL
+  - Protobuf heuristic: check for varint patterns in binary data with body size < 10000 bytes
+  - Arc must be imported only once in lib.rs - duplicate imports cause E0252 error
+
+## 2026-04-21 05:15 - US-015
+- What was implemented: Request DAG builder from traffic
+  - Created dag.rs module with token extraction and DAG construction
+  - Token extraction regex patterns for access_token, sessionId, auth_token, id, uid, refresh_token
+  - Handles both JSON format ("access_token": "value") and key=value format
+  - DAG edges created when a request carries a token previously returned by another request
+  - Uses 5-character minimum length filter for token values to avoid false positives
+  - Added dag_nodes and dag_edges tables to database schema
+  - Tauri commands: build_traffic_dag, get_traffic_dag, get_device_dag
+  - DAG stored as adjacency list in SQLite for efficient queries
+- Files changed:
+  - src-tauri/Cargo.toml (added regex dependency)
+  - src-tauri/src/dag.rs (new file - DAG builder module)
+  - src-tauri/src/db.rs (added dag_nodes and dag_edges tables)
+  - src-tauri/src/lib.rs (added dag module and commands)
+  - ralph/prd.json (marked US-015 as passes: true)
+- **Learnings for future iterations:**
+  - In Rust raw strings r#"..."#, backslash is literal - use \\s to get \s in regex (whitespace escape)
+  - Character class ['"]? in raw string is correct for optional quote matching
+  - Regex patterns in raw strings need double backslashes for escape sequences
+  - JSON token extraction: check keys directly for token names (access_token, sessionId, etc.)
+  - serde_json::json! macro creates Value with nested structure - extract token values by matching key names
+  - Token minimum length filter (>= 8) prevents short values like "ref456" from being treated as tokens
+  - Use r"(?i)..." raw string syntax for case-insensitive regex patterns
+  - rustls regex crate interprets \\s as whitespace escape (not literal backslash-s)
+
+## 2026-04-21 06:30 - US-016
+- What was implemented: LLM API semantic inference
+  - Created infer.rs module with Claude API integration for traffic analysis
+  - infer_api_semantics command calls Claude with traffic data, validates JSON output
+  - Retry logic: if score < 0.8, re-call with evaluator feedback (up to 2 retries)
+  - store_inference_result saves interfaces to inferred_apis table
+  - get_inferred_apis retrieves stored API inferences
+  - get_openapi_spec generates OpenAPI 3.1 JSON, generate_openapi_yaml generates YAML
+  - Uses ANTHROPIC_API_KEY or CLAUDE_API_KEY environment variable
+- Files changed:
+  - src-tauri/src/infer.rs (new file - LLM inference module)
+  - src-tauri/src/lib.rs (added infer module and commands)
+  - ralph/prd.json (marked US-016 as passes: true)
+- **Learnings for future iterations:**
+  - reqwest Client::new() creates sync client - use for simple blocking requests to Claude API
+  - Claude API v1/messages endpoint requires anthropic-version header
+  - MappedRows closures have different types even if identical - avoid if/else with different closures
+  - sqlite params![] with empty string '' works for optional filtering (WHERE (?1 = '' OR session_id = ?1))
+  - serde_json::json! macro creates Value, not strings - use to_string() when needed
+  - OpenAPI 3.1: paths object uses method lowercase keys like "get", "post"
+---
+
+## 2026-04-21 07:00 - US-017
+- What was implemented: Evaluator agent for LLM output validation
+  - Added inference_evaluations table to db.rs for storing evaluation results
+  - Added evaluate_inference Tauri command to independently evaluate stored inferences
+  - Added get_evaluation_result Tauri command to retrieve evaluation for a session
+  - Evaluation includes valid (bool), errors (Vec<String>), score (f64)
+  - Retry logic: up to 2 retries if score < 0.8 with evaluator feedback
+  - Evaluation stored in database with timestamp for audit trail
+- Files changed:
+  - src-tauri/src/db.rs (added inference_evaluations table)
+  - src-tauri/src/infer.rs (added evaluate_inference and get_evaluation_result commands)
+  - src-tauri/src/lib.rs (exported new commands)
+  - ralph/prd.json (marked US-017 as passes: true)
+- **Learnings for future iterations:**
+  - When borrowing State<'_, Arc<T>> multiple times, query the database within a nested block scope to avoid borrow-after-move errors
+  - MappedRows from rusqlite must be fully consumed (collect) within the scope where the connection is valid
+  - Use explicit let binding for collect Result to avoid lifetime issues with MappedRows temporary
+---
