@@ -1,0 +1,12 @@
+Ralph progress tracker
+[2026-04-21 08:49:40] Ralph started on branch ralph/netmind-agent
+[2026-04-21 08:49:45] Starting US-019: Anomaly detection and privacy scanning
+[2026-04-21 08:52:00] US-019 COMPLETE: Anomaly detection and privacy scanning implemented
+  - PrivacyScanner with IDFA, E.164 phone, GPS coordinate regex patterns
+  - BaselineStore with 7-day rolling domain/IP baseline (JSON file persistence)
+  - AlertStore for persistent alert storage
+  - Tauri commands: get_traffic_baseline, scan_request_anomalies, get_alerts, acknowledge_alert, get_alert_count
+  - UI: alerts tab with severity filter and acknowledge functionality
+  - Rust compiles successfully
+[2026-04-21 14:15:35] Completed US-019
+[2026-04-21 17:02:31] All stories complete — creating PR

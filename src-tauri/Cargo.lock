@@ -3175,6 +3175,7 @@ dependencies = [
  "log",
  "nix",
  "rcgen",
+ "regex",
  "rustls",
  "rustls-pemfile",
  "serde",

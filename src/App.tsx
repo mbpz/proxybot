@@ -32,6 +32,16 @@ interface WssMessage {
   app_icon?: string;
 }
 
+interface Alert {
+  id: number;
+  device_id: number | null;
+  severity: "Info" | "Warning" | "Critical";
+  alert_type: string;
+  details: string;
+  created_at: string;
+  acknowledged: boolean;
+}
+
 type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
 
 interface NetworkInfo {
@@ -65,11 +75,14 @@ function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [keepRunning, setKeepRunning] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [mainTab, setMainTab] = useState<'http' | 'wss' | 'dns'>('http');
+  const [mainTab, setMainTab] = useState<'http' | 'wss' | 'dns' | 'alerts'>('http');
   const [certServerUrl, setCertServerUrl] = useState('');
   const [aiConfig, setAiConfig] = useState({ provider: 'minimax', apiKey: '', endpoint: 'https://api.minimax.chat/v1/chat/completions', model: 'MiniMax-Text-01', enabled: false });
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alertCount, setAlertCount] = useState(0);
+  const [alertSeverityFilter, setAlertSeverityFilter] = useState<string>("all");
 
   const toggleTheme = () => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
@@ -307,6 +320,37 @@ function App() {
     }
   };
 
+  const loadAlerts = async () => {
+    try {
+      const severity = alertSeverityFilter === "all" ? null : alertSeverityFilter;
+      const alertList = await invoke<Alert[]>("get_alerts", { severity, limit: 100 });
+      setAlerts(alertList);
+      const count = await invoke<number>("get_alert_count");
+      setAlertCount(count);
+    } catch (e) {
+      console.error("Failed to load alerts:", e);
+    }
+  };
+
+  const acknowledgeAlert = async (alertId: number) => {
+    try {
+      await invoke("acknowledge_alert", { alertId });
+      await loadAlerts();
+    } catch (e) {
+      console.error("Failed to acknowledge alert:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (mainTab === 'alerts') {
+      loadAlerts();
+    }
+  }, [mainTab, alertSeverityFilter]);
+
+  useEffect(() => {
+    invoke<number>("get_alert_count").then(setAlertCount).catch(console.error);
+  }, []);
+
   const downloadCaCert = async () => {
     try {
       const certPath = await invoke<string>("get_ca_cert_path");
@@ -440,6 +484,9 @@ function App() {
         </button>
         <button className={mainTab === 'dns' ? 'active' : ''} onClick={() => setMainTab('dns')}>
           DNS Queries ({dnsQueries.length})
+        </button>
+        <button className={mainTab === 'alerts' ? 'active' : ''} onClick={() => setMainTab('alerts')}>
+          Alerts {alertCount > 0 && `(${alertCount})`}
         </button>
       </div>
 
@@ -813,6 +860,50 @@ function App() {
             </table>
           )}
         </div>
+      </section>
+      )}
+
+      {mainTab === 'alerts' && (
+      <section className="alerts-section">
+        <div className="alerts-header">
+          <h2>Security Alerts</h2>
+          <div className="alerts-actions">
+            <select
+              className="filter-select"
+              value={alertSeverityFilter}
+              onChange={(e) => setAlertSeverityFilter(e.target.value)}
+            >
+              <option value="all">All Severities</option>
+              <option value="Info">Info</option>
+              <option value="Warning">Warning</option>
+              <option value="Critical">Critical</option>
+            </select>
+            <button className="btn-export" onClick={loadAlerts}>
+              🔄 Refresh
+            </button>
+          </div>
+        </div>
+        {alerts.length === 0 ? (
+          <p className="no-alerts">No alerts. Alerts are generated when new domains/IPs are accessed or privacy data is detected.</p>
+        ) : (
+          <div className="alerts-list">
+            {alerts.map((alert) => (
+              <div key={alert.id} className={`alert-item severity-${alert.severity.toLowerCase()} ${alert.acknowledged ? 'acknowledged' : ''}`}>
+                <div className="alert-header">
+                  <span className={`alert-badge severity-${alert.severity.toLowerCase()}`}>{alert.severity}</span>
+                  <span className="alert-type">{alert.alert_type}</span>
+                  <span className="alert-time">{new Date(alert.created_at).toLocaleString()}</span>
+                </div>
+                <p className="alert-details">{alert.details}</p>
+                {!alert.acknowledged && (
+                  <button className="btn btn-sm" onClick={() => acknowledgeAlert(alert.id)}>
+                    Acknowledge
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       )}
 

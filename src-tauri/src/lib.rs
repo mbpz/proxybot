@@ -3,6 +3,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::Manager;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
+mod anomaly;
 mod app_rules;
 mod cert;
 mod cert_server;
@@ -13,6 +14,7 @@ mod network;
 mod pf;
 mod proxy;
 
+use anomaly::{AnomalyDetector, get_alerts, acknowledge_alert, get_alert_count, get_traffic_baseline, scan_request_anomalies};
 use cert::CertManager;
 use dns::DnsState;
 use proxy::{KeepRunningState, ProxyState};
@@ -28,6 +30,7 @@ pub fn run() {
     let dns_state = Arc::new(DnsState::new());
     let proxy_state = Arc::new(ProxyState::new());
     let keep_running_state = Arc::new(KeepRunningState::new());
+    let anomaly_detector = Arc::new(AnomalyDetector::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -35,6 +38,7 @@ pub fn run() {
         .manage(dns_state.clone())
         .manage(proxy_state.clone())
         .manage(keep_running_state.clone())
+        .manage(anomaly_detector.clone())
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "Show ProxyBot", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -93,6 +97,11 @@ pub fn run() {
             proxy::replay_request,
             dns::get_dns_log,
             cert_server::start_cert_server,
+            get_traffic_baseline,
+            scan_request_anomalies,
+            get_alerts,
+            acknowledge_alert,
+            get_alert_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

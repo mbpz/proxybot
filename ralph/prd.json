@@ -1,0 +1,24 @@
+{
+  "project": "NetMind Agent",
+  "branchName": "ralph/netmind-agent",
+  "description": "Multi-phase traffic capture and analysis system: transparent proxy (Phase 1), soft router (Phase 2), AI analysis (Phase 3), and mock API generation (Phase 4). PC acts as phone gateway, decrypts HTTPS, classifies by app, infers API semantics, and generates mock backends.",
+  "userStories": [
+    {
+      "id": "US-019",
+      "title": "Anomaly detection and privacy scanning",
+      "description": "As a security researcher, I want alerts when traffic looks suspicious or private data is being exfiltrated.",
+      "acceptanceCriteria": [
+        "Per-device traffic baseline: 7-day rolling domain/IP frequency profile",
+        "New domain or IP not in baseline triggers info-level alert",
+        "Privacy scanner regex-matches request/response bodies for: IDFA, phone number (E.164), GPS coordinates (lat/long pairs)",
+        "Alerts stored in alerts table with severity (info/warning/critical), device_id, details",
+        "Alert badge in dashboard; alert list page with filter by severity",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "Implemented anomaly.rs with PrivacyScanner (IDFA, E.164 phone, GPS coordinate regex patterns), BaselineStore (7-day rolling domain/IP baseline with JSON file persistence), AlertStore (alerts persisted to alerts.json). Tauri commands: get_traffic_baseline, scan_request_anomalies, get_alerts, acknowledge_alert, get_alert_count. UI added alerts tab with severity filter dropdown and acknowledge functionality."
+    }
+  ]
+}
