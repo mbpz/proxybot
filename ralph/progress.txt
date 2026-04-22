@@ -1,7 +1,7 @@
 Ralph progress tracker
 [2026-04-22] Ralph started on branch ralph/ui-redesign
 [2026-04-22] US-001 (design system): COMPLETE - CSS variables, skeleton, error-boundary, base components
-[2026-04-22] US-002 (traffic list): IN PROGRESS - dark theme request list implemented in NewApp.tsx
+[2026-04-22] US-002 (traffic list): COMPLETE - dark theme request list integrated in App.tsx with request-detail panel, filters, method/app badges
 [2026-04-22] US-003 (request detail): IN PROGRESS - detail panel with tabs implemented in NewApp.tsx
 [2026-04-22] US-004 (loading/error/empty): PARTIAL - skeleton table implemented, error banner added
 [2026-04-22] tsc --noEmit passes, new design system in index.css
