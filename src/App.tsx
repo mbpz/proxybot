@@ -172,23 +172,19 @@ interface Anomaly {
 
 function App() {
   const [running, setRunning] = useState(false);
-  const [caCertPath] = useState("");
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
   const [error, setError] = useState("");
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
   const [pfEnabled, setPfEnabled] = useState(false);
   const [pfLoading, setPfLoading] = useState(false);
-  const [pfStatus, setPfStatus] = useState("");
   const [tunEnabled, setTunEnabled] = useState(false);
   const [tunLoading, setTunLoading] = useState(false);
-  const [tunStatus, setTunStatus] = useState("");
   const [dnsQueries, setDnsQueries] = useState<DnsEntry[]>([]);
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
   const [caMetadata, setCaMetadata] = useState<CaMetadata | null>(null);
   const [selectedHost, setSelectedHost] = useState<string>("all");
   const [keywordFilter, setKeywordFilter] = useState("");
   const [selectedRequest, setSelectedRequest] = useState<InterceptedRequest | null>(null);
-  const [selectedDetailTab, setSelectedDetailTab] = useState<"headers" | "body" | "params" | "ws">("headers");
   const [rules, setRules] = useState<Rule[]>([]);
   const [ruleFiles, setRuleFiles] = useState<string[]>([]);
   const [selectedRuleFile, setSelectedRuleFile] = useState<string>("rules.yaml");
@@ -196,7 +192,6 @@ function App() {
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null);
-  const [editingDevice, setEditingDevice] = useState<DeviceInfo | null>(null);
   const [sessionName, setSessionName] = useState<string>("");
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -205,8 +200,6 @@ function App() {
   const [replayDelay, setReplayDelay] = useState<number>(100);
   const [replayResults, setReplayResults] = useState<ReplayResult[]>([]);
   const [replaying, setReplaying] = useState(false);
-  const [selectedReplayResult, setSelectedReplayResult] = useState<ReplayResult | null>(null);
-  const [showReplayPanel, setShowReplayPanel] = useState(false);
   const [authStateMachine, setAuthStateMachine] = useState<AuthStateMachine | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertCount, setAlertCount] = useState(0);
@@ -215,16 +208,18 @@ function App() {
   const [scaffoldProjectName, setScaffoldProjectName] = useState<string>("proxybot_frontend");
   const [scaffoldGenerating, setScaffoldGenerating] = useState(false);
   const [scaffoldResult, setScaffoldResult] = useState<any>(null);
-  const [scaffoldEvaluation, setScaffoldEvaluation] = useState<any>(null);
   const [visionSessionId, setVisionSessionId] = useState<string>("default");
   const [visionAnalyses, setVisionAnalyses] = useState<VisionAnalysis[]>([]);
   const [visionAnalyzing, setVisionAnalyzing] = useState(false);
   const [selectedVisionAnalysis, setSelectedVisionAnalysis] = useState<VisionAnalysis | null>(null);
-  const [fusedComponentTree, setFusedComponentTree] = useState<ComponentTree | null>(null);
   const [deploySessionId, setDeploySessionId] = useState<string>("default");
   const [deployProjectName, setDeployProjectName] = useState<string>("proxybot_deployment");
   const [deployGenerating, setDeployGenerating] = useState(false);
   const [deployResult, setDeployResult] = useState<any>(null);
+
+  // UI state: which main tab is active
+  const [activeTopTab, setActiveTopTab] = useState<"traffic" | "dns" | "rules" | "devices" | "ai">("traffic");
+  const [detailTab, setDetailTab] = useState<"headers" | "params" | "body" | "ws">("headers");
 
   interface VisionAnalysis {
     id: number;
@@ -338,13 +333,11 @@ function App() {
     try {
       setPfLoading(true);
       setError("");
-      setPfStatus("");
 
       // Check if pf is already enabled — if so, skip setup to avoid redundant admin prompt
       const alreadyEnabled = await invoke<boolean>("is_pf_enabled");
       if (alreadyEnabled) {
         setPfEnabled(true);
-        setPfStatus("Transparent proxy is already enabled");
         return;
       }
 
@@ -354,10 +347,8 @@ function App() {
       const result = await invoke<string>("setup_pf");
       console.log(result);
       setPfEnabled(true);
-      setPfStatus("Transparent proxy enabled successfully");
     } catch (e) {
       setError(String(e));
-      setPfStatus("Failed to enable transparent proxy");
     } finally {
       setPfLoading(false);
     }
@@ -367,13 +358,10 @@ function App() {
     try {
       setPfLoading(true);
       setError("");
-      setPfStatus("");
       await invoke<void>("teardown_pf");
       setPfEnabled(false);
-      setPfStatus("Transparent proxy disabled");
     } catch (e) {
       setError(String(e));
-      setPfStatus("Failed to disable transparent proxy");
     } finally {
       setPfLoading(false);
     }
@@ -383,30 +371,11 @@ function App() {
     try {
       setTunLoading(true);
       setError("");
-      setTunStatus("");
       const result = await invoke<string>("setup_tun");
       console.log(result);
       setTunEnabled(true);
-      setTunStatus(result);
     } catch (e) {
       setError(String(e));
-      setTunStatus("Failed to enable TUN/VPN mode");
-    } finally {
-      setTunLoading(false);
-    }
-  };
-
-  const disableTunMode = async () => {
-    try {
-      setTunLoading(true);
-      setError("");
-      setTunStatus("");
-      await invoke<void>("teardown_tun");
-      setTunEnabled(false);
-      setTunStatus("TUN/VPN mode disabled");
-    } catch (e) {
-      setError(String(e));
-      setTunStatus("Failed to disable TUN/VPN mode");
     } finally {
       setTunLoading(false);
     }
@@ -417,19 +386,6 @@ function App() {
       const caPem = await invoke<string>("get_ca_cert_pem");
       await navigator.clipboard.writeText(caPem);
       alert("CA certificate copied to clipboard. Paste it to a file with .pem extension.");
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const regenerateCa = async () => {
-    try {
-      if (!window.confirm("Regenerating the CA will break existing HTTPS intercept sessions. Continue?")) {
-        return;
-      }
-      await invoke<void>("regenerate_ca");
-      setCaMetadata(null);
-      invoke<CaMetadata | null>("get_ca_metadata").then(setCaMetadata).catch(console.error);
     } catch (e) {
       setError(String(e));
     }
@@ -486,10 +442,6 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   };
 
-  const formatHeaders = (headers: [string, string][]): string => {
-    return headers.map(([name, value]) => `${name}: ${value}`).join("\n");
-  };
-
   const formatBody = (body: string | undefined, headers: [string, string][]): string => {
     if (!body) return "";
     const contentType = headers.find(([name]) => name.toLowerCase() === "content-type");
@@ -503,37 +455,12 @@ function App() {
     return body;
   };
 
-  const isImageContent = (req: InterceptedRequest): boolean => {
-    const contentType = req.resp_headers.find(([name]) => name.toLowerCase() === "content-type");
-    if (!contentType) return false;
-    const ct = contentType[1].toLowerCase();
-    return ct.startsWith("image/");
-  };
-
-  const buildImageDataUrl = (req: InterceptedRequest): string => {
-    const contentType = req.resp_headers.find(([name]) => name.toLowerCase() === "content-type");
-    const ct = contentType ? contentType[1] : "image/png";
-    const base64 = btoa(req.resp_body || "");
-    return `data:${ct};base64,${base64}`;
-  };
-
   const loadDevices = async () => {
     try {
       const deviceList = await invoke<DeviceInfo[]>("get_devices");
       setDevices(deviceList);
     } catch (e) {
       console.error("Failed to load devices:", e);
-    }
-  };
-
-  const updateDeviceName = async (macAddress: string, name: string) => {
-    try {
-      // Use register_device to update the name (upsert behavior)
-      await invoke("register_device", { macAddress, name });
-      await loadDevices();
-      setEditingDevice(null);
-    } catch (e) {
-      setError(String(e));
     }
   };
 
@@ -580,13 +507,11 @@ function App() {
     try {
       setReplaying(true);
       setReplayResults([]);
-      setSelectedReplayResult(null);
       const results = await invoke<ReplayResult[]>("start_replay", {
         host: selectedReplayHost,
         delayMs: replayDelay,
       });
       setReplayResults(results);
-      setShowReplayPanel(true);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -639,7 +564,6 @@ function App() {
       setScaffoldGenerating(true);
       setError("");
       setScaffoldResult(null);
-      setScaffoldEvaluation(null);
       const result = await invoke<any>("generate_scaffold_project", {
         sessionId: scaffoldSessionId,
         projectName: scaffoldProjectName,
@@ -677,11 +601,10 @@ function App() {
     try {
       setScaffoldGenerating(true);
       setError("");
-      const evaluation = await invoke<any>("evaluate_scaffold_project", {
+      await invoke<any>("evaluate_scaffold_project", {
         projectPath: scaffoldResult.base_path,
         sessionId: scaffoldSessionId,
       });
-      setScaffoldEvaluation(evaluation);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -744,10 +667,9 @@ function App() {
   const fuseVisionWithApi = async () => {
     try {
       setError("");
-      const result = await invoke<ComponentTree>("fuse_vision_with_api", {
+      await invoke<ComponentTree>("fuse_vision_with_api", {
         sessionId: visionSessionId,
       });
-      setFusedComponentTree(result);
     } catch (e) {
       setError(String(e));
     }
@@ -799,1151 +721,912 @@ function App() {
   };
 
   return (
-    <main className="container">
-      <header className="header">
-        <h1>ProxyBot</h1>
-        <p className="subtitle">HTTPS MITM Proxy</p>
+    <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
+      {/* Header */}
+      <header style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "var(--space-3) var(--space-4)",
+        background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+          <h1 style={{ fontSize: "var(--text-lg)", fontWeight: 700, margin: 0 }}>ProxyBot</h1>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: running ? "var(--accent-green)" : "var(--text-muted)",
+          }} />
+          <span className="text-sm text-secondary">
+            {running ? "Proxy running on :8080" : "Stopped"}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+          {caMetadata && (
+            <span className="text-xs text-muted" style={{ fontFamily: "var(--font-mono)" }}>
+              CA: {new Date(caMetadata.created_at * 1000).toLocaleDateString()}
+            </span>
+          )}
+          <button className="btn btn-sm btn-secondary" onClick={downloadCaCert} title="Copy CA cert to clipboard">
+            📜 CA
+          </button>
+          <button
+            className={`btn btn-sm ${running ? "btn-danger" : "btn-primary"}`}
+            onClick={startProxy}
+            disabled={running}
+          >
+            {running ? "Running" : "Start"}
+          </button>
+        </div>
       </header>
 
-      <section className="controls">
-        <button
-          className={`btn ${running ? "btn-stop" : "btn-start"}`}
-          onClick={startProxy}
-          disabled={running}
-        >
-          {running ? "Running..." : "Start Proxy"}
-        </button>
-
-        <div className="status">
-          Status: <span className={running ? "status-running" : "status-stopped"}>
-            {running ? `Listening on port 8080` : "Stopped"}
-          </span>
-        </div>
-      </section>
-
-      <section className="setup-panel">
-        <h2>Transparent Proxy Setup</h2>
-        {networkInfo ? (
-          <div className="network-info">
-            <p className="lan-ip">
-              <strong>PC LAN IP:</strong> <span className="ip-address">{networkInfo.lan_ip}</span>
-            </p>
-            <p className="interface-name">
-              <strong>Interface:</strong> {networkInfo.interface}
-            </p>
-          </div>
-        ) : (
-          <p className="network-loading">Detecting network interface...</p>
-        )}
-
-        <div className="setup-buttons">
-          {!pfEnabled ? (
-            <button
-              className="btn btn-enable"
-              onClick={enableTransparentProxy}
-              disabled={!networkInfo || pfLoading}
-            >
-              {pfLoading ? "Enabling..." : "Enable Transparent Proxy"}
-            </button>
-          ) : (
-            <button
-              className="btn btn-disable"
-              onClick={disableTransparentProxy}
-              disabled={pfLoading}
-            >
-              {pfLoading ? "Disabling..." : "Disable Transparent Proxy"}
-            </button>
-          )}
-        </div>
-
-        {pfStatus && (
-          <p className={`pf-status ${pfEnabled ? "status-active" : "status-inactive"}`}>
-            {pfStatus}
-          </p>
-        )}
-
-        <div className="dns-status">
-          <span className="dns-label">DNS Server:</span>
-          <span className={`dns-indicator ${pfEnabled ? "dns-running" : "dns-stopped"}`}>
-            {pfEnabled ? "Listening on UDP 5300" : "Not running"}
-          </span>
-        </div>
-
-        <div className="setup-instructions">
-          <h3>Instructions</h3>
-          <ol>
-            <li>Enable transparent proxy above</li>
-            <li>On your phone, go to Wi-Fi settings</li>
-            <li>Set the HTTP proxy to this computer's IP ({networkInfo?.lan_ip || "..."})</li>
-            <li>Set proxy port to 8080</li>
-            <li>For HTTPS interception, install the ProxyBot CA certificate on your phone</li>
-          </ol>
-          <p className="note">
-            <strong>Note:</strong> For transparent proxy mode (no proxy configuration on phone),
-            enable the transparent proxy above. This requires administrator privileges.
-          </p>
-        </div>
-      </section>
-
-      <section className="setup-panel">
-        <h2>VPN/TUN Mode (Fallback)</h2>
-        <p className="tun-description">
-          For devices that cannot use transparent proxy (Android 7+ without MDM, iOS without MDM),
-          use TUN/VPN mode instead. This creates a VPN interface that captures all device traffic.
-        </p>
-
-        <div className="setup-buttons">
-          {!tunEnabled ? (
-            <button
-              className="btn btn-enable"
-              onClick={enableTunMode}
-              disabled={tunLoading}
-            >
-              {tunLoading ? "Enabling..." : "Enable TUN/VPN Mode"}
-            </button>
-          ) : (
-            <button
-              className="btn btn-disable"
-              onClick={disableTunMode}
-              disabled={tunLoading}
-            >
-              {tunLoading ? "Disabling..." : "Disable TUN/VPN Mode"}
-            </button>
-          )}
-        </div>
-
-        {tunStatus && (
-          <p className={`tun-status ${tunEnabled ? "status-active" : "status-inactive"}`}>
-            {tunStatus}
-          </p>
-        )}
-
-        <div className="setup-instructions">
-          <h3>TUN/VPN Instructions</h3>
-          <ol>
-            <li>Enable TUN/VPN mode above</li>
-            <li>On your phone, install a VPN profile pointing to this computer's IP ({networkInfo?.lan_ip || "..."})</li>
-            <li>Connect to the VPN from your phone</li>
-            <li>All traffic will be captured by ProxyBot</li>
-          </ol>
-          <p className="note">
-            <strong>Note:</strong> TUN/VPN mode captures all device traffic without requiring
-            proxy configuration on the device.
-          </p>
-        </div>
-      </section>
-
-      <section className="ca-info">
-        <h2>CA Certificate</h2>
-        <p className="ca-path">{caCertPath}</p>
-        {caMetadata && (
-          <p className="ca-meta">
-            Created: {new Date(caMetadata.created_at * 1000).toLocaleString()} | Serial: {caMetadata.serial}
-          </p>
-        )}
-        <p className="ca-instructions">
-          To intercept HTTPS traffic, install the CA certificate on your device and trust it.
-        </p>
-        <div className="ca-buttons">
-          <button className="btn btn-download" onClick={downloadCaCert}>
-            Download CA Certificate
-          </button>
-          <button className="btn btn-regenerate" onClick={regenerateCa}>
-            Regenerate CA
-          </button>
-        </div>
-      </section>
-
-      <section className="replay-section">
-        <h2>Traffic Replay</h2>
-        <p className="replay-description">
-          Replay recorded requests against a local mock server and see differences.
-        </p>
-        <div className="replay-controls">
-          <select
-            className="replay-host-select"
-            value={selectedReplayHost}
-            onChange={(e) => setSelectedReplayHost(e.target.value)}
-          >
-            <option value="">Select a host...</option>
-            {replayTargets.map((target) => (
-              <option key={target.host} value={target.host}>
-                {target.host} ({target.request_count} requests)
-              </option>
-            ))}
-          </select>
-          <div className="replay-delay">
-            <label>Delay (ms):</label>
-            <input
-              type="number"
-              min="0"
-              max="5000"
-              step="100"
-              value={replayDelay}
-              onChange={(e) => setReplayDelay(Number(e.target.value))}
-            />
-          </div>
+      {/* Top tab bar */}
+      <div className="tabs" style={{ padding: "0 var(--space-4)", background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)" }}>
+        {(["traffic", "dns", "rules", "devices", "ai"] as const).map((tab) => (
           <button
-            className="btn btn-replay"
-            onClick={startReplay}
-            disabled={replaying || !selectedReplayHost}
+            key={tab}
+            className={`tab ${activeTopTab === tab ? "active" : ""}`}
+            onClick={() => setActiveTopTab(tab)}
           >
-            {replaying ? "Replaying..." : "Start Replay"}
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
-        </div>
-        {replaying && (
-          <p className="replay-status">Replaying requests against mock server...</p>
-        )}
-      </section>
+        ))}
+      </div>
 
+      {/* Error banner */}
       {error && (
-        <div className="error">{error}</div>
+        <div style={{ padding: "var(--space-4) var(--space-4) 0" }}>
+          <div className="error-banner">
+            <span className="error-banner-message">{error}</span>
+          </div>
+        </div>
       )}
 
-      <section className="requests">
-        <div className="requests-header">
-          <h2>Intercepted Requests ({requests.length})</h2>
-          <button
-            className="btn btn-export"
-            onClick={() => {
-              setSessionName(`session-${Date.now()}`);
-              setShowExportDialog(true);
-            }}
-          >
-            Export HAR
-          </button>
-        </div>
-        <div className="app-tabs">
-          {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
-            <button
-              key={tab}
-              className={`tab-btn ${selectedTab === tab ? "tab-active" : ""}`}
-              onClick={() => setSelectedTab(tab)}
-            >
-              {tab === "all" ? "All" : tab === "WeChat" ? "WeChat 💬" : tab === "Douyin" ? "Douyin 🎵" : tab === "Alipay" ? "Alipay 💳" : "Unknown"}
-            </button>
-          ))}
-        </div>
-        <div className="requests-list">
-          <div className="requests-toolbar">
-            <select
-              className="host-filter"
-              value={selectedHost}
-              onChange={(e) => setSelectedHost(e.target.value)}
-            >
-              <option value="all">All Hosts</option>
-              {[...new Set(requests.map((r) => r.host))].map((host) => (
-                <option key={host} value={host}>{host}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              className="keyword-filter"
-              placeholder="Filter by keyword..."
-              value={keywordFilter}
-              onChange={(e) => setKeywordFilter(e.target.value)}
-            />
-          </div>
-          {requests.length === 0 ? (
-            <p className="no-requests">No requests yet. Configure your browser or device to use ProxyBot as the proxy.</p>
-          ) : (
-            <table className="requests-table">
-              <thead>
-                <tr>
-                  <th>App</th>
-                  <th>Time</th>
-                  <th>Method</th>
-                  <th>Host</th>
-                  <th>Path</th>
-                  <th>Status</th>
-                  <th>Size</th>
-                  <th>Latency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests
-                  .filter((req) => {
-                    if (selectedTab === "all") return true;
-                    if (selectedTab === "Unknown") return !req.app_name;
-                    return req.app_name === selectedTab;
-                  })
-                  .filter((req) => {
-                    if (selectedHost === "all") return true;
-                    return req.host === selectedHost;
-                  })
-                  .filter((req) => {
-                    if (!keywordFilter) return true;
-                    const kw = keywordFilter.toLowerCase();
-                    return (
-                      req.host.toLowerCase().includes(kw) ||
-                      req.path.toLowerCase().includes(kw) ||
-                      req.method.toLowerCase().includes(kw) ||
-                      (req.resp_body && req.resp_body.toLowerCase().includes(kw))
-                    );
-                  })
-                  .map((req) => (
-                    <tr
-                      key={req.id}
-                      className={selectedRequest?.id === req.id ? "selected" : ""}
-                      onClick={() => setSelectedRequest(selectedRequest?.id === req.id ? null : req)}
-                    >
-                      <td className="app-cell">
-                        {req.app_icon ? `${req.app_icon} ${req.app_name}` : "-"}
-                      </td>
-                      <td className="time">{formatTimestamp(req.timestamp)}</td>
-                      <td className="method">{req.method}</td>
-                      <td className="host">{req.host}</td>
-                      <td className="path">{req.path}</td>
-                      <td className={`status-code ${req.status && req.status >= 400 ? "status-error" : ""}`}>
-                        {req.status || "-"}
-                      </td>
-                      <td className="size">{req.resp_size ? formatSize(req.resp_size) : "-"}</td>
-                      <td className="latency">{req.latency_ms ? `${req.latency_ms}ms` : "-"}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      {/* Main content */}
+      <div style={{ padding: "var(--space-4)", display: "flex", gap: "var(--space-4)", flexDirection: "column", paddingBottom: 80 }}>
 
-        {selectedRequest && (
-          <div className="request-detail">
-            <div className="detail-header">
-              <h3>{selectedRequest.method} {selectedRequest.host}{selectedRequest.path}</h3>
-              <button className="close-btn" onClick={() => setSelectedRequest(null)}>×</button>
-            </div>
-            <div className="detail-tabs">
-              <button
-                className={`detail-tab ${"headers" === selectedDetailTab ? "active" : ""}`}
-                onClick={() => setSelectedDetailTab("headers")}
-              >
-                Headers
-              </button>
-              <button
-                className={`detail-tab ${"body" === selectedDetailTab ? "active" : ""}`}
-                onClick={() => setSelectedDetailTab("body")}
-              >
-                Body
-              </button>
-              <button
-                className={`detail-tab ${"params" === selectedDetailTab ? "active" : ""}`}
-                onClick={() => setSelectedDetailTab("params")}
-              >
-                Params
-              </button>
-              {selectedRequest.is_websocket && (
-                <button
-                  className={`detail-tab ${"ws" === selectedDetailTab ? "active" : ""}`}
-                  onClick={() => setSelectedDetailTab("ws")}
+        {/* ── TRAFFIC TAB ── */}
+        {activeTopTab === "traffic" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 400px", gap: "var(--space-4)", alignItems: "start" }}>
+            {/* Request list panel */}
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Traffic</span>
+                <span className="text-sm text-muted">{requests.length} requests</span>
+              </div>
+
+              {/* Filters */}
+              <div style={{ padding: "var(--space-3)", borderBottom: "1px solid var(--border)", display: "flex", gap: "var(--space-3)", flexWrap: "wrap", alignItems: "center" }}>
+                <select
+                  value={selectedHost}
+                  onChange={(e) => setSelectedHost(e.target.value)}
+                  style={{ width: 180 }}
                 >
-                  WebSocket
-                </button>
-              )}
-            </div>
-            <div className="detail-content">
-              {selectedDetailTab === "headers" && (
-                <div className="headers-section">
-                  <div className="headers-group">
-                    <h4>Request Headers</h4>
-                    {selectedRequest.req_headers.length > 0 ? (
-                      <pre className="headers-pre">{formatHeaders(selectedRequest.req_headers)}</pre>
-                    ) : (
-                      <p className="no-data">No request headers</p>
-                    )}
-                  </div>
-                  <div className="headers-group">
-                    <h4>Response Headers</h4>
-                    {selectedRequest.resp_headers.length > 0 ? (
-                      <pre className="headers-pre">{formatHeaders(selectedRequest.resp_headers)}</pre>
-                    ) : (
-                      <p className="no-data">No response headers</p>
-                    )}
-                  </div>
-                </div>
-              )}
-              {selectedDetailTab === "body" && (
-                <div className="body-section">
-                  {isImageContent(selectedRequest) ? (
-                    <div className="image-preview">
-                      <img src={buildImageDataUrl(selectedRequest)} alt="Response" />
-                    </div>
-                  ) : (
-                    <pre className="body-pre">{formatBody(selectedRequest.resp_body, selectedRequest.resp_headers)}</pre>
-                  )}
-                </div>
-              )}
-              {selectedDetailTab === "params" && (
-                <div className="params-section">
-                  {selectedRequest.query_params ? (
-                    <pre className="params-pre">{selectedRequest.query_params}</pre>
-                  ) : (
-                    <p className="no-data">No query parameters</p>
-                  )}
-                </div>
-              )}
-              {selectedDetailTab === "ws" && selectedRequest.ws_frames && (
-                <div className="ws-section">
-                  {selectedRequest.ws_frames.map((frame, idx) => (
-                    <div key={idx} className={`ws-frame ${frame.direction.toLowerCase()}`}>
-                      <span className="ws-direction">{frame.direction}</span>
-                      <span className="ws-time">{formatTimestamp(frame.timestamp)}</span>
-                      <pre className="ws-payload">{frame.payload}</pre>
-                    </div>
+                  <option value="all">All Hosts</option>
+                  {[...new Set(requests.map((r) => r.host))].map((h) => (
+                    <option key={h} value={h}>{h}</option>
                   ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {showReplayPanel && replayResults.length > 0 && (
-        <section className="replay-results">
-          <div className="replay-results-header">
-            <h2>Replay Results ({replayResults.length})</h2>
-            <button className="close-btn" onClick={() => setShowReplayPanel(false)}>×</button>
-          </div>
-          <div className="replay-results-content">
-            <div className="replay-results-list">
-              <table className="replay-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Method</th>
-                    <th>URL</th>
-                    <th>Diff</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {replayResults.map((result) => (
-                    <tr
-                      key={result.request_id}
-                      className={selectedReplayResult?.request_id === result.request_id ? "selected" : ""}
-                      onClick={() => setSelectedReplayResult(selectedReplayResult?.request_id === result.request_id ? null : result)}
-                    >
-                      <td className={`replay-status ${result.error ? "error" : result.diff?.has_changes ? "changed" : "match"}`}>
-                        {result.error ? "Error" : result.mock_response?.status || "?"}
-                      </td>
-                      <td className="replay-method">{result.method}</td>
-                      <td className="replay-url" title={result.url}>{result.url.length > 50 ? result.url.substring(0, 50) + "..." : result.url}</td>
-                      <td className="replay-diff">
-                        {result.diff?.has_changes ? (
-                          <span className="diff-badge changed">Changed</span>
-                        ) : (
-                          <span className="diff-badge match">Match</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {selectedReplayResult && (
-              <div className="replay-detail">
-                <h3>{selectedReplayResult.method} {selectedReplayResult.url}</h3>
-                <div className="diff-section">
-                  <h4>Headers Diff</h4>
-                  {selectedReplayResult.diff?.header_diffs && selectedReplayResult.diff.header_diffs.length > 0 ? (
-                    <table className="diff-headers-table">
-                      <thead>
-                        <tr>
-                          <th>Header</th>
-                          <th>Recorded</th>
-                          <th>Mock</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedReplayResult.diff.header_diffs.map((diff, idx) => (
-                          <tr key={idx} className={`diff-row diff-${diff.diff_type.toLowerCase()}`}>
-                            <td className="diff-header-name">{diff.header}</td>
-                            <td className="diff-recorded">{diff.recorded || "-"}</td>
-                            <td className="diff-mock">{diff.mock || "-"}</td>
-                            <td className="diff-type">
-                              <span className={`diff-badge diff-${diff.diff_type.toLowerCase()}`}>
-                                {diff.diff_type}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p className="no-diff">No header differences</p>
-                  )}
-                </div>
-
-                {selectedReplayResult.diff?.body_diff && (
-                  <div className="diff-section">
-                    <h4>Body Diff</h4>
-                    <div className="body-diff-view">
-                      <div className="body-diff-recorded">
-                        <h5>Recorded</h5>
-                        <pre>{selectedReplayResult.recorded_response.body || "(empty)"}</pre>
-                      </div>
-                      <div className="body-diff-mock">
-                        <h5>Mock</h5>
-                        <pre>{selectedReplayResult.mock_response?.body || "(empty)"}</pre>
-                      </div>
-                    </div>
-                    <div className="line-diff-view">
-                      <h5>Line-by-Line Diff</h5>
-                      <table className="line-diff-table">
-                        <tbody>
-                          {selectedReplayResult.diff.body_diff.line_diffs.map((lineDiff, idx) => (
-                            <tr key={idx} className={`diff-row diff-${lineDiff.diff_type.toLowerCase()}`}>
-                              <td className="line-num-recorded">{lineDiff.line_number_recorded || ""}</td>
-                              <td className="line-num-mock">{lineDiff.line_number_mock || ""}</td>
-                              <td className={`line-content recorded ${lineDiff.diff_type === "Removed" || lineDiff.diff_type === "Modified" ? "highlight" : ""}`}>
-                                {lineDiff.recorded_text || ""}
-                              </td>
-                              <td className={`line-content mock ${lineDiff.diff_type === "Added" || lineDiff.diff_type === "Modified" ? "highlight" : ""}`}>
-                                {lineDiff.mock_text || ""}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {selectedReplayResult.error && (
-                  <div className="error-section">
-                    <h4>Error</h4>
-                    <pre className="error-message">{selectedReplayResult.error}</pre>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      <section className="dns-log">
-        <h2>DNS Queries ({dnsQueries.length})</h2>
-        <div className="dns-log-list">
-          {dnsQueries.length === 0 ? (
-            <p className="no-dns-queries">No DNS queries yet. Enable transparent proxy to start capturing.</p>
-          ) : (
-            <table className="dns-table">
-              <thead>
-                <tr>
-                  <th>App</th>
-                  <th>Time</th>
-                  <th>Domain</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dnsQueries.map((query, idx) => (
-                  <tr key={`${query.timestamp_ms}-${idx}`}>
-                    <td className="app-cell">
-                      {query.app_icon ? `${query.app_icon} ${query.app_name}` : "-"}
-                    </td>
-                    <td className="time">
-                      {new Date(query.timestamp_ms).toLocaleTimeString()}
-                    </td>
-                    <td className="domain">{query.domain}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      <section className="devices-panel">
-        <h2>Devices ({devices.length})</h2>
-        {devices.length === 0 ? (
-          <p className="no-devices">No devices yet. Devices are registered when they connect through the proxy.</p>
-        ) : (
-          <div className="devices-content">
-            <div className="devices-list">
-              <table className="devices-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>IP/MAC</th>
-                    <th>Last Seen</th>
-                    <th>Upload</th>
-                    <th>Download</th>
-                    <th>Rule Override</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {devices.map((device) => (
-                    <tr
-                      key={device.id}
-                      className={selectedDevice?.id === device.id ? "selected" : ""}
-                      onClick={() => setSelectedDevice(selectedDevice?.id === device.id ? null : device)}
-                    >
-                      <td className="device-name">
-                        {editingDevice?.id === device.id ? (
-                          <input
-                            type="text"
-                            value={editingDevice.name}
-                            onChange={(e) => setEditingDevice({ ...editingDevice, name: e.target.value })}
-                            onBlur={() => updateDeviceName(device.mac_address, editingDevice.name)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                updateDeviceName(device.mac_address, editingDevice.name);
-                              } else if (e.key === "Escape") {
-                                setEditingDevice(null);
-                              }
-                            }}
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <span onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            setEditingDevice(device);
-                          }}>{device.name}</span>
-                        )}
-                      </td>
-                      <td className="device-mac">{device.mac_address}</td>
-                      <td className="device-last-seen">
-                        {new Date(device.last_seen_at).toLocaleString()}
-                      </td>
-                      <td className="device-upload">{formatBytes(device.upload_bytes)}</td>
-                      <td className="device-download">{formatBytes(device.download_bytes)}</td>
-                      <td className="device-rule">
-                        <select
-                          value={device.rule_override || ""}
-                          onChange={(e) => updateDeviceRuleOverride(device.mac_address, e.target.value || null)}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <option value="">Default</option>
-                          <option value="DIRECT">DIRECT</option>
-                          <option value="PROXY">PROXY</option>
-                          <option value="REJECT">REJECT</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {selectedDevice && (
-              <div className="device-topology">
-                <h3>Device Topology</h3>
-                <div className="topology-diagram">
-                  <div className="topology-node topology-pc">
-                    <div className="node-icon">PC</div>
-                    <div className="node-label">ProxyBot PC</div>
-                    <div className="node-ip">{networkInfo?.lan_ip || "..."}</div>
-                  </div>
-                  <div className="topology-line">
-                    <div className="line-arrow">→</div>
-                    <div className="line-label">proxy</div>
-                  </div>
-                  <div className="topology-node topology-device">
-                    <div className="node-icon">📱</div>
-                    <div className="node-label">{selectedDevice.name}</div>
-                    <div className="node-ip">{selectedDevice.mac_address}</div>
-                    <div className="node-stats">
-                      <span>↑ {formatBytes(selectedDevice.upload_bytes)}</span>
-                      <span>↓ {formatBytes(selectedDevice.download_bytes)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="rules-editor">
-        <div className="rules-header">
-          <h2>Routing Rules ({rules.length})</h2>
-          <div className="rules-actions">
-            <select
-              className="rule-file-select"
-              value={selectedRuleFile}
-              onChange={(e) => setSelectedRuleFile(e.target.value)}
-            >
-              {ruleFiles.map((f) => (
-                <option key={f} value={f}>{f}</option>
-              ))}
-            </select>
-            <button
-              className="btn btn-rule-add"
-              onClick={() => { setEditingRule({ pattern: "DOMAIN-SUFFIX", value: "", action: "DIRECT" }); setShowRuleEditor(true); }}
-            >
-              Add Rule
-            </button>
-          </div>
-        </div>
-
-        {rules.length === 0 ? (
-          <p className="no-rules">
-            No rules defined. Click "Add Rule" to create your first routing rule.
-          </p>
-        ) : (
-          <div className="rules-list">
-            <table className="rules-table">
-              <thead>
-                <tr>
-                  <th>Pattern</th>
-                  <th>Value</th>
-                  <th>Action</th>
-                  <th>Controls</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((rule, idx) => (
-                  <tr key={`${rule.pattern}-${rule.value}-${idx}`}>
-                    <td className="rule-pattern">
-                      <span className={`pattern-badge pattern-${rule.pattern.toLowerCase().replace(/-/g, "")}`}>
-                        {rule.pattern}
-                      </span>
-                    </td>
-                    <td className="rule-value">{rule.value}</td>
-                    <td className="rule-action">
-                      <span className={`action-badge action-${rule.action.toLowerCase()}`}>
-                        {rule.action}
-                      </span>
-                    </td>
-                    <td className="rule-controls">
-                      <button
-                        className="btn-move btn-move-up"
-                        onClick={() => moveRule(idx, "up")}
-                        disabled={idx === 0}
-                        title="Move up"
-                      >↑</button>
-                      <button
-                        className="btn-move btn-move-down"
-                        onClick={() => moveRule(idx, "down")}
-                        disabled={idx === rules.length - 1}
-                        title="Move down"
-                      >↓</button>
-                      <button
-                        className="btn-rule-edit"
-                        onClick={() => { setEditingRule(rule); setShowRuleEditor(true); }}
-                        title="Edit"
-                      >Edit</button>
-                      <button
-                        className="btn-rule-delete"
-                        onClick={() => deleteRule(rule)}
-                        title="Delete"
-                      >×</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {showRuleEditor && editingRule && (
-          <div className="rule-editor-modal">
-            <div className="rule-editor-content">
-              <h3>{rules.some(r => r.pattern === editingRule.pattern && r.value === editingRule.value) ? "Edit Rule" : "Add Rule"}</h3>
-              <div className="rule-editor-form">
-                <div className="form-group">
-                  <label>Pattern</label>
-                  <select
-                    value={editingRule.pattern}
-                    onChange={(e) => setEditingRule({ ...editingRule, pattern: e.target.value as RulePattern })}
-                  >
-                    <option value="DOMAIN">DOMAIN (exact match)</option>
-                    <option value="DOMAIN-SUFFIX">DOMAIN-SUFFIX (example.com matches sub.example.com)</option>
-                    <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD (matches if value appears anywhere)</option>
-                    <option value="IP-CIDR">IP-CIDR (e.g., 10.0.0.0/8)</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Value</label>
-                  <input
-                    type="text"
-                    value={editingRule.value}
-                    onChange={(e) => setEditingRule({ ...editingRule, value: e.target.value })}
-                    placeholder={editingRule.pattern === "IP-CIDR" ? "10.0.0.0/8" : "example.com"}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Action</label>
-                  <select
-                    value={editingRule.action}
-                    onChange={(e) => setEditingRule({ ...editingRule, action: e.target.value as RuleAction })}
-                  >
-                    <option value="DIRECT">DIRECT (bypass proxy)</option>
-                    <option value="PROXY">PROXY (send through proxy)</option>
-                    <option value="REJECT">REJECT (block connection)</option>
-                  </select>
-                </div>
-                <div className="form-actions">
-                  <button className="btn btn-save" onClick={() => saveRule(editingRule)}>Save</button>
-                  <button className="btn btn-cancel" onClick={() => { setShowRuleEditor(false); setEditingRule(null); }}>Cancel</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {showStateMachinePanel && authStateMachine && (
-        <section className="state-machine-panel">
-          <div className="state-machine-header">
-            <h2>Auth Flow State Machine</h2>
-            <button className="close-btn" onClick={() => setShowStateMachinePanel(false)}>×</button>
-          </div>
-          <div className="state-machine-content">
-            {authStateMachine.anomalies.length > 0 && (
-              <div className="anomalies-section">
-                <h3>Anomalies Detected ({authStateMachine.anomalies.length})</h3>
-                {authStateMachine.anomalies.map((anomaly, idx) => (
-                  <div key={idx} className={`anomaly-item severity-${anomaly.severity.toLowerCase()}`}>
-                    <span className="anomaly-badge">{anomaly.severity}</span>
-                    <span className="anomaly-desc">{anomaly.description}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mermaid-container">
-              <h3>Mermaid Diagram</h3>
-              <pre className="mermaid-code">{authStateMachine.mermaid_md}</pre>
-            </div>
-          </div>
-        </section>
-      )}
-
-      <section className="alerts-section">
-        <div className="alerts-header">
-          <h2>Alerts ({alertCount > 0 && `!${alertCount}`})</h2>
-          <div className="alerts-actions">
-            <button className="btn btn-sm" onClick={loadAlerts}>
-              Load Alerts
-            </button>
-            <button className="btn btn-sm" onClick={loadAuthStateMachine}>
-              View State Machine
-            </button>
-          </div>
-        </div>
-        {alerts.length === 0 ? (
-          <p className="no-alerts">No alerts. Alerts are generated when anomalies are detected.</p>
-        ) : (
-          <div className="alerts-list">
-            {alerts.map((alert) => (
-              <div key={alert.id} className={`alert-item severity-${alert.severity.toLowerCase()} ${alert.acknowledged ? "acknowledged" : ""}`}>
-                <div className="alert-header">
-                  <span className="alert-badge">{alert.severity}</span>
-                  <span className="alert-type">{alert.alert_type}</span>
-                  <span className="alert-time">{new Date(alert.created_at).toLocaleString()}</span>
-                </div>
-                <p className="alert-details">{alert.details}</p>
-                {!alert.acknowledged && (
-                  <button className="btn btn-sm" onClick={() => acknowledgeAlert(alert.id)}>
-                    Acknowledge
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-</section>
-
-      <section className="scaffold-section">
-        <h2>React Scaffold Generator</h2>
-        <p className="scaffold-description">
-          Generate a React + Vite frontend scaffold from inferred API semantics.
-          Requires running API inference first.
-        </p>
-        <div className="scaffold-controls">
-          <div className="form-group">
-            <label>Session ID</label>
-            <input
-              type="text"
-              value={scaffoldSessionId}
-              onChange={(e) => setScaffoldSessionId(e.target.value)}
-              placeholder="default"
-            />
-          </div>
-          <div className="form-group">
-            <label>Project Name</label>
-            <input
-              type="text"
-              value={scaffoldProjectName}
-              onChange={(e) => setScaffoldProjectName(e.target.value)}
-              placeholder="proxybot_frontend"
-            />
-          </div>
-          <div className="scaffold-buttons">
-            <button
-              className="btn btn-generate"
-              onClick={generateScaffold}
-              disabled={scaffoldGenerating}
-            >
-              {scaffoldGenerating ? "Generating..." : "Preview Scaffold"}
-            </button>
-            <button
-              className="btn btn-write"
-              onClick={writeScaffold}
-              disabled={scaffoldGenerating}
-            >
-              Write to Disk
-            </button>
-            <button
-              className="btn btn-evaluate"
-              onClick={evaluateScaffold}
-              disabled={scaffoldGenerating || !scaffoldResult}
-            >
-              Evaluate (LLM)
-            </button>
-          </div>
-        </div>
-
-        {scaffoldResult && (
-          <div className="scaffold-preview">
-            <h3>Generated Files ({Object.keys(scaffoldResult.files || {}).length})</h3>
-            <div className="scaffold-stats">
-              <span>Components: {scaffoldResult.components?.length || 0}</span>
-              <span>Stores: {scaffoldResult.stores?.length || 0}</span>
-              <span>Tests: {scaffoldResult.tests?.length || 0}</span>
-            </div>
-            <details className="scaffold-files-list">
-              <summary>View all generated files</summary>
-              <ul>
-                {Object.keys(scaffoldResult.files || {}).map((file) => (
-                  <li key={file}>{file}</li>
-                ))}
-              </ul>
-            </details>
-          </div>
-        )}
-
-        {scaffoldEvaluation && (
-          <div className="scaffold-evaluation">
-            <h3>LLM Evaluation</h3>
-            <div className="evaluation-score">
-              Score: {Math.round((scaffoldEvaluation.score || 0) * 100)}%
-            </div>
-            <pre className="evaluation-feedback">{scaffoldEvaluation.feedback || JSON.stringify(scaffoldEvaluation, null, 2)}</pre>
-          </div>
-        )}
-      </section>
-
-      <section className="vision-section">
-        <h2>Vision Screenshot Analyzer</h2>
-        <p className="vision-description">
-          Upload a screenshot of a mobile app to analyze its UI structure using Claude Vision.
-          The component tree will be stored alongside traffic analysis for scaffold generation.
-        </p>
-        <div className="vision-controls">
-          <div className="form-group">
-            <label>Session ID</label>
-            <input
-              type="text"
-              value={visionSessionId}
-              onChange={(e) => setVisionSessionId(e.target.value)}
-              placeholder="default"
-            />
-          </div>
-          <div className="vision-upload">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleScreenshotUpload}
-              disabled={visionAnalyzing}
-              id="screenshot-upload"
-            />
-            <label htmlFor="screenshot-upload" className="btn btn-upload">
-              {visionAnalyzing ? "Analyzing..." : "Upload Screenshot"}
-            </label>
-          </div>
-          <button
-            className="btn btn-fuse"
-            onClick={fuseVisionWithApi}
-            disabled={visionAnalyses.length === 0}
-          >
-            Fuse with Traffic Analysis
-          </button>
-        </div>
-
-        {visionAnalyses.length > 0 && (
-          <div className="vision-analyses-list">
-            <h3>Analysis History ({visionAnalyses.length})</h3>
-            <div className="vision-analyses-grid">
-              {visionAnalyses.map((analysis) => (
-                <div
-                  key={analysis.id}
-                  className={`vision-analysis-card ${selectedVisionAnalysis?.id === analysis.id ? "selected" : ""}`}
-                  onClick={() => setSelectedVisionAnalysis(analysis)}
-                >
-                  <div className="analysis-header">
-                    <span className="analysis-filename">{analysis.filename}</span>
+                </select>
+                <div className="tabs" style={{ borderBottom: "none", gap: 2 }}>
+                  {(["all", "WeChat", "Douyin", "Alipay", "Unknown"] as AppTab[]).map((tab) => (
                     <button
-                      className="btn-delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteVisionAnalysis(analysis.id);
-                      }}
+                      key={tab}
+                      className={`tab ${selectedTab === tab ? "active" : ""}`}
+                      onClick={() => setSelectedTab(tab)}
+                      style={{ fontSize: "var(--text-xs)", padding: "var(--space-1) var(--space-2)" }}
                     >
-                      ×
+                      {tab === "all" ? "All" : tab}
                     </button>
-                  </div>
-                  <div className="analysis-meta">
-                    <span>{analysis.components.length} components</span>
-                    <span>{new Date(analysis.created_at).toLocaleString()}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {selectedVisionAnalysis && (
-          <div className="vision-detail">
-            <h3>Component Tree: {selectedVisionAnalysis.filename}</h3>
-            <div className="component-tree">
-              <pre>{JSON.stringify(selectedVisionAnalysis.components, null, 2)}</pre>
-            </div>
-          </div>
-        )}
-
-        {fusedComponentTree && (
-          <div className="fused-result">
-            <h3>Fused Component Tree + API Routes</h3>
-            <div className="fused-layout">
-              <h4>Layout JSON</h4>
-              <pre>{fusedComponentTree.layout_json}</pre>
-            </div>
-            {fusedComponentTree.suggested_routes.length > 0 && (
-              <div className="fused-routes">
-                <h4>Suggested Routes</h4>
-                <ul>
-                  {fusedComponentTree.suggested_routes.map((route, idx) => (
-                    <li key={idx}>{route}</li>
                   ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="deploy-section">
-        <h2>One-click Docker Deployment Bundle</h2>
-        <p className="deploy-description">
-          Generate a complete Docker Compose deployment with mock API, React frontend, and PostgreSQL.
-          Includes git repo initialization and GitHub Actions CI for Playwright E2E tests.
-        </p>
-        <div className="deploy-controls">
-          <div className="form-group">
-            <label>Session ID</label>
-            <input
-              type="text"
-              value={deploySessionId}
-              onChange={(e) => setDeploySessionId(e.target.value)}
-              placeholder="default"
-            />
-          </div>
-          <div className="form-group">
-            <label>Project Name</label>
-            <input
-              type="text"
-              value={deployProjectName}
-              onChange={(e) => setDeployProjectName(e.target.value)}
-              placeholder="proxybot_deployment"
-            />
-          </div>
-          <div className="deploy-buttons">
-            <button
-              className="btn btn-generate"
-              onClick={generateDeployment}
-              disabled={deployGenerating}
-            >
-              {deployGenerating ? "Generating..." : "Preview Bundle"}
-            </button>
-            <button
-              className="btn btn-write"
-              onClick={writeDeployment}
-              disabled={deployGenerating}
-            >
-              Write to Disk + Git Init
-            </button>
-          </div>
-        </div>
-
-        {deployResult && (
-          <div className="deploy-preview">
-            <h3>Deployment Bundle Preview</h3>
-            <div className="deploy-services">
-              <div className="deploy-service">
-                <span className="service-name">mock-api</span>
-                <span className="service-port">:8000</span>
-                <span className="service-desc">FastAPI mock server with recorded responses</span>
-              </div>
-              <div className="deploy-service">
-                <span className="service-name">frontend</span>
-                <span className="service-port">:3000</span>
-                <span className="service-desc">React + Vite scaffold</span>
-              </div>
-              <div className="deploy-service">
-                <span className="service-name">postgres</span>
-                <span className="service-port">:5432</span>
-                <span className="service-desc">PostgreSQL database</span>
-              </div>
-            </div>
-            <details className="deploy-compose-preview">
-              <summary>View docker-compose.yml</summary>
-              <pre>{deployResult.docker_compose_content}</pre>
-            </details>
-            <details className="deploy-readme-preview">
-              <summary>View README.md</summary>
-              <pre>{deployResult.readme_content}</pre>
-            </details>
-            <details className="deploy-ci-preview">
-              <summary>View GitHub Actions CI</summary>
-              <pre>{deployResult.ci_template_content}</pre>
-            </details>
-          </div>
-        )}
-      </section>
-
-      {showExportDialog && (
-        <div className="export-dialog-overlay">
-          <div className="export-dialog">
-            <h3>Export HAR File</h3>
-            <div className="export-dialog-content">
-              <p>Export all recorded HTTP requests to a HAR (HTTP Archive) file.</p>
-              <div className="form-group">
-                <label>Session Name</label>
+                </div>
                 <input
                   type="text"
-                  value={sessionName}
-                  onChange={(e) => setSessionName(e.target.value)}
-                  placeholder="session-1234567890"
+                  placeholder="Filter by host or path..."
+                  value={keywordFilter}
+                  onChange={(e) => setKeywordFilter(e.target.value)}
+                  style={{ flex: 1, minWidth: 140 }}
                 />
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => { setSessionName(`session-${Date.now()}`); setShowExportDialog(true); }}
+                >
+                  Export HAR
+                </button>
               </div>
-              <p className="export-note">
-                The HAR file will be saved to ~/.proxybot/exports/
-              </p>
+
+              {/* Table header */}
+              <div style={{
+                display: "flex", padding: "var(--space-2) var(--space-3)",
+                background: "var(--bg-tertiary)", fontSize: "var(--text-xs)", fontWeight: 600,
+                color: "var(--text-secondary)", textTransform: "uppercase" as const,
+                letterSpacing: "0.5px", borderBottom: "1px solid var(--border)",
+              }}>
+                <div style={{ width: 60 }}>Method</div>
+                <div style={{ flex: 1 }}>URL</div>
+                <div style={{ width: 56, textAlign: "center" }}>Status</div>
+                <div style={{ width: 64, textAlign: "right" }}>Latency</div>
+                <div style={{ width: 64, textAlign: "right" }}>Size</div>
+                <div style={{ width: 88 }}>Time</div>
+                <div style={{ width: 80 }}>App</div>
+              </div>
+
+              {/* Rows */}
+              {requests.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">📭</div>
+                  <div className="empty-state-title">No requests captured</div>
+                  <div className="empty-state-description">Start the proxy and make requests from your phone to see traffic here.</div>
+                </div>
+              ) : (
+                <div style={{ maxHeight: 520, overflowY: "auto" }}>
+                  {requests
+                    .filter((req) => {
+                      if (selectedTab !== "all") {
+                        if (selectedTab === "Unknown") return !req.app_name;
+                        return req.app_name === selectedTab;
+                      }
+                      return true;
+                    })
+                    .filter((req) => selectedHost === "all" || req.host === selectedHost)
+                    .filter((req) => {
+                      if (!keywordFilter) return true;
+                      const kw = keywordFilter.toLowerCase();
+                      return (
+                        req.host.toLowerCase().includes(kw) ||
+                        req.path.toLowerCase().includes(kw) ||
+                        req.method.toLowerCase().includes(kw)
+                      );
+                    })
+                    .map((req) => (
+                      <div
+                        key={req.id}
+                        onClick={() => setSelectedRequest(selectedRequest?.id === req.id ? null : req)}
+                        style={{
+                          display: "flex", padding: "var(--space-2) var(--space-3)",
+                          borderBottom: "1px solid var(--border)", cursor: "pointer",
+                          fontSize: "var(--text-sm)", fontFamily: "var(--font-mono)",
+                          alignItems: "center",
+                          background: selectedRequest?.id === req.id ? "var(--bg-tertiary)" : "transparent",
+                        }}
+                      >
+                        <div style={{ width: 60 }}>
+                          <span className={`badge badge-${req.method.toLowerCase()}`}>{req.method}</span>
+                        </div>
+                        <div style={{ flex: 1, overflow: "hidden" }}>
+                          <div className="truncate" style={{ fontSize: "var(--text-xs)" }}>{req.host}</div>
+                          <div className="text-muted truncate" style={{ fontSize: 10 }}>{req.path}</div>
+                        </div>
+                        <div style={{ width: 56, textAlign: "center" }}>
+                          {req.status && (
+                            <span style={{
+                              color: req.status < 300 ? "var(--accent-green)"
+                                : req.status < 400 ? "var(--accent-yellow)"
+                                : "var(--accent-red)", fontWeight: 600, fontSize: "var(--text-xs)",
+                            }}>{req.status}</span>
+                          )}
+                        </div>
+                        <div style={{ width: 64, textAlign: "right", fontSize: "var(--text-xs)" }}>
+                          {req.latency_ms != null ? `${req.latency_ms}ms` : "—"}
+                        </div>
+                        <div style={{ width: 64, textAlign: "right", fontSize: "var(--text-xs)" }}>
+                          {req.resp_size != null ? formatSize(req.resp_size) : "—"}
+                        </div>
+                        <div style={{ width: 88, fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+                          {formatTimestamp(req.timestamp)}
+                        </div>
+                        <div style={{ width: 80 }}>
+                          {req.app_name && (
+                            <span className={`badge ${
+                              req.app_name.toLowerCase().includes("wechat") ? "badge-wechat"
+                                : req.app_name.toLowerCase().includes("douyin") ? "badge-douyin"
+                                : req.app_name.toLowerCase().includes("alipay") ? "badge-alipay"
+                                : "badge-unknown"
+                            }`}>{req.app_name}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
-            <div className="export-dialog-actions">
-              <button
-                className="btn btn-export"
-                onClick={exportHar}
-                disabled={exporting}
-              >
-                {exporting ? "Exporting..." : "Export"}
-              </button>
-              <button
-                className="btn btn-cancel"
-                onClick={() => {
-                  setShowExportDialog(false);
-                  setSessionName("");
-                }}
-              >
-                Cancel
-              </button>
+
+            {/* Request detail panel */}
+            <div>
+              {selectedRequest ? (
+                <div className="panel">
+                  <div className="panel-header">
+                    <span className="panel-title">
+                      <span className={`badge badge-${selectedRequest.method.toLowerCase()}`} style={{ marginRight: 8 }}>
+                        {selectedRequest.method}
+                      </span>
+                      {selectedRequest.host}
+                      <span className="text-muted truncate" style={{ marginLeft: 8, maxWidth: 160 }}>{selectedRequest.path}</span>
+                    </span>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setSelectedRequest(null)}>×</button>
+                  </div>
+                  <div className="tabs">
+                    {(["headers", "params", "body", ...(selectedRequest.is_websocket ? ["ws"] as const : [])] as const).map((t) => (
+                      <button
+                        key={t}
+                        className={`tab ${detailTab === t ? "active" : ""}`}
+                        onClick={() => setDetailTab(t as typeof detailTab)}
+                      >
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="panel-body" style={{ maxHeight: 480, overflowY: "auto" }}>
+                    {detailTab === "headers" && (
+                      <div>
+                        <div style={{ marginBottom: "var(--space-4)" }}>
+                          <div className="card-title" style={{ marginBottom: "var(--space-2)" }}>Request Headers</div>
+                          <table className="table">
+                            <tbody>
+                              {selectedRequest.req_headers.map(([n, v]) => (
+                                <tr key={n}>
+                                  <td style={{ fontWeight: 500, whiteSpace: "nowrap" }}>{n}</td>
+                                  <td className="mono" style={{ wordBreak: "break-all", fontSize: "var(--text-xs)" }}>{v}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div>
+                          <div className="card-title" style={{ marginBottom: "var(--space-2)" }}>Response Headers</div>
+                          <table className="table">
+                            <tbody>
+                              {selectedRequest.resp_headers.map(([n, v]) => (
+                                <tr key={n}>
+                                  <td style={{ fontWeight: 500, whiteSpace: "nowrap" }}>{n}</td>
+                                  <td className="mono" style={{ wordBreak: "break-all", fontSize: "var(--text-xs)" }}>{v}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    {detailTab === "params" && (
+                      <div>
+                        {selectedRequest.query_params ? (
+                          selectedRequest.query_params.split("&").map((p) => {
+                            const [k, v] = p.split("=");
+                            return (
+                              <div key={k} style={{ display: "flex", gap: "var(--space-3)", padding: "var(--space-1) 0", borderBottom: "1px solid var(--border)" }}>
+                                <span className="mono" style={{ color: "var(--accent-blue)", minWidth: 120 }}>{decodeURIComponent(k)}</span>
+                                <span className="mono" style={{ fontSize: "var(--text-xs)" }}>{decodeURIComponent(v || "")}</span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="empty-state" style={{ padding: "var(--space-6)" }}>
+                            <div className="text-muted text-sm">No query parameters</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {detailTab === "body" && (
+                      <div>
+                        {selectedRequest.resp_body ? (
+                          <pre className="mono" style={{ fontSize: "var(--text-xs)", whiteSpace: "pre-wrap", wordBreak: "break-all", background: "var(--bg-primary)", padding: "var(--space-3)", borderRadius: "var(--radius-md)" }}>
+                            {formatBody(selectedRequest.resp_body, selectedRequest.resp_headers)}
+                          </pre>
+                        ) : (
+                          <div className="empty-state" style={{ padding: "var(--space-6)" }}>
+                            <div className="text-muted text-sm">No response body</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {detailTab === "ws" && selectedRequest.ws_frames && (
+                      <div>
+                        {selectedRequest.ws_frames.map((f, i) => (
+                          <div key={i} style={{ display: "flex", gap: "var(--space-3)", padding: "var(--space-2)", borderBottom: "1px solid var(--border)", alignItems: "flex-start" }}>
+                            <span className={`badge ${f.direction === "←" || f.direction === "IN" ? "badge-get" : "badge-post"}`}>{f.direction}</span>
+                            <div style={{ flex: 1 }}>
+                              <div className="text-xs text-muted" style={{ marginBottom: 2 }}>{f.timestamp} · {f.size}B</div>
+                              <pre className="mono" style={{ fontSize: "var(--text-xs)", whiteSpace: "pre-wrap", wordBreak: "break-all", margin: 0 }}>{f.payload}</pre>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="panel">
+                  <div className="panel-header"><span className="panel-title">Request Detail</span></div>
+                  <div className="panel-body">
+                    <div className="empty-state">
+                      <div className="empty-state-icon">👆</div>
+                      <div className="empty-state-title">Select a request</div>
+                      <div className="empty-state-description">Click a row to inspect details</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Replay section */}
+              <div className="panel" style={{ marginTop: "var(--space-4)" }}>
+                <div className="panel-header">
+                  <span className="panel-title">Replay</span>
+                </div>
+                <div className="panel-body">
+                  <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
+                    <select
+                      value={selectedReplayHost}
+                      onChange={(e) => setSelectedReplayHost(e.target.value)}
+                      style={{ flex: 1, minWidth: 120 }}
+                    >
+                      <option value="">Select host...</option>
+                      {replayTargets.map((t) => (
+                        <option key={t.host} value={t.host}>{t.host} ({t.request_count})</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      max="5000"
+                      value={replayDelay}
+                      onChange={(e) => setReplayDelay(Number(e.target.value))}
+                      style={{ width: 80 }}
+                      title="Delay (ms)"
+                    />
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={startReplay}
+                      disabled={replaying || !selectedReplayHost}
+                    >
+                      {replaying ? "..." : "Replay"}
+                    </button>
+                  </div>
+                  {replayResults.length > 0 && (
+                    <div style={{ marginTop: "var(--space-3)", maxHeight: 200, overflowY: "auto" }}>
+                      {replayResults.slice(0, 5).map((r) => (
+                        <div key={r.request_id} style={{ display: "flex", gap: "var(--space-2)", padding: "var(--space-1) 0", borderBottom: "1px solid var(--border)", fontSize: "var(--text-xs)" }}>
+                          <span className={`badge ${r.error ? "badge-delete" : r.diff?.has_changes ? "badge-put" : "badge-get"}`}>
+                            {r.error ? "Err" : r.mock_response?.status || "?"}
+                          </span>
+                          <span className="mono truncate" style={{ flex: 1 }}>{r.url}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── DNS TAB ── */}
+        {activeTopTab === "dns" && (
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">DNS Queries</span>
+              <span className="text-sm text-muted">{dnsQueries.length} entries</span>
+            </div>
+            <div style={{ maxHeight: 500, overflowY: "auto" }}>
+              {dnsQueries.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">🌐</div>
+                  <div className="empty-state-title">No DNS queries</div>
+                  <div className="empty-state-description">Enable transparent proxy to start capturing DNS queries</div>
+                </div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>App</th>
+                      <th>Time</th>
+                      <th>Domain</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dnsQueries.map((q, idx) => (
+                      <tr key={`${q.timestamp_ms}-${idx}`}>
+                        <td>
+                          {q.app_name && (
+                            <span className={`badge ${
+                              q.app_name.toLowerCase().includes("wechat") ? "badge-wechat"
+                                : q.app_name.toLowerCase().includes("douyin") ? "badge-douyin"
+                                : q.app_name.toLowerCase().includes("alipay") ? "badge-alipay"
+                                : "badge-unknown"
+                            }`}>{q.app_name}</span>
+                          )}
+                        </td>
+                        <td className="mono text-sm">{new Date(q.timestamp_ms).toLocaleTimeString()}</td>
+                        <td className="mono text-sm">{q.domain}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── RULES TAB ── */}
+        {activeTopTab === "rules" && (
+          <div>
+            <div className="panel" style={{ marginBottom: "var(--space-4)" }}>
+              <div className="panel-header">
+                <span className="panel-title">Routing Rules</span>
+                <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                  <select
+                    value={selectedRuleFile}
+                    onChange={(e) => setSelectedRuleFile(e.target.value)}
+                    style={{ width: 140 }}
+                  >
+                    {ruleFiles.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => { setEditingRule({ pattern: "DOMAIN-SUFFIX", value: "", action: "DIRECT" }); setShowRuleEditor(true); }}
+                  >
+                    + Add Rule
+                  </button>
+                </div>
+              </div>
+              <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                {rules.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon">📋</div>
+                    <div className="empty-state-title">No rules defined</div>
+                    <div className="empty-state-description">Click "Add Rule" to create your first routing rule.</div>
+                  </div>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Pattern</th>
+                        <th>Value</th>
+                        <th>Action</th>
+                        <th style={{ width: 120 }}>Controls</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rules.map((rule, idx) => (
+                        <tr key={`${rule.pattern}-${rule.value}-${idx}`}>
+                          <td>
+                            <span className={`badge ${
+                              rule.action === "DIRECT" ? "badge-direct"
+                                : rule.action === "PROXY" ? "badge-proxy"
+                                : "badge-reject"
+                            }`}>{rule.pattern}</span>
+                          </td>
+                          <td className="mono text-sm">{rule.value}</td>
+                          <td>
+                            <span className={`badge ${
+                              rule.action === "DIRECT" ? "badge-direct"
+                                : rule.action === "PROXY" ? "badge-proxy"
+                                : "badge-reject"
+                            }`}>{rule.action}</span>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: "var(--space-1)" }}>
+                              <button className="btn btn-sm btn-ghost" onClick={() => moveRule(idx, "up")} disabled={idx === 0} title="Move up">↑</button>
+                              <button className="btn btn-sm btn-ghost" onClick={() => moveRule(idx, "down")} disabled={idx === rules.length - 1} title="Move down">↓</button>
+                              <button className="btn btn-sm btn-ghost" onClick={() => { setEditingRule(rule); setShowRuleEditor(true); }}>Edit</button>
+                              <button className="btn btn-sm btn-ghost" onClick={() => deleteRule(rule)}>×</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* Rule editor modal */}
+            {showRuleEditor && editingRule && (
+              <div style={{
+                position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+              }}>
+                <div className="panel" style={{ width: 480 }}>
+                  <div className="panel-header">
+                    <span className="panel-title">Add / Edit Rule</span>
+                    <button className="btn btn-sm btn-ghost" onClick={() => { setShowRuleEditor(false); setEditingRule(null); }}>×</button>
+                  </div>
+                  <div className="panel-body">
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+                      <div>
+                        <label className="text-sm text-muted" style={{ display: "block", marginBottom: 4 }}>Pattern</label>
+                        <select
+                          value={editingRule.pattern}
+                          onChange={(e) => setEditingRule({ ...editingRule, pattern: e.target.value as RulePattern })}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="DOMAIN">DOMAIN (exact match)</option>
+                          <option value="DOMAIN-SUFFIX">DOMAIN-SUFFIX (matches subdomains)</option>
+                          <option value="DOMAIN-KEYWORD">DOMAIN-KEYWORD (contains)</option>
+                          <option value="IP-CIDR">IP-CIDR (e.g., 10.0.0.0/8)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm text-muted" style={{ display: "block", marginBottom: 4 }}>Value</label>
+                        <input
+                          type="text"
+                          value={editingRule.value}
+                          onChange={(e) => setEditingRule({ ...editingRule, value: e.target.value })}
+                          placeholder={editingRule.pattern === "IP-CIDR" ? "10.0.0.0/8" : "example.com"}
+                          style={{ width: "100%" }}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-muted" style={{ display: "block", marginBottom: 4 }}>Action</label>
+                        <select
+                          value={editingRule.action}
+                          onChange={(e) => setEditingRule({ ...editingRule, action: e.target.value as RuleAction })}
+                          style={{ width: "100%" }}
+                        >
+                          <option value="DIRECT">DIRECT (bypass proxy)</option>
+                          <option value="PROXY">PROXY (send through proxy)</option>
+                          <option value="REJECT">REJECT (block connection)</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+                        <button className="btn btn-sm btn-secondary" onClick={() => { setShowRuleEditor(false); setEditingRule(null); }}>Cancel</button>
+                        <button className="btn btn-sm btn-primary" onClick={() => saveRule(editingRule)}>Save</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── DEVICES TAB ── */}
+        {activeTopTab === "devices" && (
+          <div>
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Devices</span>
+                <span className="text-sm text-muted">{devices.length} registered</span>
+              </div>
+              {devices.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">📱</div>
+                  <div className="empty-state-title">No devices</div>
+                  <div className="empty-state-description">Devices are registered when they connect through the proxy.</div>
+                </div>
+              ) : (
+                <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>MAC</th>
+                        <th>Last Seen</th>
+                        <th>↑ Upload</th>
+                        <th>↓ Download</th>
+                        <th>Rule</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {devices.map((device) => (
+                        <tr
+                          key={device.id}
+                          className={selectedDevice?.id === device.id ? "selected" : ""}
+                          onClick={() => setSelectedDevice(selectedDevice?.id === device.id ? null : device)}
+                          style={{ cursor: "pointer" }}
+                        >
+                          <td className="text-sm">{device.name}</td>
+                          <td className="mono text-xs">{device.mac_address}</td>
+                          <td className="text-xs text-muted">{new Date(device.last_seen_at).toLocaleString()}</td>
+                          <td className="text-xs">{formatBytes(device.upload_bytes)}</td>
+                          <td className="text-xs">{formatBytes(device.download_bytes)}</td>
+                          <td>
+                            <select
+                              value={device.rule_override || ""}
+                              onChange={(e) => updateDeviceRuleOverride(device.mac_address, e.target.value || null)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ width: 90, fontSize: "var(--text-xs)" }}
+                            >
+                              <option value="">Default</option>
+                              <option value="DIRECT">DIRECT</option>
+                              <option value="PROXY">PROXY</option>
+                              <option value="REJECT">REJECT</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Device topology */}
+            {selectedDevice && (
+              <div className="panel" style={{ marginTop: "var(--space-4)" }}>
+                <div className="panel-header"><span className="panel-title">Device Topology</span></div>
+                <div className="panel-body">
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)" }}>
+                    <div className="card" style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600 }}>ProxyBot PC</div>
+                      <div className="text-sm text-muted mono">{networkInfo?.lan_ip || "—"}</div>
+                    </div>
+                    <div style={{ color: "var(--text-muted)", fontSize: "var(--text-xl)" }}>→</div>
+                    <div className="card" style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600 }}>{selectedDevice.name}</div>
+                      <div className="text-sm text-muted mono">{selectedDevice.mac_address}</div>
+                      <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-2)", fontSize: "var(--text-xs)" }}>
+                        <span style={{ color: "var(--accent-green)" }}>↑ {formatBytes(selectedDevice.upload_bytes)}</span>
+                        <span style={{ color: "var(--accent-blue)" }}>↓ {formatBytes(selectedDevice.download_bytes)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── AI TAB ── */}
+        {activeTopTab === "ai" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+            {/* Alerts */}
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Alerts</span>
+                {alertCount > 0 && <span className="badge badge-warning">{alertCount}</span>}
+                <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                  <button className="btn btn-sm btn-secondary" onClick={loadAlerts}>Refresh</button>
+                  <button className="btn btn-sm btn-secondary" onClick={loadAuthStateMachine}>State Machine</button>
+                </div>
+              </div>
+              {alerts.length === 0 ? (
+                <div className="panel-body">
+                  <div className="empty-state">
+                    <div className="empty-state-icon">✅</div>
+                    <div className="empty-state-title">No alerts</div>
+                    <div className="empty-state-description">Alerts are generated when anomalies are detected.</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                  {alerts.map((alert) => (
+                    <div key={alert.id} style={{ padding: "var(--space-3)", borderBottom: "1px solid var(--border)", display: "flex", gap: "var(--space-3)", alignItems: "flex-start" }}>
+                      <span className={`badge ${
+                        alert.severity === "Critical" ? "badge-critical"
+                          : alert.severity === "Warning" ? "badge-warning"
+                          : "badge-info"
+                      }`}>{alert.severity}</span>
+                      <div style={{ flex: 1 }}>
+                        <div className="text-sm">{alert.alert_type}</div>
+                        <div className="text-xs text-muted">{alert.details}</div>
+                      </div>
+                      {!alert.acknowledged && (
+                        <button className="btn btn-sm btn-ghost" onClick={() => acknowledgeAlert(alert.id)}>Ack</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Vision */}
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Vision Screenshot Analyzer</span>
+              </div>
+              <div className="panel-body">
+                <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-4)", flexWrap: "wrap", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    value={visionSessionId}
+                    onChange={(e) => setVisionSessionId(e.target.value)}
+                    placeholder="Session ID"
+                    style={{ width: 140 }}
+                  />
+                  <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleScreenshotUpload}
+                      disabled={visionAnalyzing}
+                      id="screenshot-upload"
+                      style={{ display: "none" }}
+                    />
+                    <label htmlFor="screenshot-upload" className="btn btn-sm btn-secondary" style={{ cursor: "pointer" }}>
+                      {visionAnalyzing ? "Analyzing..." : "Upload Screenshot"}
+                    </label>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={fuseVisionWithApi}
+                    disabled={visionAnalyses.length === 0}
+                  >
+                    Fuse with Traffic
+                  </button>
+                </div>
+                {visionAnalyses.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                    {visionAnalyses.map((a) => (
+                      <div key={a.id} style={{ display: "flex", gap: "var(--space-3)", padding: "var(--space-2)", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
+                        <span className="text-sm truncate" style={{ flex: 1 }}>{a.filename}</span>
+                        <span className="text-xs text-muted">{a.components.length} components</span>
+                        <button className="btn btn-sm btn-ghost" onClick={() => deleteVisionAnalysis(a.id)}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Scaffold */}
+            <div className="panel">
+              <div className="panel-header"><span className="panel-title">Scaffold Generator</span></div>
+              <div className="panel-body">
+                <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
+                  <input
+                    type="text"
+                    value={scaffoldSessionId}
+                    onChange={(e) => setScaffoldSessionId(e.target.value)}
+                    placeholder="Session ID"
+                    style={{ width: 140 }}
+                  />
+                  <input
+                    type="text"
+                    value={scaffoldProjectName}
+                    onChange={(e) => setScaffoldProjectName(e.target.value)}
+                    placeholder="Project name"
+                    style={{ width: 180 }}
+                  />
+                  <button className="btn btn-sm btn-primary" onClick={generateScaffold} disabled={scaffoldGenerating}>
+                    {scaffoldGenerating ? "..." : "Generate"}
+                  </button>
+                  <button className="btn btn-sm btn-secondary" onClick={writeScaffold} disabled={scaffoldGenerating}>Write</button>
+                  <button className="btn btn-sm btn-secondary" onClick={evaluateScaffold} disabled={scaffoldGenerating || !scaffoldResult}>Eval</button>
+                </div>
+                {scaffoldResult && (
+                  <div className="text-xs text-muted">Files: {Object.keys(scaffoldResult.files || {}).length} — {scaffoldResult.components?.length || 0} components</div>
+                )}
+              </div>
+            </div>
+
+            {/* Deploy */}
+            <div className="panel">
+              <div className="panel-header"><span className="panel-title">Docker Deployment</span></div>
+              <div className="panel-body">
+                <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
+                  <input
+                    type="text"
+                    value={deploySessionId}
+                    onChange={(e) => setDeploySessionId(e.target.value)}
+                    placeholder="Session ID"
+                    style={{ width: 140 }}
+                  />
+                  <input
+                    type="text"
+                    value={deployProjectName}
+                    onChange={(e) => setDeployProjectName(e.target.value)}
+                    placeholder="Project name"
+                    style={{ width: 180 }}
+                  />
+                  <button className="btn btn-sm btn-primary" onClick={generateDeployment} disabled={deployGenerating}>
+                    {deployGenerating ? "..." : "Generate"}
+                  </button>
+                  <button className="btn btn-sm btn-secondary" onClick={writeDeployment} disabled={deployGenerating}>Write</button>
+                </div>
+                {deployResult && (
+                  <div className="text-xs text-muted">Bundle: {deployResult.bundle_path}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Proxy control footer */}
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        padding: "var(--space-3) var(--space-4)",
+        background: "var(--bg-secondary)", borderTop: "1px solid var(--border)",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        fontSize: "var(--text-sm)", zIndex: 50,
+      }}>
+        <div style={{ display: "flex", gap: "var(--space-6)", alignItems: "center" }}>
+          <div>
+            <span className="text-muted">LAN IP: </span>
+            <span className="font-mono">{networkInfo?.lan_ip || "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted">pf: </span>
+            <span style={{ color: pfEnabled ? "var(--accent-green)" : "var(--text-muted)" }}>
+              {pfEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+          <div>
+            <span className="text-muted">TUN: </span>
+            <span style={{ color: tunEnabled ? "var(--accent-green)" : "var(--text-muted)" }}>
+              {tunEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          {!pfEnabled ? (
+            <button className="btn btn-sm btn-secondary" onClick={enableTransparentProxy} disabled={pfLoading || !networkInfo}>
+              {pfLoading ? "..." : "Enable pf"}
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-secondary" onClick={disableTransparentProxy} disabled={pfLoading}>
+              {pfLoading ? "..." : "Disable pf"}
+            </button>
+          )}
+          {!tunEnabled && (
+            <button className="btn btn-sm btn-secondary" onClick={enableTunMode} disabled={tunLoading}>
+              {tunLoading ? "..." : "TUN Mode"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Export dialog */}
+      {showExportDialog && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+        }}>
+          <div className="panel" style={{ width: 400 }}>
+            <div className="panel-header">
+              <span className="panel-title">Export HAR</span>
+              <button className="btn btn-sm btn-ghost" onClick={() => { setShowExportDialog(false); setSessionName(""); }}>×</button>
+            </div>
+            <div className="panel-body">
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
+                <div>
+                  <label className="text-sm text-muted" style={{ display: "block", marginBottom: 4 }}>Session Name</label>
+                  <input
+                    type="text"
+                    value={sessionName}
+                    onChange={(e) => setSessionName(e.target.value)}
+                    placeholder="session-1234567890"
+                    style={{ width: "100%" }}
+                  />
+                </div>
+                <div className="text-xs text-muted">Saved to ~/.proxybot/exports/</div>
+                <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+                  <button className="btn btn-sm btn-secondary" onClick={() => { setShowExportDialog(false); setSessionName(""); }}>Cancel</button>
+                  <button className="btn btn-sm btn-primary" onClick={exportHar} disabled={exporting}>
+                    {exporting ? "..." : "Export"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
-    </main>
+
+      {/* State machine panel */}
+      {showStateMachinePanel && authStateMachine && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+        }}>
+          <div className="panel" style={{ width: 700, maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+            <div className="panel-header">
+              <span className="panel-title">Auth Flow State Machine</span>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowStateMachinePanel(false)}>×</button>
+            </div>
+            <div className="panel-body" style={{ overflowY: "auto", flex: 1 }}>
+              {authStateMachine.anomalies.length > 0 && (
+                <div style={{ marginBottom: "var(--space-4)" }}>
+                  <div className="card-title" style={{ marginBottom: "var(--space-2)" }}>Anomalies ({authStateMachine.anomalies.length})</div>
+                  {authStateMachine.anomalies.map((a, i) => (
+                    <div key={i} style={{ display: "flex", gap: "var(--space-2)", padding: "var(--space-1) 0", fontSize: "var(--text-xs)" }}>
+                      <span className={`badge ${a.severity === "Critical" ? "badge-critical" : a.severity === "Warning" ? "badge-warning" : "badge-info"}`}>{a.severity}</span>
+                      <span>{a.description}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <pre className="mono" style={{ fontSize: "var(--text-xs)", whiteSpace: "pre-wrap" }}>{authStateMachine.mermaid_md}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
