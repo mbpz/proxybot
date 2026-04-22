@@ -31,6 +31,7 @@ use cert::CertManager;
 use db::DbState;
 use deploy::{generate_deployment_bundle, write_deployment_bundle};
 use dns::DnsState;
+#[allow(unused_imports)]
 use mockgen::{generate_mock_project, write_mock_project, get_mock_endpoints, start_mock_server};
 use proxy::ProxyState;
 use replay::ReplayState;
@@ -49,7 +50,6 @@ pub fn run() {
         CertManager::new().expect("Failed to initialize certificate manager"),
     );
     let rules_engine = Arc::new(RulesEngine::new());
-    rules_engine.clone().start_watcher();
     let dns_state = Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
     let proxy_state = Arc::new(ProxyState::new());
     let keep_running_state = Arc::new(proxy::KeepRunningState::new());
@@ -68,7 +68,16 @@ pub fn run() {
         .manage(tun_state.clone())
         .manage(rules_engine.clone())
         .manage(replay_state.clone())
-        .setup(|app| {
+        .setup(move |app| {
+            // Start file watcher in a dedicated thread with its own Tokio runtime
+            // (notify's internal thread outlives the app's runtime)
+            let rules_engine = rules_engine.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for file watcher");
+                rt.block_on(async move {
+                    rules_engine.start_watcher();
+                });
+            });
             let show_item = MenuItem::with_id(app, "show", "Show ProxyBot", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;

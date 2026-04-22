@@ -108,8 +108,11 @@ pub struct LineDiff {
 
 /// Replay session state.
 pub struct ReplayState {
+    #[allow(dead_code)]
     pub mock_port: u16,
+    #[allow(dead_code)]
     pub is_running: bool,
+    #[allow(dead_code)]
     pub results: Vec<ReplayResult>,
 }
 

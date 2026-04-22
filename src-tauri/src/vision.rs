@@ -139,21 +139,41 @@ fn parse_vision_response(raw: &str) -> Result<Vec<VisionComponent>, String> {
         .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
+        .trim_start_matches("\n")
         .trim_end_matches("```")
+        .trim_end_matches("\n")
         .trim();
+
+    // Handle case where AI returns raw object instead of array-wrapped
+    // e.g. {"components": {"component_type": ...}} -> {"components": [{"component_type": ...}]}
+    let normalized = if json_str.starts_with("{\"components\":{") || json_str.starts_with("{\"components\": {") {
+        json_str.replace("{\"components\":{", "{\"components\":[{")
+              .replace("\"components\": {", "\"components\": [{")
+              .replacen("}}", "}]}", 1)
+    } else {
+        json_str.to_string()
+    };
 
     #[derive(Deserialize)]
     struct VisionResponse {
         components: Vec<VisionComponent>,
     }
 
-    serde_json::from_str(json_str).map_err(|e| format!("Failed to parse components JSON: {}", e))
+    match serde_json::from_str::<VisionResponse>(&normalized) {
+        Ok(vr) => Ok(vr.components),
+        Err(_) => {
+            // Try direct Vec<VisionComponent> parse in case components key is missing
+            serde_json::from_str(&normalized)
+                .map_err(|e| format!("Failed to parse components JSON: {}", e))
+        }
+    }
 }
 
 // ============================================================================
 // Database
 // ============================================================================
 
+#[allow(dead_code)]
 pub fn init_vision_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"

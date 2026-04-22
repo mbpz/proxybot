@@ -1,0 +1,23 @@
+#!/bin/sh
+# Pre-commit hook: runs typecheck and clippy before allowing commit
+
+echo "Running pre-commit checks..."
+
+# TypeScript check
+echo "Checking TypeScript..."
+if ! npm run typecheck > /tmp/ts_check.log 2>&1; then
+  echo "TypeScript check FAILED:"
+  cat /tmp/ts_check.log
+  exit 1
+fi
+
+# Rust clippy
+echo "Checking Rust clippy..."
+if ! cargo clippy -- -D warnings > /tmp/clippy.log 2>&1; then
+  echo "Clippy check FAILED:"
+  cat /tmp/clippy.log
+  exit 1
+fi
+
+echo "All checks passed!"
+exit 0

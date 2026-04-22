@@ -91,6 +91,7 @@ pub fn classify_host(host: &str) -> Option<(String, String)> {
 }
 
 /// Classify a host string against the app rules, returning just the app name.
+#[allow(dead_code)]
 pub fn classify_host_name(host: &str) -> Option<String> {
     classify_host(host).map(|(n, _)| n)
 }

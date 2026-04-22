@@ -24,7 +24,6 @@ use rustls::{
     SignatureScheme,
     DigitallySignedStruct,
 };
-use libc;
 use std::fs::OpenOptions;
 
 const PROXY_PORT: u16 = 8080;
@@ -80,6 +79,7 @@ struct ProxyContext {
 struct DeviceContext {
     device_id: i64,
     device_name: String,
+    #[allow(dead_code)]
     ip_address: String,
 }
 

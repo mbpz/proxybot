@@ -446,8 +446,8 @@ mod tests {
         };
 
         let json = serde_json::to_string(&har).unwrap();
-        assert!(json.contains("\"version\": \"1.2\""));
-        assert!(json.contains("\"method\": \"GET\""));
-        assert!(json.contains("\"status\": 200"));
+        assert!(json.contains("\"version\":\"1.2\""), "version missing");
+        assert!(json.contains("\"method\":\"GET\""), "method missing");
+        assert!(json.contains("\"status\":200"), "status missing");
     }
 }

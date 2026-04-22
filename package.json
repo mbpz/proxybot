@@ -8,7 +8,12 @@
     "build": "tsc && vite build",
     "build:tauri": "tauri build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "cargo test",
+    "lint:rust": "cargo clippy -- -D warnings",
+    "ci:local": "cargo test && tsc --noEmit && cargo clippy -- -D warnings",
+    "prepare": "if [ -d .git ]; then git config core.hooksPath .githooks 2>/dev/null || true; fi"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

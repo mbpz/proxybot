@@ -2,7 +2,7 @@ use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -41,7 +41,7 @@ impl CertManager {
         Ok(PathBuf::from(home).join(".proxybot"))
     }
 
-    fn load_or_generate_ca(ca_dir: &PathBuf) -> Result<(String, String), String> {
+    fn load_or_generate_ca(ca_dir: &Path) -> Result<(String, String), String> {
         let ca_pem_path = ca_dir.join("ca.pem");
         let meta_path = ca_dir.join("ca.meta.json");
 
@@ -61,7 +61,7 @@ impl CertManager {
         Self::generate_and_save_ca(ca_dir)
     }
 
-    fn generate_and_save_ca(ca_dir: &PathBuf) -> Result<(String, String), String> {
+    fn generate_and_save_ca(ca_dir: &Path) -> Result<(String, String), String> {
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         params.distinguished_name.push(DnType::CommonName, "ProxyBot MITM CA");

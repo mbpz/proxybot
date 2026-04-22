@@ -5,6 +5,8 @@
 //! - New domain/IP detection (triggers info-level alerts)
 //! - Privacy scanner (IDFA, phone E.164, GPS coordinates detection)
 
+#![allow(clippy::manual_is_multiple_of)]
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -56,6 +58,8 @@ pub struct Alert {
 
 /// Privacy pattern types for scanning results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum PrivacyPattern {
     IDFA,
     PhoneNumber,
@@ -160,7 +164,7 @@ impl AlertStore {
         // Keep only last 1000 alerts
         if alerts.len() > 1000 {
             let split_idx = alerts.len() - 1000;
-            let old_alerts = std::mem::replace(&mut *alerts, Vec::new());
+            let old_alerts = std::mem::take(&mut *alerts);
             *alerts = old_alerts.into_iter().skip(split_idx).collect();
         }
         drop(alerts);
@@ -180,7 +184,8 @@ impl AlertStore {
             })
             .cloned()
             .collect();
-        filtered.sort_by(|a, b| b.id.cmp(&a.id));
+        filtered.sort_by_key(|a| a.id);
+        filtered.reverse();
         filtered.truncate(limit);
         filtered
     }
@@ -258,10 +263,8 @@ impl BaselineStore {
             Err(_) => return BaselineData::default(),
         };
         let reader = BufReader::new(file);
-        match serde_json::from_reader::<_, BaselineData>(reader) {
-            Ok(data) => data,
-            Err(_) => BaselineData::default(),
-        }
+        serde_json::from_reader::<_, BaselineData>(reader)
+            .unwrap_or_default()
     }
 
     fn save_to_file(&self) {
@@ -714,8 +717,9 @@ pub fn chrono_lite_timestamp() -> String {
     )
 }
 
+#[allow(clippy::manual_is_multiple_of)]
 fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn get_seven_days_ago() -> String {

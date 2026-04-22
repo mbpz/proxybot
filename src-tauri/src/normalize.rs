@@ -248,6 +248,7 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 /// Parse headers into JSON object.
+#[allow(dead_code)]
 pub fn parse_headers(headers: &[(String, String)]) -> Value {
     let mut obj = serde_json::Map::new();
     for (name, value) in headers {

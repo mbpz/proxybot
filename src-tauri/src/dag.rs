@@ -197,7 +197,7 @@ pub fn extract_tokens(
     }
 
     // Extract from response headers (only successful responses)
-    if resp_status >= 200 && resp_status < 400 {
+    if (200..400).contains(&resp_status) {
         if let Some(obj) = resp_headers.as_object() {
             for (name, value) in obj {
                 if let Some(s) = value.as_str() {
