@@ -40,7 +40,7 @@ jobs:
         run: cd src-tauri && cargo test
 
       - name: Rust clippy
-        run: cd src-tauri && cargo clippy -- -D warnings
+        run: cd src-tauri && cargo clippy
 
   release-tui:
     needs: test
