@@ -41,6 +41,12 @@ dashmap = "5"
 regex = "1"
 tiny_http = "0.12"
 tun = "0.5"
+ratatui = "0.26"
+crossterm = "0.26"
+
+[[bin]]
+name = "proxybot-tui"
+path = "src/bin/proxybot-tui.rs"
 
 [profile.release]
 strip = true

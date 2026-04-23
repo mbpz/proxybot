@@ -1,3 +1,27 @@
+## 2026-04-23 - TUI Binary (feat/tui branch)
+- What was implemented: Standalone TUI binary to bypass macOS developer signing restrictions
+  - Created src-tauri/src/bin/proxybot-tui.rs using ratatui + crossterm
+  - Refactored proxy.rs: replaced AppHandle dependency with broadcast::Sender<InterceptedRequest>
+  - Added start_proxy_core() for TUI - creates broadcast channel and returns Receiver
+  - Tauri start_proxy() creates channel + AppHandle wrapper task for frontend events
+  - Added record_http_request() and RecentRequest to db.rs for TUI traffic display
+  - Proxy events now: emit to channel → DB record → TUI subscribes via channel
+  - TUI polls DB for requests that arrive via other paths (e.g., Tauri app)
+- Files changed:
+  - src-tauri/Cargo.toml (added ratatui, crossterm, [[bin]] proxybot-tui)
+  - src-tauri/src/lib.rs (pub mod for all modules)
+  - src-tauri/src/proxy.rs (broadcast channel, start_proxy_core, ProxyContext with event_tx)
+  - src-tauri/src/db.rs (record_http_request, RecentRequest structs)
+  - src-tauri/src/bin/proxybot-tui.rs (new - TUI application)
+- Usage:
+  - TUI (bypasses signing): cargo run --bin proxybot-tui --release
+  - Tauri (full GUI): cargo run
+- Notes:
+  - DNS server still requires AppHandle - TUI runs proxy without DNS logging
+  - pf setup requires admin/sudo - manual setup needed for full transparent proxy
+
+---
+
 ## 2026-04-21 08:30 - US-018
 - What was implemented: State machine visualizer for auth flows
   - Created state_machine.rs module with AuthFlowExtractor
