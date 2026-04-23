@@ -212,6 +212,7 @@ function App() {
   const [visionAnalyses, setVisionAnalyses] = useState<VisionAnalysis[]>([]);
   const [visionAnalyzing, setVisionAnalyzing] = useState(false);
   const [selectedVisionAnalysis, setSelectedVisionAnalysis] = useState<VisionAnalysis | null>(null);
+  const [fusedComponentTree, setFusedComponentTree] = useState<ComponentTree | null>(null);
   const [deploySessionId, setDeploySessionId] = useState<string>("default");
   const [deployProjectName, setDeployProjectName] = useState<string>("proxybot_deployment");
   const [deployGenerating, setDeployGenerating] = useState(false);
@@ -593,6 +594,55 @@ function App() {
     }
   };
 
+  const generateScaffoldWithVision = async () => {
+    if (!fusedComponentTree) {
+      setError("No fused component tree. Run 'Fuse with Traffic' first.");
+      return;
+    }
+    try {
+      setScaffoldGenerating(true);
+      setError("");
+      const result = await invoke<any>("generate_scaffold_with_vision", {
+        sessionId: scaffoldSessionId,
+        name: scaffoldProjectName,
+        visionJson: JSON.stringify(fusedComponentTree),
+      });
+      setScaffoldResult(result);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setScaffoldGenerating(false);
+    }
+  };
+
+  const writeScaffoldWithVision = async () => {
+    if (!fusedComponentTree) {
+      setError("No fused component tree. Run 'Fuse with Traffic' first.");
+      return;
+    }
+    try {
+      setScaffoldGenerating(true);
+      setError("");
+      // Generate with vision
+      const result = await invoke<any>("generate_scaffold_with_vision", {
+        sessionId: scaffoldSessionId,
+        name: scaffoldProjectName,
+        visionJson: JSON.stringify(fusedComponentTree),
+      });
+      setScaffoldResult(result);
+      // Write the pre-generated project to disk
+      const path = await invoke<string>("write_scaffold_project_with_vision", {
+        project: result,
+        outputDir: null,
+      });
+      alert(`Vision-enhanced scaffold written to:\n${path}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setScaffoldGenerating(false);
+    }
+  };
+
   const evaluateScaffold = async () => {
     if (!scaffoldResult?.base_path) {
       setError("Generate a scaffold first before evaluating.");
@@ -667,9 +717,10 @@ function App() {
   const fuseVisionWithApi = async () => {
     try {
       setError("");
-      await invoke<ComponentTree>("fuse_vision_with_api", {
+      const result = await invoke<ComponentTree>("fuse_vision_with_api", {
         sessionId: visionSessionId,
       });
+      setFusedComponentTree(result);
     } catch (e) {
       setError(String(e));
     }
@@ -1439,6 +1490,11 @@ function App() {
                   >
                     Fuse with Traffic
                   </button>
+                  {fusedComponentTree && (
+                    <span className="badge badge-success" style={{ fontSize: "0.7rem" }}>
+                      {fusedComponentTree.components.length} components · {fusedComponentTree.suggested_routes.length} routes
+                    </span>
+                  )}
                 </div>
                 {visionAnalyses.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
@@ -1478,6 +1534,12 @@ function App() {
                   </button>
                   <button className="btn btn-sm btn-secondary" onClick={writeScaffold} disabled={scaffoldGenerating}>Write</button>
                   <button className="btn btn-sm btn-secondary" onClick={evaluateScaffold} disabled={scaffoldGenerating || !scaffoldResult}>Eval</button>
+                  <button className="btn btn-sm btn-primary" onClick={generateScaffoldWithVision} disabled={scaffoldGenerating || !fusedComponentTree} title={!fusedComponentTree ? "Fuse screenshot first" : "Generate with vision"}>
+                    {scaffoldGenerating ? "..." : "Vision Scaffold"}
+                  </button>
+                  <button className="btn btn-sm btn-secondary" onClick={writeScaffoldWithVision} disabled={scaffoldGenerating || !fusedComponentTree} title={!fusedComponentTree ? "Fuse screenshot first" : "Write vision scaffold"}>
+                    Write Vision
+                  </button>
                 </div>
                 {scaffoldResult && (
                   <div className="text-xs text-muted">Files: {Object.keys(scaffoldResult.files || {}).length} — {scaffoldResult.components?.length || 0} components</div>

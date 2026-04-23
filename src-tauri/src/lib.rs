@@ -36,7 +36,7 @@ use mockgen::{generate_mock_project, write_mock_project, get_mock_endpoints, sta
 use proxy::ProxyState;
 use replay::ReplayState;
 use rules::RulesEngine;
-use scaffoldgen::{evaluate_scaffold_project, generate_scaffold_project, write_scaffold_project};
+use scaffoldgen::{evaluate_scaffold_project, generate_scaffold_project, generate_scaffold_with_vision, write_scaffold_project, write_scaffold_project_with_vision};
 use tun::TunState;
 use vision::{analyze_screenshot, analyze_screenshot_base64, get_vision_analyses, delete_vision_analysis, fuse_vision_with_api};
 
@@ -187,7 +187,9 @@ pub fn run() {
             mockgen::get_mock_endpoints,
             mockgen::start_mock_server,
             generate_scaffold_project,
+            generate_scaffold_with_vision,
             write_scaffold_project,
+            write_scaffold_project_with_vision,
             evaluate_scaffold_project,
             analyze_screenshot,
             analyze_screenshot_base64,

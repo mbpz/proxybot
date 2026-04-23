@@ -242,7 +242,9 @@ async def endpoint_{}(request: Request) -> Response:
         ));
 
         // Build response logic based on conditional or ordered
-        if endpoint.conditionals.is_empty() {
+        let has_conditionals = !endpoint.conditionals.is_empty();
+        if !has_conditionals {
+            // Ordered sequence: cycle through variants
             code.push_str(&format!(
                 r#"    fixtures_file = FIXTURES_DIR / "{}"
     if fixtures_file.exists():
@@ -250,8 +252,16 @@ async def endpoint_{}(request: Request) -> Response:
         with open(fixtures_file) as f:
             fixtures = json.load(f)
 
-        # Simple ordered sequence
-        variant = fixtures[0]
+        # Ordered sequence: track call count for cycling
+        call_key = "{}"
+        if not hasattr(app.state, 'call_counts'):
+            app.state.call_counts = {{}}
+        if call_key not in app.state.call_counts:
+            app.state.call_counts[call_key] = 0
+        idx = app.state.call_counts[call_key] % len(fixtures)
+        app.state.call_counts[call_key] += 1
+
+        variant = fixtures[idx]
         headers = variant.get("headers", {{}})
         body = variant.get("body")
         status = variant.get("status", 200)
@@ -263,9 +273,11 @@ async def endpoint_{}(request: Request) -> Response:
 
     return JSONResponse({{"error": "No fixture found"}}, status_code=404)
 "#,
-                fixture_file_name
+                fixture_file_name,
+                path_slug
             ));
         } else {
+            // Conditional: match request body field → response variant
             code.push_str(&format!(
                 r#"    fixtures_file = FIXTURES_DIR / "{}"
     if fixtures_file.exists():
@@ -274,13 +286,14 @@ async def endpoint_{}(request: Request) -> Response:
             fixtures = json.load(f)
 
         # Get request body
-        body_str = await request.body()
+        body_str = (await request.body()).decode()
         try:
             body_json = json.loads(body_str)
         except:
             body_json = {{}}
 
         # Find matching conditional variant
+        matched = False
         for cond in fixtures.get("conditionals", []):
             if body_json.get(cond["condition_field"]) == cond["condition_value"]:
                 variant_id = cond["response_variant_id"]
@@ -293,16 +306,24 @@ async def endpoint_{}(request: Request) -> Response:
                             return JSONResponse(content=json.loads(body), status_code=status, headers=headers)
                         else:
                             return Response(content="", status_code=status, headers=headers)
+                        matched = True
+                        break
+                if matched:
+                    break
 
-        # Default to first variant
-        variant = fixtures["variants"][0]
-        headers = variant.get("headers", {{}})
-        body = variant.get("body")
-        status = variant.get("status", 200)
-        if body:
-            return JSONResponse(content=json.loads(body), status_code=status, headers=headers)
-        else:
-            return Response(content="", status_code=status, headers=headers)
+        if not matched:
+            # No match: return default response or ordered fallback
+            if len(fixtures.get("variants", [])) > 0:
+                variant = fixtures["variants"][0]
+                headers = variant.get("headers", {{}})
+                body = variant.get("body")
+                status = variant.get("status", 200)
+                if body:
+                    return JSONResponse(content=json.loads(body), status_code=status, headers=headers)
+                else:
+                    return Response(content="", status_code=status, headers=headers)
+            else:
+                return JSONResponse({{"error": "No matching conditional"}}, status_code=404)
 
     return JSONResponse({{"error": "No fixture found"}}, status_code=404)
 "#,

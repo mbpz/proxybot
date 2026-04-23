@@ -408,3 +408,70 @@
   - MappedRows from rusqlite must be fully consumed (collect) within the scope where the connection is valid
   - Use explicit let binding for collect Result to avoid lifetime issues with MappedRows temporary
 ---
+
+## 2026-04-23 - Conditional Response Fix
+- What was fixed: 4 Python bugs in mockgen.rs generated FastAPI code
+  1. Python syntax error: `body_str = await request.body()` → `(await request.body()).decode()`
+  2. Python type error: `Response(content=)` → `JSONResponse(...)` for JSON body
+  3. Ordered sequence: was hardcoded to variant[0], now cycles via app.state.call_counts
+  4. Conditional fallback: explicit no-match handling with default response
+- Files changed:
+  - src-tauri/src/mockgen.rs (generate_fastapi_main function, ~90 lines)
+- Tests: cargo test mockgen passes (4 tests)
+
+## 2026-04-23 - P0: Evaluate Scaffold (Playwright E2E)
+- What was implemented: Replaced LLM-only eval with real Playwright test execution
+  - evaluate_scaffold_project now runs actual HTTP replay + Playwright tests
+  - Added RecordedExchange struct with full HTTP exchange data (method, path, req_body, resp_status, resp_headers, resp_body)
+  - Updated DB query to fetch 30 exchanges with full header/status info
+  - replay_and_diff: replays requests against mock API on port 8000, compares with recorded using compute_diff from replay.rs
+  - run_playwright_tests: runs `npx playwright test --reporter=json` in scaffold project
+  - start_background_process: spawns uvicorn (mock-api) and npm run dev (frontend) as background children
+  - wait_for_server: polls HTTP endpoint until ready (max 15s for mock, 30s for frontend)
+  - Score = passed/(passed+failed), valid = (failed==0 && total>0)
+  - Added imports: tokio::process::{Command,Child}, tokio::time::{sleep,Duration}, reqwest::Client, crate::replay::compute_diff
+  - Made compute_diff pub in replay.rs for cross-module reuse
+- Files changed:
+  - src-tauri/src/scaffoldgen.rs (complete rewrite of eval_scaffold, new structs, new imports)
+  - src-tauri/src/replay.rs (made compute_diff public)
+- Build: cargo build succeeds (29 tests pass)
+
+## 2026-04-23 - P1: Scaffold Vision Integration
+- What was implemented: Added vision component tree → React TSX rendering in scaffoldgen
+  - Added VisionComponent and ComponentTree imports to scaffoldgen.rs
+  - Added ScaffoldComponent.vision_tree: Option<String> field
+  - Added vision_element() function: maps VisionComponent types to React elements
+    - button/input/text/img/card/header/list/etc → appropriate React JSX
+    - Position data (x,y,width,height) → absolute positioning inline styles
+  - Added render_vision_page() function: renders complete React TSX page with imports and hooks
+  - Added generate_scaffold_with_vision Tauri command: accepts optional vision_json
+  - When vision provided: routes match against suggested_routes, render_vision_page generates UI layout
+  - Updated lib.rs: added generate_scaffold_with_vision to imports and invoke_handler
+- Files changed:
+  - src-tauri/src/scaffoldgen.rs (added vision rendering functions, new Tauri command)
+  - src-tauri/src/lib.rs (added generate_scaffold_with_vision to handler)
+- Build: cargo build succeeds, 29 tests pass
+
+## 2026-04-23 - P1: Vision → React Full Pipeline
+- What was implemented: Complete end-to-end Vision-to-scaffold UI pipeline
+  - Added fusedComponentTree state to track fused component tree
+  - Updated fuseVisionWithApi: now saves ComponentTree result instead of discarding it
+  - Added generateScaffoldWithVision: calls generate_scaffold_with_vision with fused tree
+  - Added writeScaffoldWithVision: generate + write to disk in one flow
+  - Added "Vision Scaffold" button: generates scaffold with vision layout
+  - Added "Write Vision" button: generate + write in one click
+  - Added badge in Vision panel showing fused component count + route count
+  - Vision buttons disabled until fuse is complete (guides user flow)
+- Files changed:
+  - src/App.tsx (new state, new functions, new UI buttons)
+- Build: npm run build succeeds (vite build ✓)
+
+## 2026-04-23 - P1: Vision → React Full Pipeline (Fix)
+- What was fixed: write_scaffold_project was re-generating from DB (losing vision)
+  - Added write_scaffold_project_with_vision Tauri command: takes full ScaffoldProject and writes all files
+  - Updated writeScaffoldWithVision in App.tsx to use write_scaffold_project_with_vision
+  - Added write_scaffold_project_with_vision to lib.rs invoke_handler and use statements
+- Files changed:
+  - src-tauri/src/scaffoldgen.rs (new Tauri command)
+  - src-tauri/src/lib.rs (register new command)
+  - src/App.tsx (updated writeScaffoldWithVision)

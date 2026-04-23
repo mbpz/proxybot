@@ -433,7 +433,7 @@ pub async fn start_replay(
 }
 
 /// Compute diff between recorded and mock responses.
-fn compute_diff(
+pub fn compute_diff(
     _recorded_status: &u16,
     recorded_headers: &[(String, String)],
     recorded_body: &Option<String>,
