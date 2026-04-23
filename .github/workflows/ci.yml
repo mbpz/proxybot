@@ -37,10 +37,10 @@ jobs:
         run: npm run typecheck
 
       - name: Rust tests
-        run: cargo test
+        run: cd src-tauri && cargo test
 
       - name: Rust clippy
-        run: cargo clippy -- -D warnings
+        run: cd src-tauri && cargo clippy -- -D warnings
 
   release-tui:
     needs: test
