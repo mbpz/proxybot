@@ -72,12 +72,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proxybot-tui-${{ matrix.arch }}
-          path: src-tauri/target/release/proxybot-tui
+          path: src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-tui
 
   create-release:
     needs: [test, release-tui]
     runs-on: macos-latest
     if: startsWith(github.ref, 'refs/tags/tui-v')
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,6 +90,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: List artifacts
+        run: ls -laR artifacts/
 
       - name: Compute SHA256
         id: sha256
@@ -141,7 +146,7 @@ jobs:
           files: |
             artifacts/proxybot-tui-arm64/proxybot-tui
             artifacts/proxybot-tui-x86_64/proxybot-tui
-          generate_release_notes: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
