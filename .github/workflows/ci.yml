@@ -141,12 +141,12 @@ jobs:
           git commit -m "chore: update Homebrew formula to ${TAG}"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: ncipollo/release-action@v1
         with:
-          files: |
+          artifacts: |
             artifacts/proxybot-tui-arm64/proxybot-tui
             artifacts/proxybot-tui-x86_64/proxybot-tui
-          generate_release_notes: false
+          generateReleaseNotes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
