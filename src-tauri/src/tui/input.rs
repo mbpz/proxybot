@@ -35,6 +35,16 @@ pub enum InputAction {
     FocusSearch,
     /// Clear search / filters.
     ClearSearch,
+    /// Add a new rule (Rules tab).
+    AddRule,
+    /// Edit the selected rule (Rules tab).
+    EditRule,
+    /// Delete the selected rule (Rules tab).
+    DeleteRule,
+    /// Save the rule being edited (modal).
+    SaveRule,
+    /// Cancel/close the modal without saving.
+    CancelModal,
     /// No action.
     None,
 }
@@ -61,7 +71,7 @@ pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
 
         // Proxy control
         KeyCode::Char('r') => InputAction::StartProxy,
-        KeyCode::Char('s') => InputAction::StopProxy,
+        KeyCode::Char('S') => InputAction::StopProxy,
 
         // Clear
         KeyCode::Char('c') => InputAction::Clear,
@@ -74,10 +84,19 @@ pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
         KeyCode::Char('/') => InputAction::FocusSearch,
         KeyCode::Char('e') => InputAction::ClearSearch,
 
+        // Rules tab: a=add, e=edit, d=delete
+        KeyCode::Char('a') => InputAction::AddRule,
+        KeyCode::Char('e') => InputAction::EditRule,
+        KeyCode::Char('d') => InputAction::DeleteRule,
+        KeyCode::Char('s') => InputAction::SaveRule,
+
         // List navigation
         KeyCode::Up | KeyCode::Char('k') => InputAction::Up,
         KeyCode::Down | KeyCode::Char('j') => InputAction::Down,
         KeyCode::Enter => InputAction::Enter,
+
+        // Cancel modal (Escape)
+        KeyCode::Esc => InputAction::CancelModal,
 
         _ => InputAction::None,
     }

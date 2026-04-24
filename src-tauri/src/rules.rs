@@ -277,6 +277,51 @@ impl RulesEngine {
     pub fn get_rules(&self) -> Vec<Rule> {
         self.rules.lock().unwrap().clone()
     }
+
+    /// Save a rule to a file (non-Tauri internal version).
+    pub fn save_rule_internal(&self, rule: Rule, filename: &str) -> Result<(), String> {
+        ensure_rules_dir().map_err(|e| e.to_string())?;
+
+        let dir = get_rules_dir();
+        let path = dir.join(filename);
+
+        // Load existing rules from that file if it exists
+        let mut existing_rules: Vec<Rule> = Vec::new();
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(rule_file) = serde_yaml::from_str::<RuleFile>(&content) {
+                    for entry in rule_file.rules {
+                        if let Some(r) = entry.to_rule() {
+                            existing_rules.push(r);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add the new rule
+        existing_rules.push(rule);
+
+        // Serialize and save
+        let rule_entries: Vec<RuleEntry> = existing_rules
+            .iter()
+            .map(|r| RuleEntry {
+                pattern: r.pattern.to_string(),
+                value: r.value.clone(),
+                action: r.action.to_string(),
+            })
+            .collect();
+
+        let file = RuleFile { rules: rule_entries };
+        let yaml = serde_yaml::to_string(&file).map_err(|e| e.to_string())?;
+
+        fs::write(&path, yaml).map_err(|e| e.to_string())?;
+
+        // Reload rules
+        self.reload();
+
+        Ok(())
+    }
 }
 
 impl Default for RulesEngine {

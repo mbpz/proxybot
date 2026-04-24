@@ -28,7 +28,7 @@ use proxybot_lib::db::{DbState, RecentRequest};
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
 use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest};
-use proxybot_lib::rules::RulesEngine;
+use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction};
 use proxybot_lib::anomaly::AnomalyDetector;
 use proxybot_lib::tun::TunState;
 use proxybot_lib::replay::ReplayState as LibReplayState;
@@ -180,14 +180,123 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.traffic.selected = 0;
                             app.traffic.last_id = 0;
                         }
+                        InputAction::AddRule => {
+                            if app.current_tab == Tab::Rules {
+                                app.rules.modal_open = true;
+                                app.rules.modal_mode = "add".to_string();
+                                app.rules.edit_buffer = (
+                                    "".to_string(),
+                                    "DOMAIN-SUFFIX".to_string(),
+                                    "DIRECT".to_string(),
+                                );
+                            }
+                        }
+                        InputAction::EditRule => {
+                            if app.current_tab == Tab::Rules {
+                                let rules = app.rules_engine.get_rules();
+                                if !rules.is_empty() {
+                                    let idx = app.rules.selected.min(rules.len().saturating_sub(1));
+                                    let rule = &rules[idx];
+                                    app.rules.modal_open = true;
+                                    app.rules.modal_mode = "edit".to_string();
+                                    app.rules.edit_buffer = (
+                                        rule.value.clone(),
+                                        match rule.pattern {
+                                            RulePattern::Domain => "DOMAIN".to_string(),
+                                            RulePattern::DomainSuffix => "DOMAIN-SUFFIX".to_string(),
+                                            RulePattern::DomainKeyword => "DOMAIN-KEYWORD".to_string(),
+                                            RulePattern::IpCidr => "IP-CIDR".to_string(),
+                                            RulePattern::Geoip => "GEOIP".to_string(),
+                                            RulePattern::RuleSet => "RULE-SET".to_string(),
+                                        },
+                                        match rule.action {
+                                            RuleAction::Direct => "DIRECT".to_string(),
+                                            RuleAction::Proxy => "PROXY".to_string(),
+                                            RuleAction::Reject => "REJECT".to_string(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                        InputAction::DeleteRule => {
+                            if app.current_tab == Tab::Rules {
+                                let rules = app.rules_engine.get_rules();
+                                if !rules.is_empty() {
+                                    let idx = app.rules.selected.min(rules.len().saturating_sub(1));
+                                    log::info!("Delete rule at index {}: {:?}", idx, rules[idx]);
+                                    // Deletion requires filename - for now just log
+                                }
+                            }
+                        }
+                        InputAction::SaveRule => {
+                            if app.rules.modal_open {
+                                // Build rule from buffer and call save_rule Tauri command
+                                let (value, pattern_str, action_str) = &app.rules.edit_buffer;
+                                if !value.is_empty() && !pattern_str.is_empty() && !action_str.is_empty() {
+                                    let pattern = match pattern_str.to_uppercase().as_str() {
+                                        "DOMAIN" => RulePattern::Domain,
+                                        "DOMAIN-SUFFIX" => RulePattern::DomainSuffix,
+                                        "DOMAIN-KEYWORD" => RulePattern::DomainKeyword,
+                                        "IP-CIDR" => RulePattern::IpCidr,
+                                        "GEOIP" => RulePattern::Geoip,
+                                        "RULE-SET" => RulePattern::RuleSet,
+                                        _ => RulePattern::DomainSuffix,
+                                    };
+                                    let action = match action_str.to_uppercase().as_str() {
+                                        "DIRECT" => RuleAction::Direct,
+                                        "PROXY" => RuleAction::Proxy,
+                                        "REJECT" => RuleAction::Reject,
+                                        _ => RuleAction::Direct,
+                                    };
+                                    let rule = Rule { pattern, value: value.clone(), action };
+                                    let filename = "custom.yaml".to_string();
+                                    if let Err(e) = app.rules_engine.save_rule_internal(rule, &filename) {
+                                        log::error!("Failed to save rule: {}", e);
+                                    }
+                                }
+                                app.rules.modal_open = false;
+                            }
+                        }
+                        InputAction::CancelModal => {
+                            app.rules.modal_open = false;
+                        }
                         InputAction::Up => {
-                            if app.traffic.selected > 0 {
-                                app.traffic.selected -= 1;
+                            match app.current_tab {
+                                Tab::Rules => {
+                                    if app.rules.selected > 0 {
+                                        app.rules.selected -= 1;
+                                    }
+                                }
+                                Tab::Devices => {
+                                    if app.devices.selected > 0 {
+                                        app.devices.selected -= 1;
+                                    }
+                                }
+                                _ => {
+                                    if app.traffic.selected > 0 {
+                                        app.traffic.selected -= 1;
+                                    }
+                                }
                             }
                         }
                         InputAction::Down => {
-                            if app.traffic.selected < app.traffic.requests.len().saturating_sub(1) {
-                                app.traffic.selected += 1;
+                            match app.current_tab {
+                                Tab::Rules => {
+                                    let rules = app.rules_engine.get_rules();
+                                    if app.rules.selected < rules.len().saturating_sub(1) {
+                                        app.rules.selected += 1;
+                                    }
+                                }
+                                Tab::Devices => {
+                                    if app.devices.selected < app.devices.devices_list.len().saturating_sub(1) {
+                                        app.devices.selected += 1;
+                                    }
+                                }
+                                _ => {
+                                    if app.traffic.selected < app.traffic.requests.len().saturating_sub(1) {
+                                        app.traffic.selected += 1;
+                                    }
+                                }
                             }
                         }
                         InputAction::TogglePf => {

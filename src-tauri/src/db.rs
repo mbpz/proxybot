@@ -293,10 +293,8 @@ pub fn get_db_stats(state: State<'_, Arc<DbState>>) -> Result<DbStats, String> {
     })
 }
 
-/// Get all registered devices.
-#[tauri::command]
-pub fn get_devices(state: State<'_, Arc<DbState>>) -> Result<Vec<DeviceInfo>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+/// Get all registered devices - internal non-Tauri version.
+pub fn get_devices_internal(conn: &Connection) -> Result<Vec<DeviceInfo>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, mac_address, name, created_at, last_seen_at, upload_bytes, download_bytes, rule_override
@@ -322,6 +320,13 @@ pub fn get_devices(state: State<'_, Arc<DbState>>) -> Result<Vec<DeviceInfo>, St
         .map_err(|e| e.to_string())?;
 
     Ok(devices)
+}
+
+/// Get all registered devices.
+#[tauri::command]
+pub fn get_devices(state: State<'_, Arc<DbState>>) -> Result<Vec<DeviceInfo>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    get_devices_internal(&conn)
 }
 
 /// Register a new device or return existing device id.

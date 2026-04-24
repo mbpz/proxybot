@@ -208,12 +208,23 @@ impl Tab {
 #[derive(Default)]
 pub struct DevicesState {
     pub selected: usize,
+    pub devices_list: Vec<crate::db::DeviceInfo>,
+    pub selected_override: Option<usize>,
 }
 
 /// Rules tab state.
 #[derive(Default)]
 pub struct RulesState {
     pub selected: usize,
+    pub rules_list: Vec<crate::rules::Rule>,
+    /// Modal open for add/edit
+    pub modal_open: bool,
+    /// "add" or "edit"
+    pub modal_mode: String,
+    /// Buffer for editing fields: (name, pattern, action)
+    pub edit_buffer: (String, String, String),
+    /// Hot-reload watcher active
+    pub watcher_active: bool,
 }
 
 /// Certs tab state.
