@@ -50,12 +50,14 @@ pub struct ScaffoldProject {
     pub files: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 fn get_anthropic_api_key() -> Option<String> {
     std::env::var("ANTHROPIC_API_KEY")
         .or_else(|_| std::env::var("CLAUDE_API_KEY"))
         .ok()
 }
 
+#[allow(dead_code)]
 async fn call_claude_api(prompt: &str, api_key: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let response = client

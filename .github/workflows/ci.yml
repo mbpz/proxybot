@@ -65,14 +65,16 @@ jobs:
 
       - name: Build TUI
         run: |
+          TARGET="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
           cd src-tauri
-          cargo build --release --bin proxybot-tui --target ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          cargo build --release --bin proxybot-tui --target "$TARGET"
+          mv "target/$TARGET/release/proxybot-tui" "target/$TARGET/release/proxybot-tui-${{ matrix.arch }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: proxybot-tui-${{ matrix.arch }}
-          path: src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-tui
+          path: src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-tui-${{ matrix.arch }}
 
   create-release:
     needs: [test, release-tui]
@@ -111,21 +113,18 @@ jobs:
           REPO="${GITHUB_REPOSITORY#*/}"
           URL_BASE="https://github.com/${OWNER}/${REPO}/releases/download/${TAG}"
 
-          mkdir -p homebrew/Formula
-          cat > homebrew/Formula/proxybot-tui.rb << RUBY
+          mkdir -p Formula
+          cat > Formula/proxybot-tui.rb << RUBY
           class ProxybotTui < Formula
             desc "ProxyBot TUI — HTTPS MITM proxy terminal UI"
             homepage "https://github.com/${OWNER}/${REPO}"
             license "MIT"
             version "${VERSION}"
 
-            on_macos
-            depends_on :macos => :big_sur_or_newer
-
-            if Hardware::CPU.arm64?
+            if OS.mac? && Hardware::CPU.type == :arm64
               url "${URL_BASE}/proxybot-tui-arm64"
               sha256 "${SHA256_ARM64}"
-            else
+            elsif OS.mac? && Hardware::CPU.type == :intel
               url "${URL_BASE}/proxybot-tui-x86_64"
               sha256 "${SHA256_X86_64}"
             end
@@ -137,27 +136,79 @@ jobs:
           RUBY
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add homebrew/Formula/proxybot-tui.rb
+          git add Formula/proxybot-tui.rb
           git commit -m "chore: update Homebrew formula to ${TAG}"
 
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            artifacts/proxybot-tui-arm64/proxybot-tui
-            artifacts/proxybot-tui-x86_64/proxybot-tui
+            artifacts/proxybot-tui-arm64/proxybot-tui-arm64
+            artifacts/proxybot-tui-x86_64/proxybot-tui-x86_64
           generateReleaseNotes: false
+          makeLatest: true
+          name: "ProxyBot TUI ${{ github.ref_name }}"
+          body: |
+            ## Features
+            - Real-time traffic viewing in terminal
+            - Keyboard navigation (r=start, s=stop, c=clear, q=quit)
+            - No macOS developer signing required
+
+            ## Installation
+            ```bash
+            brew install mbpz/proxybot/proxybot-tui
+            ```
+
+            Or download the binary directly from this release.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push formula update to main
+        env:
+          SHA256_ARM64: ${{ steps.sha256.outputs.arm64 }}
+          SHA256_X86_64: ${{ steps.sha256.outputs.x86_64 }}
         run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#tui-}"
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          URL_BASE="https://github.com/${OWNER}/${REPO}/releases/download/${TAG}"
+
           git fetch origin main
           git checkout main
           mkdir -p Formula
-          cp homebrew/Formula/proxybot-tui.rb Formula/
+          cat > Formula/proxybot-tui.rb << RUBY
+          class ProxybotTui < Formula
+            desc "ProxyBot TUI — HTTPS MITM proxy terminal UI"
+            homepage "https://github.com/${OWNER}/${REPO}"
+            license "MIT"
+            version "${VERSION}"
+
+            if OS.mac? && Hardware::CPU.type == :arm64
+              url "${URL_BASE}/proxybot-tui-arm64"
+              sha256 "${SHA256_ARM64}"
+            elsif OS.mac? && Hardware::CPU.type == :intel
+              url "${URL_BASE}/proxybot-tui-x86_64"
+              sha256 "${SHA256_X86_64}"
+            end
+
+            def install
+              bin.install "proxybot-tui" => "proxybot-tui"
+            end
+          end
+          RUBY
           git add Formula/proxybot-tui.rb
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -m "chore: update Homebrew formula to ${TAG}"
           git push origin main
+
+          # Push to homebrew-proxybot using GitHub API with PAT
+          FORMULA_B64=$(base64 -i Formula/proxybot-tui.rb | tr -d '\n')
+          SHA=$(curl -s -H "Authorization: token ${{ secrets.HOMEBREW_TOKEN }}" \
+            "https://api.github.com/repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb" | jq -r '.sha')
+          curl -L -X PUT \
+            -H "Authorization: token ${{ secrets.HOMEBREW_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d "{\"message\":\"Update Homebrew formula to ${TAG}\",\"content\":\"${FORMULA_B64}\",\"sha\":\"${SHA}\"}" \
+            https://api.github.com/repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb

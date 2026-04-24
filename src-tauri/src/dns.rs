@@ -81,15 +81,15 @@ pub struct DnsState {
 
 /// A single hosts file entry (domain -> IP mapping).
 #[derive(Clone, Debug)]
-pub(crate) struct HostsEntry {
-    domain: String,
-    ip: String,
+pub struct HostsEntry {
+    pub domain: String,
+    pub ip: String,
 }
 
 /// A single blocklist entry (domain pattern).
 #[derive(Clone, Debug)]
-pub(crate) struct BlocklistEntry {
-    domain: String,  // Exact match or suffix with leading dot
+pub struct BlocklistEntry {
+    pub domain: String,  // Exact match or suffix with leading dot
 }
 
 impl DnsState {

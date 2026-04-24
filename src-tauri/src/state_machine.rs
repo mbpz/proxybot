@@ -10,6 +10,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
 
+/// A DAG node: (id, timestamp_ms, method, host, path).
+type DagNode = (i64, String, String, String, String);
+/// A DAG edge: (from_node_id, to_node_id, token_value).
+type DagEdge = (i64, i64, String);
+
 /// Alert severity levels.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AlertSeverity {
@@ -249,6 +254,7 @@ impl AuthFlowExtractor {
                             states.push(rs.clone());
 
                             transitions.push(AuthTransition {
+                                #[allow(clippy::unnecessary_unwrap)]
                                 from_state: authenticated_state.as_ref().unwrap().id.clone(),
                                 to_state: rs.id.clone(),
                                 request_id: *id,
@@ -367,7 +373,7 @@ pub fn generate_mermaid_md(states: &[AuthState], transitions: &[AuthTransition])
         }
     }
 
-    md.push_str("\n");
+    md.push('\n');
 
     // Add transitions
     for trans in transitions {
@@ -526,10 +532,9 @@ pub fn build_auth_state_machine(
 fn get_dag_data_for_device(
     conn: &rusqlite::Connection,
     device_id: Option<i64>,
-) -> Result<(Vec<(i64, String, String, String, String)>, Vec<(i64, i64, String)>), String> {
+) -> Result<(Vec<DagNode>, Vec<DagEdge>), String> {
     // Get nodes - collect inside each branch to avoid lifetime issues
-    let nodes: Vec<(i64, String, String, String, String)> = if device_id.is_some() {
-        let did = device_id.unwrap();
+    let nodes: Vec<DagNode> = if let Some(did) = device_id {
         let mut stmt = conn
             .prepare(
                 "SELECT id, timestamp, method, host, path FROM http_requests WHERE device_id = ?1 ORDER BY timestamp",

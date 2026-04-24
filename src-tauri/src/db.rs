@@ -497,6 +497,111 @@ fn is_leap_year(year: u64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
+/// Record an HTTP request to the database (for TUI and non-Tauri usage).
+pub fn record_http_request(
+    conn: &Connection,
+    timestamp: &str,
+    method: &str,
+    scheme: &str,
+    host: &str,
+    path: &str,
+    req_headers: &[(String, String)],
+    req_body: Option<&str>,
+    resp_status: Option<u16>,
+    resp_headers: &[(String, String)],
+    resp_body: Option<&str>,
+    duration_ms: Option<u64>,
+    device_id: Option<i64>,
+    app_tag: Option<&str>,
+) -> Result<i64, String> {
+    let req_headers_json =
+        serde_json::to_string(req_headers).map_err(|e| e.to_string())?;
+    let resp_headers_json =
+        serde_json::to_string(resp_headers).map_err(|e| e.to_string())?;
+    let req_body_bytes: Option<Vec<u8>> = req_body.map(|s| s.as_bytes().to_vec());
+    let resp_body_bytes: Option<Vec<u8>> =
+        resp_body.map(|s| s.as_bytes().to_vec());
+
+    conn.execute(
+        r#"INSERT INTO http_requests
+           (timestamp, method, scheme, host, path, req_headers, req_body,
+            resp_status, resp_headers, resp_body, duration_ms, device_id, app_tag)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+        rusqlite::params![
+            timestamp,
+            method,
+            scheme,
+            host,
+            path,
+            req_headers_json,
+            req_body_bytes,
+            resp_status,
+            resp_headers_json,
+            resp_body_bytes,
+            duration_ms,
+            device_id,
+            app_tag,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+/// Get recent HTTP requests for TUI display.
+pub fn get_recent_requests(
+    conn: &Connection,
+    limit: i64,
+) -> Result<Vec<RecentRequest>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, timestamp, method, scheme, host, path,
+                      resp_status, duration_ms, app_tag
+               FROM http_requests
+               ORDER BY id DESC
+               LIMIT ?1"#,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([limit], |row| {
+            Ok(RecentRequest {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                method: row.get(2)?,
+                scheme: row.get(3)?,
+                host: row.get(4)?,
+                path: row.get(5)?,
+                status: row.get(6)?,
+                duration_ms: row.get(7)?,
+                app_tag: row.get(8)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut requests = Vec::new();
+    for row in rows {
+        if let Ok(r) = row {
+            requests.push(r);
+        }
+    }
+    Ok(requests)
+}
+
+/// Lightweight request struct for TUI list view.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecentRequest {
+    pub id: i64,
+    pub timestamp: String,
+    pub method: String,
+    pub scheme: String,
+    pub host: String,
+    pub path: String,
+    pub status: Option<u16>,
+    pub duration_ms: Option<i64>,
+    pub app_tag: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

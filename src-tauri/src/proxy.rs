@@ -1,7 +1,7 @@
 use crate::app_rules;
 use crate::history::HistoryStore;
 use crate::cert::{CaMetadata, CertManager};
-use crate::db::DbState;
+use crate::db::{DbState, record_http_request};
 use crate::dns;
 use crate::dns::DnsState;
 use crate::network::NetworkInfo;
@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::broadcast;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use rustls::client::danger as rustls_danger;
 use rustls::{
@@ -67,7 +68,7 @@ pub struct WsFrame {
 }
 
 struct ProxyContext {
-    app_handle: AppHandle,
+    event_tx: broadcast::Sender<InterceptedRequest>,
     #[allow(dead_code)]
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
@@ -780,7 +781,27 @@ async fn handle_https_connect(
         ws_frames: None,
     };
 
-    let _ = ctx.app_handle.emit("intercepted-request", &req);
+    let _ = ctx.event_tx.send(req.clone());
+
+    // Record to database for TUI/persistence
+    if let Ok(conn) = ctx.db_state.conn.lock() {
+        let _ = record_http_request(
+            &conn,
+            &req.timestamp,
+            &req.method,
+            &req.scheme,
+            &req.host,
+            &req.path,
+            &req.req_headers,
+            req.req_body.as_deref(),
+            req.status,
+            &req.resp_headers,
+            req.resp_body.as_deref(),
+            req.latency_ms,
+            req.device_id,
+            req.app_name.as_deref(),
+        );
+    }
 
     log::info!(
         "HTTPS CONNECT tunnel completed: {} -> {} ({}ms, status: {:?})",
@@ -901,7 +922,28 @@ async fn handle_http(
         ws_frames: None,
     };
 
-    let _ = ctx.app_handle.emit("intercepted-request", &req);
+    let _ = ctx.event_tx.send(req.clone());
+
+    // Record to database for TUI/persistence
+    if let Ok(conn) = ctx.db_state.conn.lock() {
+        let _ = record_http_request(
+            &conn,
+            &req.timestamp,
+            &req.method,
+            &req.scheme,
+            &req.host,
+            &req.path,
+            &req.req_headers,
+            req.req_body.as_deref(),
+            req.status,
+            &req.resp_headers,
+            req.resp_body.as_deref(),
+            req.latency_ms,
+            req.device_id,
+            req.app_name.as_deref(),
+        );
+    }
+
     Ok(())
 }
 
@@ -1113,7 +1155,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 }
 
 async fn run_proxy(
-    app_handle: AppHandle,
+    event_tx: broadcast::Sender<InterceptedRequest>,
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
     db_state: Arc<DbState>,
@@ -1131,7 +1173,7 @@ async fn run_proxy(
                 match result {
                     Ok((stream, client_addr)) => {
                         let ctx = ProxyContext {
-                            app_handle: app_handle.clone(),
+                            event_tx: event_tx.clone(),
                             cert_manager: cert_manager.clone(),
                             dns_state: dns_state.clone(),
                             db_state: db_state.clone(),
@@ -1167,18 +1209,61 @@ pub fn start_proxy(
     let cm = cert_manager.inner().clone();
     let ds = dns_state.inner().clone();
     let db = db_state.inner().clone();
+
+    // Create broadcast channel for events
+    let (event_tx, mut event_rx) = broadcast::channel::<InterceptedRequest>(100);
+
+    // Spawn task to forward events to Tauri frontend
+    let app_handle_clone = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Ok(req) = event_rx.recv().await {
+            let _ = app_handle_clone.emit("intercepted-request", &req);
+        }
+    });
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(app_handle, cm, ds, db, shutdown_rx).await {
+        if let Err(e) = run_proxy(event_tx, cm, ds, db, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
     });
 
     Ok(format!("Proxy starting on port {}", PROXY_PORT))
+}
+
+/// Start the proxy core for TUI (no Tauri dependency).
+/// Creates a broadcast channel and returns the receiver so TUI can subscribe to events.
+pub fn start_proxy_core(
+    cert_manager: Arc<CertManager>,
+    dns_state: Arc<DnsState>,
+    db_state: Arc<DbState>,
+) -> Result<(broadcast::Receiver<InterceptedRequest>, tokio::sync::oneshot::Sender<()>), String> {
+    if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("Proxy already running".to_string());
+    }
+
+    let (event_tx, event_rx) = broadcast::channel::<InterceptedRequest>(100);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    let cm = cert_manager.clone();
+    let ds = dns_state.clone();
+    let db = db_state.clone();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            if let Err(e) = run_proxy(event_tx, cm, ds, db, shutdown_rx).await {
+                log::error!("Proxy error: {}", e);
+            }
+            PROXY_RUNNING.store(false, Ordering::SeqCst);
+        });
+    });
+
+    Ok((event_rx, shutdown_tx))
 }
 
 #[tauri::command]
