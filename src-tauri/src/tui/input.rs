@@ -27,6 +27,14 @@ pub enum InputAction {
     Down,
     /// Enter / select.
     Enter,
+    /// Toggle pf.
+    TogglePf,
+    /// Toggle DNS server.
+    ToggleDns,
+    /// Focus search.
+    FocusSearch,
+    /// Clear search / filters.
+    ClearSearch,
     /// No action.
     None,
 }
@@ -57,6 +65,14 @@ pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
 
         // Clear
         KeyCode::Char('c') => InputAction::Clear,
+
+        // pf/DNS controls
+        KeyCode::Char('p') => InputAction::TogglePf,
+        KeyCode::Char('d') => InputAction::ToggleDns,
+
+        // Search
+        KeyCode::Char('/') => InputAction::FocusSearch,
+        KeyCode::Char('e') => InputAction::ClearSearch,
 
         // List navigation
         KeyCode::Up | KeyCode::Char('k') => InputAction::Up,

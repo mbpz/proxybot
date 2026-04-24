@@ -9,15 +9,126 @@ pub mod render;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
+use regex::Regex;
+
 // Import subsystem types from lib (same crate via proxybot_lib alias)
 use crate::cert::CertManager;
 use crate::db::{DbState, RecentRequest};
 use crate::dns::DnsState;
+use crate::proxy::InterceptedRequest;
 use crate::proxy::ProxyState;
 use crate::rules::RulesEngine;
 use crate::anomaly::AnomalyDetector;
 use crate::tun::TunState;
 use crate::replay::ReplayState;
+
+/// Filter configuration for traffic list.
+#[derive(Default)]
+pub struct TrafficFilters {
+    pub method: Option<String>,        // GET, POST, PUT, DELETE, etc.
+    pub host_pattern: Option<String>,  // substring match
+    pub status_class: Option<String>,  // "2xx", "3xx", "4xx", "5xx"
+    pub app_tag: Option<String>,      // app name filter
+}
+
+/// Traffic tab state.
+#[derive(Default)]
+pub struct TrafficState {
+    pub requests: Vec<RecentRequest>,
+    pub selected: usize,
+    pub last_id: i64,
+    // Filters
+    pub filters: TrafficFilters,
+    // Regex search across host + path
+    pub search_regex: Option<Regex>,
+    pub search_input: String,
+    pub search_focused: bool,
+    // Detail panel
+    pub detail_request: Option<InterceptedRequest>,
+    pub detail_loading: bool,
+    // Scroll offset for detail panel
+    pub detail_scroll: Option<u64>,
+    // pf/DNS status
+    pub pf_enabled: bool,
+    pub dns_running: bool,
+}
+
+impl TrafficState {
+    pub fn add_request(&mut self, req: &RecentRequest) {
+        self.requests.insert(0, req.clone());
+        if self.requests.len() > 1000 {
+            self.requests.pop();
+        }
+    }
+
+    /// Returns filtered+searched requests.
+    pub fn filtered_requests(&self) -> Vec<&RecentRequest> {
+        self.requests
+            .iter()
+            .filter(|req| {
+                // Method filter
+                if let Some(ref m) = self.filters.method {
+                    if &req.method != m {
+                        return false;
+                    }
+                }
+                // Host filter (substring)
+                if let Some(ref h) = self.filters.host_pattern {
+                    if !req.host.to_lowercase().contains(&h.to_lowercase()) {
+                        return false;
+                    }
+                }
+                // Status class filter
+                if let Some(ref sc) = self.filters.status_class {
+                    let sc_str = sc.as_str();
+                    let status = match req.status {
+                        Some(s) => s,
+                        None => {
+                            if sc_str == "pending" {
+                                return true;
+                            }
+                            return false;
+                        }
+                    };
+                    let matches = match sc_str {
+                        "2xx" => (200..=299).contains(&status),
+                        "3xx" => (300..=399).contains(&status),
+                        "4xx" => (400..=499).contains(&status),
+                        "5xx" => (500..=599).contains(&status),
+                        "pending" => status >= 100 && status < 600,
+                        _ => false,
+                    };
+                    if !matches {
+                        return false;
+                    }
+                }
+                // App tag filter
+                if let Some(ref a) = self.filters.app_tag {
+                    if req.app_tag.as_deref() != Some(a.as_str()) {
+                        return false;
+                    }
+                }
+                // Regex search
+                if let Some(ref re) = self.search_regex {
+                    let target = format!("{} {}", req.host, req.path);
+                    if !re.is_match(&target) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect()
+    }
+
+    /// Clear all filters and search.
+    pub fn clear_filters(&mut self) {
+        self.filters = TrafficFilters::default();
+        self.search_regex = None;
+        self.search_input.clear();
+        self.search_focused = false;
+        self.detail_request = None;
+    }
+}
 
 /// Tab enumeration for the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,23 +200,6 @@ impl Tab {
             Tab::Replay => Tab::Alerts,
             Tab::Graph => Tab::Replay,
             Tab::Gen => Tab::Graph,
-        }
-    }
-}
-
-/// Traffic tab state.
-#[derive(Default)]
-pub struct TrafficState {
-    pub requests: Vec<RecentRequest>,
-    pub selected: usize,
-    pub last_id: i64,
-}
-
-impl TrafficState {
-    pub fn add_request(&mut self, req: &RecentRequest) {
-        self.requests.insert(0, req.clone());
-        if self.requests.len() > 1000 {
-            self.requests.pop();
         }
     }
 }

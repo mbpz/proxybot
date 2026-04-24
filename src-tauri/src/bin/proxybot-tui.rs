@@ -38,6 +38,9 @@ use proxybot_lib::proxy::ProxyState;
 use proxybot_lib::tui::{TuiApp, Tab};
 use proxybot_lib::tui::input::{InputAction, handle_key_event};
 
+use proxybot_lib::pf;
+use proxybot_lib::dns;
+
 const PROXY_PORT: u16 = 8080;
 
 /// Start the proxy using proxybot_lib's start_proxy_core.
@@ -187,7 +190,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.traffic.selected += 1;
                             }
                         }
-                        InputAction::Enter | InputAction::None => {}
+                        InputAction::TogglePf => {
+                            // Get network info for pf setup/teardown
+                            let network_info = get_network_info().ok();
+                            let interface = network_info
+                                .as_ref()
+                                .map(|n| n.interface.clone())
+                                .unwrap_or_else(|| "en0".to_string());
+                            let local_ip = network_info
+                                .as_ref()
+                                .map(|n| n.lan_ip.clone())
+                                .unwrap_or_else(|| "127.0.0.1".to_string());
+
+                            if app.traffic.pf_enabled {
+                                match pf::teardown_pf() {
+                                    Ok(_) => {
+                                        app.traffic.pf_enabled = false;
+                                    }
+                                    Err(e) => {
+                                        log::error!("pf teardown failed: {}", e);
+                                    }
+                                }
+                            } else {
+                                match pf::setup_pf(interface, local_ip) {
+                                    Ok(msg) => {
+                                        app.traffic.pf_enabled = true;
+                                        log::info!("{}", msg);
+                                    }
+                                    Err(e) => {
+                                        log::error!("pf setup failed: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        InputAction::ToggleDns => {
+                            if app.traffic.dns_running {
+                                dns::stop_dns_server(&app.dns_state);
+                                app.traffic.dns_running = false;
+                            } else {
+                                // DNS start requires app_handle which we don't have here.
+                                // For TUI mode, we track state but can't start DNS from this context.
+                                // The DNS server is typically started via Tauri IPC.
+                                log::info!("DNS start only available via Tauri IPC");
+                            }
+                        }
+                        InputAction::FocusSearch => {
+                            app.traffic.search_focused = true;
+                        }
+                        InputAction::ClearSearch => {
+                            app.traffic.clear_filters();
+                        }
+                        InputAction::Enter => {
+                            // Fetch detail for selected request from DB
+                            let filtered: Vec<&proxybot_lib::db::RecentRequest> = app.traffic.filtered_requests();
+                            if !filtered.is_empty() {
+                                let selected = app.traffic.selected.min(filtered.len().saturating_sub(1));
+                                let req = filtered[selected];
+                                let id = req.id;
+
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    let detail = fetch_request_detail(&conn, id);
+                                    if let Ok(detail) = detail {
+                                        app.traffic.detail_request = Some(detail);
+                                    }
+                                }
+                            }
+                        }
+                        InputAction::None => {}
                     }
                 }
             }
@@ -289,4 +358,44 @@ fn refresh_traffic(app: &mut TuiApp, conn: &Connection) {
             app.traffic.selected = app.traffic.requests.len().saturating_sub(1);
         }
     }
+}
+
+/// Fetch full request detail from DB by ID.
+fn fetch_request_detail(conn: &Connection, id: i64) -> Result<InterceptedRequest, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, timestamp, method, scheme, host, path, req_headers, req_body,
+                    resp_status, resp_headers, resp_body, duration_ms, app_tag
+             FROM http_requests WHERE id = ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    stmt.query_row([id], |row| {
+        Ok(InterceptedRequest {
+            id: row.get(0)?,
+            timestamp: row.get(1)?,
+            method: row.get(2)?,
+            scheme: row.get(3)?,
+            host: row.get(4)?,
+            path: row.get(5)?,
+            query_params: None,
+            status: row.get(8)?,
+            latency_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
+            req_headers: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
+            req_body: row.get::<_, Option<Vec<u8>>>(7)?
+                .map(|b| String::from_utf8_lossy(&b).to_string()),
+            resp_headers: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
+            resp_body: row.get::<_, Option<Vec<u8>>>(10)?
+                .map(|b| String::from_utf8_lossy(&b).to_string()),
+            resp_size: None,
+            app_name: row.get(12)?,
+            app_icon: None,
+            device_id: None,
+            device_name: None,
+            client_ip: None,
+            is_websocket: false,
+            ws_frames: None,
+        })
+    })
+    .map_err(|e| e.to_string())
 }
