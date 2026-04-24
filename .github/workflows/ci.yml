@@ -148,6 +148,19 @@ jobs:
             artifacts/proxybot-tui-x86_64/proxybot-tui
           generateReleaseNotes: false
           makeLatest: true
+          name: "ProxyBot TUI ${TAG}"
+          body: |
+            ## Features
+            - Real-time traffic viewing in terminal
+            - Keyboard navigation (r=start, s=stop, c=clear, q=quit)
+            - No macOS developer signing required
+
+            ## Installation
+            ```bash
+            brew install mbpz/proxybot/proxybot-tui
+            ```
+
+            Or download the binary directly from this release.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
