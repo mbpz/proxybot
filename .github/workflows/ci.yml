@@ -194,9 +194,9 @@ jobs:
           git commit -m "chore: update Homebrew formula to ${TAG}"
           git push origin main
 
-          # Push to homebrew-proxybot using GitHub API
+          # Push to homebrew-proxybot using GitHub API with PAT
+          echo ${{ secrets.HOMEBREW_TOKEN }} | gh auth login --with-token
           gh api repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb \
             --method PUT \
             --field content="$(base64 -i $OLDPWD/Formula/proxybot-tui.rb)" \
-            --field message="Update Homebrew formula to ${TAG}" \
-            --header "Authorization: token ${{ secrets.HOMEBREW_TOKEN }}"
+            --field message="Update Homebrew formula to ${TAG}"
