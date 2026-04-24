@@ -65,14 +65,16 @@ jobs:
 
       - name: Build TUI
         run: |
+          TARGET="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
           cd src-tauri
-          cargo build --release --bin proxybot-tui --target ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          cargo build --release --bin proxybot-tui --target "$TARGET"
+          mv "target/$TARGET/release/proxybot-tui" "target/$TARGET/release/proxybot-tui-${{ matrix.arch }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: proxybot-tui-${{ matrix.arch }}
-          path: src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-tui
+          path: src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-tui-${{ matrix.arch }}
 
   create-release:
     needs: [test, release-tui]
@@ -119,13 +121,10 @@ jobs:
             license "MIT"
             version "${VERSION}"
 
-            on_macos
-            depends_on :macos => :big_sur_or_newer
-
-            if Hardware::CPU.arm64?
+            if OS.mac? && Hardware::CPU.type == :arm64
               url "${URL_BASE}/proxybot-tui-arm64"
               sha256 "${SHA256_ARM64}"
-            else
+            elsif OS.mac? && Hardware::CPU.type == :intel
               url "${URL_BASE}/proxybot-tui-x86_64"
               sha256 "${SHA256_X86_64}"
             end
@@ -144,8 +143,8 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: |
-            artifacts/proxybot-tui-arm64/proxybot-tui
-            artifacts/proxybot-tui-x86_64/proxybot-tui
+            artifacts/proxybot-tui-arm64/proxybot-tui-arm64
+            artifacts/proxybot-tui-x86_64/proxybot-tui-x86_64
           generateReleaseNotes: false
           makeLatest: true
           name: "ProxyBot TUI ${{ github.ref_name }}"
@@ -185,13 +184,10 @@ jobs:
             license "MIT"
             version "${VERSION}"
 
-            on_macos
-            depends_on :macos => :big_sur_or_newer
-
-            if Hardware::CPU.arm64?
+            if OS.mac? && Hardware::CPU.type == :arm64
               url "${URL_BASE}/proxybot-tui-arm64"
               sha256 "${SHA256_ARM64}"
-            else
+            elsif OS.mac? && Hardware::CPU.type == :intel
               url "${URL_BASE}/proxybot-tui-x86_64"
               sha256 "${SHA256_X86_64}"
             end
