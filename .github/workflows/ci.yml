@@ -199,6 +199,7 @@ jobs:
           HOMEBREW_REPO="homebrew-proxybot"
           git clone https://github.com/${HOMEBREW_OWNER}/${HOMEBREW_REPO}.git /tmp/homebrew-proxybot
           cd /tmp/homebrew-proxybot
+          mkdir -p Formula
           cp $OLDPWD/Formula/proxybot-tui.rb Formula/
           git add Formula/proxybot-tui.rb
           git config user.name "github-actions[bot]"
