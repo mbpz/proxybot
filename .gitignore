@@ -32,3 +32,6 @@ src-tauri/target/
 
 # Claude Code local session state
 .claude/
+
+# Worktrees
+.worktrees/
