@@ -208,8 +208,11 @@ jobs:
           git push origin main
 
           # Push to homebrew-proxybot using GitHub API with PAT
+          FORMULA_B64=$(base64 -i Formula/proxybot-tui.rb | tr -d '\n')
+          SHA=$(curl -s -H "Authorization: token ${{ secrets.HOMEBREW_TOKEN }}" \
+            "https://api.github.com/repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb" | jq -r '.sha')
           curl -L -X PUT \
             -H "Authorization: token ${{ secrets.HOMEBREW_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            -d "{\"message\":\"Update Homebrew formula to ${TAG}\",\"content\":\"$(base64 -i $OLDPWD/Formula/proxybot-tui.rb | tr -d '\n')\"}" \
+            -d "{\"message\":\"Update Homebrew formula to ${TAG}\",\"content\":\"${FORMULA_B64}\",\"sha\":\"${SHA}\"}" \
             https://api.github.com/repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb
