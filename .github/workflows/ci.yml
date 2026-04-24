@@ -195,8 +195,8 @@ jobs:
           git push origin main
 
           # Push to homebrew-proxybot using GitHub API with PAT
-          echo ${{ secrets.HOMEBREW_TOKEN }} | gh auth login --with-token
-          gh api repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb \
-            --method PUT \
-            --field content="$(base64 -i $OLDPWD/Formula/proxybot-tui.rb)" \
-            --field message="Update Homebrew formula to ${TAG}"
+          curl -L -X PUT \
+            -H "Authorization: token ${{ secrets.HOMEBREW_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d "{\"message\":\"Update Homebrew formula to ${TAG}\",\"content\":\"$(base64 -i $OLDPWD/Formula/proxybot-tui.rb | tr -d '\n')\"}" \
+            https://api.github.com/repos/mbpz/homebrew-proxybot/contents/Formula/proxybot-tui.rb
