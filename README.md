@@ -12,13 +12,15 @@ A macOS desktop proxy tool for developers. Phone and PC on the same LAN — phon
 
 ## Installation
 
-### Step 1: Download and Install
+### Option A: Desktop GUI App
+
+#### Step 1: Download and Install GUI
 
 1. Download `proxybot_0.1.0_aarch64.dmg` from the release page
 2. Double-click the `.dmg` file to mount it
 3. Drag `ProxyBot.app` to your Applications folder
 
-### Step 2: Allow the App to Run
+#### Step 2: Allow the App to Run
 
 Since the app is not signed with a Developer ID, you may need to bypass the gatekeeper:
 
@@ -28,7 +30,7 @@ xattr -cr /Applications/ProxyBot.app
 
 Or right-click the app and select "Open" > "Open" to confirm you want to run it.
 
-### Step 3: Install iOS CA Certificate
+#### Step 3: Install iOS CA Certificate
 
 ProxyBot uses a self-signed root CA to decrypt HTTPS traffic. You must install this CA on your iOS device:
 
@@ -41,7 +43,7 @@ ProxyBot uses a self-signed root CA to decrypt HTTPS traffic. You must install t
    - Enable full trust for "ProxyBot Root CA"
 5. For Safari to work properly with HTTPS interception, you may need to visit `http://proxybot.ca` once to download and install the CA profile if prompted
 
-### Step 4: Configure Your iPhone
+#### Step 4: Configure Your iPhone
 
 Your iPhone must be on the same LAN as your Mac and use your Mac as the network gateway:
 
@@ -59,6 +61,30 @@ Your iPhone must be on the same LAN as your Mac and use your Mac as the network 
 1. ProxyBot requires admin privileges on first launch to set up the pf transparent proxy. Enter your Mac password when prompted.
 2. Click **Start Proxy** in ProxyBot's main window
 3. Traffic from your iPhone will now appear in the dashboard, classified by app and domain
+
+### Option B: Terminal UI (TUI)
+
+ProxyBot also ships as a standalone terminal UI binary with no GUI dependency.
+
+#### Install
+
+```bash
+brew install mbpz/proxybot/proxybot-tui
+```
+
+#### Update
+
+```bash
+brew upgrade proxybot-tui
+```
+
+#### Uninstall
+
+```bash
+brew uninstall proxybot-tui
+```
+
+> **Note:** Homebrew auto-detects your Mac's CPU architecture (arm64 / x86_64) and installs the correct binary.
 
 ## FAQ
 
@@ -86,7 +112,13 @@ Not yet. Windows support is planned for Phase 2.
 
 ### How do I uninstall?
 
+**GUI App:**
 1. Stop the proxy in ProxyBot
 2. Remove the app: `rm -rf /Applications/ProxyBot.app`
 3. Optionally remove the CA from your iPhone: Settings > General > About > Certificate Trust Settings
 4. Optionally remove config data: `rm -rf ~/Library/Application\ Support/com.proxybot.app/`
+
+**TUI:**
+```bash
+brew uninstall proxybot-tui
+```
