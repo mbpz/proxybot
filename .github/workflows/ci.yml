@@ -148,7 +148,7 @@ jobs:
             artifacts/proxybot-tui-x86_64/proxybot-tui
           generateReleaseNotes: false
           makeLatest: true
-          name: "ProxyBot TUI ${TAG}"
+          name: "ProxyBot TUI ${{ github.ref_name }}"
           body: |
             ## Features
             - Real-time traffic viewing in terminal
