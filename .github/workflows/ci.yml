@@ -150,6 +150,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push formula update
+      - name: Push formula update to main
         run: |
-          git push origin ${{ github.ref }}
+          git fetch origin main
+          git checkout main
+          mkdir -p Formula
+          cp homebrew/Formula/proxybot-tui.rb Formula/
+          git add Formula/proxybot-tui.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update Homebrew formula to ${TAG}"
+          git push origin main
