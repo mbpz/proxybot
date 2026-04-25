@@ -35,7 +35,7 @@ use proxybot_lib::replay::ReplayState as LibReplayState;
 
 use proxybot_lib::proxy::ProxyState;
 
-use proxybot_lib::tui::{TuiApp, Tab};
+use proxybot_lib::tui::{TuiApp, Tab, GraphViewType, GenMode};
 use proxybot_lib::tui::input::{InputAction, handle_key_event};
 
 use proxybot_lib::pf;
@@ -293,6 +293,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.replay.selected -= 1;
                                     }
                                 }
+                                Tab::Graph => {
+                                    // Toggle view type up
+                                    app.graph.view_type = match app.graph.view_type {
+                                        GraphViewType::Dag => GraphViewType::AuthStateMachine,
+                                        GraphViewType::AuthStateMachine => GraphViewType::Dag,
+                                    };
+                                }
+                                Tab::Gen => {
+                                    // Cycle gen mode up
+                                    app.gen.gen_mode = match app.gen.gen_mode {
+                                        GenMode::Mock => GenMode::Docker,
+                                        GenMode::Frontend => GenMode::Mock,
+                                        GenMode::Docker => GenMode::Frontend,
+                                    };
+                                }
                                 _ => {
                                     if app.traffic.selected > 0 {
                                         app.traffic.selected -= 1;
@@ -315,6 +330,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             app.devices.selected += 1;
                                         }
                                     }
+                                }
+                                Tab::Graph => {
+                                    // Toggle view type down
+                                    app.graph.view_type = match app.graph.view_type {
+                                        GraphViewType::Dag => GraphViewType::AuthStateMachine,
+                                        GraphViewType::AuthStateMachine => GraphViewType::Dag,
+                                    };
+                                }
+                                Tab::Gen => {
+                                    // Cycle gen mode down
+                                    app.gen.gen_mode = match app.gen.gen_mode {
+                                        GenMode::Mock => GenMode::Frontend,
+                                        GenMode::Frontend => GenMode::Docker,
+                                        GenMode::Docker => GenMode::Mock,
+                                    };
                                 }
                                 _ => {
                                     if app.traffic.selected < app.traffic.requests.len().saturating_sub(1) {
@@ -473,6 +503,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         InputAction::ShowDiff => {
                             // Show diff for replay results
                             app.replay.diff_output = Some("[+] Expected: 200 OK, Content-Type: application/json\n[-] Actual: 200 OK, Content-Type: text/html\n\nDiff: body content mismatch at line 5".to_string());
+                        }
+                        InputAction::ToggleGraphView => {
+                            // Toggle between DAG and Auth state machine view
+                            app.graph.view_type = match app.graph.view_type {
+                                GraphViewType::Dag => GraphViewType::AuthStateMachine,
+                                GraphViewType::AuthStateMachine => GraphViewType::Dag,
+                            };
+                        }
+                        InputAction::RefreshGraph => {
+                            // Rebuild graph data from current traffic
+                            // The render function rebuilds on each call, so this is a no-op
+                            // but we can force a refresh by touching the view_type
+                            log::info!("Graph refresh requested");
+                        }
+                        InputAction::GenMockApi => {
+                            // Generate mock API (placeholder - requires async runtime and inference)
+                            app.gen.gen_mode = GenMode::Mock;
+                            app.gen.progress_output = vec![
+                                "Mock API generation".to_string(),
+                                "Requires inferred APIs from traffic".to_string(),
+                                "Use Tauri WebView for full generation".to_string(),
+                            ];
+                            app.gen.is_generating = false;
+                        }
+                        InputAction::GenFrontend => {
+                            // Generate frontend scaffold
+                            app.gen.gen_mode = GenMode::Frontend;
+                            app.gen.progress_output = vec![
+                                "Frontend scaffold generation".to_string(),
+                                "Requires inferred APIs from traffic".to_string(),
+                                "Use Tauri WebView for full generation".to_string(),
+                            ];
+                            app.gen.is_generating = false;
+                        }
+                        InputAction::GenDocker => {
+                            // Generate Docker bundle
+                            app.gen.gen_mode = GenMode::Docker;
+                            app.gen.progress_output = vec![
+                                "Docker bundle generation".to_string(),
+                                "Requires inferred APIs from traffic".to_string(),
+                                "Use Tauri WebView for full generation".to_string(),
+                            ];
+                            app.gen.is_generating = false;
+                        }
+                        InputAction::OpenOutput => {
+                            // Open output folder in file manager
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                            let output_path = format!("{}/.proxybot", home);
+                            app.gen.output_path = Some(output_path.clone());
+                            // Try to open in Finder on macOS
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = std::process::Command::new("open")
+                                    .arg(&output_path)
+                                    .spawn();
+                            }
                         }
                         InputAction::None => {}
                     }

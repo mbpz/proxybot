@@ -67,6 +67,18 @@ pub enum InputAction {
     ExportHar,
     /// Show diff for replay results (Replay tab).
     ShowDiff,
+    /// Toggle Graph tab view: DAG vs Auth state machine.
+    ToggleGraphView,
+    /// Refresh graph data.
+    RefreshGraph,
+    /// Generate mock API (Gen tab).
+    GenMockApi,
+    /// Generate frontend scaffold (Gen tab).
+    GenFrontend,
+    /// Generate Docker bundle (Gen tab).
+    GenDocker,
+    /// Open output folder (Gen tab).
+    OpenOutput,
     /// No action.
     None,
 }
@@ -115,10 +127,10 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('e') if current_tab == Tab::Replay => InputAction::ExportHar,
         KeyCode::Char('d') if current_tab == Tab::Replay => InputAction::ShowDiff,
 
-        // Rules tab: a=add, e=edit, d=delete
-        KeyCode::Char('a') => InputAction::AddRule,
+        // Rules tab: a=add, e=edit, d=delete (not on Graph/Gen tabs)
+        KeyCode::Char('a') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::AddRule,
         KeyCode::Char('e') if current_tab != Tab::Certs => InputAction::EditRule,
-        KeyCode::Char('d') => InputAction::DeleteRule,
+        KeyCode::Char('d') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::DeleteRule,
         KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => InputAction::SaveRule,
 
         // Certs tab: r=regenerate, e=export
@@ -132,6 +144,17 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
 
         // Clear search (x is also used for stop replay on Replay tab)
         KeyCode::Char('x') if current_tab != Tab::Replay => InputAction::ClearSearch,
+
+        // Graph tab: g=toggle DAG/Auth view, a=toggle auth view, r=refresh
+        KeyCode::Char('g') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
+        KeyCode::Char('a') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
+        KeyCode::Char('r') if current_tab == Tab::Graph => InputAction::RefreshGraph,
+
+        // Gen tab: m=mock API, f=frontend scaffold, d=docker bundle, o=open output
+        KeyCode::Char('m') if current_tab == Tab::Gen => InputAction::GenMockApi,
+        KeyCode::Char('f') if current_tab == Tab::Gen => InputAction::GenFrontend,
+        KeyCode::Char('d') if current_tab == Tab::Gen => InputAction::GenDocker,
+        KeyCode::Char('o') if current_tab == Tab::Gen => InputAction::OpenOutput,
 
         // List navigation
         KeyCode::Up | KeyCode::Char('k') => InputAction::Up,

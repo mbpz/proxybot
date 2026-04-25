@@ -262,16 +262,51 @@ pub struct ReplayState2 {
     pub har_export_status: Option<String>,
 }
 
+/// Graph tab view type.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum GraphViewType {
+    #[default]
+    Dag,
+    AuthStateMachine,
+}
+
 /// Graph tab state.
 #[derive(Default)]
 pub struct GraphState {
     pub selected: usize,
+    /// Current view type: DAG or Auth state machine
+    pub view_type: GraphViewType,
+    /// Lines for the DAG ASCII art
+    pub dag_lines: Vec<String>,
+    /// Lines for the auth state machine ASCII art
+    pub state_machine_lines: Vec<String>,
+    /// Auth state machine states found
+    pub auth_states: Vec<String>,
+    /// Auth state machine transitions
+    pub auth_transitions: Vec<(String, String)>,
+}
+
+/// Generation mode for the Gen tab.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum GenMode {
+    #[default]
+    Mock,
+    Frontend,
+    Docker,
 }
 
 /// Gen (Scaffold/Generate) tab state.
 #[derive(Default)]
 pub struct GenState {
     pub selected: usize,
+    /// Current generation mode
+    pub gen_mode: GenMode,
+    /// Progress/output lines from generation
+    pub progress_output: Vec<String>,
+    /// Last output path from generation
+    pub output_path: Option<String>,
+    /// Whether generation is in progress
+    pub is_generating: bool,
 }
 
 /// Main TUI application state.
