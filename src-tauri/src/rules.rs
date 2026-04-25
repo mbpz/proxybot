@@ -278,6 +278,32 @@ impl RulesEngine {
         self.rules.lock().unwrap().clone()
     }
 
+    /// Delete a rule from a file (internal, non-Tauri).
+    pub fn delete_rule(&self, rule: &Rule, filename: &str) -> Result<(), String> {
+        let dir = get_rules_dir();
+        let path = dir.join(filename);
+
+        if !path.exists() {
+            return Err("File not found".to_string());
+        }
+
+        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let mut rule_file: RuleFile = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+
+        // Remove the rule (first match)
+        rule_file.rules.retain(|entry| {
+            !(entry.pattern == rule.pattern.to_string()
+                && entry.value == rule.value
+                && entry.action == rule.action.to_string())
+        });
+
+        let yaml = serde_yaml::to_string(&rule_file).map_err(|e| e.to_string())?;
+        fs::write(&path, yaml).map_err(|e| e.to_string())?;
+
+        self.reload();
+        Ok(())
+    }
+
     /// Save a rule to a file (non-Tauri internal version).
     pub fn save_rule_internal(&self, rule: Rule, filename: &str) -> Result<(), String> {
         ensure_rules_dir().map_err(|e| e.to_string())?;

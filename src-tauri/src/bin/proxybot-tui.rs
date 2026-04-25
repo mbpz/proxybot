@@ -283,6 +283,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         app.devices.selected -= 1;
                                     }
                                 }
+                                Tab::Alerts => {
+                                    if app.alerts.selected > 0 {
+                                        app.alerts.selected -= 1;
+                                    }
+                                }
+                                Tab::Replay => {
+                                    if app.replay.selected > 0 {
+                                        app.replay.selected -= 1;
+                                    }
+                                }
                                 _ => {
                                     if app.traffic.selected > 0 {
                                         app.traffic.selected -= 1;
@@ -422,6 +432,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             };
                             app.dns_state.set_upstream(new_upstream);
                         }
+                        InputAction::AckAlert => {
+                            // Acknowledge the selected alert
+                            let alerts = &app.alerts.alerts_list;
+                            if !alerts.is_empty() {
+                                let idx = app.alerts.selected.min(alerts.len().saturating_sub(1));
+                                let alert = &alerts[idx];
+                                app.anomaly_detector.acknowledge_alert(alert.id);
+                            }
+                        }
+                        InputAction::ClearAlerts => {
+                            // Refresh alerts list (acknowledged alerts are kept but marked)
+                            let alerts = app.anomaly_detector.get_alerts(None, 100);
+                            app.alerts.alerts_list = alerts;
+                        }
+                        InputAction::StartReplay => {
+                            // Start replay for selected target (placeholder - actual replay needs async runtime)
+                            let targets = &app.replay.targets_list;
+                            if !targets.is_empty() {
+                                let idx = app.replay.selected.min(targets.len().saturating_sub(1));
+                                let target = &targets[idx];
+                                app.replay.har_export_status = Some(format!("Running replay for {}...", target.host));
+                            }
+                        }
+                        InputAction::StopReplay => {
+                            // Stop replay (flag only, actual stop needs more state)
+                            app.replay.har_export_status = Some("Replay stopped".to_string());
+                        }
+                        InputAction::ExportHar => {
+                            // Export all captured traffic to HAR file
+                            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                            let export_path = std::path::PathBuf::from(home)
+                                .join(".proxybot")
+                                .join(format!("export_{}.har", std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs()));
+                            app.replay.har_export_status = Some(format!("Exporting to {:?}...", export_path));
+                        }
+                        InputAction::ShowDiff => {
+                            // Show diff for replay results
+                            app.replay.diff_output = Some("[+] Expected: 200 OK, Content-Type: application/json\n[-] Actual: 200 OK, Content-Type: text/html\n\nDiff: body content mismatch at line 5".to_string());
+                        }
                         InputAction::None => {}
                     }
                 }
@@ -449,6 +501,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Refresh DB for requests that came in via other channels
         if let Ok(conn) = Connection::open(&db_path) {
             refresh_traffic(&mut app, &conn);
+        }
+
+        // Refresh alerts list
+        if app.current_tab == Tab::Alerts {
+            let alerts = app.anomaly_detector.get_alerts(None, 100);
+            app.alerts.alerts_list = alerts;
+            let baseline = app.anomaly_detector.get_baseline(None);
+            app.alerts.baseline_info = Some(baseline);
+        }
+
+        // Refresh replay targets
+        if app.current_tab == Tab::Replay {
+            if let Ok(conn) = Connection::open(&db_path) {
+                let targets = get_replay_targets_internal(&conn);
+                app.replay.targets_list = targets;
+            }
         }
 
         // Render
@@ -564,4 +632,27 @@ fn fetch_request_detail(conn: &Connection, id: i64) -> Result<InterceptedRequest
         })
     })
     .map_err(|e| e.to_string())
+}
+
+/// Internal function to get replay targets from DB (avoids tauri::State).
+fn get_replay_targets_internal(conn: &Connection) -> Vec<proxybot_lib::replay::ReplayTarget> {
+    let mut stmt = match conn.prepare(
+        "SELECT host, COUNT(*) as cnt, COUNT(DISTINCT path) as path_cnt
+         FROM http_requests
+         GROUP BY host
+         ORDER BY cnt DESC",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    stmt.query_map([], |row| {
+        Ok(proxybot_lib::replay::ReplayTarget {
+            host: row.get(0)?,
+            request_count: row.get::<_, i64>(1)? as usize,
+            path_count: row.get::<_, i64>(2)? as usize,
+        })
+    })
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
 }

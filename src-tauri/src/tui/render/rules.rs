@@ -6,7 +6,8 @@
 use ratatui::{
     Frame, layout::{Rect, Constraint, Direction, Layout, Alignment},
     widgets::{Block, Borders, Paragraph, Table, Row, Cell, BorderType},
-    style::{Style, Color, Stylize},
+    style::{Style, Color},
+    text::{Line, Span},
 };
 use crate::tui::TuiApp;
 use crate::rules::{Rule, RuleAction, RulePattern};
@@ -29,11 +30,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let watcher_str = if watcher_active { "ACTIVE" } else { "INACTIVE" };
     let watcher_color = if watcher_active { Color::Green } else { Color::Red };
 
-    let header_text = format!(
-        " Rules ({} rules) | Hot-reload: {} | [a]dd [e]dit [d]elete | j/k navigate",
-        rules_list.len(),
-        watcher_str
-    );
+    let header_text = Line::from(vec![
+        Span::raw(format!(" Rules ({} rules) | Hot-reload: ", rules_list.len())),
+        Span::styled(watcher_str, Style::new().fg(watcher_color)),
+        Span::raw(" | [a]dd [e]dit [d]elete | j/k navigate"),
+    ]);
     let header = Paragraph::new(header_text)
         .style(Style::new().fg(Color::Yellow))
         .block(Block::default().borders(Borders::ALL).title("Rules"));

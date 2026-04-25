@@ -249,12 +249,17 @@ pub struct DnsTabState {
 #[derive(Default)]
 pub struct AlertsState {
     pub selected: usize,
+    pub alerts_list: Vec<crate::anomaly::Alert>,
+    pub baseline_info: Option<crate::anomaly::TrafficBaseline>,
 }
 
 /// Replay tab state.
 #[derive(Default)]
 pub struct ReplayState2 {
     pub selected: usize,
+    pub targets_list: Vec<crate::replay::ReplayTarget>,
+    pub diff_output: Option<String>,
+    pub har_export_status: Option<String>,
 }
 
 /// Graph tab state.

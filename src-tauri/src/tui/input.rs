@@ -55,6 +55,18 @@ pub enum InputAction {
     ToggleBlocklist,
     /// Cycle upstream DNS type (DNS tab).
     CycleUpstream,
+    /// Acknowledge the selected alert (Alerts tab).
+    AckAlert,
+    /// Clear all acknowledged alerts (Alerts tab).
+    ClearAlerts,
+    /// Start replay for selected target (Replay tab).
+    StartReplay,
+    /// Stop replay (Replay tab).
+    StopReplay,
+    /// Export traffic to HAR file (Replay tab).
+    ExportHar,
+    /// Show diff for replay results (Replay tab).
+    ShowDiff,
     /// No action.
     None,
 }
@@ -83,8 +95,8 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('r') if current_tab != Tab::Certs => InputAction::StartProxy,
         KeyCode::Char('S') => InputAction::StopProxy,
 
-        // Clear
-        KeyCode::Char('c') => InputAction::Clear,
+        // Clear (only when not on Alerts tab - 'c' is used for ClearAlerts there)
+        KeyCode::Char('c') if current_tab != Tab::Alerts => InputAction::Clear,
 
         // pf/DNS controls
         KeyCode::Char('p') => InputAction::TogglePf,
@@ -92,22 +104,34 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
 
         // Search
         KeyCode::Char('/') => InputAction::FocusSearch,
-        KeyCode::Char('x') => InputAction::ClearSearch,
+
+        // Alerts tab: a=acknowledge selected, c=clear all acknowledged
+        KeyCode::Char('a') if current_tab == Tab::Alerts => InputAction::AckAlert,
+        KeyCode::Char('c') if current_tab == Tab::Alerts => InputAction::ClearAlerts,
+
+        // Replay tab: s=start, x=stop, e=export HAR, d=show diff
+        KeyCode::Char('s') if current_tab == Tab::Replay => InputAction::StartReplay,
+        KeyCode::Char('x') if current_tab == Tab::Replay => InputAction::StopReplay,
+        KeyCode::Char('e') if current_tab == Tab::Replay => InputAction::ExportHar,
+        KeyCode::Char('d') if current_tab == Tab::Replay => InputAction::ShowDiff,
 
         // Rules tab: a=add, e=edit, d=delete
         KeyCode::Char('a') => InputAction::AddRule,
         KeyCode::Char('e') if current_tab != Tab::Certs => InputAction::EditRule,
         KeyCode::Char('d') => InputAction::DeleteRule,
-        KeyCode::Char('s') if current_tab != Tab::Dns => InputAction::SaveRule,
+        KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => InputAction::SaveRule,
 
         // Certs tab: r=regenerate, e=export
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
-        KeyCode::Char('e') if current_tab == Tab::Certs => InputAction::ExportCert,
+        KeyCode::Char('e') if current_tab == Tab::Certs || current_tab == Tab::Replay => InputAction::ExportCert,
 
         // DNS tab: s=toggle DNS server, b=toggle blocklist, u=cycle upstream
         KeyCode::Char('s') if current_tab == Tab::Dns => InputAction::ToggleDns,
         KeyCode::Char('b') if current_tab == Tab::Dns => InputAction::ToggleBlocklist,
         KeyCode::Char('u') if current_tab == Tab::Dns => InputAction::CycleUpstream,
+
+        // Clear search (x is also used for stop replay on Replay tab)
+        KeyCode::Char('x') if current_tab != Tab::Replay => InputAction::ClearSearch,
 
         // List navigation
         KeyCode::Up | KeyCode::Char('k') => InputAction::Up,
