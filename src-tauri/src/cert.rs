@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CaMetadata {
     pub created_at: u64,
     pub serial: String,
@@ -122,6 +122,49 @@ impl CertManager {
         serde_json::from_str(&json).ok()
     }
 
+    /// Get SHA1 fingerprint of the CA certificate (hex string).
+    pub fn get_ca_fingerprint(&self) -> String {
+        let cert_pem = self.ca_cert_pem.lock().unwrap();
+        // Compute SHA1 hash of the PEM contents (not the PEM encoding, but the raw bytes)
+        use sha1::{Sha1, Digest};
+        let mut hasher = Sha1::new();
+        hasher.update(cert_pem.as_bytes());
+        let result = hasher.finalize();
+        result.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(":")
+    }
+
+    /// Get CA expiry datetime as (date_str, days_until_expiry).
+    /// CA is valid for 10 years from creation.
+    pub fn get_ca_expiry(&self) -> (String, i64) {
+        if let Some(meta) = self.get_ca_metadata() {
+            // CA is valid for 10 years from creation
+            let created_at_secs = meta.created_at as i64;
+            let expiry_secs = created_at_secs + (365 * 10 * 24 * 60 * 60) as i64;
+
+            // Format as ISO 8601 date string
+            let expiry_date = format_expiry_date(expiry_secs as u64);
+
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+
+            let days = (expiry_secs - now) / 86400;
+            return (expiry_date, days);
+        }
+        ("Unknown".to_string(), -1)
+    }
+
+    /// Export CA PEM to ~/.proxybot/ca.crt and return path.
+    pub fn export_ca_pem(&self) -> Result<String, String> {
+        let cert_pem = self.ca_cert_pem.lock().unwrap();
+        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+        let dest = PathBuf::from(home).join(".proxybot").join("ca.crt");
+        fs::write(&dest, cert_pem.as_bytes()).map_err(|e| format!("Failed to write CA: {}", e))?;
+        log::info!("Exported CA certificate to {:?}", dest);
+        dest.to_str().map(|s| s.to_string()).ok_or_else(|| "Invalid path".to_string())
+    }
+
     /// Regenerate CA certificate. Existing in-memory host certs remain valid.
     pub fn regenerate_ca(&self) -> Result<(), String> {
         let ca_dir = Self::get_ca_dir()?;
@@ -180,4 +223,37 @@ impl CertManager {
 
         Ok(result)
     }
+}
+
+/// Format expiry timestamp as human-readable date string.
+fn format_expiry_date(secs: u64) -> String {
+    let total_days = secs / 86400;
+    let year = 1970 + (total_days / 365) as i64;
+    let remaining_days = (total_days % 365) as i64;
+
+    // Simple month/day calculation
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let days_in_months = if is_leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut remaining = remaining_days;
+    let mut month = 1;
+    for days in days_in_months.iter() {
+        if remaining < *days as i64 {
+            break;
+        }
+        remaining -= *days as i64;
+        month += 1;
+    }
+    let day = remaining + 1;
+
+    // Add time component (10 years = 3650 days, remainder ~0)
+    let secs_in_day = secs % 86400;
+    let hours = secs_in_day / 3600;
+    let minutes = (secs_in_day % 3600) / 60;
+
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:00 UTC", year, month, day, hours, minutes)
 }

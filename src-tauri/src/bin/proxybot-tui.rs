@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match handle_key_event(&key) {
+                    match handle_key_event(&key, app.current_tab) {
                         InputAction::Quit => break Ok(()),
                         InputAction::NextTab => app.next_tab(),
                         InputAction::PrevTab => app.prev_tab(),
@@ -378,6 +378,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
+                        }
+                        InputAction::RegenerateCert => {
+                            match app.cert_manager.regenerate_ca() {
+                                Ok(_) => {
+                                    app.certs.regenerate_status = Some("Success".to_string());
+                                    // Clear cached info so it gets refreshed
+                                    app.certs.fingerprint = None;
+                                    app.certs.expiry_date = None;
+                                }
+                                Err(e) => {
+                                    app.certs.regenerate_status = Some(format!("Failed: {}", e));
+                                }
+                            }
+                        }
+                        InputAction::ExportCert => {
+                            match app.cert_manager.export_ca_pem() {
+                                Ok(path) => {
+                                    app.certs.export_path = Some(path);
+                                }
+                                Err(e) => {
+                                    app.certs.regenerate_status = Some(format!("Export failed: {}", e));
+                                }
+                            }
+                        }
+                        InputAction::ToggleBlocklist => {
+                            // Toggle blocklist by reloading with opposite enabled flag
+                            // The blocklist is loaded from file; we track enabled state via count
+                            let count = app.dns_state.blocklist.lock().unwrap().len();
+                            if count > 0 {
+                                // Blocklist is loaded, could reload empty to "disable"
+                                // For now just show status
+                                log::info!("Blocklist has {} entries (toggle via file edit)", count);
+                            }
+                        }
+                        InputAction::CycleUpstream => {
+                            let upstream = app.dns_state.get_upstream();
+                            let new_upstream = match upstream.upstream_type {
+                                crate::dns::DnsUpstreamType::PlainUdp => {
+                                    crate::dns::DnsUpstream {
+                                        upstream_type: crate::dns::DnsUpstreamType::Doh,
+                                        address: "https://1.1.1.1/dns-query".to_string(),
+                                    }
+                                }
+                                crate::dns::DnsUpstreamType::Doh => {
+                                    crate::dns::DnsUpstream {
+                                        upstream_type: crate::dns::DnsUpstreamType::PlainUdp,
+                                        address: "8.8.8.8:53".to_string(),
+                                    }
+                                }
+                            };
+                            app.dns_state.set_upstream(new_upstream);
                         }
                         InputAction::None => {}
                     }

@@ -6,6 +6,8 @@
 use crossterm::event::{self, KeyCode, KeyEventKind};
 use std::time::Duration;
 
+use super::Tab;
+
 /// Input action returned by the input handler.
 #[derive(Debug)]
 pub enum InputAction {
@@ -45,12 +47,20 @@ pub enum InputAction {
     SaveRule,
     /// Cancel/close the modal without saving.
     CancelModal,
+    /// Regenerate CA certificate (Certs tab).
+    RegenerateCert,
+    /// Export CA certificate (Certs tab).
+    ExportCert,
+    /// Toggle blocklist (DNS tab).
+    ToggleBlocklist,
+    /// Cycle upstream DNS type (DNS tab).
+    CycleUpstream,
     /// No action.
     None,
 }
 
 /// Handle a single key event and return the appropriate action.
-pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
+pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction {
     if key.kind != KeyEventKind::Press {
         return InputAction::None;
     }
@@ -70,7 +80,7 @@ pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
         KeyCode::Char('q') | KeyCode::Esc => InputAction::Quit,
 
         // Proxy control
-        KeyCode::Char('r') => InputAction::StartProxy,
+        KeyCode::Char('r') if current_tab != Tab::Certs => InputAction::StartProxy,
         KeyCode::Char('S') => InputAction::StopProxy,
 
         // Clear
@@ -78,25 +88,31 @@ pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
 
         // pf/DNS controls
         KeyCode::Char('p') => InputAction::TogglePf,
-        KeyCode::Char('d') => InputAction::ToggleDns,
+        KeyCode::Char('n') => InputAction::ToggleDns,
 
         // Search
         KeyCode::Char('/') => InputAction::FocusSearch,
-        KeyCode::Char('e') => InputAction::ClearSearch,
+        KeyCode::Char('x') => InputAction::ClearSearch,
 
         // Rules tab: a=add, e=edit, d=delete
         KeyCode::Char('a') => InputAction::AddRule,
-        KeyCode::Char('e') => InputAction::EditRule,
+        KeyCode::Char('e') if current_tab != Tab::Certs => InputAction::EditRule,
         KeyCode::Char('d') => InputAction::DeleteRule,
-        KeyCode::Char('s') => InputAction::SaveRule,
+        KeyCode::Char('s') if current_tab != Tab::Dns => InputAction::SaveRule,
+
+        // Certs tab: r=regenerate, e=export
+        KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
+        KeyCode::Char('e') if current_tab == Tab::Certs => InputAction::ExportCert,
+
+        // DNS tab: s=toggle DNS server, b=toggle blocklist, u=cycle upstream
+        KeyCode::Char('s') if current_tab == Tab::Dns => InputAction::ToggleDns,
+        KeyCode::Char('b') if current_tab == Tab::Dns => InputAction::ToggleBlocklist,
+        KeyCode::Char('u') if current_tab == Tab::Dns => InputAction::CycleUpstream,
 
         // List navigation
         KeyCode::Up | KeyCode::Char('k') => InputAction::Up,
         KeyCode::Down | KeyCode::Char('j') => InputAction::Down,
         KeyCode::Enter => InputAction::Enter,
-
-        // Cancel modal (Escape)
-        KeyCode::Esc => InputAction::CancelModal,
 
         _ => InputAction::None,
     }
@@ -104,10 +120,10 @@ pub fn handle_key_event(key: &event::KeyEvent) -> InputAction {
 
 /// Poll for input with the given timeout.
 /// Returns the action for the first key event received, or None if timeout elapsed.
-pub fn poll_input(timeout: Duration) -> Option<InputAction> {
+pub fn poll_input(timeout: Duration, current_tab: Tab) -> Option<InputAction> {
     if event::poll(timeout).ok()? {
         if let event::Event::Key(key) = event::read().ok()? {
-            let action = handle_key_event(&key);
+            let action = handle_key_event(&key, current_tab);
             if matches!(action, InputAction::None) {
                 return None;
             }
