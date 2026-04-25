@@ -8,7 +8,7 @@
 //!   Shift+Tab  Previous tab
 //!   h/l        Previous/next tab
 //!   r          Start proxy (if not running)
-//!   s          Stop proxy
+//!   S          Stop proxy
 //!   c          Clear request list
 //!   j/k / Up/Down   Navigate list
 
@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use proxybot_lib::cert::CertManager;
-use proxybot_lib::db::{DbState, RecentRequest};
+use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal};
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
 use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest};
@@ -127,6 +127,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         replay_state,
     );
 
+    // Mark watcher as active since we spawned it above
+    app.rules.watcher_active = true;
+
     // DB path for polling
     let db_path = {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -223,8 +226,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let rules = app.rules_engine.get_rules();
                                 if !rules.is_empty() {
                                     let idx = app.rules.selected.min(rules.len().saturating_sub(1));
-                                    log::info!("Delete rule at index {}: {:?}", idx, rules[idx]);
-                                    // Deletion requires filename - for now just log
+                                    let rule = &rules[idx];
+                                    let filename = "custom.yaml".to_string();
+                                    if let Err(e) = app.rules_engine.delete_rule(rule, &filename) {
+                                        log::error!("Failed to delete rule: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -259,6 +265,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         InputAction::CancelModal => {
                             app.rules.modal_open = false;
+                            app.rules.edit_buffer = (
+                                String::new(),
+                                String::new(),
+                                String::new(),
+                            );
                         }
                         InputAction::Up => {
                             match app.current_tab {
@@ -288,8 +299,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                                 Tab::Devices => {
-                                    if app.devices.selected < app.devices.devices_list.len().saturating_sub(1) {
-                                        app.devices.selected += 1;
+                                    if let Ok(conn) = Connection::open(&db_path) {
+                                        let devices = get_devices_internal(&conn).unwrap_or_default();
+                                        if app.devices.selected < devices.len().saturating_sub(1) {
+                                            app.devices.selected += 1;
+                                        }
                                     }
                                 }
                                 _ => {

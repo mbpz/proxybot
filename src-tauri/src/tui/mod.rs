@@ -208,7 +208,6 @@ impl Tab {
 #[derive(Default)]
 pub struct DevicesState {
     pub selected: usize,
-    pub devices_list: Vec<crate::db::DeviceInfo>,
     pub selected_override: Option<usize>,
 }
 
@@ -216,7 +215,6 @@ pub struct DevicesState {
 #[derive(Default)]
 pub struct RulesState {
     pub selected: usize,
-    pub rules_list: Vec<crate::rules::Rule>,
     /// Modal open for add/edit
     pub modal_open: bool,
     /// "add" or "edit"
