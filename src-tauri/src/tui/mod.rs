@@ -233,22 +233,12 @@ pub struct CertsState {
     pub regenerate_status: Option<String>,
     /// Last exported path
     pub export_path: Option<String>,
-    /// Certificate fingerprint
-    pub fingerprint: Option<String>,
-    /// Certificate expiry date string
-    pub expiry_date: Option<String>,
-    /// Days until expiry (-1 if unknown)
-    pub days_until_expiry: i64,
 }
 
 /// DNS tab state.
 #[derive(Default)]
 pub struct DnsTabState {
     pub selected: usize,
-    /// Current upstream type label
-    pub upstream_label: String,
-    /// Blocklist enabled
-    pub blocklist_enabled: bool,
     /// Number of hosts entries
     pub hosts_count: usize,
     /// Number of blocklist entries

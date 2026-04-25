@@ -19,8 +19,8 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Frame;
 use rusqlite::Connection;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 
 use proxybot_lib::cert::CertManager;
@@ -351,9 +351,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 dns::stop_dns_server(&app.dns_state);
                                 app.traffic.dns_running = false;
                             } else {
-                                // DNS start requires app_handle which we don't have here.
-                                // For TUI mode, we track state but can't start DNS from this context.
-                                // The DNS server is typically started via Tauri IPC.
+                                // DNS start requires Tauri AppHandle which is not available in TUI binary context.
+                                // DNS server is started via Tauri IPC (setup_pf command) or tray menu.
                                 log::info!("DNS start only available via Tauri IPC");
                             }
                         }
@@ -383,9 +382,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             match app.cert_manager.regenerate_ca() {
                                 Ok(_) => {
                                     app.certs.regenerate_status = Some("Success".to_string());
-                                    // Clear cached info so it gets refreshed
-                                    app.certs.fingerprint = None;
-                                    app.certs.expiry_date = None;
                                 }
                                 Err(e) => {
                                     app.certs.regenerate_status = Some(format!("Failed: {}", e));
@@ -403,14 +399,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         InputAction::ToggleBlocklist => {
-                            // Toggle blocklist by reloading with opposite enabled flag
-                            // The blocklist is loaded from file; we track enabled state via count
-                            let count = app.dns_state.blocklist.lock().unwrap().len();
-                            if count > 0 {
-                                // Blocklist is loaded, could reload empty to "disable"
-                                // For now just show status
-                                log::info!("Blocklist has {} entries (toggle via file edit)", count);
-                            }
+                            // Toggle blocklist enabled/disabled state
+                            let currently_enabled = app.dns_state.blocklist_enabled.load(Ordering::SeqCst);
+                            app.dns_state.blocklist_enabled.store(!currently_enabled, Ordering::SeqCst);
+                            log::info!("Blocklist {}", if !currently_enabled { "enabled" } else { "disabled" });
                         }
                         InputAction::CycleUpstream => {
                             let upstream = app.dns_state.get_upstream();

@@ -76,6 +76,7 @@ pub struct DnsState {
     pub upstream: Arc<Mutex<DnsUpstream>>,
     pub hosts: Arc<Mutex<Vec<HostsEntry>>>,
     pub blocklist: Arc<Mutex<Vec<BlocklistEntry>>>,
+    pub blocklist_enabled: Arc<AtomicBool>,
     pub rules_engine: Option<Arc<RulesEngine>>,
 }
 
@@ -102,6 +103,7 @@ impl DnsState {
             upstream: Arc::new(Mutex::new(DnsUpstream::default())),
             hosts: Arc::new(Mutex::new(Vec::new())),
             blocklist: Arc::new(Mutex::new(Vec::new())),
+            blocklist_enabled: Arc::new(AtomicBool::new(true)), // enabled by default
             rules_engine: None,
         }
     }
@@ -191,6 +193,11 @@ impl DnsState {
 
     /// Check if a domain is in the blocklist.
     fn is_blocked(&self, domain: &str) -> bool {
+        // Check if blocklist is enabled first
+        if !self.blocklist_enabled.load(Ordering::SeqCst) {
+            return false;
+        }
+
         let blocklist = self.blocklist.lock().unwrap();
         let domain_lower = domain.to_lowercase();
 
