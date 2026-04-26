@@ -1,0 +1,193 @@
+{
+  "project": "ProxyBot UI Redesign",
+  "branchName": "ralph/ui-redesign",
+  "description": "Proxyman/Charles-style dark theme redesign for ProxyBot UI. Full-panel redesign with complete state coverage, unified design system, traffic dashboard as core experience.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Establish design system foundation",
+      "description": "As a developer, I need a shared CSS variable system and base component library so all panels look consistent.",
+      "acceptanceCriteria": [
+        "CSS variables for all colors, typography, spacing defined in index.css",
+        "Base component file exports: Button, Badge, Card, Input, Select, Tabs, Skeleton, ErrorBoundary",
+        "Dark theme applied to root element",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Redesign traffic request list",
+      "description": "As a developer, I want a fast-scrolling request list with real-time updates, color-coded method badges, and app tag filters.",
+      "acceptanceCriteria": [
+        "Request list shows: method badge (color-coded), full URL, status code, latency, size, timestamp, app tag",
+        "Method badges: GET=green, POST=blue, PUT=yellow, DELETE=red",
+        "Host filter dropdown (groups by host, 'all' default)",
+        "App filter: All | WeChat | Douyin | Alipay | Unknown",
+        "Keyword search filters by host+path",
+        "Virtual scrolling for performance (100+ items)",
+        "New requests appear at top without scroll disruption",
+        "Click row to expand request detail",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Request detail panel",
+      "description": "As a developer, I want to inspect full request/response details — headers, query params, body with formatter.",
+      "acceptanceCriteria": [
+        "Tabs: Headers | Params | Body | WS Frames",
+        "Headers tab: two-column layout (Name | Value) for req headers and resp headers",
+        "Params tab: key-value table with syntax highlighting",
+        "Body tab: JSON pretty-print with syntax coloring, or raw text fallback",
+        "WS Frames tab (if WebSocket): bidirectional frame list with direction indicator and timestamp",
+        "Copy button for headers/body",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Add loading/error/empty states to traffic panel",
+      "description": "As a developer, I want to know when data is loading, when an error occurs, and when there's no traffic — not blank panels.",
+      "acceptanceCriteria": [
+        "Loading: skeleton rows (3-5 animated placeholder rows) while fetching initial data",
+        "Error: red-tinted banner with error message and retry button",
+        "Empty: centered icon + 'No requests captured yet' + helper text",
+        "Error boundary wraps each panel independently",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Redesign DNS log panel",
+      "description": "As a developer, I want to see DNS queries with app correlation, upstream info, and resolution status.",
+      "acceptanceCriteria": [
+        "Table columns: Timestamp | Domain | Type | Response IPs | App tag",
+        "Color-coded by app tag",
+        "Upstream indicator (DoH/DoT/UDP) in header",
+        "Loading skeleton, error boundary, empty state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Redesign rules editor panel",
+      "description": "As a developer, I want a visual rule editor that shows rule actions and patterns clearly.",
+      "acceptanceCriteria": [
+        "Rule list: pattern badge + value + action badge (DIRECT=green, PROXY=blue, REJECT=red)",
+        "Add/Edit rule modal with pattern selector, value input, action dropdown",
+        "Delete rule with confirmation",
+        "Reorder rules via drag handle",
+        "YAML source toggle (view raw YAML)",
+        "Loading skeleton, error boundary, empty state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Redesign device management panel",
+      "description": "As a developer, I want to see connected devices with traffic stats and per-device rule overrides.",
+      "acceptanceCriteria": [
+        "Device cards: name, MAC/IP, last seen, upload/download bytes",
+        "Simple topology diagram (dots connected by lines)",
+        "Rule override dropdown per device",
+        "Edit device name inline",
+        "Loading skeleton, error boundary, empty state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Redesign replay panel",
+      "description": "As a developer, I want to replay recorded traffic against a mock server with diff view.",
+      "acceptanceCriteria": [
+        "Host selector dropdown + delay input + replay button",
+        "Results table: Method | URL | Status | Diff indicator",
+        "Diff detail: side-by-side headers and body with highlighted changes",
+        "Progress indicator during replay",
+        "Loading skeleton, error boundary, empty state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Redesign deploy panel",
+      "description": "As a developer, I want to generate and preview a Docker deployment bundle.",
+      "acceptanceCriteria": [
+        "Project name input + Generate button",
+        "Preview area for generated docker-compose.yml",
+        "Write to disk + Git init buttons",
+        "Success/error status messages",
+        "Loading state during generation",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Unified app header and navigation",
+      "description": "As a developer, I want a consistent header across all panels with proxy status, CA cert actions, and navigation.",
+      "acceptanceCriteria": [
+        "Header: ProxyBot logo/name left, status indicator center, CA cert actions right",
+        "Status: green dot = running, gray = stopped, with label",
+        "Tab bar below header: Traffic | DNS | Rules | Devices | Replay | Deploy | AI",
+        "Active tab indicator (bottom border accent color)",
+        "Alert badge on AI tab when alerts > 0",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "AI panel — auth state machine and alerts",
+      "description": "As a developer, I want to see inferred auth flows as Mermaid diagrams and anomaly alerts.",
+      "acceptanceCriteria": [
+        "Two tabs: Auth Flow | Alerts",
+        "Auth Flow tab: rendered Mermaid diagram from state machine data",
+        "Alerts tab: severity-filtered list with acknowledge button",
+        "Loading skeleton, error boundary, empty state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

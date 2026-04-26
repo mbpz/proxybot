@@ -204,3 +204,53 @@ pub fn fmt_duration(ms: Option<i64>) -> String {
         None => "-".to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_ts_epoch() {
+        // Verify format is HH:MM:SS (6 chars with colons)
+        let result = format_ts("1745612345.123");
+        assert_eq!(result.len(), 8); // "HH:MM:SS"
+        assert!(result.chars().filter(|c| *c == ':').count() == 2);
+    }
+
+    #[test]
+    fn test_format_ts_date() {
+        // Extracts HH:MM:SS from date string
+        let result = format_ts("2024-01-01 12:00:00");
+        assert_eq!(result, "12:00:00");
+    }
+
+    #[test]
+    fn test_format_ts_empty() {
+        assert_eq!(format_ts(""), "");
+    }
+
+    #[test]
+    fn test_fmt_duration_ms() {
+        assert_eq!(fmt_duration(Some(0)), "0ms");
+        assert_eq!(fmt_duration(Some(500)), "500ms");
+        assert_eq!(fmt_duration(Some(999)), "999ms");
+        assert_eq!(fmt_duration(Some(1000)), "1.0s");
+        assert_eq!(fmt_duration(Some(1500)), "1.5s");
+        assert_eq!(fmt_duration(None), "-");
+    }
+
+    #[test]
+    fn test_input_action_variants_exist() {
+        // Verify all input action variants can be constructed
+        fn assert_send<T: Send>() {}
+        assert_send::<InputAction>();
+    }
+
+    #[test]
+    fn test_tab_in_input_action() {
+        use super::Tab;
+        // Verify Tab works correctly
+        assert_eq!(Tab::Traffic.next(), Tab::Rules);
+        assert_eq!(Tab::Gen.next(), Tab::Traffic);
+    }
+}

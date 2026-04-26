@@ -384,3 +384,132 @@ impl TuiApp {
         self.current_tab = self.current_tab.prev();
     }
 }
+
+// =============================================================================
+// TESTS
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::RecentRequest;
+
+    fn make_req(id: i64, method: &str, host: &str, path: &str, status: Option<u16>) -> RecentRequest {
+        RecentRequest { id, timestamp: id.to_string(), method: method.into(), scheme: "https".into(),
+            host: host.into(), path: path.into(), status, duration_ms: Some(100), app_tag: None }
+    }
+
+    #[test]
+    fn test_tab_navigation_next() {
+        assert_eq!(Tab::Traffic.next(), Tab::Rules);
+        assert_eq!(Tab::Gen.next(), Tab::Traffic);
+    }
+
+    #[test]
+    fn test_tab_navigation_prev() {
+        assert_eq!(Tab::Gen.prev(), Tab::Graph);
+        assert_eq!(Tab::Traffic.prev(), Tab::Gen);
+    }
+
+    #[test]
+    fn test_tab_labels() {
+        assert_eq!(Tab::Traffic.label(), "Traffic");
+        assert_eq!(Tab::Gen.label(), "Gen");
+    }
+
+    #[test]
+    fn test_filter_by_method() {
+        let mut s = TrafficState::default();
+        s.requests.push(make_req(1, "GET", "a.com", "/", Some(200)));
+        s.requests.push(make_req(2, "POST", "b.com", "/", Some(200)));
+        s.filters.method = Some("GET".into());
+        assert_eq!(s.filtered_requests().len(), 1);
+    }
+
+    #[test]
+    fn test_filter_by_host() {
+        let mut s = TrafficState::default();
+        s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+        s.requests.push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
+        s.filters.host_pattern = Some("api".into());
+        assert_eq!(s.filtered_requests().len(), 1);
+    }
+
+    #[test]
+    fn test_filter_by_status_2xx() {
+        let mut s = TrafficState::default();
+        s.requests.push(make_req(1, "GET", "a.com", "/", Some(200)));
+        s.requests.push(make_req(2, "GET", "a.com", "/", Some(404)));
+        s.filters.status_class = Some("2xx".into());
+        assert_eq!(s.filtered_requests().len(), 1);
+    }
+
+    #[test]
+    fn test_filter_by_status_4xx() {
+        let mut s = TrafficState::default();
+        s.requests.push(make_req(1, "GET", "a.com", "/", Some(200)));
+        s.requests.push(make_req(2, "GET", "a.com", "/", Some(401)));
+        s.requests.push(make_req(3, "GET", "a.com", "/", Some(404)));
+        s.filters.status_class = Some("4xx".into());
+        assert_eq!(s.filtered_requests().len(), 2);
+    }
+
+    #[test]
+    fn test_filter_combined() {
+        let mut s = TrafficState::default();
+        s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+        s.requests.push(make_req(2, "POST", "api.example.com", "/", Some(200)));
+        s.requests.push(make_req(3, "GET", "cdn.example.com", "/", Some(200)));
+        s.filters.method = Some("GET".into());
+        s.filters.host_pattern = Some("api".into());
+        assert_eq!(s.filtered_requests().len(), 1);
+    }
+
+    #[test]
+    fn test_add_request_newest_first() {
+        let mut s = TrafficState::default();
+        s.add_request(&make_req(1, "GET", "a.com", "/", Some(200)));
+        s.add_request(&make_req(2, "GET", "b.com", "/", Some(200)));
+        assert_eq!(s.requests[0].id, 2);
+        assert_eq!(s.requests[1].id, 1);
+    }
+
+    #[test]
+    fn test_add_request_limit() {
+        let mut s = TrafficState::default();
+        for i in 0..1005 { s.add_request(&make_req(i, "GET", "a.com", "/", Some(200))); }
+        assert_eq!(s.requests.len(), 1000);
+    }
+
+    #[test]
+    fn test_clear_filters() {
+        let mut s = TrafficState::default();
+        s.filters.method = Some("GET".into());
+        s.search_input = "test".into();
+        s.clear_filters();
+        assert!(s.filters.method.is_none());
+        assert!(s.search_input.is_empty());
+    }
+
+    #[test]
+    fn test_regex_search() {
+        let mut s = TrafficState::default();
+        s.requests.push(make_req(1, "GET", "api.example.com", "/v1/users", Some(200)));
+        s.requests.push(make_req(2, "GET", "cdn.example.com", "/static/app.js", Some(200)));
+        s.search_regex = Some(regex::Regex::new("users").unwrap());
+        assert_eq!(s.filtered_requests().len(), 1);
+    }
+
+    #[test]
+    fn test_state_structs_constructible() {
+        let _t = TrafficState::default();
+        let _r = RulesState::default();
+        let _d = DevicesState::default();
+        let _c = CertsState::default();
+        let _dns = DnsTabState::default();
+        let _a = AlertsState::default();
+        let _rp = ReplayState2::default();
+        let _g = GraphState::default();
+        let _gen = GenState::default();
+    }
+}

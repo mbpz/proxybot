@@ -1,0 +1,384 @@
+{
+  "project": "NetMind Agent",
+  "branchName": "ralph/netmind-agent",
+  "description": "Multi-phase traffic capture and analysis system: transparent proxy (Phase 1), soft router (Phase 2), AI analysis (Phase 3), and mock API generation (Phase 4). PC acts as phone gateway, decrypts HTTPS, classifies by app, infers API semantics, and generates mock backends.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Database schema for traffic storage",
+      "description": "As a developer, I need traffic data stored in SQLite so it persists across sessions and can be queried.",
+      "acceptanceCriteria": [
+        "SQLite WAL mode database at ~/.proxybot/proxybot.db",
+        "Tables: http_requests, dns_queries, devices, app_tags",
+        "http_requests: id, timestamp, method, scheme, host, path, req_headers (JSON), req_body (BLOB), resp_status, resp_headers (JSON), resp_body (BLOB), duration_ms, device_id, app_tag",
+        "dns_queries: id, timestamp, query_name, query_type, response_ips (JSON), device_id",
+        "devices: id, mac_address, name, created_at, last_seen_at",
+        "app_tags: id, app_name, domain_rule (JSON)",
+        "Indexes on host, timestamp, device_id for fast lookup",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Implemented with rusqlite in db.rs. Schema includes http_requests, dns_queries, devices, app_tags tables with proper indexes."
+    },
+    {
+      "id": "US-002",
+      "title": "Root CA generation and storage",
+      "description": "As a developer, I need a self-signed root CA generated on first launch so HTTPS MITM can work.",
+      "acceptanceCriteria": [
+        "On first launch, check ~/.proxybot/ca.pem — if missing, generate RSA 2048 root CA using rcgen",
+        "Root CA stored as PEM at ~/.proxybot/ca.pem with creation timestamp in ~/.proxybot/ca.meta.json",
+        "CA is used to sign dynamic leaf certificates per destination",
+        "CA PEM is exportable for phone installation (download button in UI)",
+        "CA can be regenerated; existing leaf certs remain valid within a session",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Implemented in cert.rs. CA stored as PEM string (ca.pem) with metadata (ca.meta.json). CertManager uses Mutex for interior mutability on CA fields. Download button copies PEM to clipboard. Regenerate clears host cert cache."
+    },
+    {
+      "id": "US-003",
+      "title": "macOS pf transparent proxy setup",
+      "description": "As a developer, I need IP forwarding configured on macOS so all phone traffic routes through the proxy.",
+      "acceptanceCriteria": [
+        "On first launch with admin privileges, write pf anchor to /etc/pf.anchors/proxybot",
+        "Anchor redirects TCP 80/443 to localhost:8080",
+        "pf.conf is updated to load the anchor",
+        "pf is enabled via pfctl",
+        "Admin prompt appears only on first launch, not on subsequent runs",
+        "On uninstall/revert, pf anchor is removed and pf restarted",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "pf anchor setup fully implemented in pf.rs. Admin prompt optimization added: is_pf_enabled() check prevents redundant prompts when pf is already active."
+    },
+    {
+      "id": "US-004",
+      "title": "Local DNS server with query logging",
+      "description": "As a developer, I need a DNS server on port 53 that logs all queries so I can correlate DNS lookups with connections.",
+      "acceptanceCriteria": [
+        "Agent starts a UDP/TCP DNS server on port 53",
+        "Server forwards all queries to upstream DNS (configurable, default 8.8.8.8:53)",
+        "All queries are logged to dns_queries table with timestamp and response IPs",
+        "Server responds with correct A/AAAA records from upstream response",
+        "DNS server starts automatically with the agent",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "DNS server on port 5300 (pf redirects 53->5300). Logs queries to dns_queries table with timestamp and response IPs. Uses DnsState::with_db() constructor to pass DbState. Response IPs extracted via parse_response_ips() which parses A records from DNS response."
+    },
+    {
+      "id": "US-005",
+      "title": "TLS MITM with dynamic leaf certificates",
+      "description": "As a developer, I need the proxy to decrypt HTTPS traffic so I can inspect request and response bodies.",
+      "acceptanceCriteria": [
+        "Proxy listens on localhost:8080 for HTTP and HTTPS (CONNECT tunneling)",
+        "For each HTTPS destination, dynamically generate a leaf X509 certificate signed by root CA",
+        "rustls handles TLS termination on the proxy side; original traffic is forwarded to upstream",
+        "Leaf certificates are cached per destination for session reuse",
+        "Undecryptable traffic (certificate pinning, etc.) is logged but does not crash the proxy",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Fully implemented in proxy.rs. handle_https_connect performs MITM with TlsAcceptor (browser-facing) and TlsConnector (upstream-facing). CertManager::generate_host_cert creates RSA leaf certs signed by CA. host_certs HashMap provides caching. Falls back to raw TCP tunnel on failures."
+    },
+    {
+      "id": "US-006",
+      "title": "TUN/VPN mode fallback",
+      "description": "As a developer, I need a VPN fallback mode so Android 7+ and iOS devices without MDM can still use the proxy.",
+      "acceptanceCriteria": [
+        "When pf/netsh redirect is unavailable, agent falls back to TUN interface mode",
+        "tokio-tun creates a userspace TUN device on macOS/Windows",
+        "TUN captures all device traffic and feeds it to the proxy pipeline",
+        "VPN mode is selectable in UI when pf setup fails",
+        "TUN mode does not require kernel-level changes or admin beyond VPN profile installation",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Implemented in tun.rs using native macOS PF_SYSTEM socket for utun interface creation. TUN interface configured with ifconfig (IP 10.0.0.1/24) and routing via route command. UI added in App.tsx with TUN/VPN mode section."
+    },
+    {
+      "id": "US-007",
+      "title": "Traffic dashboard — request list with host grouping",
+      "description": "As a developer, I want to see live HTTP/WebSocket traffic in a web UI so I can filter and inspect requests.",
+      "acceptanceCriteria": [
+        "Web UI served at localhost:19999",
+        "Scrollable request list: method, URL, status, timestamp, size",
+        "Click a request to expand: full headers (req+resp), query params, body with JSON/HTML formatter",
+        "Host filter: dropdown groups by host, text input for keyword filter",
+        "WebSocket frames shown as bidirectional events with direction indicator",
+        "Images in responses render as thumbnails",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Implemented traffic dashboard with scrollable request list, expandable request details (headers, body, params), host filter dropdown, keyword search, JSON/HTML body formatter, and image thumbnail rendering. Response bodies and headers are now captured. WebSocket frame infrastructure added (is_websocket flag, ws_frames field) with UI ready to display when captured."
+    },
+    {
+      "id": "US-008",
+      "title": "App classification by DNS correlation and SNI",
+      "description": "As a developer, I want traffic automatically tagged by app (WeChat, Douyin, Alipay) so I can filter by source.",
+      "acceptanceCriteria": [
+        "DNS query log correlated with subsequent TCP/TLS connections by timing (within 5s window)",
+        "Domain rules: WeChat: *.weixin.qq.com, *.wechat.com, *.qq.com; Douyin: *.douyin.com, *.tiktokv.com; Alipay: *.alipay.com, *.alipaycdn.com",
+        "SNI field inspected as secondary classification signal",
+        "Each request row in dashboard shows app tag badge",
+        "App classification is extensible via rules file at ~/.proxybot/app_rules.json",
+        "Unclassified traffic shows 'unknown' tag",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Implemented SNI extraction from TLS ClientHello in proxy.rs. DNS queries now store app_name and app_icon. DnsState::correlate_app() uses 5s window for DNS-to-request correlation. App rules loadable from ~/.proxybot/app_rules.json with serde support. Default rules for WeChat, Douyin, Alipay with domain suffix matching."
+    },
+    {
+      "id": "US-009",
+      "title": "YAML rule engine with hot reload",
+      "description": "As a user, I want routing rules loaded from YAML so traffic can be direct/proxied/blocked per domain/IP.",
+      "acceptanceCriteria": [
+        "Rules loaded from ~/.proxybot/rules/*.yaml on startup",
+        "Support keywords: DOMAIN, DOMAIN-SUFFIX, IP-CIDR, GEOIP, RULE-SET",
+        "Actions: DIRECT, PROXY, REJECT",
+        "File watcher triggers hot-reload within 2 seconds of file save",
+        "Rules evaluated in order; first match wins",
+        "Rule editor UI: create/edit/delete/reorder rules in Web UI",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Implemented rules.rs with Rule, RulePattern, RuleAction types. YAML files in ~/.proxybot/rules/. Supports DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR patterns with DIRECT, PROXY, REJECT actions. File watcher via notify crate with 500ms debounce for hot reload. Tauri commands: get_rules, save_rule, delete_rule, reorder_rules, list_rule_files, match_host. UI in App.tsx with rule editor modal."
+    },
+    {
+      "id": "US-010",
+      "title": "DNS enhanced layer with DoH/DoT support",
+      "description": "As a user, I want the DNS server to support DoH and DoT so encrypted DNS can be used upstream.",
+      "acceptanceCriteria": [
+        "DNS upstream configurable: plain UDP, DoH URL, DoT hostname",
+        "Default upstream: https://1.1.1.1/dns-query (DoH)",
+        "Local hosts file at ~/.proxybot/hosts merged into DNS responses",
+        "Ad-block list (hosts format) loaded from ~/.proxybot/blocklist.txt",
+        "Domain-to-DNS-resolution fed to routing engine for policy decisions",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Implemented DoH and plain UDP upstream support. Default is DoH (https://1.1.1.1/dns-query). Falls back to plain UDP on DoH failure. Hosts file at ~/.proxybot/hosts checked first. Blocklist at ~/.proxybot/blocklist.txt checked second. DNS resolutions fed to rules engine for routing decisions. Tauri commands: get_dns_upstream, set_dns_upstream, reload_dns_lists."
+    },
+    {
+      "id": "US-011",
+      "title": "Multi-device registry and per-device policies",
+      "description": "As a user, I want to manage multiple phones independently so each gets its own policy and statistics.",
+      "acceptanceCriteria": [
+        "Devices identified by MAC address; stored in devices table with human-readable name",
+        "Web UI shows device list with name, MAC, last seen, byte totals",
+        "Each device can be assigned a rule set override",
+        "Per-device byte counters (upload/download) updated in real-time",
+        "Device topology diagram in Web UI (simple node graph)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Implemented devices table with upload_bytes, download_bytes, rule_override columns. Device identified by IP address (stored in mac_address field) since MAC is not available from TCP connections in userspace. Tauri commands: get_devices, register_device, update_device_last_seen, update_device_stats, set_device_rule_override, get_device_by_mac. DeviceContext added to proxy for tracking device per request. UI shows device list with topology diagram."
+    },
+    {
+      "id": "US-012",
+      "title": "Traffic recording and HAR export",
+      "description": "As a QA engineer, I want to record traffic and export it so I can replay against a mock server later.",
+      "acceptanceCriteria": [
+        "All traffic for a session stored in SQLite",
+        "Export button generates HAR 1.2 file downloadable from UI",
+        "HAR includes: request (url, method, headers, postData), response (status, headers, content), timing",
+        "pcap export option for raw packet-level recording",
+        "Session can be named and saved for later replay",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Implemented HAR 1.2 export with export_har and save_har_file commands. HAR includes request (url, method, headers, postData), response (status, headers, content), and timing. Session naming via UI dialog. HAR files saved to ~/.proxybot/exports/. pcap export not implemented (requires significant additional work for packet-level capture)."
+    },
+    {
+      "id": "US-013",
+      "title": "Traffic replay with diff view",
+      "description": "As a QA engineer, I want to replay recorded traffic against a local mock and see diffs so I know what the mock is missing.",
+      "acceptanceCriteria": [
+        "Select a recorded host → replay all requests against local mock server",
+        "Mock server serves recorded responses as fixtures",
+        "Diff view shows header and body differences side-by-side",
+        "Replay supports variable delay injection between requests",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Implemented traffic replay with mock server. Created replay.rs with ReplayState, ReplayTarget, ReplayRequest, ReplayResult, DiffResult types. Mock server listens on port 19998 and serves recorded responses. Diff computation compares headers and body line-by-line. Tauri commands: get_replay_targets, get_requests_for_replay, get_recorded_responses, start_replay. UI in App.tsx shows host selector, delay input, replay button, and diff view with side-by-side header/body comparison."
+    },
+    {
+      "id": "US-014",
+      "title": "Traffic normalizer — HTTP to structured schema",
+      "description": "As a developer, I need HTTP exchanges stored as structured records so AI can analyze them.",
+      "acceptanceCriteria": [
+        "Each HTTP exchange normalized into schema: method, path, query (JSON), request_headers (JSON), request_body (parsed), response_status, response_headers (JSON), response_body (parsed), timing_ms, device_id",
+        "Body parser detects JSON, Protobuf (base64), GraphQL (JSON) variants",
+        "Normalized records replace raw BLOB storage in http_requests table",
+        "Tauri endpoint at /api/traffic returns paginated normalized records",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Implemented normalize.rs module with body parsing (JSON, Protobuf, GraphQL, FormData, Text, Binary). get_normalized_traffic and get_traffic_page Tauri commands provide paginated access. NormalizedRecord includes all fields from schema. inferred_apis table added for US-016. Note: FastAPI not used since this is a Tauri desktop app - commands provide equivalent functionality."
+    },
+    {
+      "id": "US-015",
+      "title": "Request DAG builder from traffic",
+      "description": "As a developer, I need request dependency graph so I understand call ordering and ID passing chains.",
+      "acceptanceCriteria": [
+        "DAG constructed from timestamp ordering plus extracted ID/token references",
+        "Token extraction regex: access_token, sessionId, auth_token, id, uid, refresh_token",
+        "Edges: request A → request B if B carries a token previously returned by A",
+        "DAG stored as adjacency list in SQLite (dag_nodes, dag_edges tables)",
+        "FastAPI endpoint at /api/traffic/dag returns DAG as JSON (nodes + edges)",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Implemented dag.rs with token extraction and DAG construction. Token patterns: access_token, sessionId, auth_token, id, uid, refresh_token (both JSON and key=value formats). DAG edges created based on token passing between requests. Tauri commands: build_traffic_dag, get_traffic_dag, get_device_dag. DAG stored as adjacency list in dag_nodes and dag_edges tables."
+    },
+    {
+      "id": "US-016",
+      "title": "LLM API semantic inference",
+      "description": "As a developer, I want the LLM to infer API semantics from a request sequence so I don't have to manually name endpoints.",
+      "acceptanceCriteria": [
+        "Claude API called with full session request sequence as context",
+        "Prompt: 'Given these HTTP requests, output JSON with: interfaces [{name, method, path, params (semantic description), auth_required}] and modules [{name, description, interface_ids}]'",
+        "Output validated as JSON with expected schema before storing",
+        "Results stored in inferred_apis table",
+        "OpenAPI 3.1 spec generated from inferred APIs at /api/traffic/openapi.yaml",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "Implemented infer.rs module with Claude API integration. infer_api_semantics calls Claude with traffic data, validates JSON output, and retries if score < 0.8. store_inference_result saves to inferred_apis table. get_openapi_spec/generate_openapi_yaml generate OpenAPI 3.1 spec. Uses ANTHROPIC_API_KEY or CLAUDE_API_KEY env var."
+    },
+    {
+      "id": "US-017",
+      "title": "Evaluator agent for LLM output validation",
+      "description": "As a developer, I need an evaluator to check LLM output consistency so generated specs are reliable.",
+      "acceptanceCriteria": [
+        "Evaluator prompt: 'Review the inferred API JSON. Check: all requests are covered, paths are correctly typed, auth chains are consistent, parameter names match request bodies'",
+        "Evaluator outputs: {valid: bool, errors: [string], score: float}",
+        "If score < 0.8, LLM is re-called with evaluator feedback for up to 2 retries",
+        "Final output marked with evaluator score",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": "Added evaluate_inference and get_evaluation_result Tauri commands. Created inference_evaluations table to store evaluation results (valid, errors, score, evaluated_at). build_evaluation_prompt was already implemented in infer.rs. Retry logic (up to 2 retries if score < 0.8) is handled in both infer_api_semantics and evaluate_inference. EvaluationResult struct stores valid, errors, and score."
+    },
+    {
+      "id": "US-018",
+      "title": "State machine visualizer for auth flows",
+      "description": "As a developer, I want to see the login → token → resource lifecycle as a diagram so I understand the app's auth flow.",
+      "acceptanceCriteria": [
+        "Auth flow extracted from DAG: nodes are session states, edges are authenticated calls",
+        "State machine output as Mermaid markdown at /api/traffic/state-machine",
+        "Web UI renders Mermaid diagram inline",
+        "Anomalous transitions (resource called before login) flagged as warnings",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "Implemented state_machine.rs with AuthFlowExtractor. Extracts auth flow from DAG data, generates Mermaid markdown, detects anomalous transitions. Added alerts table to db.rs. Tauri commands: get_auth_state_machine, get_alerts_cmd, acknowledge_alert_cmd, get_alert_count. UI in App.tsx with state machine panel, alerts section with severity badges and acknowledge functionality."
+    },
+    {
+      "id": "US-019",
+      "title": "Anomaly detection and privacy scanning",
+      "description": "As a security researcher, I want alerts when traffic looks suspicious or private data is being exfiltrated.",
+      "acceptanceCriteria": [
+        "Per-device traffic baseline: 7-day rolling domain/IP frequency profile",
+        "New domain or IP not in baseline triggers info-level alert",
+        "Privacy scanner regex-matches request/response bodies for: IDFA, phone number (E.164), GPS coordinates (lat/long pairs)",
+        "Alerts stored in alerts table with severity (info/warning/critical), device_id, details",
+        "Alert badge in dashboard; alert list page with filter by severity",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "Implemented anomaly.rs with PrivacyScanner (IDFA, E.164 phone, GPS coordinate regex patterns), BaselineStore (7-day rolling domain/IP baseline with JSON file persistence), AlertStore (alerts persisted to alerts.json). Tauri commands: get_traffic_baseline, scan_request_anomalies, get_alerts, acknowledge_alert, get_alert_count. UI added alerts tab with severity filter dropdown and acknowledge functionality."
+    },
+    {
+      "id": "US-020",
+      "title": "Mock API code generator",
+      "description": "As a developer, I want OpenAPI spec converted to a working mock API server so I can replace the real backend.",
+      "acceptanceCriteria": [
+        "OpenAPI 3.1 spec → Hono or FastAPI project via template generation",
+        "Recorded responses auto-populated as fixture files per endpoint",
+        "Mock server supports ordered sequences (response 1, then 2, then 3 for same endpoint)",
+        "Conditional responses: match request body field X → return response Y",
+        "Mock runs with `docker compose up` including mock-api and postgres",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "Implemented mockgen.rs module with generate_mock_project, write_mock_project, get_mock_endpoints, start_mock_server Tauri commands. Generates FastAPI project with main.py, fixtures per endpoint, Dockerfile, docker-compose.yml, requirements.txt, README.md. Supports ordered sequences and conditional responses based on request body fields."
+    },
+    {
+      "id": "US-021",
+      "title": "Frontend React scaffold generator",
+      "description": "As a developer, I want a React frontend scaffold generated from inferred API semantics so I have a working UI to start from.",
+      "acceptanceCriteria": [
+        "LLM generates React + Vite project from OpenAPI spec",
+        "Each API endpoint maps to a typed fetch hook (useXxx query/mutation)",
+        "Routes inferred from API paths (e.g., GET /user/profile → /user/profile page)",
+        "Basic state management (Zustand store) scaffolded per module",
+        "Playwright E2E tests auto-generated per route",
+        "Generator → Evaluator闭环: generated code replayed against real traffic, diffs auto-correct scaffold",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": "Implemented scaffoldgen.rs with generate_scaffold_project, write_scaffold_project, evaluate_scaffold_project. Generates React + Vite + TypeScript project with typed fetch hooks per endpoint (useXxx), routes inferred from API paths, Zustand stores per module, Playwright E2E tests. LLM evaluator (evaluate_scaffold_project) compares scaffold against real traffic via Claude API. Rust compiles, TypeScript passes.",
+      "passed": true
+    },
+    {
+      "id": "US-022",
+      "title": "Vision screenshot UI analyzer",
+      "description": "As a developer, I want to upload a screenshot and have the system infer UI structure so the scaffold matches the real app.",
+      "acceptanceCriteria": [
+        "Screenshot upload UI in web dashboard",
+        "Claude Vision API called with prompt: 'Analyze this mobile app screenshot. Output JSON: {components: [{type, text, position, children}]}'",
+        "Vision output stored alongside traffic analysis for same app",
+        "Component tree used by scaffold generator to refine React component layout",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 22,
+      "passes": true,
+      "notes": "Implemented: vision.rs with Claude Vision API integration, base64 image upload, component tree storage in SQLite alongside traffic analysis, fused component tree + API routes for scaffold generator, React UI with screenshot upload and analysis history"
+    },
+    {
+      "id": "US-023",
+      "title": "One-click Docker deployment bundle",
+      "description": "As a developer, I want one command to produce a deployable Docker Compose so the replica runs standalone.",
+      "acceptanceCriteria": [
+        "Generate button produces docker-compose.yml with services: mock-api, frontend, postgres",
+        "Git repo initialized with generated project files",
+        "GitHub Actions CI template runs Playwright E2E suite as gate",
+        "README.md with run instructions auto-generated",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": true,
+      "notes": "Implemented deploy.rs with generate_deployment_bundle and write_deployment_bundle Tauri commands. Generates docker-compose.yml with mock-api, frontend, and postgres services. Creates frontend scaffold files (React + Vite), mock API files (FastAPI), init.sql, nginx.conf, GitHub Actions CI workflow (e2e.yml), and .gitignore. Git repo initialized with initial commit. UI section in App.tsx with Preview Bundle and Write to Disk + Git Init buttons. Rust compiles successfully, TypeScript tsc --noEmit passes."
+    }
+  ]
+}
