@@ -1,7 +1,7 @@
 //! pf (Packet Filter) management for macOS transparent proxy.
 //!
 //! This module handles setting up and tearing down pf rules to redirect
-//! incoming TCP traffic on ports 80 and 443 to the local proxy listening on port 8080.
+//! incoming TCP traffic on ports 80 and 443 to the local proxy listening on port 8088.
 //!
 //! Privilege escalation is performed using osascript to prompt the user
 //! with a system authentication dialog, providing better UX than raw sudo.
@@ -14,12 +14,12 @@ const PF_ANCHOR_FILE: &str = "/etc/pf.anchors/proxybot";
 /// The pf anchor name.
 const PF_ANCHOR_NAME: &str = "com.apple/proxybot";
 /// Proxy port where we listen for redirected connections.
-const PROXY_PORT: u16 = 8080;
+const PROXY_PORT: u16 = 8088;
 /// DNS server listening port (pf redirects 53 -> 5300).
 const DNS_PORT: u16 = 5300;
 
 /// Set up pf rules for transparent proxying.
-/// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8080.
+/// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8088.
 /// Requires administrator privileges via osascript prompt.
 pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     // Validate interface name - must be alphanumeric only to prevent command injection.

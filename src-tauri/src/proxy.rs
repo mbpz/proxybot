@@ -27,7 +27,7 @@ use rustls::{
 };
 use std::fs::OpenOptions;
 
-const PROXY_PORT: u16 = 8080;
+const PROXY_PORT: u16 = 8088;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 

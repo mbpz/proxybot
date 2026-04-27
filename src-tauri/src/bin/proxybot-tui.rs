@@ -41,7 +41,7 @@ use proxybot_lib::tui::input::{InputAction, handle_key_event};
 use proxybot_lib::pf;
 use proxybot_lib::dns;
 
-const PROXY_PORT: u16 = 8080;
+const PROXY_PORT: u16 = 8088;
 
 /// Start the proxy using proxybot_lib's start_proxy_core.
 fn start_proxy(
