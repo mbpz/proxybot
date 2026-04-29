@@ -3,7 +3,7 @@
 //! Provides keyboard handling with tab navigation support.
 //! Uses crossterm's event::poll for non-blocking input.
 
-use crossterm::event::{self, KeyCode, KeyEventKind};
+use crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers};
 use std::time::Duration;
 
 use super::Tab;
@@ -43,6 +43,10 @@ pub enum InputAction {
     EditRule,
     /// Delete the selected rule (Rules tab).
     DeleteRule,
+    /// Move selected rule up (Rules tab).
+    MoveRuleUp,
+    /// Move selected rule down (Rules tab).
+    MoveRuleDown,
     /// Save the rule being edited (modal).
     SaveRule,
     /// Cancel/close the modal without saving.
@@ -79,6 +83,8 @@ pub enum InputAction {
     GenDocker,
     /// Open output folder (Gen tab).
     OpenOutput,
+    /// Switch detail sub-tab (1=Headers, 2=Body, 3=WS Frames).
+    SwitchDetailTab(usize),
     /// No action.
     None,
 }
@@ -133,6 +139,10 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('d') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::DeleteRule,
         KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => InputAction::SaveRule,
 
+        // Rules tab: Alt+Up/Down to reorder rules
+        KeyCode::Up if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleUp,
+        KeyCode::Down if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleDown,
+
         // Certs tab: r=regenerate, e=export
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
         KeyCode::Char('e') if current_tab == Tab::Certs || current_tab == Tab::Replay => InputAction::ExportCert,
@@ -160,6 +170,11 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Up | KeyCode::Char('k') => InputAction::Up,
         KeyCode::Down | KeyCode::Char('j') => InputAction::Down,
         KeyCode::Enter => InputAction::Enter,
+
+        // Detail sub-tab switching (1=Headers, 2=Body, 3=WS Frames)
+        KeyCode::Char('1') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(0),
+        KeyCode::Char('2') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(1),
+        KeyCode::Char('3') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(2),
 
         _ => InputAction::None,
     }

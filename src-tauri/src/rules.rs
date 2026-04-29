@@ -177,6 +177,13 @@ fn load_rules_from_dir(dir: &PathBuf) -> Vec<Rule> {
     all_rules
 }
 
+/// Direction for moving rules.
+#[derive(Debug, Clone, Copy)]
+pub enum MoveDirection {
+    Up,
+    Down,
+}
+
 /// Rule engine state with hot reload.
 pub struct RulesEngine {
     rules: Mutex<Vec<Rule>>,
@@ -276,6 +283,64 @@ impl RulesEngine {
     /// Get all rules.
     pub fn get_rules(&self) -> Vec<Rule> {
         self.rules.lock().unwrap().clone()
+    }
+
+    /// Move a rule up (index - 1) or down (index + 1) in the list.
+    /// Returns true if the move was successful.
+    pub fn move_rule(&self, index: usize, direction: MoveDirection) -> bool {
+        let mut rules = self.rules.lock().unwrap();
+        let len = rules.len();
+        if len < 2 {
+            return false;
+        }
+
+        let new_index = match direction {
+            MoveDirection::Up => {
+                if index == 0 {
+                    return false;
+                }
+                index - 1
+            }
+            MoveDirection::Down => {
+                if index >= len - 1 {
+                    return false;
+                }
+                index + 1
+            }
+        };
+
+        rules.swap(index, new_index);
+        true
+    }
+
+    /// Move a rule up or down and persist to disk.
+    /// Returns true if the move was successful.
+    pub fn move_rule_internal(&self, index: usize, direction: MoveDirection, filename: &str) -> bool {
+        // First do the in-memory move
+        if !self.move_rule(index, direction) {
+            return false;
+        }
+
+        // Persist to disk
+        let rules = self.get_rules();
+        let rule_entries: Vec<RuleEntry> = rules
+            .iter()
+            .map(|r| RuleEntry {
+                pattern: r.pattern.to_string(),
+                value: r.value.clone(),
+                action: r.action.to_string(),
+            })
+            .collect();
+
+        let dir = get_rules_dir();
+        let path = dir.join(filename);
+
+        let file = RuleFile { rules: rule_entries };
+        if let Ok(yaml) = serde_yaml::to_string(&file) {
+            let _ = fs::write(&path, yaml);
+        }
+
+        true
     }
 
     /// Delete a rule from a file (internal, non-Tauri).

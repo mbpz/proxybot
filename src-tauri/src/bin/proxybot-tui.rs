@@ -28,7 +28,7 @@ use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal};
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
 use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest};
-use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction};
+use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction, MoveDirection};
 use proxybot_lib::anomaly::AnomalyDetector;
 use proxybot_lib::tun::TunState;
 use proxybot_lib::replay::ReplayState as LibReplayState;
@@ -234,6 +234,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
+                        InputAction::MoveRuleUp => {
+                            if app.current_tab == Tab::Rules {
+                                let rules = app.rules_engine.get_rules();
+                                if !rules.is_empty() {
+                                    let idx = app.rules.selected.min(rules.len().saturating_sub(1));
+                                    if app.rules_engine.move_rule_internal(idx, MoveDirection::Up, "custom.yaml") {
+                                        app.rules.selected = app.rules.selected.saturating_sub(1);
+                                    }
+                                }
+                            }
+                        }
+                        InputAction::MoveRuleDown => {
+                            if app.current_tab == Tab::Rules {
+                                let rules = app.rules_engine.get_rules();
+                                if !rules.is_empty() {
+                                    let idx = app.rules.selected.min(rules.len().saturating_sub(1));
+                                    let len = rules.len();
+                                    if app.rules_engine.move_rule_internal(idx, MoveDirection::Down, "custom.yaml") {
+                                        app.rules.selected = (app.rules.selected + 1).min(len.saturating_sub(1));
+                                    }
+                                }
+                            }
+                        }
                         InputAction::SaveRule => {
                             if app.rules.modal_open {
                                 // Build rule from buffer and call save_rule Tauri command
@@ -401,6 +424,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         InputAction::ClearSearch => {
                             app.traffic.clear_filters();
+                        }
+                        InputAction::SwitchDetailTab(n) => {
+                            app.traffic.detail_tab = n;
                         }
                         InputAction::Enter => {
                             // Fetch detail for selected request from DB
@@ -604,6 +630,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 app.replay.targets_list = targets;
             }
         }
+
+        // Advance skeleton animation frame
+        app.traffic.loading_frame = app.traffic.loading_frame.wrapping_add(1);
 
         // Render
         terminal.draw(|f| proxybot_lib::tui::render::render(&app, f))?;

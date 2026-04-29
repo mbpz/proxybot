@@ -9,6 +9,7 @@ use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Bl
 
 use crate::tui::{TuiApp, input::format_ts, input::fmt_duration};
 use crate::db::RecentRequest;
+use crate::proxy::InterceptedRequest;
 
 /// Render the Traffic tab with filters, split pane, and controls.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
@@ -75,7 +76,31 @@ fn render_content(f: &mut Frame, area: Rect, app: &TuiApp) {
     render_detail_panel(f, chunks[1], app);
 }
 
-/// Render the scrollable request list.
+/// Render animated skeleton loading rows.
+fn render_skeleton(f: &mut Frame, area: Rect, app: &TuiApp) {
+    use ratatui::style::Color;
+    use ratatui::widgets::Paragraph;
+
+    // Advance animation frame
+    let frame = app.traffic.loading_frame;
+    let spinner_chars = ['|', '/', '-', '\\'];
+    let spinner = spinner_chars[frame % 4].to_string();
+
+    let lines = vec![
+        Line::raw(format!(" {} Capturing traffic...", spinner)),
+        Line::raw("   ──────────────────────────────────────────"),
+        Line::raw("   ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"),
+        Line::raw("   Waiting for requests from device..."),
+        Line::raw(""),
+        Line::raw("   Configure your device to use proxy port 8088"),
+    ];
+
+    let content = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title("Intercepted Traffic"))
+        .style(Color::Cyan);
+
+    f.render_widget(content, area);
+}
 fn render_request_list(f: &mut Frame, area: Rect, app: &TuiApp) {
     use ratatui::widgets::List;
 
@@ -83,9 +108,14 @@ fn render_request_list(f: &mut Frame, area: Rect, app: &TuiApp) {
     let selected = app.traffic.selected.min(filtered.len().saturating_sub(1));
 
     if filtered.is_empty() {
-        let empty = Paragraph::new("  No requests match filters. Configure your device to use this proxy.")
-            .block(Block::default().borders(Borders::ALL).title("Intercepted Traffic"));
-        f.render_widget(empty, area);
+        // If proxy running but no requests, show skeleton loading
+        if app.proxy_running.load(std::sync::atomic::Ordering::SeqCst) {
+            render_skeleton(f, area, app);
+        } else {
+            let empty = Paragraph::new("  No requests captured. Start proxy to begin.")
+                .block(Block::default().borders(Borders::ALL).title("Intercepted Traffic"));
+            f.render_widget(empty, area);
+        }
     } else {
         let items: Vec<Line> = filtered.iter().map(|req| {
             let method_color = match req.method.as_str() {
@@ -130,7 +160,7 @@ fn render_request_list(f: &mut Frame, area: Rect, app: &TuiApp) {
     }
 }
 
-/// Render the detail panel for the selected request.
+/// Render the detail panel with sub-tabs: Headers / Body / WS Frames.
 fn render_detail_panel(f: &mut Frame, area: Rect, app: &TuiApp) {
     use ratatui::style::Color;
 
@@ -151,67 +181,163 @@ fn render_detail_panel(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let detail = app.traffic.detail_request.as_ref().unwrap();
 
-    // Build detail lines
+    // Split area: tab bar (1 line) + content
+    let chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),  // sub-tab bar
+            Constraint::Min(1),   // tab content
+        ])
+        .split(area);
+
+    // Sub-tab bar
+    let tabs = ["Headers", "Body", "WS Frames"];
+    let ws_available = detail.is_websocket && detail.ws_frames.as_ref().map(|f| !f.is_empty()).unwrap_or(false);
+    let active_tab = if app.traffic.detail_tab >= tabs.len() { 0 } else { app.traffic.detail_tab };
+
+    let mut tab_line = String::new();
+    for (i, tab) in tabs.iter().enumerate() {
+        let ws_tab = tab == &"WS Frames" && !ws_available;
+        if ws_tab {
+            tab_line.push_str(&format!(" {} ", tab).dim().to_string());
+        } else if i == active_tab {
+            tab_line.push_str(&format!("[{}] ", tab).cyan().to_string());
+        } else {
+            tab_line.push_str(&format!(" {} ", tab).dim().to_string());
+        }
+    }
+    tab_line.push_str(&format!(" [1/2/3] switch tab").dim().to_string());
+    let tab_para = Paragraph::new(tab_line);
+    f.render_widget(tab_para, chunks[0]);
+
+    // Tab content
+    match active_tab {
+        0 => render_headers_tab(f, chunks[1], detail),
+        1 => render_body_tab(f, chunks[1], detail),
+        2 => render_ws_frames_tab(f, chunks[1], detail),
+        _ => {}
+    }
+}
+
+/// Render Headers sub-tab.
+fn render_headers_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
+    use ratatui::style::Color;
+
     let mut lines: Vec<Line> = Vec::new();
 
-    // Summary line
-    let summary = format!(
+    // Summary
+    lines.push(Line::raw(format!(
         " {} {} {} -> {} ({})",
-        detail.method,
-        detail.scheme,
-        detail.host,
-        detail.path,
+        detail.method, detail.scheme, detail.host, detail.path,
         detail.status.map(|s| s.to_string()).unwrap_or_else(|| "-".to_string())
-    );
-    lines.push(Line::raw(summary).fg(Color::White).underlined());
+    )).fg(Color::White).underlined());
 
-    // Separator
+    // Request headers
     lines.push(Line::raw("--- Request Headers ---").style(Color::Yellow));
-    for (k, v) in &detail.req_headers {
-        lines.push(Line::raw(format!("  {}: {}", k, v)).style(Color::White));
-    }
-
-    // Request body
-    lines.push(Line::raw("--- Request Body ---").style(Color::Yellow));
-    if let Some(ref body) = detail.req_body {
-        let body_display = if body.len() > 500 {
-            format!("{}...", &body[..500])
-        } else {
-            body.clone()
-        };
-        lines.push(Line::raw(format_json(&body_display)).style(Color::Cyan));
-    } else {
+    if detail.req_headers.is_empty() {
         lines.push(Line::raw("(empty)").fg(Color::DarkGray));
-    }
-
-    // Response status
-    lines.push(Line::raw("--- Response ---").style(Color::Green));
-    for (k, v) in &detail.resp_headers {
-        lines.push(Line::raw(format!("  {}: {}", k, v)).style(Color::White));
-    }
-
-    // Response body
-    lines.push(Line::raw("--- Response Body ---").style(Color::Green));
-    if let Some(ref body) = detail.resp_body {
-        let body_display = if body.len() > 500 {
-            format!("{}...", &body[..500])
-        } else {
-            body.clone()
-        };
-        lines.push(Line::raw(format_json(&body_display)).style(Color::Cyan));
     } else {
-        lines.push(Line::raw("(empty)").fg(Color::DarkGray));
+        for (k, v) in &detail.req_headers {
+            lines.push(Line::raw(format!("  {}: {}", k, v)).style(Color::White));
+        }
     }
 
-    // App info
+    // Response headers
+    lines.push(Line::raw("--- Response Headers ---").style(Color::Green));
+    if detail.resp_headers.is_empty() {
+        lines.push(Line::raw("(empty)").fg(Color::DarkGray));
+    } else {
+        for (k, v) in &detail.resp_headers {
+            lines.push(Line::raw(format!("  {}: {}", k, v)).style(Color::White));
+        }
+    }
+
+    // App/Device info
     if let (Some(ref app_name), Some(ref device_name)) = (&detail.app_name, &detail.device_name) {
         lines.push(Line::raw(format!("App: {} | Device: {}", app_name, device_name)).style(Color::Magenta));
     }
 
     let para = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("Request Detail"))
-        .scroll((app.traffic.detail_scroll.unwrap_or(0) as u16, 0));
+        .block(Block::default().borders(Borders::ALL).title("Headers"));
+    f.render_widget(para, area);
+}
 
+/// Render Body sub-tab with JSON formatting.
+fn render_body_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
+    use ratatui::style::Color;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Request body
+    lines.push(Line::raw("--- Request Body ---").style(Color::Yellow));
+    if let Some(ref body) = detail.req_body {
+        if body.is_empty() {
+            lines.push(Line::raw("(empty)").fg(Color::DarkGray));
+        } else {
+            let display = if body.len() > 1000 { format!("{}...", &body[..1000]) } else { body.clone() };
+            lines.push(Line::raw(format_json(&display)).style(Color::Cyan));
+        }
+    } else {
+        lines.push(Line::raw("(none)").fg(Color::DarkGray));
+    }
+
+    lines.push(Line::raw(""));
+
+    // Response body
+    lines.push(Line::raw("--- Response Body ---").style(Color::Green));
+    if let Some(ref body) = detail.resp_body {
+        if body.is_empty() {
+            lines.push(Line::raw("(empty)").fg(Color::DarkGray));
+        } else {
+            let display = if body.len() > 1000 { format!("{}...", &body[..1000]) } else { body.clone() };
+            lines.push(Line::raw(format_json(&display)).style(Color::Cyan));
+        }
+    } else {
+        lines.push(Line::raw("(none)").fg(Color::DarkGray));
+    }
+
+    let para = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title("Body"))
+        .scroll((0, 0));
+    f.render_widget(para, area);
+}
+
+/// Render WebSocket Frames sub-tab.
+fn render_ws_frames_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
+    use ratatui::style::Color;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if !detail.is_websocket {
+        lines.push(Line::raw("Not a WebSocket connection.").fg(Color::DarkGray));
+    } else if let Some(ref frames) = detail.ws_frames {
+        if frames.is_empty() {
+            lines.push(Line::raw("No frames captured yet.").fg(Color::DarkGray));
+        } else {
+            lines.push(Line::raw(format!("{} WebSocket frames captured", frames.len())).style(Color::Cyan));
+            lines.push(Line::raw("".to_string()));
+            for frame in frames.iter().take(50) {
+                let direction_color = if frame.direction == "in" { Color::Green } else { Color::Yellow };
+                let dir_marker = if frame.direction == "in" { "◄" } else { "►" };
+                let line_text = format!(
+                    "{} [{}] {} ({} bytes)",
+                    dir_marker,
+                    frame.timestamp.chars().take(12).collect::<String>(),
+                    frame.payload.chars().take(60).collect::<String>(),
+                    frame.size
+                );
+                lines.push(Line::raw(line_text).style(direction_color));
+            }
+            if frames.len() > 50 {
+                lines.push(Line::raw(format!("... and {} more frames", frames.len() - 50)).fg(Color::DarkGray));
+            }
+        }
+    } else {
+        lines.push(Line::raw("No frames captured.").fg(Color::DarkGray));
+    }
+
+    let para = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title("WS Frames"));
     f.render_widget(para, area);
 }
 
@@ -263,7 +389,7 @@ fn render_controls_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
     };
 
     let controls = Paragraph::new(format!(
-        "{} {} | [Enter] select  [/] search  [Esc] clear search/filters",
+        "{} {} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters",
         pf_status, dns_status
     ));
 

@@ -48,6 +48,10 @@ pub struct TrafficState {
     pub detail_loading: bool,
     // Scroll offset for detail panel
     pub detail_scroll: Option<u64>,
+    // Detail sub-tabs: Headers / Body / WS Frames
+    pub detail_tab: usize,
+    // Loading animation frame counter
+    pub loading_frame: usize,
     // pf/DNS status
     pub pf_enabled: bool,
     pub dns_running: bool,

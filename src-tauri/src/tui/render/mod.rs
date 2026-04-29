@@ -12,8 +12,8 @@ pub mod replay;
 pub mod graph;
 pub mod gen;
 
-use ratatui::{Frame, layout::Rect, widgets::Paragraph};
-use ratatui::style::Stylize;
+use ratatui::{Frame, layout::{Rect, Constraint, Direction, Layout}, widgets::Paragraph};
+use ratatui::style::{Stylize, Color};
 
 use super::{Tab, TuiApp};
 
@@ -60,6 +60,29 @@ pub fn render_tab_bar(f: &mut Frame, area: Rect, current_tab: Tab) {
     f.render_widget(line2, Rect::new(area.x, area.y + 1, area.width, 1));
 }
 
+/// Render the header bar with logo and status info.
+pub fn render_header(f: &mut Frame, area: Rect, app: &TuiApp) {
+    let proxy_running = app.proxy_running.load(std::sync::atomic::Ordering::SeqCst);
+    let proxy_str = if proxy_running { "RUNNING" } else { "STOPPED" };
+
+    // Check CA status from cert_manager
+    let ca_installed = app.cert_manager.get_ca_metadata().is_some();
+    let ca_status = if ca_installed { "CA: INSTALLED" } else { "CA: NOT INSTALLED" };
+
+    // Build header line
+    let header_text = format!(
+        " PB ProxyBot v0.4.0 | Proxy: {} | {} | Requests: {} ",
+        proxy_str,
+        ca_status,
+        app.traffic.requests.len()
+    );
+
+    let para = Paragraph::new(header_text)
+        .style(ratatui::style::Style::new().fg(Color::White));
+
+    f.render_widget(para, area);
+}
+
 /// Render the status bar at the bottom of the screen.
 pub fn render_status_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
     let proxy_status = if app.proxy_running.load(std::sync::atomic::Ordering::SeqCst) {
@@ -79,31 +102,35 @@ pub fn render_status_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
 
 /// Dispatch render to the appropriate tab renderer.
 pub fn render(app: &TuiApp, f: &mut Frame) {
-    let chunks = ratatui::layout::Layout::default()
-        .direction(ratatui::layout::Direction::Vertical)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
         .constraints([
-            ratatui::layout::Constraint::Length(3),  // tab bar (two rows)
-            ratatui::layout::Constraint::Min(10),    // content
-            ratatui::layout::Constraint::Length(3), // status bar
+            Constraint::Length(3),  // tab bar (two rows)
+            Constraint::Length(1),  // header bar
+            Constraint::Min(10),    // content
+            Constraint::Length(3), // status bar
         ])
         .split(f.size());
 
     // Tab bar
     render_tab_bar(f, chunks[0], app.current_tab);
 
+    // Header with logo and status
+    render_header(f, chunks[1], app);
+
     // Content area - dispatch to tab-specific renderer
     match app.current_tab {
-        Tab::Traffic => traffic::render(f, chunks[1], app),
-        Tab::Rules => rules::render(f, chunks[1], app),
-        Tab::Devices => devices::render(f, chunks[1], app),
-        Tab::Certs => certs::render(f, chunks[1], app),
-        Tab::Dns => dns::render(f, chunks[1], app),
-        Tab::Alerts => alerts::render(f, chunks[1], app),
-        Tab::Replay => replay::render(f, chunks[1], app),
-        Tab::Graph => graph::render(f, chunks[1], app),
-        Tab::Gen => gen::render(f, chunks[1], app),
+        Tab::Traffic => traffic::render(f, chunks[2], app),
+        Tab::Rules => rules::render(f, chunks[2], app),
+        Tab::Devices => devices::render(f, chunks[2], app),
+        Tab::Certs => certs::render(f, chunks[2], app),
+        Tab::Dns => dns::render(f, chunks[2], app),
+        Tab::Alerts => alerts::render(f, chunks[2], app),
+        Tab::Replay => replay::render(f, chunks[2], app),
+        Tab::Graph => graph::render(f, chunks[2], app),
+        Tab::Gen => gen::render(f, chunks[2], app),
     }
 
     // Status bar
-    render_status_bar(f, chunks[2], app);
+    render_status_bar(f, chunks[3], app);
 }

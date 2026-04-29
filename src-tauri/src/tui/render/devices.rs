@@ -6,6 +6,7 @@ use ratatui::{
     Frame, layout::{Rect, Constraint, Direction, Layout},
     widgets::{Block, Borders, Paragraph, Table, Row, Cell},
     style::{Style, Color},
+    text::Line,
 };
 use crate::tui::TuiApp;
 use crate::db::get_devices_internal;
@@ -26,12 +27,21 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let total_down: i64 = devices_list.iter().map(|d| d.download_bytes).sum();
 
     let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(65),
+            Constraint::Percentage(35),
+        ])
+        .split(area);
+
+    // Left: stats header + device table
+    let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // stats header
             Constraint::Min(10),
         ])
-        .split(area);
+        .split(chunks[0]);
 
     // Stats header
     let stats_text = format!(
@@ -43,7 +53,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let stats = Paragraph::new(stats_text)
         .style(Style::new().fg(Color::Yellow))
         .block(Block::default().borders(Borders::ALL).title("Devices"));
-    f.render_widget(stats, chunks[0]);
+    f.render_widget(stats, left_chunks[0]);
 
     // Device table
     let table_rows: Vec<Row> = devices_list
@@ -81,7 +91,64 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     .block(Block::default().borders(Borders::ALL).title("Device List"))
     .column_spacing(1);
 
-    f.render_widget(table, chunks[1]);
+    f.render_widget(table, left_chunks[1]);
+
+    // Right: ASCII topology diagram
+    render_topology(f, chunks[1], &devices_list);
+}
+
+/// Render ASCII topology diagram showing device connections.
+fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo]) {
+    use ratatui::widgets::Paragraph;
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Server node
+    lines.push(Line::raw("       ┌─────────────────────┐").style(Color::Cyan));
+    lines.push(Line::raw("       │    ProxyBot Server   │").style(Color::Cyan));
+    lines.push(Line::raw("       │    (This PC)         │").style(Color::Cyan));
+    lines.push(Line::raw("       └──────────┬──────────┘").style(Color::Cyan));
+    lines.push(Line::raw("                  │").style(Color::Cyan));
+
+    if devices.is_empty() {
+        lines.push(Line::raw("        (no devices connected)").style(Color::DarkGray));
+        lines.push(Line::raw("".to_string()));
+        lines.push(Line::raw(" Configure device gateway:").style(Color::Yellow));
+        lines.push(Line::raw("  • Set proxy to this PC".to_string()));
+        lines.push(Line::raw("  • Port: 8088".to_string()));
+        lines.push(Line::raw("  • Install CA certificate".to_string()));
+    } else {
+        let max_display = devices.len().min(4);
+        for (i, dev) in devices.iter().take(max_display).enumerate() {
+            let name = dev.name.chars().take(15).collect::<String>();
+
+            if i == 0 {
+                lines.push(Line::raw("       └───┬───────────────┘".to_string()));
+                lines.push(Line::raw(format!("           │ {}", dev.mac_address.chars().take(12).collect::<String>())));
+                lines.push(Line::raw(format!("           └──[{}]", name)).style(Color::Green));
+            } else {
+                lines.push(Line::raw("           ┌─┴───────────────┐".to_string()));
+                lines.push(Line::raw(format!("           │ {}", dev.mac_address.chars().take(12).collect::<String>())));
+                lines.push(Line::raw(format!("           └──[{}]", name)).style(Color::Green));
+            }
+        }
+
+        if devices.len() > max_display {
+            lines.push(Line::raw(format!("           ... and {} more", devices.len() - max_display)).style(Color::DarkGray));
+        }
+    }
+
+    lines.push(Line::raw("".to_string()));
+    lines.push(Line::raw("Legend:").style(Color::Yellow));
+    lines.push(Line::raw(" [name] = device name".to_string()));
+    lines.push(Line::raw(" (app)  = detected app").style(Color::Magenta));
+    lines.push(Line::raw(" MAC    = device address".to_string()));
+
+    let content = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title("Network Topology"))
+        .style(Style::new().fg(Color::White));
+
+    f.render_widget(content, area);
 }
 
 /// Format bytes into human-readable string.

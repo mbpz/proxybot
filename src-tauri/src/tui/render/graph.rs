@@ -162,7 +162,7 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
             } else if path_lower.contains("logout") || path_lower.contains("signout") {
                 "LOGOUT".to_string()
             } else {
-                format!("AUTH({})", truncate_path(&req.path, 10))
+                format!("AUTH_{}", truncate_path(&req.path, 8).replace("-", "_").replace("/", "_"))
             };
 
             if auth_states.is_empty() || auth_states.last() != Some(&state) {
@@ -175,7 +175,7 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
             }
             prev_was_auth = true;
         } else if prev_was_auth && !auth_states.is_empty() {
-            let api_state = format!("API:{}", truncate_path(&req.path, 12));
+            let api_state = format!("API_{}", truncate_path(&req.path, 10).replace("-", "_").replace("/", "_"));
             transitions.push((prev_state.clone(), api_state.clone()));
             prev_state = api_state;
             prev_was_auth = false;
@@ -183,35 +183,45 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
     }
 
     // Header
-    lines.push("┌─ Auth State Machine ───────────────────────────────────────┐".to_string());
-    lines.push("│                                                          │".to_string());
+    lines.push("┌─ Auth State Machine (Mermaid) ─────────────────────────────┐".to_string());
+    lines.push("│                                                            │".to_string());
 
     if auth_states.is_empty() {
         lines.push("│  No explicit auth flow detected.                          │".to_string());
         lines.push("│  Auth may be embedded in headers or first-party SDK.     │".to_string());
     } else {
-        lines.push("│  States:                                                 │".to_string());
+        // Mermaid stateDiagram-v2 format
+        lines.push("│  stateDiagram-v2                                        │".to_string());
+        lines.push("│                                                            │".to_string());
+
+        // Start state
+        lines.push("│    [*] --> Initial                                      │".to_string());
+
+        // States and transitions in Mermaid format
+        let mut prev: String = "Initial".to_string();
         for (i, state) in auth_states.iter().enumerate() {
-            let prefix = if i == auth_states.len() - 1 { "└──" } else { "├──" };
-            lines.push(format!("{} {} │", prefix, state));
+            let suffix = if i == 0 { " : entry/verify creds" } else { "" };
+            lines.push(format!("│    {} --> {}{} │", prev, state, suffix));
+            prev = state.clone();
         }
 
-        lines.push("│                                                          │".to_string());
-        lines.push("│  Transitions:                                            │".to_string());
+        // API calls after auth
+        if !transitions.is_empty() {
+            lines.push("│                                                            │".to_string());
+            lines.push("│    --- API calls after auth ---                          │".to_string());
 
-        if transitions.is_empty() {
-            lines.push("│  └── (no transitions detected)                          │".to_string());
-        } else {
-            for (i, (from, to)) in transitions.iter().enumerate() {
-                let prefix = if i == transitions.len() - 1 { "└──" } else { "├──" };
-                lines.push(format!("{} {} → {}", prefix, from, to));
+            for (from, to) in transitions.iter().take(10) {
+                lines.push(format!("│    {} --> {} │", from, to));
             }
         }
+
+        // Final state
+        lines.push(format!("│    {} --> [*] │", prev));
     }
 
-    lines.push("│                                                          │".to_string());
+    lines.push("│                                                            │".to_string());
     lines.push("│  Key: [g] DAG  [a] Auth  [r] refresh                      │".to_string());
-    lines.push("└──────────────────────────────────────────────────────────┘".to_string());
+    lines.push("└────────────────────────────────────────────────────────────┘".to_string());
 
     lines
 }
