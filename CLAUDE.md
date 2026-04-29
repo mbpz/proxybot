@@ -24,6 +24,20 @@ A macOS desktop proxy tool for developers. Phone and PC on the same LAN — phon
 ## Three Man Team
 Available agents: Arch (Architect), Bob (Builder), Richard (Reviewer)
 
+## Agent skills
+
+### Issue tracker
+
+GitHub issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the canonical five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` at the repo root, `docs/adr/` for architectural decisions. See `docs/agents/domain.md`.
+
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 
