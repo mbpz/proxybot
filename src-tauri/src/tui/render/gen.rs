@@ -5,7 +5,7 @@
 use ratatui::{Frame, layout::Rect, widgets::{Block, Borders, Paragraph}};
 use ratatui::style::Stylize;
 
-use crate::tui::{GenMode, GenState, TuiApp};
+use crate::tui::{GenMode, TuiApp};
 
 /// Render the Gen tab.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {

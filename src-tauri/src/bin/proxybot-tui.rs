@@ -12,11 +12,10 @@
 //!   c          Clear request list
 //!   j/k / Up/Down   Navigate list
 
-use crossterm::event::{self, KeyCode, KeyEventKind};
+use crossterm::event::{self, KeyEventKind};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
 use ratatui::backend::CrosstermBackend;
-use ratatui::Frame;
 use rusqlite::Connection;
 use std::io;
 use std::sync::atomic::Ordering;
@@ -40,8 +39,7 @@ use proxybot_lib::tui::input::{InputAction, handle_key_event};
 
 use proxybot_lib::pf;
 use proxybot_lib::dns;
-
-const PROXY_PORT: u16 = 8088;
+use proxybot_lib::config::{proxy_port, db_path};
 
 /// Start the proxy using proxybot_lib's start_proxy_core.
 fn start_proxy(
@@ -131,10 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.rules.watcher_active = true;
 
     // DB path for polling
-    let db_path = {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        std::path::PathBuf::from(home).join(".proxybot").join("proxybot.db")
-    };
+    let db_path = db_path();
 
     // Event receiver for real-time updates
     let mut event_rx: Option<tokio::sync::broadcast::Receiver<InterceptedRequest>> = None;
@@ -143,14 +138,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match start_proxy(&app) {
         Ok(rx) => {
             event_rx = Some(rx);
-            log::info!("Proxy started on port {}", PROXY_PORT);
+            log::info!("Proxy started on port {}", proxy_port());
         }
         Err(e) => {
             log::error!("Failed to start proxy: {}", e);
         }
     }
 
+    // Initial DB load for traffic tab
+    if let Ok(conn) = Connection::open(&db_path) {
+        refresh_traffic(&mut app, &conn);
+    }
+
     // Main loop
+    let mut prev_tab = app.current_tab;
     let res = loop {
         // Poll for input
         if event::poll(Duration::from_millis(100))? {
@@ -158,8 +159,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if key.kind == KeyEventKind::Press {
                     match handle_key_event(&key, app.current_tab) {
                         InputAction::Quit => break Ok(()),
-                        InputAction::NextTab => app.next_tab(),
-                        InputAction::PrevTab => app.prev_tab(),
+                        InputAction::NextTab => {
+                            app.next_tab();
+                            if app.current_tab == Tab::Traffic && prev_tab != Tab::Traffic {
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    refresh_traffic(&mut app, &conn);
+                                }
+                            }
+                            prev_tab = app.current_tab;
+                        }
+                        InputAction::PrevTab => {
+                            app.prev_tab();
+                            if app.current_tab == Tab::Traffic && prev_tab != Tab::Traffic {
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    refresh_traffic(&mut app, &conn);
+                                }
+                            }
+                            prev_tab = app.current_tab;
+                        }
                         InputAction::StartProxy => {
                             if !app.proxy_running.load(Ordering::SeqCst) {
                                 match start_proxy(&app) {
@@ -610,10 +627,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // Refresh DB for requests that came in via other channels
-        if let Ok(conn) = Connection::open(&db_path) {
-            refresh_traffic(&mut app, &conn);
-        }
+        // NOTE: removed per-frame polling - traffic now comes via broadcast channel only.
+        // SQLite is queried only: (1) at startup, (2) when switching to Traffic tab,
+        // (3) when user presses Enter to view request detail.
 
         // Refresh alerts list
         if app.current_tab == Tab::Alerts {

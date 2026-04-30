@@ -99,7 +99,6 @@ impl TrafficState {
                         "3xx" => (300..=399).contains(&status),
                         "4xx" => (400..=499).contains(&status),
                         "5xx" => (500..=599).contains(&status),
-                        "pending" => status >= 100 && status < 600,
                         _ => false,
                     };
                     if !matches {

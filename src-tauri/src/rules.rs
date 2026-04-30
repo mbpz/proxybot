@@ -117,8 +117,7 @@ impl RuleEntry {
 
 /// Get the rules directory path.
 fn get_rules_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".proxybot").join("rules")
+    crate::config::rules_dir()
 }
 
 /// Ensure the rules directory exists.

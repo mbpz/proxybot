@@ -1,4 +1,5 @@
 use crate::app_rules;
+use crate::config::proxy_port;
 use crate::history::HistoryStore;
 use crate::cert::{CaMetadata, CertManager};
 use crate::db::{DbState, record_http_request};
@@ -26,8 +27,6 @@ use rustls::{
     DigitallySignedStruct,
 };
 use std::fs::OpenOptions;
-
-const PROXY_PORT: u16 = 8088;
 
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -1093,7 +1092,7 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
     // For transparent HTTP, try to use SO_ORIGINAL_DST as fallback.
     // This handles cases where the Host header might be missing or incorrect.
     let (host, port) = if let Some(original_dst) = get_original_dst_addr(&client_stream) {
-        if !original_dst.ip().is_loopback() && original_dst.port() != PROXY_PORT {
+        if !original_dst.ip().is_loopback() && original_dst.port() != proxy_port() {
             // Use the original destination from pf redirection.
             (original_dst.ip().to_string(), original_dst.port())
         } else {
@@ -1161,7 +1160,7 @@ async fn run_proxy(
     db_state: Arc<DbState>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    let addr = format!("0.0.0.0:{}", PROXY_PORT);
+    let addr = format!("0.0.0.0:{}", proxy_port());
     let listener = TcpListener::bind(&addr).await
         .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
 
@@ -1232,7 +1231,7 @@ pub fn start_proxy(
         PROXY_RUNNING.store(false, Ordering::SeqCst);
     });
 
-    Ok(format!("Proxy starting on port {}", PROXY_PORT))
+    Ok(format!("Proxy starting on port {}", proxy_port()))
 }
 
 /// Start the proxy core for TUI (no Tauri dependency).

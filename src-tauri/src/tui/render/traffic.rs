@@ -5,7 +5,7 @@
 //! - Regex search bar
 //! - Split pane: request list (top 60%) + detail panel (bottom 40%)
 
-use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, List, Paragraph}, style::{Color, Stylize}, text::Line};
+use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::Stylize, text::Line};
 
 use crate::tui::{TuiApp, input::format_ts, input::fmt_duration};
 use crate::db::RecentRequest;
@@ -102,6 +102,7 @@ fn render_skeleton(f: &mut Frame, area: Rect, app: &TuiApp) {
     f.render_widget(content, area);
 }
 fn render_request_list(f: &mut Frame, area: Rect, app: &TuiApp) {
+    use ratatui::style::Color;
     use ratatui::widgets::List;
 
     let filtered: Vec<&RecentRequest> = app.traffic.filtered_requests();
@@ -162,10 +163,7 @@ fn render_request_list(f: &mut Frame, area: Rect, app: &TuiApp) {
 
 /// Render the detail panel with sub-tabs: Headers / Body / WS Frames.
 fn render_detail_panel(f: &mut Frame, area: Rect, app: &TuiApp) {
-    use ratatui::style::Color;
-
     let filtered: Vec<&RecentRequest> = app.traffic.filtered_requests();
-    let selected = app.traffic.selected.min(filtered.len().saturating_sub(1));
 
     if filtered.is_empty() || app.traffic.detail_request.is_none() {
         let hint = if app.traffic.detail_request.is_none() && !filtered.is_empty() {

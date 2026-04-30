@@ -10,7 +10,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use crate::tui::TuiApp;
-use crate::rules::{Rule, RuleAction, RulePattern};
+use crate::rules::{RuleAction, RulePattern};
 
 /// Render the Rules tab with a table of rules and optional modal editor.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {

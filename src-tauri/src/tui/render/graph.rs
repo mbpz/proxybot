@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use ratatui::{Frame, layout::Rect, widgets::{Block, Borders, Paragraph}};
-use ratatui::style::Stylize;
 
 use crate::tui::{GraphViewType, TuiApp};
 

@@ -37,8 +37,8 @@ impl CertManager {
     }
 
     fn get_ca_dir() -> Result<PathBuf, String> {
-        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        Ok(PathBuf::from(home).join(".proxybot"))
+        use crate::config::ca_dir;
+        Ok(ca_dir())
     }
 
     fn load_or_generate_ca(ca_dir: &Path) -> Result<(String, String), String> {
@@ -157,9 +157,9 @@ impl CertManager {
 
     /// Export CA PEM to ~/.proxybot/ca.crt and return path.
     pub fn export_ca_pem(&self) -> Result<String, String> {
+        use crate::config::ca_cert_path;
         let cert_pem = self.ca_cert_pem.lock().unwrap();
-        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        let dest = PathBuf::from(home).join(".proxybot").join("ca.crt");
+        let dest = ca_cert_path();
         fs::write(&dest, cert_pem.as_bytes()).map_err(|e| format!("Failed to write CA: {}", e))?;
         log::info!("Exported CA certificate to {:?}", dest);
         dest.to_str().map(|s| s.to_string()).ok_or_else(|| "Invalid path".to_string())

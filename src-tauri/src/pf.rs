@@ -9,14 +9,7 @@
 use std::fs;
 use std::process::Command;
 
-/// Path to the pf anchor configuration file.
-const PF_ANCHOR_FILE: &str = "/etc/pf.anchors/proxybot";
-/// The pf anchor name.
-const PF_ANCHOR_NAME: &str = "com.apple/proxybot";
-/// Proxy port where we listen for redirected connections.
-const PROXY_PORT: u16 = 8088;
-/// DNS server listening port (pf redirects 53 -> 5300).
-const DNS_PORT: u16 = 5300;
+use crate::config::{pf_anchor_file, pf_anchor_name, proxy_port, dns_port};
 
 /// Set up pf rules for transparent proxying.
 /// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8088.
@@ -39,8 +32,8 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     let rules = format!(
         "rdr on {iface} proto tcp from any to any port {{80,443}} -> {ip} port {port}\nrdr on {iface} proto udp from any to any port 53 -> {ip} port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
         iface = interface,
-        port = PROXY_PORT,
-        dns_port = DNS_PORT,
+        port = proxy_port(),
+        dns_port = dns_port(),
         ip = local_ip,
     );
     fs::write(tmp_file, &rules)
@@ -50,8 +43,8 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     let privileged_script = format!(
         r#"do shell script "mkdir -p /etc/pf.anchors && cp {tmp} {anchor_file} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {anchor} -f {anchor_file} && pfctl -e; echo done" with administrator privileges"#,
         tmp = tmp_file,
-        anchor_file = PF_ANCHOR_FILE,
-        anchor = PF_ANCHOR_NAME,
+        anchor_file = pf_anchor_file().display(),
+        anchor = pf_anchor_name(),
     );
 
     // Execute the privileged operations via osascript.
@@ -74,7 +67,7 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     log::info!("pf rules loaded successfully via osascript");
     Ok(format!(
         "Transparent proxy enabled. Redirecting {} traffic on ports 80/443 to port {}",
-        interface, PROXY_PORT
+        interface, proxy_port()
     ))
 }
 
@@ -108,7 +101,7 @@ pub fn teardown_pf() -> Result<(), String> {
     }
 
     // Clean up the anchor file.
-    let _ = fs::remove_file(PF_ANCHOR_FILE);
+    let _ = fs::remove_file(pf_anchor_file());
 
     log::info!("pf rules removed successfully via osascript");
     Ok(())

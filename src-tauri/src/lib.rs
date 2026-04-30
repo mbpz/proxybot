@@ -7,6 +7,8 @@ pub mod anomaly;
 pub mod app_rules;
 pub mod cert;
 pub mod cert_server;
+pub mod config;
+pub mod error;
 pub mod dag;
 pub mod db;
 pub mod deploy;

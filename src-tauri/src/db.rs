@@ -104,8 +104,7 @@ impl DbState {
     }
 
     fn db_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".proxybot").join("proxybot.db")
+        crate::config::db_path()
     }
 
     pub(crate) fn init_schema(conn: &Connection) -> SqlResult<()> {

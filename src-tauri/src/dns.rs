@@ -19,17 +19,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::db::DbState;
 use crate::rules::RulesEngine;
-
-/// DNS server listening port (pf redirects 53 -> 5300).
-const DNS_PORT: u16 = 5300;
-/// Default upstream DNS (plain UDP fallback).
-const DEFAULT_UPSTREAM_DNS: &str = "8.8.8.8:53";
-/// Default DoH upstream.
-const DEFAULT_DOH_URL: &str = "https://1.1.1.1/dns-query";
-/// Maximum DNS entries to store.
-const MAX_DNS_ENTRIES: usize = 10000;
-/// Upstream query timeout.
-const DNS_TIMEOUT_SECS: u64 = 5;
+use crate::config::{dns_port, default_upstream_dns, default_doh_url, max_dns_entries, dns_timeout_secs};
 
 /// DNS upstream protocol type.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -51,7 +41,7 @@ impl Default for DnsUpstream {
         // Default to DoH for secure DNS
         Self {
             upstream_type: DnsUpstreamType::Doh,
-            address: DEFAULT_DOH_URL.to_string(),
+            address: default_doh_url().to_string(),
         }
     }
 }
@@ -96,7 +86,7 @@ pub struct BlocklistEntry {
 impl DnsState {
     pub fn new() -> Self {
         Self {
-            entries: Arc::new(Mutex::new(VecDeque::with_capacity(MAX_DNS_ENTRIES))),
+            entries: Arc::new(Mutex::new(VecDeque::with_capacity(max_dns_entries()))),
             running: Arc::new(AtomicBool::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
             db_state: None,
@@ -312,7 +302,7 @@ fn record_query(
     };
 
     let mut entries = state.entries.lock().unwrap();
-    if entries.len() >= MAX_DNS_ENTRIES {
+    if entries.len() >= max_dns_entries() {
         entries.pop_front();
     }
     entries.push_back(entry.clone());
@@ -604,7 +594,7 @@ async fn query_upstream_doh(
 ) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .use_rustls_tls()
-        .timeout(Duration::from_secs(DNS_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(dns_timeout_secs()))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -774,7 +764,7 @@ async fn handle_dns_query(
 
     // Forward to upstream DNS
     match timeout(
-        Duration::from_secs(DNS_TIMEOUT_SECS),
+        Duration::from_secs(dns_timeout_secs()),
         forward_dns_query(data, &upstream),
     )
     .await
@@ -795,10 +785,10 @@ async fn handle_dns_query(
                 log::info!("Trying fallback to plain UDP for {}", domain);
                 let fallback = DnsUpstream {
                     upstream_type: DnsUpstreamType::PlainUdp,
-                    address: DEFAULT_UPSTREAM_DNS.to_string(),
+                    address: default_upstream_dns().to_string(),
                 };
                 match timeout(
-                    Duration::from_secs(DNS_TIMEOUT_SECS),
+                    Duration::from_secs(dns_timeout_secs()),
                     forward_dns_query(data, &fallback),
                 )
                 .await
@@ -899,7 +889,7 @@ fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
 
 /// Run the DNS server loop.
 async fn run_dns_server(app_handle: AppHandle, state: Arc<DnsState>) -> Result<(), String> {
-    let addr = format!("0.0.0.0:{}", DNS_PORT);
+    let addr = format!("0.0.0.0:{}", dns_port());
     let socket = UdpSocket::bind(&addr)
         .await
         .map_err(|e| format!("Failed to bind DNS socket to {}: {}", addr, e))?;

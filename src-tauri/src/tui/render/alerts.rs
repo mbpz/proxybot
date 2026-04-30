@@ -79,7 +79,7 @@ fn render_alert_list(f: &mut Frame, area: Rect, app: &TuiApp) {
             AlertSeverity::Warning => "SEV2",
             AlertSeverity::Critical => "SEV1",
         };
-        let ack_marker = if alert.acknowledged { "*" } else { " " };
+        let _ack_marker = if alert.acknowledged { "*" } else { " " };
 
         let severity_cell = Cell::from(format!("[{}]", sev_badge)).style(sev_color);
         let ts_cell = Cell::from(alert.created_at.chars().take(19).collect::<String>());
