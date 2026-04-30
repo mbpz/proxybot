@@ -67,6 +67,33 @@ pub struct TrafficState {
     // pf/DNS status
     pub pf_enabled: bool,
     pub dns_running: bool,
+    // Breakpoint state
+    pub breakpoint: BreakpointState,
+}
+
+/// Breakpoint type.
+#[derive(Clone, PartialEq, Eq)]
+pub enum BreakpointType {
+    Request,
+    Response,
+}
+
+/// Breakpoint mode in the TUI.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub enum BreakpointMode {
+    #[default]
+    None,
+    RequestPaused,
+    ResponsePaused,
+}
+
+/// Breakpoint state for managing paused requests.
+#[derive(Default)]
+pub struct BreakpointState {
+    pub mode: BreakpointMode,
+    pub queue: Vec<crate::proxy::InterceptedRequest>,
+    pub current_edit: Option<crate::proxy::InterceptedRequest>,
+    pub current_index: usize,
 }
 
 impl TrafficState {

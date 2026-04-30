@@ -33,7 +33,7 @@ static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 static SHUTDOWN_TX: LazyLock<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
     LazyLock::new(|| std::sync::Mutex::new(None));
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct InterceptedRequest {
     pub id: String,
     pub timestamp: String,
