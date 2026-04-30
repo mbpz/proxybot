@@ -5,7 +5,7 @@
 //! - Regex search bar
 //! - Split pane: request list (top 60%) + detail panel (bottom 40%)
 
-use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::Stylize, text::Line};
+use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::{Stylize, Style}, text::Line};
 
 use crate::tui::{TuiApp, input::format_ts, input::fmt_duration, FilterMode};
 use crate::db::RecentRequest;
@@ -89,7 +89,11 @@ fn render_content(f: &mut Frame, area: Rect, app: &TuiApp) {
         .split(area);
 
     render_request_list(f, chunks[0], app);
-    render_detail_panel(f, chunks[1], app);
+    if app.traffic.breakpoint.mode != crate::tui::BreakpointMode::None {
+        render_breakpoint_editor(f, chunks[1], app);
+    } else {
+        render_detail_panel(f, chunks[1], app);
+    }
 }
 
 /// Render animated skeleton loading rows.
@@ -353,6 +357,71 @@ fn render_ws_frames_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) 
     let para = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title("WS Frames"));
     f.render_widget(para, area);
+}
+
+/// Render the breakpoint editor in the detail panel area.
+fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
+    use ratatui::layout::Alignment;
+    use ratatui::style::Color;
+
+    let bp = &app.traffic.breakpoint;
+    let req = match &bp.current_edit {
+        Some(r) => r,
+        None => return,
+    };
+
+    let modal_width = 60.min(area.width.saturating_sub(4));
+    let modal_height = 20.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(modal_width)) / 2;
+    let y = (area.height.saturating_sub(modal_height)) / 2;
+    let modal_area = Rect::new(x, y, modal_width, modal_height);
+
+    let mode_label = match bp.mode {
+        crate::tui::BreakpointMode::RequestPaused => "REQUEST BREAKPOINT",
+        crate::tui::BreakpointMode::ResponsePaused => "RESPONSE BREAKPOINT",
+        _ => return,
+    };
+
+    let headers_preview: Vec<String> = req.req_headers.iter().take(3)
+        .map(|(k, v)| format!("  {}: {}", k, v))
+        .collect();
+    let headers_extra = if req.req_headers.len() > 3 {
+        format!("  ... and {} more", req.req_headers.len() - 3)
+    } else {
+        String::new()
+    };
+
+    let body_preview = req.req_body.as_ref()
+        .map(|s| s.chars().take(80).collect::<String>())
+        .unwrap_or_else(|| "(empty)".to_string());
+
+    let lines = vec![
+        format!("  {} — press [g] to GO, [c] to CANCEL, [e] to EDIT", mode_label),
+        String::new(),
+        format!("  Method:  {}", req.method),
+        format!("  URL:    {}://{}{}", req.scheme, req.host, req.path),
+        format!("  Status: {:?}", req.status),
+        String::new(),
+        format!("  Headers: ({} pairs)", req.req_headers.len()),
+    ];
+    let mut all_lines = lines;
+    for h in headers_preview {
+        all_lines.push(h);
+    }
+    if !headers_extra.is_empty() {
+        all_lines.push(headers_extra);
+    }
+    all_lines.push(String::new());
+    all_lines.push(format!("  Body: {}", body_preview));
+
+    let content = Paragraph::new(all_lines.join("\n"))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" {} ", mode_label))
+            .border_style(Style::new().fg(Color::Cyan)))
+        .alignment(Alignment::Left);
+
+    f.render_widget(content, modal_area);
 }
 
 /// Simple JSON formatter - adds basic indentation for objects/arrays.
