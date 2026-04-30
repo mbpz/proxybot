@@ -320,6 +320,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             RuleAction::Reject => "REJECT".to_string(),
                                             RuleAction::MapRemote(_) => "MAPREMOTE".to_string(),
                                             RuleAction::MapLocal(_) => "MAPLOCAL".to_string(),
+                                            RuleAction::Breakpoint(ref target) => format!("BREAKPOINT:{:?}", target),
                                         },
                                     );
                                 }
@@ -729,6 +730,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             }
+                        }
+                        InputAction::ToggleBreakpoint => {
+                            if app.current_tab == Tab::Traffic {
+                                use proxybot_lib::tui::BreakpointMode;
+                                let filtered = app.traffic.filtered_requests();
+                                if !filtered.is_empty() {
+                                    let selected = app.traffic.selected.min(filtered.len().saturating_sub(1));
+                                    let req = filtered[selected];
+                                    let intercepted = proxybot_lib::proxy::InterceptedRequest {
+                                        id: req.id.to_string(),
+                                        timestamp: req.timestamp.clone(),
+                                        method: req.method.clone(),
+                                        host: req.host.clone(),
+                                        path: req.path.clone(),
+                                        scheme: req.scheme.clone(),
+                                        ..Default::default()
+                                    };
+                                    app.traffic.breakpoint.queue.push(intercepted);
+                                    if app.traffic.breakpoint.current_edit.is_none() {
+                                        app.traffic.breakpoint.current_edit = app.traffic.breakpoint.queue.first().cloned();
+                                        app.traffic.breakpoint.mode = BreakpointMode::RequestPaused;
+                                    }
+                                }
+                            }
+                        }
+                        InputAction::BreakpointGo => {
+                            use proxybot_lib::tui::BreakpointMode;
+                            if !app.traffic.breakpoint.queue.is_empty() {
+                                app.traffic.breakpoint.queue.remove(0);
+                            }
+                            if let Some(next) = app.traffic.breakpoint.queue.first() {
+                                app.traffic.breakpoint.current_edit = Some(next.clone());
+                                app.traffic.breakpoint.mode = BreakpointMode::RequestPaused;
+                            } else {
+                                app.traffic.breakpoint.current_edit = None;
+                                app.traffic.breakpoint.mode = BreakpointMode::None;
+                            }
+                        }
+                        InputAction::BreakpointCancel => {
+                            use proxybot_lib::tui::BreakpointMode;
+                            app.traffic.breakpoint.queue.clear();
+                            app.traffic.breakpoint.current_edit = None;
+                            app.traffic.breakpoint.mode = BreakpointMode::None;
+                        }
+                        InputAction::BreakpointEdit => {
+                            // Edit mode - for now just log, editing functionality comes later
+                            log::info!("Breakpoint edit mode requested");
                         }
                         InputAction::None => {}
                     }
