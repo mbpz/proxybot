@@ -93,6 +93,14 @@ pub enum InputAction {
     FilterHost,
     /// Enter filter input mode for status (Traffic tab).
     FilterStatus,
+    /// Toggle breakpoint on selected request (Traffic tab).
+    ToggleBreakpoint,
+    /// Continue sending paused request (GO).
+    BreakpointGo,
+    /// Cancel the paused request.
+    BreakpointCancel,
+    /// Switch to editing mode for current breakpoint.
+    BreakpointEdit,
     /// Enter filter input mode for app_tag (Traffic tab).
     FilterAppTag,
     /// No action.
@@ -171,6 +179,12 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('f') if current_tab == Tab::Traffic => InputAction::FilterHost,
         KeyCode::Char('o') if current_tab == Tab::Traffic => InputAction::FilterStatus,
         KeyCode::Char('a') if current_tab == Tab::Traffic => InputAction::FilterAppTag,
+
+        // Traffic tab breakpoint shortcuts: b=toggle, g=go, c=cancel, e=edit
+        KeyCode::Char('b') if current_tab == Tab::Traffic => InputAction::ToggleBreakpoint,
+        KeyCode::Char('g') if current_tab == Tab::Traffic => InputAction::BreakpointGo,
+        KeyCode::Char('c') if current_tab == Tab::Traffic => InputAction::BreakpointCancel,
+        KeyCode::Char('e') if current_tab == Tab::Traffic => InputAction::BreakpointEdit,
 
         // Certs tab: r=regenerate, e=export
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
