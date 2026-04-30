@@ -47,6 +47,7 @@ crossterm = "0.26"
 
 [dev-dependencies]
 tempfile = "3"
+proptest = "1"
 
 [[bin]]
 name = "proxybot-tui"

@@ -9,7 +9,7 @@ use std::time::Duration;
 use super::Tab;
 
 /// Input action returned by the input handler.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InputAction {
     /// Quit the application.
     Quit,
@@ -109,12 +109,15 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => InputAction::Quit,
 
-        // Proxy control
+        // Graph tab: g=toggle DAG/Auth view, a=toggle auth view, r=refresh
+        // (must come before the general 'r' StartProxy to take precedence)
+        KeyCode::Char('g') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
+        KeyCode::Char('a') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
+        KeyCode::Char('r') if current_tab == Tab::Graph => InputAction::RefreshGraph,
+
+        // Proxy control (r = start proxy on non-Certs tabs, S = stop)
         KeyCode::Char('r') if current_tab != Tab::Certs => InputAction::StartProxy,
         KeyCode::Char('S') => InputAction::StopProxy,
-
-        // Clear (only when not on Alerts tab - 'c' is used for ClearAlerts there)
-        KeyCode::Char('c') if current_tab != Tab::Alerts => InputAction::Clear,
 
         // pf/DNS controls
         KeyCode::Char('p') => InputAction::TogglePf,
@@ -127,21 +130,30 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('a') if current_tab == Tab::Alerts => InputAction::AckAlert,
         KeyCode::Char('c') if current_tab == Tab::Alerts => InputAction::ClearAlerts,
 
+        // Clear (only when not on Alerts tab - 'c' is used for ClearAlerts there)
+        KeyCode::Char('c') if current_tab != Tab::Alerts => InputAction::Clear,
+
         // Replay tab: s=start, x=stop, e=export HAR, d=show diff
         KeyCode::Char('s') if current_tab == Tab::Replay => InputAction::StartReplay,
         KeyCode::Char('x') if current_tab == Tab::Replay => InputAction::StopReplay,
         KeyCode::Char('e') if current_tab == Tab::Replay => InputAction::ExportHar,
         KeyCode::Char('d') if current_tab == Tab::Replay => InputAction::ShowDiff,
 
-        // Rules tab: a=add, e=edit, d=delete (not on Graph/Gen tabs)
+        // Rules tab: a=add, e=edit, d=delete, s=save (not on Graph/Gen tabs)
         KeyCode::Char('a') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::AddRule,
         KeyCode::Char('e') if current_tab != Tab::Certs => InputAction::EditRule,
         KeyCode::Char('d') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::DeleteRule,
         KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => InputAction::SaveRule,
 
-        // Rules tab: Alt+Up/Down to reorder rules
-        KeyCode::Up if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleUp,
-        KeyCode::Down if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleDown,
+        // List navigation (Up/Down only, not with Alt modifier — Alt is for rule reordering)
+        KeyCode::Up | KeyCode::Char('k') if !key.modifiers.contains(KeyModifiers::ALT) => InputAction::Up,
+        KeyCode::Down | KeyCode::Char('j') if !key.modifiers.contains(KeyModifiers::ALT) => InputAction::Down,
+        KeyCode::Enter => InputAction::Enter,
+
+        // Detail sub-tab switching (1=Headers, 2=Body, 3=WS Frames)
+        KeyCode::Char('1') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(0),
+        KeyCode::Char('2') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(1),
+        KeyCode::Char('3') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(2),
 
         // Certs tab: r=regenerate, e=export
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
@@ -155,26 +167,15 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         // Clear search (x is also used for stop replay on Replay tab)
         KeyCode::Char('x') if current_tab != Tab::Replay => InputAction::ClearSearch,
 
-        // Graph tab: g=toggle DAG/Auth view, a=toggle auth view, r=refresh
-        KeyCode::Char('g') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
-        KeyCode::Char('a') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
-        KeyCode::Char('r') if current_tab == Tab::Graph => InputAction::RefreshGraph,
-
         // Gen tab: m=mock API, f=frontend scaffold, d=docker bundle, o=open output
         KeyCode::Char('m') if current_tab == Tab::Gen => InputAction::GenMockApi,
         KeyCode::Char('f') if current_tab == Tab::Gen => InputAction::GenFrontend,
         KeyCode::Char('d') if current_tab == Tab::Gen => InputAction::GenDocker,
         KeyCode::Char('o') if current_tab == Tab::Gen => InputAction::OpenOutput,
 
-        // List navigation
-        KeyCode::Up | KeyCode::Char('k') => InputAction::Up,
-        KeyCode::Down | KeyCode::Char('j') => InputAction::Down,
-        KeyCode::Enter => InputAction::Enter,
-
-        // Detail sub-tab switching (1=Headers, 2=Body, 3=WS Frames)
-        KeyCode::Char('1') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(0),
-        KeyCode::Char('2') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(1),
-        KeyCode::Char('3') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(2),
+        // Rules tab: Alt+Up/Down to reorder rules
+        KeyCode::Up if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleUp,
+        KeyCode::Down if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleDown,
 
         _ => InputAction::None,
     }

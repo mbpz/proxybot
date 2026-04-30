@@ -67,7 +67,7 @@ impl TrafficState {
 
     /// Returns filtered+searched requests.
     pub fn filtered_requests(&self) -> Vec<&RecentRequest> {
-        self.requests
+        let mut results: Vec<&RecentRequest> = self.requests
             .iter()
             .filter(|req| {
                 // Method filter
@@ -120,7 +120,10 @@ impl TrafficState {
                 }
                 true
             })
-            .collect()
+            .collect::<Vec<_>>();
+        // Sort newest-first (highest id first)
+        results.sort_by_key(|r| std::cmp::Reverse(r.id));
+        results
     }
 
     /// Clear all filters and search.
