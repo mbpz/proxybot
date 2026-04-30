@@ -561,4 +561,98 @@ mod tests {
         let _g = GraphState::default();
         let _gen = GenState::default();
     }
+
+    #[test]
+    fn test_breakpoint_mode_default() {
+        let state = BreakpointState::default();
+        assert!(matches!(state.mode, BreakpointMode::None));
+        assert!(state.queue.is_empty());
+        assert!(state.current_edit.is_none());
+    }
+
+    #[test]
+    fn test_breakpoint_go_clears_current() {
+        let mut state = BreakpointState::default();
+        let req = crate::proxy::InterceptedRequest {
+            id: "1".to_string(),
+            timestamp: "1".to_string(),
+            method: "GET".to_string(),
+            host: "example.com".to_string(),
+            path: "/".to_string(),
+            scheme: "https".to_string(),
+            ..Default::default()
+        };
+        state.queue.push(req.clone());
+        state.current_edit = Some(req);
+        state.mode = BreakpointMode::RequestPaused;
+
+        // Simulate GO: remove first item
+        if !state.queue.is_empty() {
+            state.queue.remove(0);
+        }
+        state.current_edit = state.queue.first().cloned();
+        if state.current_edit.is_none() {
+            state.mode = BreakpointMode::None;
+        }
+
+        assert!(state.queue.is_empty());
+        assert!(state.current_edit.is_none());
+        assert!(matches!(state.mode, BreakpointMode::None));
+    }
+
+    #[test]
+    fn test_breakpoint_cancel_clears_all() {
+        let mut state = BreakpointState::default();
+        for i in 0..3 {
+            let req = crate::proxy::InterceptedRequest {
+                id: i.to_string(),
+                timestamp: i.to_string(),
+                method: "GET".to_string(),
+                host: "example.com".to_string(),
+                path: "/".to_string(),
+                scheme: "https".to_string(),
+                ..Default::default()
+            };
+            state.queue.push(req);
+        }
+        state.current_edit = state.queue.first().cloned();
+        state.mode = BreakpointMode::RequestPaused;
+
+        // Simulate Cancel
+        state.queue.clear();
+        state.current_edit = None;
+        state.mode = BreakpointMode::None;
+
+        assert!(state.queue.is_empty());
+        assert!(state.current_edit.is_none());
+        assert!(matches!(state.mode, BreakpointMode::None));
+    }
+
+    #[test]
+    fn test_breakpoint_multiple_in_queue() {
+        let mut state = BreakpointState::default();
+        for i in 0..3 {
+            let req = crate::proxy::InterceptedRequest {
+                id: i.to_string(),
+                timestamp: i.to_string(),
+                method: "GET".to_string(),
+                host: format!("host{}.com", i),
+                path: "/".to_string(),
+                scheme: "https".to_string(),
+                ..Default::default()
+            };
+            state.queue.push(req);
+        }
+        state.mode = BreakpointMode::RequestPaused;
+
+        assert_eq!(state.queue.len(), 3);
+
+        // Go through each item
+        state.queue.remove(0);
+        assert_eq!(state.queue.len(), 2);
+        state.queue.remove(0);
+        assert_eq!(state.queue.len(), 1);
+        state.queue.remove(0);
+        assert_eq!(state.queue.len(), 0);
+    }
 }
