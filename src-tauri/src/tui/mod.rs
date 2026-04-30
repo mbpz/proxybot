@@ -28,7 +28,16 @@ pub struct TrafficFilters {
     pub method: Option<String>,        // GET, POST, PUT, DELETE, etc.
     pub host_pattern: Option<String>,  // substring match
     pub status_class: Option<String>,  // "2xx", "3xx", "4xx", "5xx"
-    pub app_tag: Option<String>,      // app name filter
+    pub app_tag: Option<String>,       // app name filter
+}
+
+/// Which filter field is being edited in filter input mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterMode {
+    Method,
+    Host,
+    Status,
+    AppTag,
 }
 
 /// Traffic tab state.
@@ -43,6 +52,9 @@ pub struct TrafficState {
     pub search_regex: Option<Regex>,
     pub search_input: String,
     pub search_focused: bool,
+    // Filter input mode (m/f/o/a key → enter mode → type → Enter to confirm)
+    pub filter_mode: Option<FilterMode>,
+    pub filter_input: String,
     // Detail panel
     pub detail_request: Option<InterceptedRequest>,
     pub detail_loading: bool,
@@ -215,6 +227,10 @@ impl Tab {
 pub struct DevicesState {
     pub selected: usize,
     pub selected_override: Option<usize>,
+    /// Whether we're editing the rule override for selected device
+    pub editing_override: bool,
+    /// Rule override input buffer
+    pub override_input: String,
 }
 
 /// Rules tab state.

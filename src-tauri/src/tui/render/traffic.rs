@@ -7,7 +7,7 @@
 
 use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::Stylize, text::Line};
 
-use crate::tui::{TuiApp, input::format_ts, input::fmt_duration};
+use crate::tui::{TuiApp, input::format_ts, input::fmt_duration, FilterMode};
 use crate::db::RecentRequest;
 use crate::proxy::InterceptedRequest;
 
@@ -35,6 +35,22 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let traffic = &app.traffic;
 
+    // If in filter input mode, show the input prompt instead of the normal filter line
+    if let Some(mode) = traffic.filter_mode {
+        let label = match mode {
+            FilterMode::Method => "Method",
+            FilterMode::Host => "Host",
+            FilterMode::Status => "Status",
+            FilterMode::AppTag => "App Tag",
+        };
+        let prompt = format!("Filter {}: {} [Enter=confirm, Esc=cancel]", label, traffic.filter_input);
+        let para = Paragraph::new(prompt.yellow().to_string())
+            .block(Block::default().borders(Borders::ALL).title("Filter Input"))
+            .style(Color::Yellow);
+        f.render_widget(para, area);
+        return;
+    }
+
     // Filter indicators
     let method_str = traffic.filters.method.as_deref().unwrap_or("*");
     let host_str = traffic.filters.host_pattern.as_deref().unwrap_or("");
@@ -47,7 +63,7 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
     };
 
     let filter_line = format!(
-        " Method:[{}] Host:[{:<15}] Status:[{}] App:[{:<10}] {} [press letter to set, / for search, Esc to clear]",
+        " Method:[{}] Host:[{:<15}] Status:[{}] App:[{:<10}] {} [m]ethod [f]ost [o]kstatus [a]pp",
         method_str.yellow(),
         host_str.chars().take(15).collect::<String>().yellow(),
         status_str.green(),

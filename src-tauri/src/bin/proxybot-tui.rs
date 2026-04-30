@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use proxybot_lib::cert::CertManager;
-use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal};
+use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal, set_device_rule_override_internal};
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
 use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest};
@@ -157,7 +157,92 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match handle_key_event(&key, app.current_tab) {
+                    // Filter input mode: capture characters to build filter value
+                    if let Some(mode) = app.traffic.filter_mode {
+                        match key.code {
+                            crossterm::event::KeyCode::Esc => {
+                                app.traffic.filter_mode = None;
+                                app.traffic.filter_input.clear();
+                            }
+                            crossterm::event::KeyCode::Enter => {
+                                // Apply the filter
+                                let value = app.traffic.filter_input.clone();
+                                match mode {
+                                    proxybot_lib::tui::FilterMode::Method => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.method = None;
+                                        } else {
+                                            app.traffic.filters.method = Some(value);
+                                        }
+                                    }
+                                    proxybot_lib::tui::FilterMode::Host => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.host_pattern = None;
+                                        } else {
+                                            app.traffic.filters.host_pattern = Some(value);
+                                        }
+                                    }
+                                    proxybot_lib::tui::FilterMode::Status => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.status_class = None;
+                                        } else {
+                                            app.traffic.filters.status_class = Some(value);
+                                        }
+                                    }
+                                    proxybot_lib::tui::FilterMode::AppTag => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.app_tag = None;
+                                        } else {
+                                            app.traffic.filters.app_tag = Some(value);
+                                        }
+                                    }
+                                }
+                                app.traffic.filter_mode = None;
+                                app.traffic.filter_input.clear();
+                            }
+                            crossterm::event::KeyCode::Backspace => {
+                                app.traffic.filter_input.pop();
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                app.traffic.filter_input.push(c);
+                            }
+                            _ => {}
+                        }
+                        // In filter mode, skip normal key handling
+                    } else if app.devices.editing_override {
+                        match key.code {
+                            crossterm::event::KeyCode::Esc => {
+                                app.devices.editing_override = false;
+                                app.devices.override_input.clear();
+                            }
+                            crossterm::event::KeyCode::Enter => {
+                                // Apply the override
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    let devices = get_devices_internal(&conn).unwrap_or_default();
+                                    if !devices.is_empty() {
+                                        let idx = app.devices.selected.min(devices.len().saturating_sub(1));
+                                        let mac = &devices[idx].mac_address;
+                                        let override_value = if app.devices.override_input.is_empty() {
+                                            None
+                                        } else {
+                                            Some(app.devices.override_input.clone())
+                                        };
+                                        let _ = set_device_rule_override_internal(&conn, mac, override_value);
+                                    }
+                                }
+                                app.devices.editing_override = false;
+                                app.devices.override_input.clear();
+                            }
+                            crossterm::event::KeyCode::Backspace => {
+                                app.devices.override_input.pop();
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                app.devices.override_input.push(c);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        match handle_key_event(&key, app.current_tab) {
                         InputAction::Quit => break Ok(()),
                         InputAction::NextTab => {
                             app.next_tab();
@@ -445,6 +530,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         InputAction::SwitchDetailTab(n) => {
                             app.traffic.detail_tab = n;
                         }
+                        InputAction::FilterMethod => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::Method);
+                            app.traffic.filter_input.clear();
+                        }
+                        InputAction::FilterHost => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::Host);
+                            app.traffic.filter_input.clear();
+                        }
+                        InputAction::FilterStatus => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::Status);
+                            app.traffic.filter_input.clear();
+                        }
+                        InputAction::FilterAppTag => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::AppTag);
+                            app.traffic.filter_input.clear();
+                        }
                         InputAction::Enter => {
                             // Fetch detail for selected request from DB
                             let filtered: Vec<&proxybot_lib::db::RecentRequest> = app.traffic.filtered_requests();
@@ -603,8 +704,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .spawn();
                             }
                         }
+                        InputAction::EditDeviceRule => {
+                            // Enter device rule override edit mode
+                            if app.current_tab == Tab::Devices {
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    let devices = get_devices_internal(&conn).unwrap_or_default();
+                                    if !devices.is_empty() {
+                                        let idx = app.devices.selected.min(devices.len().saturating_sub(1));
+                                        let current_override = devices[idx].rule_override.clone().unwrap_or_default();
+                                        app.devices.editing_override = true;
+                                        app.devices.override_input = current_override;
+                                    }
+                                }
+                            }
+                        }
                         InputAction::None => {}
                     }
+                    } // end else (filter mode)
                 }
             }
         }

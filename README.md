@@ -33,7 +33,7 @@ Navigation: Tab / h,l / ←,→  (switch tabs)
              j,k / ↑,↓        (navigate lists)
 General:     q / Esc           (quit)
              r                  (start proxy)
-             s                  (stop proxy)
+             S                  (stop proxy)
              c                  (clear)
 
 Traffic Tab: p  (toggle pf transparent proxy)
@@ -41,11 +41,17 @@ Traffic Tab: p  (toggle pf transparent proxy)
              /  (focus search)
              x  (clear filters)
              Enter (load request detail)
+             1/2/3  (switch detail sub-tab: Headers/Body/WS Frames)
+             m  (filter by method)
+             f  (filter by host)
+             o  (filter by status)
+             a  (filter by app_tag)
 
 Rules Tab:   a  (add rule)
              e  (edit rule)
              d  (delete rule)
              s  (save rule)
+             Alt+↑/↓  (reorder rule)
 
 Certs Tab:   r  (regenerate CA)
              e  (export PEM)
@@ -53,6 +59,22 @@ Certs Tab:   r  (regenerate CA)
 DNS Tab:     s  (toggle DNS server)
              b  (toggle blocklist)
              u  (cycle upstream)
+
+Alerts Tab:  a  (acknowledge selected alert)
+             c  (clear all acknowledged alerts)
+
+Replay Tab:  s  (start replay)
+             x  (stop replay)
+             e  (export HAR)
+             d  (show diff)
+
+Graph Tab:   g / a  (toggle DAG/Auth state machine view)
+             r  (refresh graph)
+
+Gen Tab:     m  (generate mock API)
+             f  (generate frontend scaffold)
+             d  (generate Docker bundle)
+             o  (open output folder)
 ```
 
 ## Installation
@@ -95,7 +117,7 @@ Your iPhone must be on the same LAN as your Mac and use your Mac as the network 
 1. Go to **Settings > Wi-Fi > Your Network > Configure Proxy**
 2. Select **Manual**
 3. Set **Server** to your Mac's IP address (shown in ProxyBot's status panel)
-4. Set **Port** to `8080`
+4. Set **Port** to `8088`
 5. Go to **Settings > Wi-Fi > Your Network > Configure DNS**
 6. Set DNS to your Mac's IP address (same as the proxy server)
 
@@ -212,7 +234,7 @@ brew uninstall proxybot-tui
 
 ```bash
 cd src-tauri
-cargo test --lib          # 48+ unit tests including TUI
+cargo test                 # 153+ unit + integration tests
 cargo build --bin proxybot-tui --release
 ```
 

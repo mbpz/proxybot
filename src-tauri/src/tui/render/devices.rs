@@ -44,12 +44,17 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         .split(chunks[0]);
 
     // Stats header
-    let stats_text = format!(
-        " Devices: {} | Total Up: {} | Total Down: {} | j/k navigate",
-        total_devices,
-        format_bytes(total_up),
-        format_bytes(total_down),
-    );
+    let stats_text = if app.devices.editing_override {
+        let current = app.devices.override_input.as_str();
+        format!("Rule override: [{}] | Enter=confirm Esc=cancel", if current.is_empty() { "(none)" } else { current })
+    } else {
+        format!(
+            " Devices: {} | Total Up: {} | Total Down: {} | j/k navigate [e] edit rule",
+            total_devices,
+            format_bytes(total_up),
+            format_bytes(total_down),
+        )
+    };
     let stats = Paragraph::new(stats_text)
         .style(Style::new().fg(Color::Yellow))
         .block(Block::default().borders(Borders::ALL).title("Devices"));
@@ -67,12 +72,14 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
                 Style::new()
             };
 
+            let rule_badge = dev.rule_override.as_deref().unwrap_or("-");
             Row::new(vec![
                 Cell::from(dev.name.clone()),
                 Cell::from(dev.mac_address.clone()),
                 Cell::from(dev.last_seen_at.clone()),
                 Cell::from(format_bytes(dev.upload_bytes)),
                 Cell::from(format_bytes(dev.download_bytes)),
+                Cell::from(rule_badge.to_string()),
             ])
             .style(row_style)
         })
@@ -81,11 +88,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let table = Table::new(
         table_rows,
         [
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-            Constraint::Percentage(25),
-            Constraint::Percentage(17),
             Constraint::Percentage(18),
+            Constraint::Percentage(18),
+            Constraint::Percentage(22),
+            Constraint::Percentage(14),
+            Constraint::Percentage(14),
+            Constraint::Percentage(14),
         ],
     )
     .block(Block::default().borders(Borders::ALL).title("Device List"))
