@@ -51,6 +51,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
                 RuleAction::Reject => "REJECT".to_string(),
                 RuleAction::MapRemote(t) => format!("MAPREMOTE:{}", t),
                 RuleAction::MapLocal(t) => format!("MAPLOCAL:{}", t),
+                RuleAction::Breakpoint(t) => format!("BREAKPOINT:{:?}", t),
             };
             let action_color = match &rule.action {
                 RuleAction::Direct => Color::Green,
@@ -58,6 +59,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
                 RuleAction::Reject => Color::Red,
                 RuleAction::MapRemote(_) => Color::Blue,
                 RuleAction::MapLocal(_) => Color::Cyan,
+                RuleAction::Breakpoint(_) => Color::Magenta,
             };
             let pattern_str = match rule.pattern {
                 RulePattern::Domain => "DOMAIN",

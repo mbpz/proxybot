@@ -27,6 +27,8 @@ pub enum RuleAction {
     MapRemote(String),
     #[serde(rename = "MAPLOCAL")]
     MapLocal(String),
+    #[serde(rename = "BREAKPOINT")]
+    Breakpoint(BreakpointTarget),
 }
 
 impl std::fmt::Display for RuleAction {
@@ -37,6 +39,7 @@ impl std::fmt::Display for RuleAction {
             RuleAction::Reject => write!(f, "REJECT"),
             RuleAction::MapRemote(ref target) => write!(f, "MAPREMOTE:{}", target),
             RuleAction::MapLocal(ref target) => write!(f, "MAPLOCAL:{}", target),
+            RuleAction::Breakpoint(ref t) => write!(f, "BREAKPOINT:{:?}", t),
         }
     }
 }
@@ -65,6 +68,15 @@ impl std::fmt::Display for RulePattern {
             RulePattern::RuleSet => write!(f, "RULE-SET"),
         }
     }
+}
+
+/// Breakpoint target type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BreakpointTarget {
+    Request,
+    Response,
+    Both,
 }
 
 /// A single routing rule.
@@ -140,6 +152,15 @@ impl RuleEntry {
             "MAPLOCAL" => {
                 let target = self.target.clone().unwrap_or_default();
                 RuleAction::MapLocal(target)
+            }
+            "BREAKPOINT" => {
+                let target = match self.target.as_deref() {
+                    Some("REQUEST") => BreakpointTarget::Request,
+                    Some("RESPONSE") => BreakpointTarget::Response,
+                    Some("BOTH") | None => BreakpointTarget::Both,
+                    _ => BreakpointTarget::Both,
+                };
+                RuleAction::Breakpoint(target)
             }
             _ => {
                 log::warn!("Unknown rule action: {}", self.action);
@@ -430,6 +451,7 @@ impl RulesEngine {
             target: match &r.action {
                 RuleAction::MapRemote(t) => Some(t.clone()),
                 RuleAction::MapLocal(t) => Some(t.clone()),
+                RuleAction::Breakpoint(t) => Some(format!("{:?}", t)),
                 _ => None,
             },
             name: r.name.clone(),
