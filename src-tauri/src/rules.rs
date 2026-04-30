@@ -18,11 +18,15 @@ use tokio::sync::mpsc;
 
 /// Rule action types.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "UPPERCASE", tag = "type", content = "target")]
 pub enum RuleAction {
     Direct,
     Proxy,
     Reject,
+    #[serde(rename = "MAPREMOTE")]
+    MapRemote(String),
+    #[serde(rename = "MAPLOCAL")]
+    MapLocal(String),
 }
 
 impl std::fmt::Display for RuleAction {
@@ -31,6 +35,8 @@ impl std::fmt::Display for RuleAction {
             RuleAction::Direct => write!(f, "DIRECT"),
             RuleAction::Proxy => write!(f, "PROXY"),
             RuleAction::Reject => write!(f, "REJECT"),
+            RuleAction::MapRemote(ref target) => write!(f, "MAPREMOTE:{}", target),
+            RuleAction::MapLocal(ref target) => write!(f, "MAPLOCAL:{}", target),
         }
     }
 }
@@ -67,6 +73,22 @@ pub struct Rule {
     pub pattern: RulePattern,
     pub value: String,
     pub action: RuleAction,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub comment: String,
+}
+
+fn default_priority() -> u8 {
+    100
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 /// Raw YAML structure for a single rule file.
@@ -80,6 +102,16 @@ struct RuleEntry {
     pattern: String,
     value: String,
     action: String,
+    #[serde(default)]
+    target: Option<String>,
+    #[serde(default)]
+    name: String,
+    #[serde(default = "default_priority")]
+    priority: u8,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    #[serde(default)]
+    comment: String,
 }
 
 impl RuleEntry {
@@ -101,6 +133,14 @@ impl RuleEntry {
             "DIRECT" => RuleAction::Direct,
             "PROXY" => RuleAction::Proxy,
             "REJECT" => RuleAction::Reject,
+            "MAPREMOTE" => {
+                let target = self.target.clone().unwrap_or_default();
+                RuleAction::MapRemote(target)
+            }
+            "MAPLOCAL" => {
+                let target = self.target.clone().unwrap_or_default();
+                RuleAction::MapLocal(target)
+            }
             _ => {
                 log::warn!("Unknown rule action: {}", self.action);
                 return None;
@@ -111,6 +151,10 @@ impl RuleEntry {
             pattern,
             value: self.value.clone(),
             action,
+            name: self.name.clone(),
+            priority: self.priority,
+            enabled: self.enabled,
+            comment: self.comment.clone(),
         })
     }
 }
@@ -328,6 +372,15 @@ impl RulesEngine {
                 pattern: r.pattern.to_string(),
                 value: r.value.clone(),
                 action: r.action.to_string(),
+                target: match &r.action {
+                    RuleAction::MapRemote(t) => Some(t.clone()),
+                    RuleAction::MapLocal(t) => Some(t.clone()),
+                    _ => None,
+                },
+                name: r.name.clone(),
+                priority: r.priority,
+                enabled: r.enabled,
+                comment: r.comment.clone(),
             })
             .collect();
 
@@ -368,6 +421,24 @@ impl RulesEngine {
         Ok(())
     }
 
+    /// Convert a Rule to RuleEntry for serialization.
+    fn rule_to_entry(r: &Rule) -> RuleEntry {
+        RuleEntry {
+            pattern: r.pattern.to_string(),
+            value: r.value.clone(),
+            action: r.action.to_string(),
+            target: match &r.action {
+                RuleAction::MapRemote(t) => Some(t.clone()),
+                RuleAction::MapLocal(t) => Some(t.clone()),
+                _ => None,
+            },
+            name: r.name.clone(),
+            priority: r.priority,
+            enabled: r.enabled,
+            comment: r.comment.clone(),
+        }
+    }
+
     /// Save a rule to a file (non-Tauri internal version).
     pub fn save_rule_internal(&self, rule: Rule, filename: &str) -> Result<(), String> {
         ensure_rules_dir().map_err(|e| e.to_string())?;
@@ -395,11 +466,7 @@ impl RulesEngine {
         // Serialize and save
         let rule_entries: Vec<RuleEntry> = existing_rules
             .iter()
-            .map(|r| RuleEntry {
-                pattern: r.pattern.to_string(),
-                value: r.value.clone(),
-                action: r.action.to_string(),
-            })
+            .map(Self::rule_to_entry)
             .collect();
 
         let file = RuleFile { rules: rule_entries };
@@ -507,11 +574,7 @@ pub fn save_rule(
     // Serialize and save
     let rule_entries: Vec<RuleEntry> = existing_rules
         .iter()
-        .map(|r| RuleEntry {
-            pattern: r.pattern.to_string(),
-            value: r.value.clone(),
-            action: r.action.to_string(),
-        })
+        .map(RulesEngine::rule_to_entry)
         .collect();
 
     let file = RuleFile { rules: rule_entries };
@@ -570,11 +633,7 @@ pub fn reorder_rules(
 
     let rule_entries: Vec<RuleEntry> = rules
         .iter()
-        .map(|r| RuleEntry {
-            pattern: r.pattern.to_string(),
-            value: r.value.clone(),
-            action: r.action.to_string(),
-        })
+        .map(RulesEngine::rule_to_entry)
         .collect();
 
     let file = RuleFile { rules: rule_entries };
@@ -633,6 +692,10 @@ mod tests {
             pattern: RulePattern::Domain,
             value: "example.com".to_string(),
             action: RuleAction::Direct,
+            name: "test".to_string(),
+            priority: 100,
+            enabled: true,
+            comment: "".to_string(),
         };
         assert_eq!(match_rule(&rule, "example.com", None), Some(RuleAction::Direct));
         assert_eq!(match_rule(&rule, "EXAMPLE.COM", None), Some(RuleAction::Direct));
@@ -645,6 +708,10 @@ mod tests {
             pattern: RulePattern::DomainSuffix,
             value: "example.com".to_string(),
             action: RuleAction::Proxy,
+            name: "test".to_string(),
+            priority: 100,
+            enabled: true,
+            comment: "".to_string(),
         };
         assert_eq!(match_rule(&rule, "example.com", None), Some(RuleAction::Proxy));
         assert_eq!(match_rule(&rule, "sub.example.com", None), Some(RuleAction::Proxy));
@@ -657,6 +724,10 @@ mod tests {
             pattern: RulePattern::DomainKeyword,
             value: "wechat".to_string(),
             action: RuleAction::Direct,
+            name: "test".to_string(),
+            priority: 100,
+            enabled: true,
+            comment: "".to_string(),
         };
         assert_eq!(match_rule(&rule, "api.wechat.com", None), Some(RuleAction::Direct));
         assert_eq!(match_rule(&rule, "wechat-api.example.com", None), Some(RuleAction::Direct));
@@ -669,6 +740,10 @@ mod tests {
             pattern: RulePattern::IpCidr,
             value: "10.0.0.0/8".to_string(),
             action: RuleAction::Reject,
+            name: "test".to_string(),
+            priority: 100,
+            enabled: true,
+            comment: "".to_string(),
         };
         assert_eq!(
             match_rule(&rule, "host.example.com", Some("10.1.2.3".parse().unwrap())),

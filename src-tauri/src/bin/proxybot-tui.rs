@@ -318,6 +318,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             RuleAction::Direct => "DIRECT".to_string(),
                                             RuleAction::Proxy => "PROXY".to_string(),
                                             RuleAction::Reject => "REJECT".to_string(),
+                                            RuleAction::MapRemote(_) => "MAPREMOTE".to_string(),
+                                            RuleAction::MapLocal(_) => "MAPLOCAL".to_string(),
                                         },
                                     );
                                 }
@@ -377,9 +379,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         "DIRECT" => RuleAction::Direct,
                                         "PROXY" => RuleAction::Proxy,
                                         "REJECT" => RuleAction::Reject,
+                                        "MAPREMOTE" => RuleAction::MapRemote("".to_string()),
+                                        "MAPLOCAL" => RuleAction::MapLocal("".to_string()),
                                         _ => RuleAction::Direct,
                                     };
-                                    let rule = Rule { pattern, value: value.clone(), action };
+                                    let rule = Rule {
+                                        pattern,
+                                        value: value.clone(),
+                                        action,
+                                        name: "".to_string(),
+                                        priority: 100,
+                                        enabled: true,
+                                        comment: "".to_string(),
+                                    };
                                     let filename = "custom.yaml".to_string();
                                     if let Err(e) = app.rules_engine.save_rule_internal(rule, &filename) {
                                         log::error!("Failed to save rule: {}", e);

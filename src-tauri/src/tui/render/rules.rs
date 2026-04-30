@@ -45,15 +45,19 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         .iter()
         .enumerate()
         .map(|(i, rule)| {
-            let action_str = match rule.action {
-                RuleAction::Direct => "DIRECT",
-                RuleAction::Proxy => "PROXY",
-                RuleAction::Reject => "REJECT",
+            let action_str = match &rule.action {
+                RuleAction::Direct => "DIRECT".to_string(),
+                RuleAction::Proxy => "PROXY".to_string(),
+                RuleAction::Reject => "REJECT".to_string(),
+                RuleAction::MapRemote(t) => format!("MAPREMOTE:{}", t),
+                RuleAction::MapLocal(t) => format!("MAPLOCAL:{}", t),
             };
-            let action_color = match rule.action {
+            let action_color = match &rule.action {
                 RuleAction::Direct => Color::Green,
                 RuleAction::Proxy => Color::Yellow,
                 RuleAction::Reject => Color::Red,
+                RuleAction::MapRemote(_) => Color::Blue,
+                RuleAction::MapLocal(_) => Color::Cyan,
             };
             let pattern_str = match rule.pattern {
                 RulePattern::Domain => "DOMAIN",
