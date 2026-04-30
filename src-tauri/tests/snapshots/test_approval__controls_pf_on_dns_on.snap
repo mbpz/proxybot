@@ -1,0 +1,5 @@
+---
+source: tests/test_approval.rs
+expression: controls
+---
+[p]f: ON [d]ns: ON  | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters

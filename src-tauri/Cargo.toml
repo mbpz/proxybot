@@ -48,6 +48,10 @@ crossterm = "0.26"
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+insta = "1.47.2"
+rexpect = "0.7.0"
+pty = "0.2.2"
+cucumber = "0.23.0"
 
 [[bin]]
 name = "proxybot-tui"

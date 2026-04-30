@@ -1,0 +1,5 @@
+---
+source: tests/test_approval.rs
+expression: line
+---
+ Method:[GET] Host:[api.example    ] Status:[2xx] App:[          ] /v1/ [press letter to set, / for search, Esc to clear]

@@ -1,0 +1,5 @@
+---
+source: tests/test_approval.rs
+expression: line
+---
+ Method:[*] Host:[               ] Status:[2xx] App:[          ] /regex/ [press letter to set, / for search, Esc to clear]
