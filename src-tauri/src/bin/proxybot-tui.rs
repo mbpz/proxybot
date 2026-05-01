@@ -757,6 +757,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         InputAction::BreakpointGo => {
                             use proxybot_lib::tui::BreakpointMode;
+                            app.traffic.breakpoint.edit_mode = proxybot_lib::tui::BreakpointEditMode::None;
                             if !app.traffic.breakpoint.queue.is_empty() {
                                 app.traffic.breakpoint.queue.remove(0);
                             }
@@ -775,12 +776,126 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             app.traffic.breakpoint.mode = BreakpointMode::None;
                         }
                         InputAction::BreakpointEdit => {
-                            // Edit mode - for now just log, editing functionality comes later
-                            log::info!("Breakpoint edit mode requested");
+                            use proxybot_lib::tui::{BreakpointEditMode, BreakpointField};
+                            if app.traffic.breakpoint.mode != proxybot_lib::tui::BreakpointMode::None {
+                                app.traffic.breakpoint.edit_mode = BreakpointEditMode::Editing(0);
+                                app.traffic.breakpoint.selected_field = BreakpointField::Method;
+                                if let Some(ref req) = app.traffic.breakpoint.current_edit {
+                                    app.traffic.breakpoint.method_input = req.method.clone();
+                                    app.traffic.breakpoint.url_input = format!("{}://{}{}", req.scheme, req.host, req.path);
+                                    app.traffic.breakpoint.body_input = req.req_body.clone().unwrap_or_default();
+                                }
+                            }
                         }
                         InputAction::None => {}
                     }
                     } // end else (filter mode)
+
+                    // Breakpoint edit mode: handle direction keys, Enter, character input
+                    if app.traffic.breakpoint.edit_mode != proxybot_lib::tui::BreakpointEditMode::None {
+                        use proxybot_lib::tui::BreakpointField;
+                        match key.code {
+                            crossterm::event::KeyCode::Up => {
+                                let current = &app.traffic.breakpoint.selected_field;
+                                let next = match current {
+                                    BreakpointField::Method => BreakpointField::Body,
+                                    BreakpointField::Url => BreakpointField::Method,
+                                    BreakpointField::Headers => BreakpointField::Url,
+                                    BreakpointField::Body => BreakpointField::Headers,
+                                };
+                                app.traffic.breakpoint.selected_field = next;
+                            }
+                            crossterm::event::KeyCode::Down => {
+                                let current = &app.traffic.breakpoint.selected_field;
+                                let next = match current {
+                                    BreakpointField::Method => BreakpointField::Url,
+                                    BreakpointField::Url => BreakpointField::Headers,
+                                    BreakpointField::Headers => BreakpointField::Body,
+                                    BreakpointField::Body => BreakpointField::Method,
+                                };
+                                app.traffic.breakpoint.selected_field = next;
+                            }
+                            crossterm::event::KeyCode::Enter => {
+                                match app.traffic.breakpoint.selected_field {
+                                    BreakpointField::Method => {
+                                        // Cycle method
+                                        let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+                                        let current = &app.traffic.breakpoint.method_input;
+                                        if let Some(idx) = methods.iter().position(|m| m == current) {
+                                            let next = methods[(idx + 1) % methods.len()];
+                                            app.traffic.breakpoint.method_input = next.to_string();
+                                            if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                                req.method = next.to_string();
+                                            }
+                                        }
+                                    }
+                                    BreakpointField::Headers => {
+                                        if app.traffic.breakpoint.editing_header_index.is_some() {
+                                            // Confirm header edit
+                                            if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                                if let Some(idx) = app.traffic.breakpoint.editing_header_index {
+                                                    if idx < req.req_headers.len() {
+                                                        let parts: Vec<&str> = app.traffic.breakpoint.header_input.splitn(2, ": ").collect();
+                                                        if parts.len() == 2 {
+                                                            req.req_headers[idx].0 = parts[0].to_string();
+                                                            req.req_headers[idx].1 = parts[1].to_string();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            app.traffic.breakpoint.editing_header_index = None;
+                                            app.traffic.breakpoint.header_input.clear();
+                                        } else {
+                                            // Start editing first header
+                                            app.traffic.breakpoint.editing_header_index = Some(0);
+                                            if let Some(ref req) = app.traffic.breakpoint.current_edit {
+                                                if !req.req_headers.is_empty() {
+                                                    let (k, v) = &req.req_headers[0];
+                                                    app.traffic.breakpoint.header_input = format!("{}: {}", k, v);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    BreakpointField::Body => {
+                                        if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                            req.req_body = Some(app.traffic.breakpoint.body_input.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            crossterm::event::KeyCode::Esc => {
+                                app.traffic.breakpoint.edit_mode = proxybot_lib::tui::BreakpointEditMode::None;
+                                app.traffic.breakpoint.editing_header_index = None;
+                                app.traffic.breakpoint.header_input.clear();
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                match app.traffic.breakpoint.selected_field {
+                                    BreakpointField::Url => {
+                                        app.traffic.breakpoint.url_input.push(c);
+                                    }
+                                    BreakpointField::Headers => {
+                                        if app.traffic.breakpoint.editing_header_index.is_some() {
+                                            app.traffic.breakpoint.header_input.push(c);
+                                        }
+                                    }
+                                    BreakpointField::Body => {
+                                        app.traffic.breakpoint.body_input.push(c);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            crossterm::event::KeyCode::Backspace => {
+                                match app.traffic.breakpoint.selected_field {
+                                    BreakpointField::Url => { app.traffic.breakpoint.url_input.pop(); }
+                                    BreakpointField::Headers => { app.traffic.breakpoint.header_input.pop(); }
+                                    BreakpointField::Body => { app.traffic.breakpoint.body_input.pop(); }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
         }
