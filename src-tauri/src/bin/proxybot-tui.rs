@@ -861,6 +861,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             req.req_body = Some(app.traffic.breakpoint.body_input.clone());
                                         }
                                     }
+                                    BreakpointField::Url => {
+                                        // URL editing is active when this field is selected
+                                        // url_input already captures Char/Backspace
+                                        // On Enter, sync to current_edit
+                                        if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                            // Parse url_input to update scheme/host/path
+                                            let url = &app.traffic.breakpoint.url_input;
+                                            if let Some(pos) = url.find("://") {
+                                                req.scheme = url[..pos].to_string();
+                                                let after = &url[pos+3..];
+                                                if let Some(path_pos) = after.find('/') {
+                                                    req.host = after[..path_pos].to_string();
+                                                    req.path = after[path_pos..].to_string();
+                                                } else {
+                                                    req.host = after.to_string();
+                                                    req.path = "/".to_string();
+                                                }
+                                            }
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
