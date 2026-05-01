@@ -87,13 +87,54 @@ pub enum BreakpointMode {
     ResponsePaused,
 }
 
+/// Breakpoint 编辑模式
+#[derive(Clone, PartialEq, Eq)]
+pub enum BreakpointEditMode {
+    None,           // 非编辑模式（正常查看）
+    Editing(usize), // 编辑模式（usize = 选中字段索引）
+}
+
+/// 可编辑的字段类型
+#[derive(Clone, PartialEq, Eq)]
+pub enum BreakpointField {
+    Method,   // 索引 0
+    Url,      // 索引 1
+    Headers,  // 索引 2
+    Body,     // 索引 3
+}
+
 /// Breakpoint state for managing paused requests.
-#[derive(Default)]
 pub struct BreakpointState {
     pub mode: BreakpointMode,
+    pub edit_mode: BreakpointEditMode,              // 新增
+    pub selected_field: BreakpointField,           // 新增
+    pub editing_header_index: Option<usize>,       // 新增：正在编辑的 header 行索引
+    pub header_input: String,                      // 新增
+    pub body_input: String,                         // 新增
+    pub url_input: String,                          // 新增
+    pub method_input: String,                       // 新增
+    // 现有字段
     pub queue: Vec<crate::proxy::InterceptedRequest>,
     pub current_edit: Option<crate::proxy::InterceptedRequest>,
     pub current_index: usize,
+}
+
+impl Default for BreakpointState {
+    fn default() -> Self {
+        Self {
+            mode: BreakpointMode::default(),
+            edit_mode: BreakpointEditMode::None,
+            selected_field: BreakpointField::Method,
+            editing_header_index: None,
+            header_input: String::new(),
+            body_input: String::new(),
+            url_input: String::new(),
+            method_input: String::new(),
+            queue: Vec::new(),
+            current_edit: None,
+            current_index: 0,
+        }
+    }
 }
 
 impl TrafficState {
