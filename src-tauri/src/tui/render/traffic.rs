@@ -362,7 +362,9 @@ fn render_ws_frames_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) 
 /// Render the breakpoint editor in the detail panel area.
 fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
     use ratatui::layout::Alignment;
+    use ratatui::widgets::{Block, Borders, Paragraph};
     use ratatui::style::Color;
+    use crate::tui::{BreakpointMode, BreakpointEditMode, BreakpointField};
 
     let bp = &app.traffic.breakpoint;
     let req = match &bp.current_edit {
@@ -376,45 +378,74 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
     let y = (area.height.saturating_sub(modal_height)) / 2;
     let modal_area = Rect::new(x, y, modal_width, modal_height);
 
+    // Check if in edit mode
+    let is_editing = !matches!(bp.edit_mode, BreakpointEditMode::None);
+
     let mode_label = match bp.mode {
-        crate::tui::BreakpointMode::RequestPaused => "REQUEST BREAKPOINT",
-        crate::tui::BreakpointMode::ResponsePaused => "RESPONSE BREAKPOINT",
+        BreakpointMode::RequestPaused => "REQUEST BREAKPOINT",
+        BreakpointMode::ResponsePaused => "RESPONSE BREAKPOINT",
         _ => return,
     };
 
-    let headers_preview: Vec<String> = req.req_headers.iter().take(3)
-        .map(|(k, v)| format!("  {}: {}", k, v))
-        .collect();
-    let headers_extra = if req.req_headers.len() > 3 {
-        format!("  ... and {} more", req.req_headers.len() - 3)
+    let edit_indicator = if is_editing { "[EDIT]" } else { "" };
+    let help_text = if is_editing {
+        "[↑/↓] field  [Enter] edit  [g] send  [Esc] cancel"
     } else {
-        String::new()
+        "[e] edit  [g] send  [c] cancel"
     };
 
-    let body_preview = req.req_body.as_ref()
-        .map(|s| s.chars().take(80).collect::<String>())
-        .unwrap_or_else(|| "(empty)".to_string());
-
-    let lines = vec![
-        format!("  {} — press [g] to GO, [c] to CANCEL, [e] to EDIT", mode_label),
+    let mut lines: Vec<String> = vec![
+        format!("  {} {} — {}", mode_label, edit_indicator, help_text),
         String::new(),
-        format!("  Method:  {}", req.method),
-        format!("  URL:    {}://{}{}", req.scheme, req.host, req.path),
-        format!("  Status: {:?}", req.status),
-        String::new(),
-        format!("  Headers: ({} pairs)", req.req_headers.len()),
     ];
-    let mut all_lines = lines;
-    for h in headers_preview {
-        all_lines.push(h);
-    }
-    if !headers_extra.is_empty() {
-        all_lines.push(headers_extra);
-    }
-    all_lines.push(String::new());
-    all_lines.push(format!("  Body: {}", body_preview));
 
-    let content = Paragraph::new(all_lines.join("\n"))
+    // Method row
+    let method_str = if is_editing && matches!(bp.selected_field, BreakpointField::Method) {
+        format!("> Method:   [{}]", bp.method_input)
+    } else {
+        format!("  Method:   {}", req.method)
+    };
+    lines.push(method_str);
+
+    // URL row
+    let url_display = if is_editing && matches!(bp.selected_field, BreakpointField::Url) {
+        format!("> URL:    [{}]", bp.url_input)
+    } else {
+        format!("  URL:    {}://{}{}", req.scheme, req.host, req.path)
+    };
+    lines.push(url_display);
+
+    // Headers
+    lines.push(String::new());
+    lines.push(format!("  Headers: ({})", req.req_headers.len()));
+    for (i, (k, v)) in req.req_headers.iter().enumerate() {
+        let is_selected = is_editing && matches!(bp.selected_field, BreakpointField::Headers);
+        let is_editing_this = is_editing && bp.editing_header_index == Some(i);
+        let prefix = if is_selected { "> " } else { "  " };
+        let editing_indicator = if is_editing_this { "[EDITING]" } else { "" };
+        let line = format!("{}{}{}: {}", prefix, editing_indicator, k, v);
+        lines.push(line);
+    }
+
+    // Body
+    lines.push(String::new());
+    let body_preview = req.req_body.as_ref()
+        .map(|s| s.chars().take(60).collect::<String>())
+        .unwrap_or_else(|| "(empty)".to_string());
+    let body_str = if is_editing && matches!(bp.selected_field, BreakpointField::Body) {
+        format!("> Body:   [{}...]", bp.body_input.chars().take(30).collect::<String>())
+    } else {
+        format!("  Body:   {}", body_preview)
+    };
+    lines.push(body_str);
+
+    // Header edit popup
+    if let Some(idx) = bp.editing_header_index {
+        let header_line = format!("\n  [Editing header {}: {}]  [Enter] confirm  [Esc] cancel", idx, bp.header_input);
+        lines.push(header_line);
+    }
+
+    let content = Paragraph::new(lines.join("\n"))
         .block(Block::default()
             .borders(Borders::ALL)
             .title(format!(" {} ", mode_label))
