@@ -411,7 +411,9 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
     let url_display = if is_editing && matches!(bp.selected_field, BreakpointField::Url) {
         format!("> URL:    [{}]", bp.url_input)
     } else {
-        format!("  URL:    {}://{}{}", req.scheme, req.host, req.path)
+        let host_trunc = req.host.chars().take(30).collect::<String>();
+        let path_trunc = req.path.chars().take(40).collect::<String>();
+        format!("  URL:    {}://{}{}", req.scheme, host_trunc, path_trunc)
     };
     lines.push(url_display);
 
@@ -423,7 +425,8 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
         let is_editing_this = is_editing && bp.editing_header_index == Some(i);
         let prefix = if is_selected { "> " } else { "  " };
         let editing_indicator = if is_editing_this { "[EDITING]" } else { "" };
-        let line = format!("{}{}{}: {}", prefix, editing_indicator, k, v);
+        let header_val = v.chars().take(40).collect::<String>();
+        let line = format!("{}{}{}: {}", prefix, editing_indicator, k, header_val);
         lines.push(line);
     }
 
@@ -441,7 +444,8 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     // Header edit popup
     if let Some(idx) = bp.editing_header_index {
-        let header_line = format!("\n  [Editing header {}: {}]  [Enter] confirm  [Esc] cancel", idx, bp.header_input);
+        let header_input_display = bp.header_input.chars().take(40).collect::<String>();
+    let header_line = format!("\n  [Editing header {}: {}]  [Enter] confirm  [Esc] cancel", idx, header_input_display);
         lines.push(header_line);
     }
 
