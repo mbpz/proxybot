@@ -158,9 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // When the user presses 'g' (go/proceed) or 'c' (cancel/drop), the decision is sent back.
     if let Some(bp_receiver) = bp_rx.take() {
         let app_ptr = Arc::new(std::sync::Mutex::new(app));
-        let decision_tx = Arc::new(std::sync::Mutex::new(None::<tokio::sync::oneshot::Sender<BreakpointDecision>>));
         let app2 = app_ptr.clone();
-        let decision_tx2 = decision_tx.clone();
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
@@ -168,7 +166,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut bp_rx = bp_receiver;
                 while let Some(bp_req) = bp_rx.recv().await {
                     let (tx, rx) = tokio::sync::oneshot::channel();
-                    *decision_tx2.lock().unwrap() = Some(tx);
+
+                    // Store decision sender in app's breakpoint_decision_tx
+                    let mut app_lock = app2.lock().unwrap();
+                    *app_lock.breakpoint_decision_tx.lock().unwrap() = Some(tx);
+                    drop(app_lock);
 
                     let mut app_lock = app2.lock().unwrap();
                     use proxybot_lib::tui::BreakpointMode;
