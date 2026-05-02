@@ -2,13 +2,13 @@ class ProxybotTui < Formula
   desc "ProxyBot TUI — HTTPS MITM proxy terminal UI"
   homepage "https://github.com/mbpz/proxybot"
   license "MIT"
-  version "v0.4.0"
+  version "v0.4.1"
 
   if OS.mac? && Hardware::CPU.type == :arm64
-    url "https://github.com/mbpz/proxybot/releases/download/tui-v0.4.0/proxybot-tui-arm64"
+    url "https://github.com/mbpz/proxybot/releases/download/tui-v0.4.1/proxybot-tui-arm64"
     sha256 ""
   elsif OS.mac? && Hardware::CPU.type == :intel
-    url "https://github.com/mbpz/proxybot/releases/download/tui-v0.4.0/proxybot-tui-x86_64"
+    url "https://github.com/mbpz/proxybot/releases/download/tui-v0.4.1/proxybot-tui-x86_64"
     sha256 ""
   end
 
