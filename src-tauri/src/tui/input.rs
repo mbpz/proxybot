@@ -85,6 +85,8 @@ pub enum InputAction {
     GenDocker,
     /// Open output folder (Gen tab).
     OpenOutput,
+    /// Open browser to download new version (when update available).
+    OpenUpdateUrl,
     /// Switch detail sub-tab (1=Headers, 2=Body, 3=WS Frames).
     SwitchDetailTab(usize),
     /// Enter filter input mode for method (Traffic tab).
@@ -185,6 +187,7 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('g') if current_tab == Tab::Traffic => InputAction::BreakpointGo,
         KeyCode::Char('c') if current_tab == Tab::Traffic => InputAction::BreakpointCancel,
         KeyCode::Char('e') if current_tab == Tab::Traffic => InputAction::BreakpointEdit,
+        KeyCode::Char('u') if current_tab == Tab::Traffic => InputAction::OpenUpdateUrl,
 
         // Certs tab: r=regenerate, e=export
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,

@@ -506,9 +506,16 @@ fn render_controls_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
         "[d]ns: OFF ".red().to_string()
     };
 
+    // Update notification
+    let update_hint = if let Some(ref ver) = *app.update_available.lock().unwrap() {
+        format!(" [Update: {} available] [u] download", ver).yellow().to_string()
+    } else {
+        String::new()
+    };
+
     let controls = Paragraph::new(format!(
-        "{} {} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters",
-        pf_status, dns_status
+        "{} {}{} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters",
+        pf_status, dns_status, update_hint
     ));
 
     f.render_widget(controls, area);

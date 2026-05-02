@@ -129,6 +129,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Mark watcher as active since we spawned it above
     app.rules.watcher_active = true;
 
+    // Check for updates in background
+    let update_available = app.update_available.clone();
+    std::thread::spawn(move || {
+        let current = env!("CARGO_PKG_VERSION");
+        if let Some(new_ver) = proxybot_lib::update_check::check_for_updates(current) {
+            log::info!("New version available: {}", new_ver);
+            *update_available.lock().unwrap() = Some(new_ver);
+        }
+    });
+
     // DB path for polling
     let db_path = db_path();
 
@@ -774,6 +784,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             {
                                 let _ = std::process::Command::new("open")
                                     .arg(&output_path)
+                                    .spawn();
+                            }
+                        }
+                        InputAction::OpenUpdateUrl => {
+                            // Open GitHub releases page in browser
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = std::process::Command::new("open")
+                                    .arg("https://github.com/mbpz/proxybot/releases")
                                     .spawn();
                             }
                         }

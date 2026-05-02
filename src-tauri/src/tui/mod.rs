@@ -417,6 +417,8 @@ pub struct TuiApp {
     pub shutdown_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Sender for breakpoint decisions (proceed/drop) back to proxy
     pub breakpoint_decision_tx: Mutex<Option<tokio::sync::oneshot::Sender<BreakpointDecision>>>,
+    /// Available update version (if newer than current)
+    pub update_available: Arc<std::sync::Mutex<Option<String>>>,
 
     // UI state
     pub current_tab: Tab,
@@ -455,6 +457,7 @@ impl TuiApp {
             proxy_running: AtomicBool::new(false),
             shutdown_tx: Mutex::new(None),
             breakpoint_decision_tx: Mutex::new(None),
+            update_available: Arc::new(std::sync::Mutex::new(None)),
             current_tab: Tab::Traffic,
             traffic: TrafficState::default(),
             devices: DevicesState::default(),
