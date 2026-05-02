@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::rules::{RulesEngine, BreakpointTarget};
+use crate::rules::{RulesEngine, BreakpointTarget, RuleAction};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -845,12 +845,75 @@ async fn handle_http(
 
     let start = std::time::Instant::now();
 
+    // Evaluate rules for breakpoint
+    let breakpoint_override = if let Some(RuleAction::Breakpoint(target)) = ctx.rules_engine.match_host(host, None) {
+        log::info!("Breakpoint triggered for host: {} (target: {:?})", host, target);
+
+        let req = InterceptedRequest {
+            id: generate_request_id(),
+            timestamp: timestamp_now(),
+            method: method.to_string(),
+            scheme: if port == 443 { "https" } else { "http" }.to_string(),
+            host: host.to_string(),
+            path: path.to_string(),
+            query_params: extract_query_params(path),
+            status: None,
+            latency_ms: None,
+            req_headers: headers.to_vec(),
+            req_body: body_to_string(body),
+            resp_headers: Vec::new(),
+            resp_body: None,
+            resp_size: None,
+            app_name: None,
+            app_icon: None,
+            device_id: None,
+            device_name: None,
+            client_ip: Some(client_addr.ip().to_string()),
+            is_websocket: false,
+            ws_frames: None,
+        };
+
+        let (_decision_tx, decision_rx) = tokio::sync::oneshot::channel();
+        if ctx.breakpoint_tx.send(BreakpointRequest {
+            request: req,
+            target,
+        }).await.is_err() {
+            log::warn!("Breakpoint receiver dropped, proceeding with request");
+            None
+        } else {
+            match decision_rx.await {
+                Ok(BreakpointDecision::Drop) => {
+                    log::info!("Breakpoint: request dropped by user");
+                    return Ok(());
+                }
+                Ok(BreakpointDecision::Modify(m)) => {
+                    log::info!("Breakpoint: proceeding with modified request to {}", m.host);
+                    Some(m)
+                }
+                Ok(BreakpointDecision::Proceed) => {
+                    None
+                }
+                Err(_) => {
+                    log::warn!("Breakpoint decision channel closed, proceeding");
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     let mut target_stream = TcpStream::connect(&target_addr).await
         .map_err(|e| format!("Failed to connect to {}: {}", target_addr, e))?;
 
     let http_version = "HTTP/1.1";
-    let mut request = format!("{} {} {}\r\n", method, path, http_version);
-    for (name, value) in headers {
+    let (use_method, use_path, use_headers) = if let Some(ref m) = breakpoint_override {
+        (m.method.clone(), m.path.clone(), m.req_headers.clone())
+    } else {
+        (method.to_string(), path.to_string(), headers.to_vec())
+    };
+    let mut request = format!("{} {} {}\r\n", use_method, use_path, http_version);
+    for (name, value) in &use_headers {
         request.push_str(&format!("{}: {}\r\n", name, value));
     }
     request.push_str("\r\n");
