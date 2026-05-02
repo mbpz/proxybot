@@ -919,8 +919,14 @@ async fn handle_http(
     request.push_str("\r\n");
 
     target_stream.write_all(request.as_bytes()).await.map_err(|e| format!("Write request failed: {}", e))?;
-    if !body.is_empty() {
-        target_stream.write_all(body).await.map_err(|e| format!("Write body failed: {}", e))?;
+    // Use modified body if breakpoint override provided it
+    let use_body: &[u8] = if let Some(ref m) = breakpoint_override {
+        m.req_body.as_ref().map(|s| s.as_bytes()).unwrap_or(&[])
+    } else {
+        body
+    };
+    if !use_body.is_empty() {
+        target_stream.write_all(use_body).await.map_err(|e| format!("Write body failed: {}", e))?;
     }
 
     let mut response_buf = Vec::new();
