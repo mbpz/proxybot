@@ -53,6 +53,11 @@ Rules Tab:   a  (add rule)
              s  (save rule)
              Alt+↑/↓  (reorder rule)
 
+Devices Tab: j/k / ↑,↓  (navigate devices)
+             e  (edit rule override)
+             Enter  (confirm rule override)
+             Esc  (cancel edit)
+
 Certs Tab:   r  (regenerate CA)
              e  (export PEM)
 
@@ -70,6 +75,9 @@ Replay Tab:  s  (start replay)
 
 Graph Tab:   g / a  (toggle DAG/Auth state machine view)
              r  (refresh graph)
+             ↑/↓/←/→  (pan view)
+             Enter  (node detail)
+             Esc  (reset view)
 
 Gen Tab:     m  (generate mock API)
              f  (generate frontend scaffold)
@@ -122,6 +130,8 @@ Your iPhone must be on the same LAN as your Mac and use your Mac as the network 
 6. Set DNS to your Mac's IP address (same as the proxy server)
 
 > **Tip:** Find your Mac's IP address by running `ipconfig getifaddr en0` in Terminal, or look at the top of ProxyBot's main window.
+
+> **Note:** Port 8088 is the device-facing proxy port. The internal proxy runs on 8080. You only need to configure your device to connect to 8088.
 
 ### Step 5: Start Capturing
 
@@ -180,7 +190,7 @@ src-tauri/src/tui/
     alerts.rs         # Alerts tab: severity badges, ACK/clear
     replay.rs         # Replay tab: targets, HAR export, diff
     graph.rs          # Graph tab: ASCII DAG, auth state machine
-    gen.rs           # Gen tab: mock/frontend/docker generation
+    gen.rs            # Gen tab: mock/frontend/docker generation
 ```
 
 ### Key Dependencies
@@ -227,6 +237,23 @@ Not yet. Windows support is planned for Phase 2.
 ```bash
 brew uninstall proxybot-tui
 ```
+
+## Roadmap
+
+### v0.4.x (Current)
+- TUI 9-tab system, pf transparent proxy, DNS server
+- App classification (WeChat/Douyin/Alipay)
+- Breakpoint interception (basic)
+
+### v0.5.0 (Next)
+- Breakpoint editing (request/response edit before send)
+- Android adb reverse capture
+
+### v0.6.0
+- Tauri GUI Alpha (React + Rust core)
+
+### v1.0.0
+- iOS VPN API, WebView debugging, full GUI parity
 
 ## Development
 
