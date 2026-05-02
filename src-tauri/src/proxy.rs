@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::rules::{RulesEngine, BreakpointTarget};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -28,12 +29,26 @@ use rustls::{
 };
 use std::fs::OpenOptions;
 
+// Breakpoint channel types
+#[derive(Clone, Debug)]
+pub struct BreakpointRequest {
+    pub request: InterceptedRequest,
+    pub target: BreakpointTarget,
+}
+
+#[derive(Clone, Debug)]
+pub enum BreakpointDecision {
+    Proceed,
+    Modify(InterceptedRequest),
+    Drop,
+}
+
 static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 
 static SHUTDOWN_TX: LazyLock<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
     LazyLock::new(|| std::sync::Mutex::new(None));
 
-#[derive(Clone, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct InterceptedRequest {
     pub id: String,
     pub timestamp: String,
@@ -58,7 +73,7 @@ pub struct InterceptedRequest {
     pub ws_frames: Option<Vec<WsFrame>>,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct WsFrame {
     pub direction: String,
     pub timestamp: String,
@@ -68,10 +83,12 @@ pub struct WsFrame {
 
 struct ProxyContext {
     event_tx: broadcast::Sender<InterceptedRequest>,
+    breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
     #[allow(dead_code)]
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
     db_state: Arc<DbState>,
+    rules_engine: Arc<RulesEngine>,
 }
 
 /// Device context for tracking which device made a request.
@@ -1155,9 +1172,11 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 
 async fn run_proxy(
     event_tx: broadcast::Sender<InterceptedRequest>,
+    breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
     db_state: Arc<DbState>,
+    rules_engine: Arc<RulesEngine>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", proxy_port());
@@ -1173,9 +1192,11 @@ async fn run_proxy(
                     Ok((stream, client_addr)) => {
                         let ctx = ProxyContext {
                             event_tx: event_tx.clone(),
+                            breakpoint_tx: breakpoint_tx.clone(),
                             cert_manager: cert_manager.clone(),
                             dns_state: dns_state.clone(),
                             db_state: db_state.clone(),
+                            rules_engine: rules_engine.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -1199,6 +1220,7 @@ pub fn start_proxy(
     cert_manager: State<'_, Arc<CertManager>>,
     dns_state: State<'_, Arc<DnsState>>,
     db_state: State<'_, Arc<DbState>>,
+    rules_engine: State<'_, Arc<RulesEngine>>,
 ) -> Result<String, String> {
     // Prevent starting proxy multiple times
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
@@ -1208,9 +1230,13 @@ pub fn start_proxy(
     let cm = cert_manager.inner().clone();
     let ds = dns_state.inner().clone();
     let db = db_state.inner().clone();
+    let re = rules_engine.inner().clone();
 
     // Create broadcast channel for events
     let (event_tx, mut event_rx) = broadcast::channel::<InterceptedRequest>(100);
+
+    // Create breakpoint channel (receiver unused in Tauri mode, sender passed to run_proxy)
+    let (bp_tx, _bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
 
     // Spawn task to forward events to Tauri frontend
     let app_handle_clone = app_handle.clone();
@@ -1225,7 +1251,7 @@ pub fn start_proxy(
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(event_tx, cm, ds, db, shutdown_rx).await {
+        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -1240,12 +1266,18 @@ pub fn start_proxy_core(
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
     db_state: Arc<DbState>,
-) -> Result<(broadcast::Receiver<InterceptedRequest>, tokio::sync::oneshot::Sender<()>), String> {
+    rules_engine: Arc<RulesEngine>,
+) -> Result<(
+    broadcast::Receiver<InterceptedRequest>,
+    tokio::sync::mpsc::Receiver<BreakpointRequest>,
+    tokio::sync::oneshot::Sender<()>,
+), String> {
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
         return Err("Proxy already running".to_string());
     }
 
     let (event_tx, event_rx) = broadcast::channel::<InterceptedRequest>(100);
+    let (bp_tx, bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     let cm = cert_manager.clone();
@@ -1255,14 +1287,14 @@ pub fn start_proxy_core(
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = run_proxy(event_tx, cm, ds, db, shutdown_rx).await {
+            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, shutdown_rx).await {
                 log::error!("Proxy error: {}", e);
             }
             PROXY_RUNNING.store(false, Ordering::SeqCst);
         });
     });
 
-    Ok((event_rx, shutdown_tx))
+    Ok((event_rx, bp_rx, shutdown_tx))
 }
 
 #[tauri::command]
