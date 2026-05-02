@@ -26,7 +26,7 @@ use proxybot_lib::cert::CertManager;
 use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal, set_device_rule_override_internal};
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
-use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest};
+use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest, BreakpointRequest, BreakpointDecision, BreakpointTarget};
 use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction, MoveDirection};
 use proxybot_lib::anomaly::AnomalyDetector;
 use proxybot_lib::tun::TunState;
@@ -44,21 +44,22 @@ use proxybot_lib::config::{proxy_port, db_path};
 /// Start the proxy using proxybot_lib's start_proxy_core.
 fn start_proxy(
     app: &TuiApp,
-) -> Result<tokio::sync::broadcast::Receiver<InterceptedRequest>, String> {
+) -> Result<(tokio::sync::broadcast::Receiver<InterceptedRequest>, tokio::sync::mpsc::Receiver<BreakpointRequest>), String> {
     if app.proxy_running.swap(true, Ordering::SeqCst) {
         return Err("Proxy already running".to_string());
     }
 
-    let (event_tx, shutdown_tx) = start_proxy_core(
+    let (event_rx, bp_rx, shutdown_tx) = start_proxy_core(
         app.cert_manager.clone(),
         app.dns_state.clone(),
         app.db_state.clone(),
+        app.rules_engine.clone(),
     )?;
 
     // Store shutdown sender
     *app.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
 
-    Ok(event_tx)
+    Ok((event_rx, bp_rx))
 }
 
 /// Stop the proxy.
@@ -133,11 +134,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Event receiver for real-time updates
     let mut event_rx: Option<tokio::sync::broadcast::Receiver<InterceptedRequest>> = None;
+    let mut bp_rx: Option<tokio::sync::mpsc::Receiver<BreakpointRequest>> = None;
 
     // Start the proxy
     match start_proxy(&app) {
-        Ok(rx) => {
+        Ok((rx, bp)) => {
             event_rx = Some(rx);
+            bp_rx = Some(bp);
             log::info!("Proxy started on port {}", proxy_port());
         }
         Err(e) => {
@@ -149,6 +152,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(conn) = Connection::open(&db_path) {
         refresh_traffic(&mut app, &conn);
     }
+
+    // Spawn breakpoint handler task
+    // This task receives breakpoint requests from the proxy and stores them in the app's queue.
+    // When the user presses 'g' (go/proceed) or 'c' (cancel/drop), the decision is sent back.
+    if let Some(bp_receiver) = bp_rx.take() {
+        let app_ptr = Arc::new(std::sync::Mutex::new(app));
+        let decision_tx = Arc::new(std::sync::Mutex::new(None::<tokio::sync::oneshot::Sender<BreakpointDecision>>));
+        let app2 = app_ptr.clone();
+        let decision_tx2 = decision_tx.clone();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let mut bp_rx = bp_receiver;
+                while let Some(bp_req) = bp_rx.recv().await {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    *decision_tx2.lock().unwrap() = Some(tx);
+
+                    let mut app_lock = app2.lock().unwrap();
+                    use proxybot_lib::tui::BreakpointMode;
+                    let mode = match bp_req.target {
+                        BreakpointTarget::Request => BreakpointMode::RequestPaused,
+                        BreakpointTarget::Response => BreakpointMode::ResponsePaused,
+                        BreakpointTarget::Both => BreakpointMode::RequestPaused,
+                    };
+                    app_lock.traffic.breakpoint.mode = mode;
+                    app_lock.traffic.breakpoint.queue.push(bp_req.request.clone());
+                    if app_lock.traffic.breakpoint.current_edit.is_none() {
+                        app_lock.traffic.breakpoint.current_edit = Some(bp_req.request);
+                    }
+                    drop(app_lock);
+
+                    // Wait for user decision (g or c) via the oneshot channel
+                    if let Ok(decision) = rx.await {
+                        // Decision was sent via BreakpointGo/BreakpointCancel handlers
+                        log::info!("Breakpoint decision: {:?}", decision);
+                    }
+                }
+            });
+        });
+        // Re-wrap app back to TuiApp for the main loop
+        // Arc::try_unwrap returns Err if there are multiple references, but we know
+        // app2 was moved into the thread closure so this should succeed
+        let inner = match Arc::try_unwrap(app_ptr) {
+            Ok(m) => match m.into_inner() {
+                Ok(app_inner) => app_inner,
+                Err(e) => panic!("Mutex poisoned: {:?}", e),
+            },
+            Err(_) => panic!("Arc should have single reference after thread spawn"),
+        };
+        app = inner;
+    }
+
+    let mut app = app;
 
     // Main loop
     let mut prev_tab = app.current_tab;
@@ -265,8 +322,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         InputAction::StartProxy => {
                             if !app.proxy_running.load(Ordering::SeqCst) {
                                 match start_proxy(&app) {
-                                    Ok(rx) => {
+                                    Ok((rx, bp)) => {
                                         event_rx = Some(rx);
+                                        bp_rx = Some(bp);
                                     }
                                     Err(e) => {
                                         log::error!("Failed to start proxy: {}", e);
@@ -757,6 +815,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         InputAction::BreakpointGo => {
                             use proxybot_lib::tui::BreakpointMode;
+                            // Send Proceed decision if there's a pending breakpoint
+                            if let Some(tx) = app.breakpoint_decision_tx.lock().unwrap().take() {
+                                let _ = tx.send(proxybot_lib::proxy::BreakpointDecision::Proceed);
+                            }
                             app.traffic.breakpoint.edit_mode = proxybot_lib::tui::BreakpointEditMode::None;
                             if !app.traffic.breakpoint.queue.is_empty() {
                                 app.traffic.breakpoint.queue.remove(0);
@@ -771,6 +833,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         InputAction::BreakpointCancel => {
                             use proxybot_lib::tui::BreakpointMode;
+                            // Send Drop decision if there's a pending breakpoint
+                            if let Some(tx) = app.breakpoint_decision_tx.lock().unwrap().take() {
+                                let _ = tx.send(proxybot_lib::proxy::BreakpointDecision::Drop);
+                            }
                             app.traffic.breakpoint.queue.clear();
                             app.traffic.breakpoint.current_edit = None;
                             app.traffic.breakpoint.mode = BreakpointMode::None;
@@ -866,7 +932,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         // url_input already captures Char/Backspace
                                         // On Enter, sync to current_edit
                                         if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
-                                            // Parse url_input to update scheme/host/path
                                             let url = &app.traffic.breakpoint.url_input;
                                             if let Some(pos) = url.find("://") {
                                                 req.scheme = url[..pos].to_string();
@@ -878,10 +943,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     req.host = after.to_string();
                                                     req.path = "/".to_string();
                                                 }
+                                            } else if !url.is_empty() {
+                                                // No scheme provided, default to http
+                                                req.scheme = "http".to_string();
+                                                req.host = url.clone();
+                                                req.path = "/".to_string();
                                             }
                                         }
                                     }
-                                    _ => {}
                                 }
                             }
                             crossterm::event::KeyCode::Esc => {

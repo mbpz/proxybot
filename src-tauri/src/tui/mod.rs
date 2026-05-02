@@ -17,6 +17,7 @@ use crate::db::{DbState, RecentRequest};
 use crate::dns::DnsState;
 use crate::proxy::InterceptedRequest;
 use crate::proxy::ProxyState;
+use crate::proxy::BreakpointDecision;
 use crate::rules::RulesEngine;
 use crate::anomaly::AnomalyDetector;
 use crate::tun::TunState;
@@ -414,6 +415,8 @@ pub struct TuiApp {
     // Proxy runtime
     pub proxy_running: AtomicBool,
     pub shutdown_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Sender for breakpoint decisions (proceed/drop) back to proxy
+    pub breakpoint_decision_tx: Mutex<Option<tokio::sync::oneshot::Sender<BreakpointDecision>>>,
 
     // UI state
     pub current_tab: Tab,
@@ -451,6 +454,7 @@ impl TuiApp {
             replay_state,
             proxy_running: AtomicBool::new(false),
             shutdown_tx: Mutex::new(None),
+            breakpoint_decision_tx: Mutex::new(None),
             current_tab: Tab::Traffic,
             traffic: TrafficState::default(),
             devices: DevicesState::default(),
