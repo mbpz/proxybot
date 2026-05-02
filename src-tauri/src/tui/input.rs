@@ -41,6 +41,8 @@ pub enum InputAction {
     AddRule,
     /// Edit the selected rule (Rules tab).
     EditRule,
+    /// Edit the selected device's rule override (Devices tab).
+    EditDeviceRule,
     /// Delete the selected rule (Rules tab).
     DeleteRule,
     /// Move selected rule up (Rules tab).
@@ -85,6 +87,22 @@ pub enum InputAction {
     OpenOutput,
     /// Switch detail sub-tab (1=Headers, 2=Body, 3=WS Frames).
     SwitchDetailTab(usize),
+    /// Enter filter input mode for method (Traffic tab).
+    FilterMethod,
+    /// Enter filter input mode for host (Traffic tab).
+    FilterHost,
+    /// Enter filter input mode for status (Traffic tab).
+    FilterStatus,
+    /// Toggle breakpoint on selected request (Traffic tab).
+    ToggleBreakpoint,
+    /// Continue sending paused request (GO).
+    BreakpointGo,
+    /// Cancel the paused request.
+    BreakpointCancel,
+    /// Switch to editing mode for current breakpoint.
+    BreakpointEdit,
+    /// Enter filter input mode for app_tag (Traffic tab).
+    FilterAppTag,
     /// No action.
     None,
 }
@@ -141,7 +159,8 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
 
         // Rules tab: a=add, e=edit, d=delete, s=save (not on Graph/Gen tabs)
         KeyCode::Char('a') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::AddRule,
-        KeyCode::Char('e') if current_tab != Tab::Certs => InputAction::EditRule,
+        KeyCode::Char('e') if current_tab == Tab::Rules => InputAction::EditRule,
+        KeyCode::Char('e') if current_tab == Tab::Devices => InputAction::EditDeviceRule,
         KeyCode::Char('d') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::DeleteRule,
         KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => InputAction::SaveRule,
 
@@ -154,6 +173,18 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('1') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(0),
         KeyCode::Char('2') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(1),
         KeyCode::Char('3') if current_tab == Tab::Traffic => InputAction::SwitchDetailTab(2),
+
+        // Traffic tab filter shortcuts: m=method, f=host, o=status, a=app_tag
+        KeyCode::Char('m') if current_tab == Tab::Traffic => InputAction::FilterMethod,
+        KeyCode::Char('f') if current_tab == Tab::Traffic => InputAction::FilterHost,
+        KeyCode::Char('o') if current_tab == Tab::Traffic => InputAction::FilterStatus,
+        KeyCode::Char('a') if current_tab == Tab::Traffic => InputAction::FilterAppTag,
+
+        // Traffic tab breakpoint shortcuts: b=toggle, g=go, c=cancel, e=edit
+        KeyCode::Char('b') if current_tab == Tab::Traffic => InputAction::ToggleBreakpoint,
+        KeyCode::Char('g') if current_tab == Tab::Traffic => InputAction::BreakpointGo,
+        KeyCode::Char('c') if current_tab == Tab::Traffic => InputAction::BreakpointCancel,
+        KeyCode::Char('e') if current_tab == Tab::Traffic => InputAction::BreakpointEdit,
 
         // Certs tab: r=regenerate, e=export
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,

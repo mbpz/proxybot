@@ -23,10 +23,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use proxybot_lib::cert::CertManager;
-use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal};
+use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal, set_device_rule_override_internal};
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
-use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest};
+use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest, BreakpointRequest, BreakpointDecision, BreakpointTarget};
 use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction, MoveDirection};
 use proxybot_lib::anomaly::AnomalyDetector;
 use proxybot_lib::tun::TunState;
@@ -44,21 +44,22 @@ use proxybot_lib::config::{proxy_port, db_path};
 /// Start the proxy using proxybot_lib's start_proxy_core.
 fn start_proxy(
     app: &TuiApp,
-) -> Result<tokio::sync::broadcast::Receiver<InterceptedRequest>, String> {
+) -> Result<(tokio::sync::broadcast::Receiver<InterceptedRequest>, tokio::sync::mpsc::Receiver<BreakpointRequest>), String> {
     if app.proxy_running.swap(true, Ordering::SeqCst) {
         return Err("Proxy already running".to_string());
     }
 
-    let (event_tx, shutdown_tx) = start_proxy_core(
+    let (event_rx, bp_rx, shutdown_tx) = start_proxy_core(
         app.cert_manager.clone(),
         app.dns_state.clone(),
         app.db_state.clone(),
+        app.rules_engine.clone(),
     )?;
 
     // Store shutdown sender
     *app.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
 
-    Ok(event_tx)
+    Ok((event_rx, bp_rx))
 }
 
 /// Stop the proxy.
@@ -133,11 +134,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Event receiver for real-time updates
     let mut event_rx: Option<tokio::sync::broadcast::Receiver<InterceptedRequest>> = None;
+    let mut bp_rx: Option<tokio::sync::mpsc::Receiver<BreakpointRequest>> = None;
 
     // Start the proxy
     match start_proxy(&app) {
-        Ok(rx) => {
+        Ok((rx, bp)) => {
             event_rx = Some(rx);
+            bp_rx = Some(bp);
             log::info!("Proxy started on port {}", proxy_port());
         }
         Err(e) => {
@@ -150,6 +153,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         refresh_traffic(&mut app, &conn);
     }
 
+    // Spawn breakpoint handler task
+    // This task receives breakpoint requests from the proxy and stores them in the app's queue.
+    // When the user presses 'g' (go/proceed) or 'c' (cancel/drop), the decision is sent back.
+    if let Some(bp_receiver) = bp_rx.take() {
+        let app_ptr = Arc::new(std::sync::Mutex::new(app));
+        let app2 = app_ptr.clone();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let mut bp_rx = bp_receiver;
+                while let Some(bp_req) = bp_rx.recv().await {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+
+                    // Store decision sender in app's breakpoint_decision_tx
+                    let mut app_lock = app2.lock().unwrap();
+                    *app_lock.breakpoint_decision_tx.lock().unwrap() = Some(tx);
+                    drop(app_lock);
+
+                    let mut app_lock = app2.lock().unwrap();
+                    use proxybot_lib::tui::BreakpointMode;
+                    let mode = match bp_req.target {
+                        BreakpointTarget::Request => BreakpointMode::RequestPaused,
+                        BreakpointTarget::Response => BreakpointMode::ResponsePaused,
+                        BreakpointTarget::Both => BreakpointMode::RequestPaused,
+                    };
+                    app_lock.traffic.breakpoint.mode = mode;
+                    app_lock.traffic.breakpoint.queue.push(bp_req.request.clone());
+                    if app_lock.traffic.breakpoint.current_edit.is_none() {
+                        app_lock.traffic.breakpoint.current_edit = Some(bp_req.request);
+                    }
+                    drop(app_lock);
+
+                    // Wait for user decision (g or c) via the oneshot channel
+                    if let Ok(decision) = rx.await {
+                        // Decision was sent via BreakpointGo/BreakpointCancel handlers
+                        log::info!("Breakpoint decision: {:?}", decision);
+                    }
+                }
+            });
+        });
+        // Re-wrap app back to TuiApp for the main loop
+        // Arc::try_unwrap returns Err if there are multiple references, but we know
+        // app2 was moved into the thread closure so this should succeed
+        let inner = match Arc::try_unwrap(app_ptr) {
+            Ok(m) => match m.into_inner() {
+                Ok(app_inner) => app_inner,
+                Err(e) => panic!("Mutex poisoned: {:?}", e),
+            },
+            Err(_) => panic!("Arc should have single reference after thread spawn"),
+        };
+        app = inner;
+    }
+
+    let mut app = app;
+
     // Main loop
     let mut prev_tab = app.current_tab;
     let res = loop {
@@ -157,7 +216,92 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match handle_key_event(&key, app.current_tab) {
+                    // Filter input mode: capture characters to build filter value
+                    if let Some(mode) = app.traffic.filter_mode {
+                        match key.code {
+                            crossterm::event::KeyCode::Esc => {
+                                app.traffic.filter_mode = None;
+                                app.traffic.filter_input.clear();
+                            }
+                            crossterm::event::KeyCode::Enter => {
+                                // Apply the filter
+                                let value = app.traffic.filter_input.clone();
+                                match mode {
+                                    proxybot_lib::tui::FilterMode::Method => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.method = None;
+                                        } else {
+                                            app.traffic.filters.method = Some(value);
+                                        }
+                                    }
+                                    proxybot_lib::tui::FilterMode::Host => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.host_pattern = None;
+                                        } else {
+                                            app.traffic.filters.host_pattern = Some(value);
+                                        }
+                                    }
+                                    proxybot_lib::tui::FilterMode::Status => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.status_class = None;
+                                        } else {
+                                            app.traffic.filters.status_class = Some(value);
+                                        }
+                                    }
+                                    proxybot_lib::tui::FilterMode::AppTag => {
+                                        if value.is_empty() {
+                                            app.traffic.filters.app_tag = None;
+                                        } else {
+                                            app.traffic.filters.app_tag = Some(value);
+                                        }
+                                    }
+                                }
+                                app.traffic.filter_mode = None;
+                                app.traffic.filter_input.clear();
+                            }
+                            crossterm::event::KeyCode::Backspace => {
+                                app.traffic.filter_input.pop();
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                app.traffic.filter_input.push(c);
+                            }
+                            _ => {}
+                        }
+                        // In filter mode, skip normal key handling
+                    } else if app.devices.editing_override {
+                        match key.code {
+                            crossterm::event::KeyCode::Esc => {
+                                app.devices.editing_override = false;
+                                app.devices.override_input.clear();
+                            }
+                            crossterm::event::KeyCode::Enter => {
+                                // Apply the override
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    let devices = get_devices_internal(&conn).unwrap_or_default();
+                                    if !devices.is_empty() {
+                                        let idx = app.devices.selected.min(devices.len().saturating_sub(1));
+                                        let mac = &devices[idx].mac_address;
+                                        let override_value = if app.devices.override_input.is_empty() {
+                                            None
+                                        } else {
+                                            Some(app.devices.override_input.clone())
+                                        };
+                                        let _ = set_device_rule_override_internal(&conn, mac, override_value);
+                                    }
+                                }
+                                app.devices.editing_override = false;
+                                app.devices.override_input.clear();
+                            }
+                            crossterm::event::KeyCode::Backspace => {
+                                app.devices.override_input.pop();
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                app.devices.override_input.push(c);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        match handle_key_event(&key, app.current_tab) {
                         InputAction::Quit => break Ok(()),
                         InputAction::NextTab => {
                             app.next_tab();
@@ -180,8 +324,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         InputAction::StartProxy => {
                             if !app.proxy_running.load(Ordering::SeqCst) {
                                 match start_proxy(&app) {
-                                    Ok(rx) => {
+                                    Ok((rx, bp)) => {
                                         event_rx = Some(rx);
+                                        bp_rx = Some(bp);
                                     }
                                     Err(e) => {
                                         log::error!("Failed to start proxy: {}", e);
@@ -233,6 +378,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             RuleAction::Direct => "DIRECT".to_string(),
                                             RuleAction::Proxy => "PROXY".to_string(),
                                             RuleAction::Reject => "REJECT".to_string(),
+                                            RuleAction::MapRemote(_) => "MAPREMOTE".to_string(),
+                                            RuleAction::MapLocal(_) => "MAPLOCAL".to_string(),
+                                            RuleAction::Breakpoint(ref target) => format!("BREAKPOINT:{:?}", target),
                                         },
                                     );
                                 }
@@ -292,9 +440,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         "DIRECT" => RuleAction::Direct,
                                         "PROXY" => RuleAction::Proxy,
                                         "REJECT" => RuleAction::Reject,
+                                        "MAPREMOTE" => RuleAction::MapRemote("".to_string()),
+                                        "MAPLOCAL" => RuleAction::MapLocal("".to_string()),
                                         _ => RuleAction::Direct,
                                     };
-                                    let rule = Rule { pattern, value: value.clone(), action };
+                                    let rule = Rule {
+                                        pattern,
+                                        value: value.clone(),
+                                        action,
+                                        name: "".to_string(),
+                                        priority: 100,
+                                        enabled: true,
+                                        comment: "".to_string(),
+                                    };
                                     let filename = "custom.yaml".to_string();
                                     if let Err(e) = app.rules_engine.save_rule_internal(rule, &filename) {
                                         log::error!("Failed to save rule: {}", e);
@@ -444,6 +602,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         InputAction::SwitchDetailTab(n) => {
                             app.traffic.detail_tab = n;
+                        }
+                        InputAction::FilterMethod => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::Method);
+                            app.traffic.filter_input.clear();
+                        }
+                        InputAction::FilterHost => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::Host);
+                            app.traffic.filter_input.clear();
+                        }
+                        InputAction::FilterStatus => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::Status);
+                            app.traffic.filter_input.clear();
+                        }
+                        InputAction::FilterAppTag => {
+                            app.traffic.filter_mode = Some(proxybot_lib::tui::FilterMode::AppTag);
+                            app.traffic.filter_input.clear();
                         }
                         InputAction::Enter => {
                             // Fetch detail for selected request from DB
@@ -603,7 +777,215 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .spawn();
                             }
                         }
+                        InputAction::EditDeviceRule => {
+                            // Enter device rule override edit mode
+                            if app.current_tab == Tab::Devices {
+                                if let Ok(conn) = Connection::open(&db_path) {
+                                    let devices = get_devices_internal(&conn).unwrap_or_default();
+                                    if !devices.is_empty() {
+                                        let idx = app.devices.selected.min(devices.len().saturating_sub(1));
+                                        let current_override = devices[idx].rule_override.clone().unwrap_or_default();
+                                        app.devices.editing_override = true;
+                                        app.devices.override_input = current_override;
+                                    }
+                                }
+                            }
+                        }
+                        InputAction::ToggleBreakpoint => {
+                            if app.current_tab == Tab::Traffic {
+                                use proxybot_lib::tui::BreakpointMode;
+                                let filtered = app.traffic.filtered_requests();
+                                if !filtered.is_empty() {
+                                    let selected = app.traffic.selected.min(filtered.len().saturating_sub(1));
+                                    let req = filtered[selected];
+                                    let intercepted = proxybot_lib::proxy::InterceptedRequest {
+                                        id: req.id.to_string(),
+                                        timestamp: req.timestamp.clone(),
+                                        method: req.method.clone(),
+                                        host: req.host.clone(),
+                                        path: req.path.clone(),
+                                        scheme: req.scheme.clone(),
+                                        ..Default::default()
+                                    };
+                                    app.traffic.breakpoint.queue.push(intercepted);
+                                    if app.traffic.breakpoint.current_edit.is_none() {
+                                        app.traffic.breakpoint.current_edit = app.traffic.breakpoint.queue.first().cloned();
+                                        app.traffic.breakpoint.mode = BreakpointMode::RequestPaused;
+                                    }
+                                }
+                            }
+                        }
+                        InputAction::BreakpointGo => {
+                            use proxybot_lib::tui::BreakpointMode;
+                            // Send Proceed decision if there's a pending breakpoint
+                            if let Some(tx) = app.breakpoint_decision_tx.lock().unwrap().take() {
+                                let _ = tx.send(proxybot_lib::proxy::BreakpointDecision::Proceed);
+                            }
+                            app.traffic.breakpoint.edit_mode = proxybot_lib::tui::BreakpointEditMode::None;
+                            if !app.traffic.breakpoint.queue.is_empty() {
+                                app.traffic.breakpoint.queue.remove(0);
+                            }
+                            if let Some(next) = app.traffic.breakpoint.queue.first() {
+                                app.traffic.breakpoint.current_edit = Some(next.clone());
+                                app.traffic.breakpoint.mode = BreakpointMode::RequestPaused;
+                            } else {
+                                app.traffic.breakpoint.current_edit = None;
+                                app.traffic.breakpoint.mode = BreakpointMode::None;
+                            }
+                        }
+                        InputAction::BreakpointCancel => {
+                            use proxybot_lib::tui::BreakpointMode;
+                            // Send Drop decision if there's a pending breakpoint
+                            if let Some(tx) = app.breakpoint_decision_tx.lock().unwrap().take() {
+                                let _ = tx.send(proxybot_lib::proxy::BreakpointDecision::Drop);
+                            }
+                            app.traffic.breakpoint.queue.clear();
+                            app.traffic.breakpoint.current_edit = None;
+                            app.traffic.breakpoint.mode = BreakpointMode::None;
+                        }
+                        InputAction::BreakpointEdit => {
+                            use proxybot_lib::tui::{BreakpointEditMode, BreakpointField};
+                            if app.traffic.breakpoint.mode != proxybot_lib::tui::BreakpointMode::None {
+                                app.traffic.breakpoint.edit_mode = BreakpointEditMode::Editing(0);
+                                app.traffic.breakpoint.selected_field = BreakpointField::Method;
+                                if let Some(ref req) = app.traffic.breakpoint.current_edit {
+                                    app.traffic.breakpoint.method_input = req.method.clone();
+                                    app.traffic.breakpoint.url_input = format!("{}://{}{}", req.scheme, req.host, req.path);
+                                    app.traffic.breakpoint.body_input = req.req_body.clone().unwrap_or_default();
+                                }
+                            }
+                        }
                         InputAction::None => {}
+                    }
+                    } // end else (filter mode)
+
+                    // Breakpoint edit mode: handle direction keys, Enter, character input
+                    if app.traffic.breakpoint.edit_mode != proxybot_lib::tui::BreakpointEditMode::None {
+                        use proxybot_lib::tui::BreakpointField;
+                        match key.code {
+                            crossterm::event::KeyCode::Up => {
+                                let current = &app.traffic.breakpoint.selected_field;
+                                let next = match current {
+                                    BreakpointField::Method => BreakpointField::Body,
+                                    BreakpointField::Url => BreakpointField::Method,
+                                    BreakpointField::Headers => BreakpointField::Url,
+                                    BreakpointField::Body => BreakpointField::Headers,
+                                };
+                                app.traffic.breakpoint.selected_field = next;
+                            }
+                            crossterm::event::KeyCode::Down => {
+                                let current = &app.traffic.breakpoint.selected_field;
+                                let next = match current {
+                                    BreakpointField::Method => BreakpointField::Url,
+                                    BreakpointField::Url => BreakpointField::Headers,
+                                    BreakpointField::Headers => BreakpointField::Body,
+                                    BreakpointField::Body => BreakpointField::Method,
+                                };
+                                app.traffic.breakpoint.selected_field = next;
+                            }
+                            crossterm::event::KeyCode::Enter => {
+                                match app.traffic.breakpoint.selected_field {
+                                    BreakpointField::Method => {
+                                        // Cycle method
+                                        let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+                                        let current = &app.traffic.breakpoint.method_input;
+                                        if let Some(idx) = methods.iter().position(|m| m == current) {
+                                            let next = methods[(idx + 1) % methods.len()];
+                                            app.traffic.breakpoint.method_input = next.to_string();
+                                            if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                                req.method = next.to_string();
+                                            }
+                                        }
+                                    }
+                                    BreakpointField::Headers => {
+                                        if app.traffic.breakpoint.editing_header_index.is_some() {
+                                            // Confirm header edit
+                                            if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                                if let Some(idx) = app.traffic.breakpoint.editing_header_index {
+                                                    if idx < req.req_headers.len() {
+                                                        let parts: Vec<&str> = app.traffic.breakpoint.header_input.splitn(2, ": ").collect();
+                                                        if parts.len() == 2 {
+                                                            req.req_headers[idx].0 = parts[0].to_string();
+                                                            req.req_headers[idx].1 = parts[1].to_string();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            app.traffic.breakpoint.editing_header_index = None;
+                                            app.traffic.breakpoint.header_input.clear();
+                                        } else {
+                                            // Start editing first header
+                                            app.traffic.breakpoint.editing_header_index = Some(0);
+                                            if let Some(ref req) = app.traffic.breakpoint.current_edit {
+                                                if !req.req_headers.is_empty() {
+                                                    let (k, v) = &req.req_headers[0];
+                                                    app.traffic.breakpoint.header_input = format!("{}: {}", k, v);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    BreakpointField::Body => {
+                                        if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                            req.req_body = Some(app.traffic.breakpoint.body_input.clone());
+                                        }
+                                    }
+                                    BreakpointField::Url => {
+                                        // URL editing is active when this field is selected
+                                        // url_input already captures Char/Backspace
+                                        // On Enter, sync to current_edit
+                                        if let Some(ref mut req) = app.traffic.breakpoint.current_edit {
+                                            let url = &app.traffic.breakpoint.url_input;
+                                            if let Some(pos) = url.find("://") {
+                                                req.scheme = url[..pos].to_string();
+                                                let after = &url[pos+3..];
+                                                if let Some(path_pos) = after.find('/') {
+                                                    req.host = after[..path_pos].to_string();
+                                                    req.path = after[path_pos..].to_string();
+                                                } else {
+                                                    req.host = after.to_string();
+                                                    req.path = "/".to_string();
+                                                }
+                                            } else if !url.is_empty() {
+                                                // No scheme provided, default to http
+                                                req.scheme = "http".to_string();
+                                                req.host = url.clone();
+                                                req.path = "/".to_string();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            crossterm::event::KeyCode::Esc => {
+                                app.traffic.breakpoint.edit_mode = proxybot_lib::tui::BreakpointEditMode::None;
+                                app.traffic.breakpoint.editing_header_index = None;
+                                app.traffic.breakpoint.header_input.clear();
+                            }
+                            crossterm::event::KeyCode::Char(c) => {
+                                match app.traffic.breakpoint.selected_field {
+                                    BreakpointField::Url => {
+                                        app.traffic.breakpoint.url_input.push(c);
+                                    }
+                                    BreakpointField::Headers => {
+                                        if app.traffic.breakpoint.editing_header_index.is_some() {
+                                            app.traffic.breakpoint.header_input.push(c);
+                                        }
+                                    }
+                                    BreakpointField::Body => {
+                                        app.traffic.breakpoint.body_input.push(c);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            crossterm::event::KeyCode::Backspace => {
+                                match app.traffic.breakpoint.selected_field {
+                                    BreakpointField::Url => { app.traffic.breakpoint.url_input.pop(); }
+                                    BreakpointField::Headers => { app.traffic.breakpoint.header_input.pop(); }
+                                    BreakpointField::Body => { app.traffic.breakpoint.body_input.pop(); }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }

@@ -17,6 +17,7 @@ use crate::db::{DbState, RecentRequest};
 use crate::dns::DnsState;
 use crate::proxy::InterceptedRequest;
 use crate::proxy::ProxyState;
+use crate::proxy::BreakpointDecision;
 use crate::rules::RulesEngine;
 use crate::anomaly::AnomalyDetector;
 use crate::tun::TunState;
@@ -28,7 +29,16 @@ pub struct TrafficFilters {
     pub method: Option<String>,        // GET, POST, PUT, DELETE, etc.
     pub host_pattern: Option<String>,  // substring match
     pub status_class: Option<String>,  // "2xx", "3xx", "4xx", "5xx"
-    pub app_tag: Option<String>,      // app name filter
+    pub app_tag: Option<String>,       // app name filter
+}
+
+/// Which filter field is being edited in filter input mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterMode {
+    Method,
+    Host,
+    Status,
+    AppTag,
 }
 
 /// Traffic tab state.
@@ -43,6 +53,9 @@ pub struct TrafficState {
     pub search_regex: Option<Regex>,
     pub search_input: String,
     pub search_focused: bool,
+    // Filter input mode (m/f/o/a key → enter mode → type → Enter to confirm)
+    pub filter_mode: Option<FilterMode>,
+    pub filter_input: String,
     // Detail panel
     pub detail_request: Option<InterceptedRequest>,
     pub detail_loading: bool,
@@ -55,6 +68,74 @@ pub struct TrafficState {
     // pf/DNS status
     pub pf_enabled: bool,
     pub dns_running: bool,
+    // Breakpoint state
+    pub breakpoint: BreakpointState,
+}
+
+/// Breakpoint type.
+#[derive(Clone, PartialEq, Eq)]
+pub enum BreakpointType {
+    Request,
+    Response,
+}
+
+/// Breakpoint mode in the TUI.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub enum BreakpointMode {
+    #[default]
+    None,
+    RequestPaused,
+    ResponsePaused,
+}
+
+/// Breakpoint 编辑模式
+#[derive(Clone, PartialEq, Eq)]
+pub enum BreakpointEditMode {
+    None,           // 非编辑模式（正常查看）
+    Editing(usize), // 编辑模式（usize = 选中字段索引）
+}
+
+/// 可编辑的字段类型
+#[derive(Clone, PartialEq, Eq)]
+pub enum BreakpointField {
+    Method,   // 索引 0
+    Url,      // 索引 1
+    Headers,  // 索引 2
+    Body,     // 索引 3
+}
+
+/// Breakpoint state for managing paused requests.
+pub struct BreakpointState {
+    pub mode: BreakpointMode,
+    pub edit_mode: BreakpointEditMode,              // 新增
+    pub selected_field: BreakpointField,           // 新增
+    pub editing_header_index: Option<usize>,       // 新增：正在编辑的 header 行索引
+    pub header_input: String,                      // 新增
+    pub body_input: String,                         // 新增
+    pub url_input: String,                          // 新增
+    pub method_input: String,                       // 新增
+    // 现有字段
+    pub queue: Vec<crate::proxy::InterceptedRequest>,
+    pub current_edit: Option<crate::proxy::InterceptedRequest>,
+    pub current_index: usize,
+}
+
+impl Default for BreakpointState {
+    fn default() -> Self {
+        Self {
+            mode: BreakpointMode::default(),
+            edit_mode: BreakpointEditMode::None,
+            selected_field: BreakpointField::Method,
+            editing_header_index: None,
+            header_input: String::new(),
+            body_input: String::new(),
+            url_input: String::new(),
+            method_input: String::new(),
+            queue: Vec::new(),
+            current_edit: None,
+            current_index: 0,
+        }
+    }
 }
 
 impl TrafficState {
@@ -215,6 +296,10 @@ impl Tab {
 pub struct DevicesState {
     pub selected: usize,
     pub selected_override: Option<usize>,
+    /// Whether we're editing the rule override for selected device
+    pub editing_override: bool,
+    /// Rule override input buffer
+    pub override_input: String,
 }
 
 /// Rules tab state.
@@ -330,6 +415,8 @@ pub struct TuiApp {
     // Proxy runtime
     pub proxy_running: AtomicBool,
     pub shutdown_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Sender for breakpoint decisions (proceed/drop) back to proxy
+    pub breakpoint_decision_tx: Mutex<Option<tokio::sync::oneshot::Sender<BreakpointDecision>>>,
 
     // UI state
     pub current_tab: Tab,
@@ -367,6 +454,7 @@ impl TuiApp {
             replay_state,
             proxy_running: AtomicBool::new(false),
             shutdown_tx: Mutex::new(None),
+            breakpoint_decision_tx: Mutex::new(None),
             current_tab: Tab::Traffic,
             traffic: TrafficState::default(),
             devices: DevicesState::default(),
@@ -517,5 +605,99 @@ mod tests {
         let _rp = ReplayState2::default();
         let _g = GraphState::default();
         let _gen = GenState::default();
+    }
+
+    #[test]
+    fn test_breakpoint_mode_default() {
+        let state = BreakpointState::default();
+        assert!(matches!(state.mode, BreakpointMode::None));
+        assert!(state.queue.is_empty());
+        assert!(state.current_edit.is_none());
+    }
+
+    #[test]
+    fn test_breakpoint_go_clears_current() {
+        let mut state = BreakpointState::default();
+        let req = crate::proxy::InterceptedRequest {
+            id: "1".to_string(),
+            timestamp: "1".to_string(),
+            method: "GET".to_string(),
+            host: "example.com".to_string(),
+            path: "/".to_string(),
+            scheme: "https".to_string(),
+            ..Default::default()
+        };
+        state.queue.push(req.clone());
+        state.current_edit = Some(req);
+        state.mode = BreakpointMode::RequestPaused;
+
+        // Simulate GO: remove first item
+        if !state.queue.is_empty() {
+            state.queue.remove(0);
+        }
+        state.current_edit = state.queue.first().cloned();
+        if state.current_edit.is_none() {
+            state.mode = BreakpointMode::None;
+        }
+
+        assert!(state.queue.is_empty());
+        assert!(state.current_edit.is_none());
+        assert!(matches!(state.mode, BreakpointMode::None));
+    }
+
+    #[test]
+    fn test_breakpoint_cancel_clears_all() {
+        let mut state = BreakpointState::default();
+        for i in 0..3 {
+            let req = crate::proxy::InterceptedRequest {
+                id: i.to_string(),
+                timestamp: i.to_string(),
+                method: "GET".to_string(),
+                host: "example.com".to_string(),
+                path: "/".to_string(),
+                scheme: "https".to_string(),
+                ..Default::default()
+            };
+            state.queue.push(req);
+        }
+        state.current_edit = state.queue.first().cloned();
+        state.mode = BreakpointMode::RequestPaused;
+
+        // Simulate Cancel
+        state.queue.clear();
+        state.current_edit = None;
+        state.mode = BreakpointMode::None;
+
+        assert!(state.queue.is_empty());
+        assert!(state.current_edit.is_none());
+        assert!(matches!(state.mode, BreakpointMode::None));
+    }
+
+    #[test]
+    fn test_breakpoint_multiple_in_queue() {
+        let mut state = BreakpointState::default();
+        for i in 0..3 {
+            let req = crate::proxy::InterceptedRequest {
+                id: i.to_string(),
+                timestamp: i.to_string(),
+                method: "GET".to_string(),
+                host: format!("host{}.com", i),
+                path: "/".to_string(),
+                scheme: "https".to_string(),
+                ..Default::default()
+            };
+            state.queue.push(req);
+        }
+        state.mode = BreakpointMode::RequestPaused;
+
+        assert_eq!(state.queue.len(), 3);
+
+        // Go through each item
+        state.queue.remove(0);
+        assert_eq!(state.queue.len(), 2);
+        state.queue.remove(0);
+        assert_eq!(state.queue.len(), 1);
+        state.queue.remove(0);
+        assert_eq!(state.queue.len(), 0);
     }
 }

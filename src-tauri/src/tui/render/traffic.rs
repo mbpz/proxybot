@@ -5,9 +5,9 @@
 //! - Regex search bar
 //! - Split pane: request list (top 60%) + detail panel (bottom 40%)
 
-use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::Stylize, text::Line};
+use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::{Stylize, Style}, text::Line};
 
-use crate::tui::{TuiApp, input::format_ts, input::fmt_duration};
+use crate::tui::{TuiApp, input::format_ts, input::fmt_duration, FilterMode};
 use crate::db::RecentRequest;
 use crate::proxy::InterceptedRequest;
 
@@ -35,6 +35,22 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let traffic = &app.traffic;
 
+    // If in filter input mode, show the input prompt instead of the normal filter line
+    if let Some(mode) = traffic.filter_mode {
+        let label = match mode {
+            FilterMode::Method => "Method",
+            FilterMode::Host => "Host",
+            FilterMode::Status => "Status",
+            FilterMode::AppTag => "App Tag",
+        };
+        let prompt = format!("Filter {}: {} [Enter=confirm, Esc=cancel]", label, traffic.filter_input);
+        let para = Paragraph::new(prompt.yellow().to_string())
+            .block(Block::default().borders(Borders::ALL).title("Filter Input"))
+            .style(Color::Yellow);
+        f.render_widget(para, area);
+        return;
+    }
+
     // Filter indicators
     let method_str = traffic.filters.method.as_deref().unwrap_or("*");
     let host_str = traffic.filters.host_pattern.as_deref().unwrap_or("");
@@ -47,7 +63,7 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
     };
 
     let filter_line = format!(
-        " Method:[{}] Host:[{:<15}] Status:[{}] App:[{:<10}] {} [press letter to set, / for search, Esc to clear]",
+        " Method:[{}] Host:[{:<15}] Status:[{}] App:[{:<10}] {} [m]ethod [f]ost [o]kstatus [a]pp",
         method_str.yellow(),
         host_str.chars().take(15).collect::<String>().yellow(),
         status_str.green(),
@@ -73,7 +89,11 @@ fn render_content(f: &mut Frame, area: Rect, app: &TuiApp) {
         .split(area);
 
     render_request_list(f, chunks[0], app);
-    render_detail_panel(f, chunks[1], app);
+    if app.traffic.breakpoint.mode != crate::tui::BreakpointMode::None {
+        render_breakpoint_editor(f, chunks[1], app);
+    } else {
+        render_detail_panel(f, chunks[1], app);
+    }
 }
 
 /// Render animated skeleton loading rows.
@@ -337,6 +357,106 @@ fn render_ws_frames_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) 
     let para = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title("WS Frames"));
     f.render_widget(para, area);
+}
+
+/// Render the breakpoint editor in the detail panel area.
+fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
+    use ratatui::layout::Alignment;
+    use ratatui::widgets::{Block, Borders, Paragraph};
+    use ratatui::style::Color;
+    use crate::tui::{BreakpointMode, BreakpointEditMode, BreakpointField};
+
+    let bp = &app.traffic.breakpoint;
+    let req = match &bp.current_edit {
+        Some(r) => r,
+        None => return,
+    };
+
+    let modal_width = 60.min(area.width.saturating_sub(4));
+    let modal_height = 20.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(modal_width)) / 2;
+    let y = (area.height.saturating_sub(modal_height)) / 2;
+    let modal_area = Rect::new(x, y, modal_width, modal_height);
+
+    // Check if in edit mode
+    let is_editing = !matches!(bp.edit_mode, BreakpointEditMode::None);
+
+    let mode_label = match bp.mode {
+        BreakpointMode::RequestPaused => "REQUEST BREAKPOINT",
+        BreakpointMode::ResponsePaused => "RESPONSE BREAKPOINT",
+        _ => return,
+    };
+
+    let edit_indicator = if is_editing { "[EDIT]" } else { "" };
+    let help_text = if is_editing {
+        "[↑/↓] field  [Enter] edit  [g] send  [Esc] cancel"
+    } else {
+        "[e] edit  [g] send  [c] cancel"
+    };
+
+    let mut lines: Vec<String> = vec![
+        format!("  {} {} — {}", mode_label, edit_indicator, help_text),
+        String::new(),
+    ];
+
+    // Method row
+    let method_str = if is_editing && matches!(bp.selected_field, BreakpointField::Method) {
+        format!("> Method:   [{}]", bp.method_input)
+    } else {
+        format!("  Method:   {}", req.method)
+    };
+    lines.push(method_str);
+
+    // URL row
+    let url_display = if is_editing && matches!(bp.selected_field, BreakpointField::Url) {
+        format!("> URL:    [{}]", bp.url_input)
+    } else {
+        let host_trunc = req.host.chars().take(30).collect::<String>();
+        let path_trunc = req.path.chars().take(40).collect::<String>();
+        format!("  URL:    {}://{}{}", req.scheme, host_trunc, path_trunc)
+    };
+    lines.push(url_display);
+
+    // Headers
+    lines.push(String::new());
+    lines.push(format!("  Headers: ({})", req.req_headers.len()));
+    for (i, (k, v)) in req.req_headers.iter().enumerate() {
+        let is_selected = is_editing && matches!(bp.selected_field, BreakpointField::Headers);
+        let is_editing_this = is_editing && bp.editing_header_index == Some(i);
+        let prefix = if is_selected { "> " } else { "  " };
+        let editing_indicator = if is_editing_this { "[EDITING]" } else { "" };
+        let header_val = v.chars().take(40).collect::<String>();
+        let line = format!("{}{}{}: {}", prefix, editing_indicator, k, header_val);
+        lines.push(line);
+    }
+
+    // Body
+    lines.push(String::new());
+    let body_preview = req.req_body.as_ref()
+        .map(|s| s.chars().take(60).collect::<String>())
+        .unwrap_or_else(|| "(empty)".to_string());
+    let body_str = if is_editing && matches!(bp.selected_field, BreakpointField::Body) {
+        format!("> Body:   [{}...]", bp.body_input.chars().take(30).collect::<String>())
+    } else {
+        format!("  Body:   {}", body_preview)
+    };
+    lines.push(body_str);
+
+    // Header edit popup
+    if let Some(idx) = bp.editing_header_index {
+        let header_input_display = bp.header_input.chars().take(40).collect::<String>();
+    let header_line = format!("\n  [Editing header {}: {}]  [Enter] confirm  [Esc] cancel", idx, header_input_display);
+        lines.push(header_line);
+    }
+
+    let content = Paragraph::new(lines.join("\n"))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" {} ", mode_label))
+            .border_style(Style::new().fg(Color::Cyan)))
+        .alignment(Alignment::Left);
+
+    f.render_widget(content, modal_area);
 }
 
 /// Simple JSON formatter - adds basic indentation for objects/arrays.

@@ -401,6 +401,20 @@ pub fn update_device_stats(
     Ok(())
 }
 
+/// Set device rule override (internal, takes Connection directly).
+pub fn set_device_rule_override_internal(
+    conn: &Connection,
+    mac_address: &str,
+    rule_override: Option<String>,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE devices SET rule_override = ?1 WHERE mac_address = ?2",
+        rusqlite::params![rule_override, mac_address],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Set device rule override.
 #[tauri::command]
 pub fn set_device_rule_override(
