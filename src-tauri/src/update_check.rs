@@ -8,7 +8,10 @@ use ureq::get;
 /// Returns Some(tag_name) if update available, None otherwise.
 pub fn check_for_updates(current_version: &str) -> Option<String> {
     let url = "https://api.github.com/repos/mbpz/proxybot/releases/latest";
-    let resp = match get(url).call() {
+    let resp = match get(url)
+        .set("User-Agent", "proxybot-tui")
+        .call()
+    {
         Ok(r) => r,
         Err(e) => {
             log::debug!("Update check failed: {}", e);
@@ -23,8 +26,8 @@ pub fn check_for_updates(current_version: &str) -> Option<String> {
         }
     };
     let tag_name = json.get("tag_name")?.as_str()?.to_string();
-    // tag_name format: "tui-v0.4.1" - strip prefix to get version
-    let latest = tag_name.trim_start_matches("tui-");
+    // Handle both "tui-v0.4.1" and "v0.4.1" formats
+    let latest = tag_name.trim_start_matches("tui-").trim_start_matches('v');
     if latest != current_version {
         Some(tag_name)
     } else {
