@@ -77,9 +77,11 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | TUI | macOS-native ratatui | NCurses/mitmweb | Mac GUI only | CLI + web UI |
 | App classification | WeChat/Douyin/Alipay | — | — | — |
 | pf transparent proxy | macOS pf integration | Manual proxy config | Mac GUI proxy | — |
-| Breakpoint | In Progress | Full | Full | Full |
-| Auto CA install | Manual export | Manual | One-click | One-click |
-| Tauri GUI | Planned | — | Mac GUI | — |
+| Breakpoint | ✅ Full | Full | Full | Full |
+| Auto CA install | Wizard guide | Manual | One-click | One-click |
+| Tauri GUI | ✅ Alpha | — | Mac GUI | — |
+| System tray | ✅ With notifications | — | ✅ | — |
+| ADB reverse tunnel | ✅ Android USB | — | — | — |
 
 **ProxyBot's edge:** pf transparent proxy means no per-app proxy configuration on the phone. App classification groups traffic automatically. TUI is first-class on macOS.
 
@@ -89,9 +91,9 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 
 | Version | Focus | Features |
 |---------|-------|----------|
-| **v0.4.x (NOW)** | TUI complete | All 9 tabs shipped, pf + DNS, basic breakpoint intercept |
-| **v0.5.0** | Breakpoint Editing | Full TUI breakpoint UI — pause, edit request/response, continue. Android adb reverse support |
-| **v0.6.0** | Tauri GUI Alpha | React UI for traffic + rules + devices, system CA install integration |
+| **v0.4.x (DONE)** | TUI complete | All 9 tabs shipped, pf + DNS, basic breakpoint intercept |
+| **v0.5.0 (DONE)** | Breakpoint Editing | Full TUI breakpoint UI — pause, edit request/response, continue. Android adb reverse support via USB |
+| **v0.6.0 (DONE)** | Tauri GUI Alpha | React UI traffic panel, proxybot-gui binary, CA wizard, system tray with notifications |
 | **v1.0.0** | Phase 2 Complete | Full GUI with traffic editor, iOS VPN API via NEPacketTunnel, WebView debugging |
 
 ---
