@@ -1330,6 +1330,16 @@ pub fn start_proxy(
     Ok(format!("Proxy starting on port {}", proxy_port()))
 }
 
+#[tauri::command]
+pub fn get_proxy_status() -> bool {
+    PROXY_RUNNING.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+pub fn export_cert(cert_manager: State<'_, Arc<CertManager>>) -> Result<String, String> {
+    cert_manager.export_ca_pem()
+}
+
 /// Start the proxy core for TUI (no Tauri dependency).
 /// Creates a broadcast channel and returns the receiver so TUI can subscribe to events.
 pub fn start_proxy_core(

@@ -682,6 +682,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
+                        InputAction::OpenWizard => {
+                            use proxybot_lib::tui::wizard::{CertWizard, Platform};
+                            app.wizard = Some(CertWizard::new(Platform::IOS));
+                        }
                         InputAction::ToggleBlocklist => {
                             // Toggle blocklist enabled/disabled state
                             let currently_enabled = app.dns_state.blocklist_enabled.load(Ordering::SeqCst);
