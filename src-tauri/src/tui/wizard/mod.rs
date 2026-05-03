@@ -28,7 +28,7 @@ impl Platform {
     }
 }
 
-/// A single step in the certificate installation wizard.
+/// WizardStep represents a single step in the certificate installation wizard.
 #[derive(Debug, Clone)]
 pub struct WizardStep {
     /// Step title.
