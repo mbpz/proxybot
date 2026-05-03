@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::Manager;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri_plugin_notification::NotificationExt;
 
 pub mod anomaly;
 pub mod app_rules;
@@ -29,6 +30,7 @@ pub mod tun;
 pub mod vision;
 pub mod tui;
 pub mod update_check;
+pub mod adb;
 
 use anomaly::{AnomalyDetector, get_alerts, acknowledge_alert, get_alert_count, get_traffic_baseline, scan_request_anomalies};
 use cert::CertManager;
@@ -63,6 +65,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(db_state.clone())
         .manage(cert_manager.clone())
         .manage(dns_state.clone())
@@ -82,9 +85,14 @@ pub fn run() {
                     rules_engine.start_watcher();
                 });
             });
-            let show_item = MenuItem::with_id(app, "show", "Show ProxyBot", true, None::<&str>)?;
+            let start_item = MenuItem::with_id(app, "start", "Start Proxy", true, None::<&str>)?;
+            let stop_item = MenuItem::with_id(app, "stop", "Stop Proxy", true, None::<&str>)?;
+            let stats_item = MenuItem::with_id(app, "stats", "Traffic: 0", false, None::<&str>)?;
+            let prefs_item = MenuItem::with_id(app, "prefs", "Preferences...", true, None::<&str>)?;
+            let help_item = MenuItem::with_id(app, "help", "Help", true, None::<&str>)?;
+            let inspect_item = MenuItem::with_id(app, "inspect", "Open Web Inspector", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&start_item, &stop_item, &stats_item, &prefs_item, &help_item, &inspect_item, &quit_item])?;
 
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -93,7 +101,7 @@ pub fn run() {
                 .build(app)?;
 
             let app_handle = app.handle().clone();
-            tray.on_menu_event(move |_app, event| {
+            tray.on_menu_event(move |app, event| {
                 match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app_handle.get_webview_window("main") {
@@ -101,8 +109,47 @@ pub fn run() {
                             let _ = window.set_focus();
                         }
                     }
+                    "start" => {
+                        match proxy::start_proxy(
+                            app_handle.clone(),
+                            app.state::<Arc<CertManager>>().clone(),
+                            app.state::<Arc<DnsState>>().clone(),
+                            app.state::<Arc<DbState>>().clone(),
+                            app.state::<Arc<RulesEngine>>().clone(),
+                        ) {
+                            Ok(_) => {
+                                let _ = app.notification()
+                                    .builder()
+                                    .title("ProxyBot")
+                                    .body("Proxy started")
+                                    .show();
+                            }
+                            Err(e) => {
+                                log::error!("Failed to start proxy: {}", e);
+                            }
+                        }
+                    }
+                    "stop" => {
+                        match proxy::stop_proxy() {
+                            Ok(_) => {
+                                let _ = app.notification()
+                                    .builder()
+                                    .title("ProxyBot")
+                                    .body("Proxy stopped")
+                                    .show();
+                            }
+                            Err(e) => {
+                                log::error!("Failed to stop proxy: {}", e);
+                            }
+                        }
+                    }
                     "quit" => {
                         app_handle.exit(0);
+                    }
+                    "inspect" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.eval("if (window.devtools) window.devtools.open();");
+                        }
                     }
                     _ => {}
                 }
@@ -116,14 +163,28 @@ pub fn run() {
                         let _ = window.set_focus();
                     }
                 }
+                // Note: Double-click handling removed - MouseButtonState::DoubleClick not available
             });
 
             let _ = tray;
+
+            // Close-to-tray window behavior
+            let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_clone.hide();
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
             proxy::stop_proxy,
+            proxy::get_proxy_status,
+            proxy::export_cert,
             proxy::get_ca_cert_path,
             proxy::get_ca_cert_pem,
             proxy::regenerate_ca,

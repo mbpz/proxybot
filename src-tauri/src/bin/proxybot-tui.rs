@@ -31,6 +31,7 @@ use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction, MoveDirect
 use proxybot_lib::anomaly::AnomalyDetector;
 use proxybot_lib::tun::TunState;
 use proxybot_lib::replay::ReplayState as LibReplayState;
+use proxybot_lib::adb::AdbState;
 
 use proxybot_lib::proxy::ProxyState;
 
@@ -97,6 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let anomaly_detector = Arc::new(AnomalyDetector::new());
     let tun_state = Arc::new(TunState::new());
     let replay_state = Arc::new(LibReplayState::default());
+    let adb_state = Arc::new(AdbState::default());
 
     // Get network info
     let network_info = get_network_info().ok();
@@ -124,6 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         anomaly_detector,
         tun_state,
         replay_state,
+        adb_state,
     );
 
     // Mark watcher as active since we spawned it above
@@ -604,6 +607,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 log::info!("DNS start only available via Tauri IPC");
                             }
                         }
+                        InputAction::ToggleAdb => {
+                            use proxybot_lib::adb;
+                            app.devices.adb_enabled = !app.devices.adb_enabled;
+                            if app.devices.adb_enabled {
+                                if !adb::is_adb_available() {
+                                    log::warn!("ADB not available on this system");
+                                    app.devices.adb_enabled = false;
+                                } else {
+                                    log::info!("ADB mode enabled");
+                                }
+                            } else {
+                                log::info!("ADB mode disabled");
+                            }
+                        }
                         InputAction::FocusSearch => {
                             app.traffic.search_focused = true;
                         }
@@ -664,6 +681,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.certs.regenerate_status = Some(format!("Export failed: {}", e));
                                 }
                             }
+                        }
+                        InputAction::OpenWizard => {
+                            use proxybot_lib::tui::wizard::{CertWizard, Platform};
+                            app.wizard = Some(CertWizard::new(Platform::IOS));
                         }
                         InputAction::ToggleBlocklist => {
                             // Toggle blocklist enabled/disabled state

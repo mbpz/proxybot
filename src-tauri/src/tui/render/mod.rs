@@ -15,7 +15,8 @@ pub mod gen;
 use ratatui::{Frame, layout::{Rect, Constraint, Direction, Layout}, widgets::Paragraph};
 use ratatui::style::{Stylize, Color};
 
-use super::{Tab, TuiApp};
+use super::{Tab, TuiApp, CertWizard};
+use super::wizard::render_wizard;
 
 /// Render the tab bar at the top of the screen.
 pub fn render_tab_bar(f: &mut Frame, area: Rect, current_tab: Tab) {
@@ -118,17 +119,23 @@ pub fn render(app: &TuiApp, f: &mut Frame) {
     // Header with logo and status
     render_header(f, chunks[1], app);
 
-    // Content area - dispatch to tab-specific renderer
-    match app.current_tab {
-        Tab::Traffic => traffic::render(f, chunks[2], app),
-        Tab::Rules => rules::render(f, chunks[2], app),
-        Tab::Devices => devices::render(f, chunks[2], app),
-        Tab::Certs => certs::render(f, chunks[2], app),
-        Tab::Dns => dns::render(f, chunks[2], app),
-        Tab::Alerts => alerts::render(f, chunks[2], app),
-        Tab::Replay => replay::render(f, chunks[2], app),
-        Tab::Graph => graph::render(f, chunks[2], app),
-        Tab::Gen => gen::render(f, chunks[2], app),
+    // Check if wizard is open and render it as an overlay
+    if let Some(ref wizard) = app.wizard {
+        // Render wizard in content area
+        render_wizard(f, chunks[2], wizard);
+    } else {
+        // Normal tab rendering
+        match app.current_tab {
+            Tab::Traffic => traffic::render(f, chunks[2], app),
+            Tab::Rules => rules::render(f, chunks[2], app),
+            Tab::Devices => devices::render(f, chunks[2], app),
+            Tab::Certs => certs::render(f, chunks[2], app),
+            Tab::Dns => dns::render(f, chunks[2], app),
+            Tab::Alerts => alerts::render(f, chunks[2], app),
+            Tab::Replay => replay::render(f, chunks[2], app),
+            Tab::Graph => graph::render(f, chunks[2], app),
+            Tab::Gen => gen::render(f, chunks[2], app),
+        }
     }
 
     // Status bar

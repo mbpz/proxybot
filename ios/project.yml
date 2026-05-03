@@ -1,0 +1,21 @@
+name: ProxyBotVPN
+options:
+  bundleIdPrefix: com.proxybot.app
+targets:
+  ProxyBotVPN:
+    type: application
+    platform: iOS
+    sources: [ProxyBotVPN]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.proxybot.app.vpn
+      INFOPLIST_FILE: ProxyBotVPN/Info.plist
+      CODE_SIGN_ENTITLEMENTS: ProxyBotVPN/ProxyBotVPN.entitlements
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [PacketTunnel]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.proxybot.app.vpn.packetTunnel
+      INFOPLIST_FILE: PacketTunnel/Info.plist
+      CODE_SIGN_ENTITLEMENTS: PacketTunnel/PacketTunnel.entitlements
+      SKIP_INSTALL: YES

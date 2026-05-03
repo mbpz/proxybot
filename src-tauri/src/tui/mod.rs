@@ -5,6 +5,7 @@
 
 pub mod input;
 pub mod render;
+pub mod wizard;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -22,6 +23,10 @@ use crate::rules::RulesEngine;
 use crate::anomaly::AnomalyDetector;
 use crate::tun::TunState;
 use crate::replay::ReplayState;
+use crate::adb::{AdbState, AdbDevice};
+
+// Wizard module
+use wizard::CertWizard;
 
 /// Filter configuration for traffic list.
 #[derive(Default)]
@@ -79,6 +84,24 @@ pub enum BreakpointType {
     Response,
 }
 
+/// Condition for triggering breakpoint
+pub struct BreakpointCondition {
+    pub url_regex: Option<String>,
+    pub method: Option<String>,
+    pub host_pattern: Option<String>,
+    pub status_range: Option<(u16, u16)>,
+}
+
+/// History entry for paused requests
+pub struct BreakpointHistoryEntry {
+    pub timestamp: String,
+    pub method: String,
+    pub url: String,
+    pub status: Option<u16>,
+    pub decision: String,
+    pub paused_ms: u64,
+}
+
 /// Breakpoint mode in the TUI.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub enum BreakpointMode {
@@ -118,6 +141,11 @@ pub struct BreakpointState {
     pub queue: Vec<crate::proxy::InterceptedRequest>,
     pub current_edit: Option<crate::proxy::InterceptedRequest>,
     pub current_index: usize,
+    // 增强功能
+    pub auto_continue_timeout_secs: Option<u64>,
+    pub auto_continue_on_match: bool,
+    pub condition: Option<BreakpointCondition>,
+    pub history: Vec<BreakpointHistoryEntry>,
 }
 
 impl Default for BreakpointState {
@@ -134,6 +162,10 @@ impl Default for BreakpointState {
             queue: Vec::new(),
             current_edit: None,
             current_index: 0,
+            auto_continue_timeout_secs: None,
+            auto_continue_on_match: false,
+            condition: None,
+            history: Vec::new(),
         }
     }
 }
@@ -300,6 +332,8 @@ pub struct DevicesState {
     pub editing_override: bool,
     /// Rule override input buffer
     pub override_input: String,
+    /// Whether ADB mode is enabled for this tab
+    pub adb_enabled: bool,
 }
 
 /// Rules tab state.
@@ -411,6 +445,7 @@ pub struct TuiApp {
     pub anomaly_detector: Arc<AnomalyDetector>,
     pub tun_state: Arc<TunState>,
     pub replay_state: Arc<ReplayState>,
+    pub adb_state: Arc<AdbState>,
 
     // Proxy runtime
     pub proxy_running: AtomicBool,
@@ -431,6 +466,8 @@ pub struct TuiApp {
     pub replay: ReplayState2,
     pub graph: GraphState,
     pub gen: GenState,
+    /// Certificate installation wizard (opened with 'w' on Certs tab)
+    pub wizard: Option<CertWizard>,
 }
 
 impl TuiApp {
@@ -444,6 +481,7 @@ impl TuiApp {
         anomaly_detector: Arc<AnomalyDetector>,
         tun_state: Arc<TunState>,
         replay_state: Arc<ReplayState>,
+        adb_state: Arc<AdbState>,
     ) -> Self {
         Self {
             db_state,
@@ -454,6 +492,7 @@ impl TuiApp {
             anomaly_detector,
             tun_state,
             replay_state,
+            adb_state,
             proxy_running: AtomicBool::new(false),
             shutdown_tx: Mutex::new(None),
             breakpoint_decision_tx: Mutex::new(None),
@@ -468,6 +507,7 @@ impl TuiApp {
             replay: ReplayState2::default(),
             graph: GraphState::default(),
             gen: GenState::default(),
+            wizard: None,
         }
     }
 

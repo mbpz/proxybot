@@ -10,6 +10,7 @@ use ratatui::{
 };
 use crate::tui::TuiApp;
 use crate::db::get_devices_internal;
+use crate::adb::AdbDevice;
 
 /// Render the Devices tab.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
@@ -20,6 +21,13 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         } else {
             Vec::new()
         }
+    };
+
+    // Fetch ADB devices if ADB is enabled
+    let adb_devices: Vec<AdbDevice> = if app.devices.adb_enabled {
+        crate::adb::list_devices()
+    } else {
+        Vec::new()
     };
 
     let total_devices = devices_list.len();
@@ -47,6 +55,13 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let stats_text = if app.devices.editing_override {
         let current = app.devices.override_input.as_str();
         format!("Rule override: [{}] | Enter=confirm Esc=cancel", if current.is_empty() { "(none)" } else { current })
+    } else if app.devices.adb_enabled {
+        format!(
+            " Devices: {} | Total Up: {} | Total Down: {} | [a] toggle ADB | j/k navigate [e] edit rule",
+            total_devices,
+            format_bytes(total_up),
+            format_bytes(total_down),
+        )
     } else {
         format!(
             " Devices: {} | Total Up: {} | Total Down: {} | j/k navigate [e] edit rule",
@@ -102,11 +117,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     f.render_widget(table, left_chunks[1]);
 
     // Right: ASCII topology diagram
-    render_topology(f, chunks[1], &devices_list);
+    render_topology(f, chunks[1], &devices_list, &adb_devices);
 }
 
 /// Render ASCII topology diagram showing device connections.
-fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo]) {
+fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo], adb_devices: &[AdbDevice]) {
     use ratatui::widgets::Paragraph;
 
     let mut lines: Vec<Line> = Vec::new();
@@ -118,13 +133,14 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo])
     lines.push(Line::raw("       └──────────┬──────────┘").style(Color::Cyan));
     lines.push(Line::raw("                  │").style(Color::Cyan));
 
-    if devices.is_empty() {
+    if devices.is_empty() && adb_devices.is_empty() {
         lines.push(Line::raw("        (no devices connected)").style(Color::DarkGray));
         lines.push(Line::raw("".to_string()));
         lines.push(Line::raw(" Configure device gateway:").style(Color::Yellow));
         lines.push(Line::raw("  • Set proxy to this PC".to_string()));
         lines.push(Line::raw("  • Port: 8088".to_string()));
         lines.push(Line::raw("  • Install CA certificate".to_string()));
+        lines.push(Line::raw("  • Or use USB with [a] toggle ADB".to_string()));
     } else {
         let max_display = devices.len().min(4);
         for (i, dev) in devices.iter().take(max_display).enumerate() {
@@ -146,10 +162,20 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo])
         }
     }
 
+    // Show ADB devices section
+    if !adb_devices.is_empty() {
+        lines.push(Line::raw("".to_string()));
+        lines.push(Line::raw("USB ADB Devices:").style(Color::Cyan));
+        for dev in adb_devices.iter().take(3) {
+            let model = dev.model.as_deref().unwrap_or("unknown");
+            lines.push(Line::raw(format!("  • {} ({})", dev.serial.chars().take(12).collect::<String>(), model)).style(Color::Cyan));
+        }
+    }
+
     lines.push(Line::raw("".to_string()));
     lines.push(Line::raw("Legend:").style(Color::Yellow));
     lines.push(Line::raw(" [name] = device name".to_string()));
-    lines.push(Line::raw(" (app)  = detected app").style(Color::Magenta));
+    lines.push(Line::raw(" (app)  = detected app".to_string()));
     lines.push(Line::raw(" MAC    = device address".to_string()));
 
     let content = Paragraph::new(lines)
