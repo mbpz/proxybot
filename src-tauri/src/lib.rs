@@ -124,6 +124,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             proxy::start_proxy,
             proxy::stop_proxy,
+            proxy::get_proxy_status,
+            proxy::export_cert,
             proxy::get_ca_cert_path,
             proxy::get_ca_cert_pem,
             proxy::regenerate_ca,
