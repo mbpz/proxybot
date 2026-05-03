@@ -105,6 +105,8 @@ pub enum InputAction {
     BreakpointEdit,
     /// Enter filter input mode for app_tag (Traffic tab).
     FilterAppTag,
+    /// Open the certificate installation wizard (Certs tab).
+    OpenWizard,
     /// No action.
     None,
 }
@@ -189,9 +191,10 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('e') if current_tab == Tab::Traffic => InputAction::BreakpointEdit,
         KeyCode::Char('u') if current_tab == Tab::Traffic => InputAction::OpenUpdateUrl,
 
-        // Certs tab: r=regenerate, e=export
+        // Certs tab: r=regenerate, e=export, w=open wizard
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
         KeyCode::Char('e') if current_tab == Tab::Certs || current_tab == Tab::Replay => InputAction::ExportCert,
+        KeyCode::Char('w') if current_tab == Tab::Certs => InputAction::OpenWizard,
 
         // DNS tab: s=toggle DNS server, b=toggle blocklist, u=cycle upstream
         KeyCode::Char('s') if current_tab == Tab::Dns => InputAction::ToggleDns,

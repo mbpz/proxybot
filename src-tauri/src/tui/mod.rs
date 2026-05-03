@@ -5,6 +5,7 @@
 
 pub mod input;
 pub mod render;
+pub mod wizard;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -22,6 +23,9 @@ use crate::rules::RulesEngine;
 use crate::anomaly::AnomalyDetector;
 use crate::tun::TunState;
 use crate::replay::ReplayState;
+
+// Wizard module
+use wizard::CertWizard;
 
 /// Filter configuration for traffic list.
 #[derive(Default)]
@@ -431,6 +435,8 @@ pub struct TuiApp {
     pub replay: ReplayState2,
     pub graph: GraphState,
     pub gen: GenState,
+    /// Certificate installation wizard (opened with 'w' on Certs tab)
+    pub wizard: Option<CertWizard>,
 }
 
 impl TuiApp {
@@ -468,6 +474,7 @@ impl TuiApp {
             replay: ReplayState2::default(),
             graph: GraphState::default(),
             gen: GenState::default(),
+            wizard: None,
         }
     }
 
