@@ -90,8 +90,9 @@ pub fn run() {
             let stats_item = MenuItem::with_id(app, "stats", "Traffic: 0", false, None::<&str>)?;
             let prefs_item = MenuItem::with_id(app, "prefs", "Preferences...", true, None::<&str>)?;
             let help_item = MenuItem::with_id(app, "help", "Help", true, None::<&str>)?;
+            let inspect_item = MenuItem::with_id(app, "inspect", "Open Web Inspector", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&start_item, &stop_item, &stats_item, &prefs_item, &help_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&start_item, &stop_item, &stats_item, &prefs_item, &help_item, &inspect_item, &quit_item])?;
 
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -144,6 +145,11 @@ pub fn run() {
                     }
                     "quit" => {
                         app_handle.exit(0);
+                    }
+                    "inspect" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.eval("if (window.devtools) window.devtools.open();");
+                        }
                     }
                     _ => {}
                 }
