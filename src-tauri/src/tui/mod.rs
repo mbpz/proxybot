@@ -84,6 +84,24 @@ pub enum BreakpointType {
     Response,
 }
 
+/// Condition for triggering breakpoint
+pub struct BreakpointCondition {
+    pub url_regex: Option<String>,
+    pub method: Option<String>,
+    pub host_pattern: Option<String>,
+    pub status_range: Option<(u16, u16)>,
+}
+
+/// History entry for paused requests
+pub struct BreakpointHistoryEntry {
+    pub timestamp: String,
+    pub method: String,
+    pub url: String,
+    pub status: Option<u16>,
+    pub decision: String,
+    pub paused_ms: u64,
+}
+
 /// Breakpoint mode in the TUI.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub enum BreakpointMode {
@@ -123,6 +141,11 @@ pub struct BreakpointState {
     pub queue: Vec<crate::proxy::InterceptedRequest>,
     pub current_edit: Option<crate::proxy::InterceptedRequest>,
     pub current_index: usize,
+    // 增强功能
+    pub auto_continue_timeout_secs: Option<u64>,
+    pub auto_continue_on_match: bool,
+    pub condition: Option<BreakpointCondition>,
+    pub history: Vec<BreakpointHistoryEntry>,
 }
 
 impl Default for BreakpointState {
@@ -139,6 +162,10 @@ impl Default for BreakpointState {
             queue: Vec::new(),
             current_edit: None,
             current_index: 0,
+            auto_continue_timeout_secs: None,
+            auto_continue_on_match: false,
+            condition: None,
+            history: Vec::new(),
         }
     }
 }
