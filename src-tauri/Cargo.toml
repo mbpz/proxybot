@@ -59,6 +59,10 @@ cucumber = "0.23.0"
 name = "proxybot-tui"
 path = "src/bin/proxybot-tui.rs"
 
+[[bin]]
+name = "proxybot-gui"
+path = "src/bin/proxybot-gui.rs"
+
 [profile.release]
 strip = true
 lto = true
