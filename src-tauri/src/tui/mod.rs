@@ -22,6 +22,7 @@ use crate::rules::RulesEngine;
 use crate::anomaly::AnomalyDetector;
 use crate::tun::TunState;
 use crate::replay::ReplayState;
+use crate::adb::{AdbState, AdbDevice};
 
 /// Filter configuration for traffic list.
 #[derive(Default)]
@@ -300,6 +301,8 @@ pub struct DevicesState {
     pub editing_override: bool,
     /// Rule override input buffer
     pub override_input: String,
+    /// Whether ADB mode is enabled for this tab
+    pub adb_enabled: bool,
 }
 
 /// Rules tab state.
@@ -411,6 +414,7 @@ pub struct TuiApp {
     pub anomaly_detector: Arc<AnomalyDetector>,
     pub tun_state: Arc<TunState>,
     pub replay_state: Arc<ReplayState>,
+    pub adb_state: Arc<AdbState>,
 
     // Proxy runtime
     pub proxy_running: AtomicBool,
@@ -444,6 +448,7 @@ impl TuiApp {
         anomaly_detector: Arc<AnomalyDetector>,
         tun_state: Arc<TunState>,
         replay_state: Arc<ReplayState>,
+        adb_state: Arc<AdbState>,
     ) -> Self {
         Self {
             db_state,
@@ -454,6 +459,7 @@ impl TuiApp {
             anomaly_detector,
             tun_state,
             replay_state,
+            adb_state,
             proxy_running: AtomicBool::new(false),
             shutdown_tx: Mutex::new(None),
             breakpoint_decision_tx: Mutex::new(None),

@@ -33,6 +33,8 @@ pub enum InputAction {
     TogglePf,
     /// Toggle DNS server.
     ToggleDns,
+    /// Toggle ADB mode (Devices tab).
+    ToggleAdb,
     /// Focus search.
     FocusSearch,
     /// Clear search / filters.
@@ -197,6 +199,9 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('s') if current_tab == Tab::Dns => InputAction::ToggleDns,
         KeyCode::Char('b') if current_tab == Tab::Dns => InputAction::ToggleBlocklist,
         KeyCode::Char('u') if current_tab == Tab::Dns => InputAction::CycleUpstream,
+
+        // Devices tab: a=toggle ADB mode
+        KeyCode::Char('a') if current_tab == Tab::Devices => InputAction::ToggleAdb,
 
         // Clear search (x is also used for stop replay on Replay tab)
         KeyCode::Char('x') if current_tab != Tab::Replay => InputAction::ClearSearch,

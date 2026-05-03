@@ -29,6 +29,7 @@ pub mod tun;
 pub mod vision;
 pub mod tui;
 pub mod update_check;
+pub mod adb;
 
 use anomaly::{AnomalyDetector, get_alerts, acknowledge_alert, get_alert_count, get_traffic_baseline, scan_request_anomalies};
 use cert::CertManager;
