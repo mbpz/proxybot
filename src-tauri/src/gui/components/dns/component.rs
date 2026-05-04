@@ -21,7 +21,7 @@ pub fn dns_tab() -> Html {
         let upstream_type = upstream_type.clone();
         Callback::from(move |_| {
             let new_type = if *upstream_type == "udp" { "doh" } else { "udp" };
-            upstream_type.set(new_type.clone());
+            upstream_type.set(new_type.to_string());
             let new_upstream = if new_type == "udp" {
                 UpstreamType::PlainUdp
             } else {

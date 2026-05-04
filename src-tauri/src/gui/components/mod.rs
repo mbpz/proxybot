@@ -1,4 +1,5 @@
 pub mod alerts;
+pub mod certs;
 pub mod devices;
 pub mod dns;
 pub mod gen;

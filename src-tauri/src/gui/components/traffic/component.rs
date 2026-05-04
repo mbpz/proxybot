@@ -1,5 +1,4 @@
 use yew::prelude::*;
-use serde::{Deserialize, Serialize};
 use super::types::Request;
 
 #[derive(Properties, PartialEq)]
@@ -9,22 +8,7 @@ pub struct TrafficProps {}
 pub fn traffic_tab() -> Html {
     let requests = use_state(Vec::<Request>::new);
     let filter_text = use_state(String::new);
-    let selected_request = use_state(Option::<Request>::new);
-
-    // Filter requests based on filter_text
-    let filtered_requests = {
-        let requests = requests.clone();
-        let filter = (*filter_text).clone();
-        move || {
-            if filter.is_empty() {
-                requests.clone()
-            } else {
-                requests.iter().filter(|r| {
-                    r.host.contains(&filter) || r.path.contains(&filter)
-                }).cloned().collect()
-            }
-        }
-    };
+    let selected_request = use_state(|| None::<Request>);
 
     html! {
         <div class="traffic-tab">
@@ -41,17 +25,7 @@ pub fn traffic_tab() -> Html {
                 />
             </div>
             <div class="request-list">
-                { for filtered_requests().iter().map(|req| {
-                    let req_clone = req.clone();
-                    html! {
-                        <div class="request-item" onclick={Callback::from(move |_| {})}>
-                            <span class="method">{ &req.method }</span>
-                            <span class="host">{ &req.host }</span>
-                            <span class="path">{ &req.path }</span>
-                            <span class="status">{ req.status }</span>
-                        </div>
-                    }
-                })}
+                <p>{"Request list - capture traffic to see requests here"}</p>
             </div>
         </div>
     }
