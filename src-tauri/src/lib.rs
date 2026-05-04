@@ -31,7 +31,8 @@ pub mod vision;
 pub mod tui;
 pub mod update_check;
 pub mod adb;
-pub mod gui;
+// gui module removed - Yew frontend is compiled separately via wasm-pack
+// See src/gui/ directory for Yew code (compiled to pkg/ via wasm-pack build)
 
 use anomaly::{AnomalyDetector, get_alerts, acknowledge_alert, get_alert_count, get_traffic_baseline, scan_request_anomalies};
 use cert::CertManager;
