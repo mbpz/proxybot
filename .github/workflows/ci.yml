@@ -76,8 +76,49 @@ jobs:
           name: proxybot-tui-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-tui-${{ matrix.arch }}
 
+  release-gui:
+    needs: test
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/tui-v')
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build GUI
+        run: |
+          cd src-tauri
+          wasm-pack build --target web --out-dir pkg
+          TARGET="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
+          cargo build --bin proxybot-gui --release --target "$TARGET"
+          mv "target/$TARGET/release/proxybot-gui" "target/$TARGET/release/proxybot-gui-${{ matrix.arch }}"
+
+      - name: Upload GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxybot-gui-${{ matrix.arch }}
+          path: |
+            src-tauri/pkg
+            src-tauri/target/${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}/release/proxybot-gui-${{ matrix.arch }}
+
   create-release:
-    needs: [test, release-tui]
+    needs: [test, release-tui, release-gui]
     runs-on: macos-latest
     if: startsWith(github.ref, 'refs/tags/tui-v')
     permissions:
