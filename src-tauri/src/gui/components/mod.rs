@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod devices;
+pub mod dns;
 pub mod gen;
 pub mod graph;
 pub mod replay;
