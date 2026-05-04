@@ -5,8 +5,7 @@
   "identifier": "com.proxybot.app",
   "build": {
     "devUrl": "http://localhost:8080",
-    "frontendDist": "../pkg",
-    "devtools": true
+    "frontendDist": "../pkg"
   },
   "app": {
     "withGlobalTauri": true,
