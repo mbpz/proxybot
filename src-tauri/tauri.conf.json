@@ -4,10 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.proxybot.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "devUrl": "http://localhost:8080",
+    "frontendDist": "../pkg",
+    "devtools": true
   },
   "app": {
     "withGlobalTauri": true,
