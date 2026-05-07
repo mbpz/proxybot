@@ -35,6 +35,8 @@ pub enum InputAction {
     ToggleDns,
     /// Toggle ADB mode (Devices tab).
     ToggleAdb,
+    /// Toggle language (English/Chinese).
+    ToggleLanguage,
     /// Focus search.
     FocusSearch,
     /// Clear search / filters.
@@ -128,7 +130,7 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
 
         // Tab switching with Shift+Tab
         KeyCode::Char('h') => InputAction::PrevTab,
-        KeyCode::Char('l') => InputAction::NextTab,
+        KeyCode::Char('l') => InputAction::ToggleLanguage,
 
         // Quit
         KeyCode::Char('q') | KeyCode::Esc => InputAction::Quit,

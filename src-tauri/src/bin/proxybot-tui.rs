@@ -621,6 +621,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 log::info!("ADB mode disabled");
                             }
                         }
+                        InputAction::ToggleLanguage => {
+                            app.locale.toggle();
+                        }
                         InputAction::FocusSearch => {
                             app.traffic.search_focused = true;
                         }
