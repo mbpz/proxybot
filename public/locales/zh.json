@@ -1,0 +1,94 @@
+{
+  "title": "ProxyBot",
+  "tagline": "macOS HTTPS MITM 代理（开发者工具）",
+  "badges": {
+    "macos": "macOS",
+    "rust": "Rust",
+    "tui_gui": "TUI + GUI",
+    "version": "v1.0.0"
+  },
+  "download": "下载 macOS 版本",
+  "hero_demo_comment": "// 手机流量通过 Mac 代理",
+  "hero_demo": {
+    "get": "GET",
+    "post": "POST",
+    "status_200": "200",
+    "status_204": "204",
+    "status_302": "302"
+  },
+  "sections": {
+    "why_proxybot": "为什么用 ProxyBot？",
+    "features": {
+      "transparent_proxy": {
+        "title": "透明代理",
+        "desc": "无需逐应用配置代理。pf 自动将手机所有流量重定向。"
+      },
+      "app_classification": {
+        "title": "应用分类",
+        "desc": "流量按应用自动分组：微信、抖音、支付宝等。"
+      },
+      "https_decryption": {
+        "title": "完整 HTTPS 解密",
+        "desc": "MITM + 动态生成证书。加密流量明文可见。"
+      },
+      "keyboard_tui": {
+        "title": "键盘驱动的 TUI",
+        "desc": "开发者友好的终端 UI。9 个标签页无需鼠标即可操作。"
+      },
+      "yew_gui": {
+        "title": "Yew GUI (Beta)",
+        "desc": "全新 Rust 构建的桌面 GUI。无需 Node.js。"
+      },
+      "rule_engine": {
+        "title": "规则引擎",
+        "desc": "直连、代理、拒绝、远程映射、本地映射 — 完全控制流量。"
+      }
+    },
+    "keyboard_shortcuts": {
+      "title": "键盘快捷键",
+      "start_stop": "启动/停止代理",
+      "toggle_pf": "切换 pf",
+      "toggle_dns": "切换 DNS",
+      "search": "搜索",
+      "clear_filters": "清除筛选",
+      "quit": "退出"
+    },
+    "comparison": {
+      "title": "对比",
+      "feature_col": "功能",
+      "proxybot_col": "ProxyBot",
+      "mitmproxy_col": "mitmproxy",
+      "proxyman_col": "Proxyman",
+      "rows": {
+        "tui": { "feature": "TUI", "proxybot": "ratatui", "mitmproxy": "mitmweb", "proxyman": "-" },
+        "pf_transparent": { "feature": "pf 透明代理", "proxybot": "macOS pf", "mitmproxy": "-", "proxyman": "-" },
+        "app_classification": { "feature": "应用分类", "proxybot": "DNS 关联", "mitmproxy": "-", "proxyman": "-" },
+        "tauri_gui": { "feature": "Tauri GUI (Rust)", "proxybot": "Yew WASM", "mitmproxy": "-", "proxyman": "-" },
+        "adb_tunnel": { "feature": "ADB 反向隧道", "proxybot": "Android USB", "mitmproxy": "-", "proxyman": "-" }
+      }
+    },
+    "get_started": {
+      "title": "开始使用",
+      "steps": {
+        "step1": "brew install mbpz/proxybot/proxybot-tui",
+        "step2": "手机连接与 Mac 相同的 WiFi",
+        "step3": "将手机的网关和 DNS 设置为 Mac 的 IP",
+        "step4": "从证书标签页导出 CA 证书 → AirDrop 到手机",
+        "step5": "在 iOS 设置 → 通用 → 关于 → 证书信任中启用",
+        "step6": "运行 proxybot-tui 并按 r 启动"
+      },
+      "find_ip_hint": "查看 Mac IP：ipconfig getifaddr en0"
+    },
+    "architecture": {
+      "title": "架构",
+      "diagram_label": "// 流量如何流动",
+      "diagram": "手机 --[WiFi]--> Mac (pf 重定向 :80/:443) --> ProxyBot (MITM) --> 互联网\n                                                               |\n                                                               +--> DNS 服务器（记录查询，关联应用）"
+    }
+  },
+  "footer": {
+    "github": "GitHub",
+    "releases": "发布",
+    "discussions": "讨论",
+    "copyright": "ProxyBot · MIT 许可证 · 2024-2026"
+  }
+}

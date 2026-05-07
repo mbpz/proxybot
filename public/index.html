@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ProxyBot — macOS HTTPS MITM Proxy for Developers</title>
+  <title data-i18n="title">ProxyBot — macOS HTTPS MITM Proxy for Developers</title>
+  <script src="/js/i18n.js" defer></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -139,15 +140,19 @@
 <body>
   <header>
     <div class="container">
-      <h1>ProxyBot</h1>
-      <p class="tagline">macOS HTTPS MITM proxy for developers</p>
-      <div class="badges">
-        <span class="badge">macOS</span>
-        <span class="badge">Rust</span>
-        <span class="badge">TUI + GUI</span>
-        <span class="badge">v1.0.0</span>
+      <div style="text-align: right; margin-bottom: 10px;">
+        <button class="lang-btn" data-lang="en" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 0.8rem;">EN</button>
+        <button class="lang-btn" data-lang="zh" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 0.8rem;">中文</button>
       </div>
-      <a href="https://github.com/mbpz/proxybot/releases" class="install">Download for macOS</a>
+      <h1 data-i18n="title">ProxyBot</h1>
+      <p class="tagline" data-i18n="tagline">macOS HTTPS MITM proxy for developers</p>
+      <div class="badges">
+        <span class="badge" data-i18n="badges.macos">macOS</span>
+        <span class="badge" data-i18n="badges.rust">Rust</span>
+        <span class="badge" data-i18n="badges.tui_gui">TUI + GUI</span>
+        <span class="badge" data-i18n="badges.version">v1.0.0</span>
+      </div>
+      <a href="https://github.com/mbpz/proxybot/releases" class="install" data-i18n="download">Download for macOS</a>
     </div>
   </header>
 
@@ -177,116 +182,122 @@
     </section>
 
     <section>
-      <h2>Why ProxyBot?</h2>
+      <h2 data-i18n="sections.why_proxybot">Why ProxyBot?</h2>
       <div class="features-grid">
         <div class="feature-card">
-          <h3>Transparent Proxy</h3>
-          <p>No per-app proxy configuration. pf redirects all traffic from your phone automatically.</p>
+          <h3 data-i18n="sections.features.transparent_proxy.title">Transparent Proxy</h3>
+          <p data-i18n="sections.features.transparent_proxy.desc">No per-app proxy configuration. pf redirects all traffic from your phone automatically.</p>
         </div>
         <div class="feature-card">
-          <h3>App Classification</h3>
-          <p>Traffic automatically grouped by app: WeChat, Douyin, Alipay, and more.</p>
+          <h3 data-i18n="sections.features.app_classification.title">App Classification</h3>
+          <p data-i18n="sections.features.app_classification.desc">Traffic automatically grouped by app: WeChat, Douyin, Alipay, and more.</p>
         </div>
         <div class="feature-card">
-          <h3>Full HTTPS Decryption</h3>
-          <p>MITM with dynamically generated certificates. See encrypted traffic in plain text.</p>
+          <h3 data-i18n="sections.features.https_decryption.title">Full HTTPS Decryption</h3>
+          <p data-i18n="sections.features.https_decryption.desc">MITM with dynamically generated certificates. See encrypted traffic in plain text.</p>
         </div>
         <div class="feature-card">
-          <h3>Keyboard-Driven TUI</h3>
-          <p>Developer-friendly terminal UI. All 9 tabs accessible without a mouse.</p>
+          <h3 data-i18n="sections.features.keyboard_tui.title">Keyboard-Driven TUI</h3>
+          <p data-i18n="sections.features.keyboard_tui.desc">Developer-friendly terminal UI. All 9 tabs accessible without a mouse.</p>
         </div>
         <div class="feature-card">
-          <h3>Yew GUI (Beta)</h3>
-          <p>New desktop GUI built with Rust. No Node.js dependency.</p>
+          <h3 data-i18n="sections.features.yew_gui.title">Yew GUI (Beta)</h3>
+          <p data-i18n="sections.features.yew_gui.desc">New desktop GUI built with Rust. No Node.js dependency.</p>
         </div>
         <div class="feature-card">
-          <h3>Rule Engine</h3>
-          <p>Direct, Proxy, Reject, MapRemote, MapLocal — full control over traffic.</p>
+          <h3 data-i18n="sections.features.rule_engine.title">Rule Engine</h3>
+          <p data-i18n="sections.features.rule_engine.desc">Direct, Proxy, Reject, MapRemote, MapLocal — full control over traffic.</p>
         </div>
       </div>
     </section>
 
     <section>
-      <h2>Keyboard Shortcuts</h2>
+      <h2 data-i18n="sections.keyboard_shortcuts.title">Keyboard Shortcuts</h2>
       <div class="shortcuts">
-        <div class="shortcut"><span>Start/Stop Proxy</span><span class="key">r</span></div>
-        <div class="shortcut"><span>Toggle pf</span><span class="key">p</span></div>
-        <div class="shortcut"><span>Toggle DNS</span><span class="key">n</span></div>
-        <div class="shortcut"><span>Search</span><span class="key">/</span></div>
-        <div class="shortcut"><span>Clear filters</span><span class="key">x</span></div>
-        <div class="shortcut"><span>Quit</span><span class="key">q</span></div>
+        <div class="shortcut"><span data-i18n="sections.keyboard_shortcuts.start_stop">Start/Stop Proxy</span><span class="key">r</span></div>
+        <div class="shortcut"><span data-i18n="sections.keyboard_shortcuts.toggle_pf">Toggle pf</span><span class="key">p</span></div>
+        <div class="shortcut"><span data-i18n="sections.keyboard_shortcuts.toggle_dns">Toggle DNS</span><span class="key">n</span></div>
+        <div class="shortcut"><span data-i18n="sections.keyboard_shortcuts.search">Search</span><span class="key">/</span></div>
+        <div class="shortcut"><span data-i18n="sections.keyboard_shortcuts.clear_filters">Clear filters</span><span class="key">x</span></div>
+        <div class="shortcut"><span data-i18n="sections.keyboard_shortcuts.quit">Quit</span><span class="key">q</span></div>
       </div>
     </section>
 
     <section>
-      <h2>Comparison</h2>
+      <h2 data-i18n="sections.comparison.title">Comparison</h2>
       <table class="comparison">
         <thead>
           <tr>
-            <th>Feature</th>
-            <th>ProxyBot</th>
-            <th>mitmproxy</th>
-            <th>Proxyman</th>
+            <th data-i18n="sections.comparison.feature_col">Feature</th>
+            <th data-i18n="sections.comparison.proxybot_col">ProxyBot</th>
+            <th data-i18n="sections.comparison.mitmproxy_col">mitmproxy</th>
+            <th data-i18n="sections.comparison.proxyman_col">Proxyman</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>TUI</td>
-            <td class="check">ratatui</td>
-            <td>mitmweb</td>
-            <td>-</td>
+            <td data-i18n="sections.comparison.rows.tui.feature">TUI</td>
+            <td class="check" data-i18n="sections.comparison.rows.tui.proxybot">ratatui</td>
+            <td data-i18n="sections.comparison.rows.tui.mitmproxy">mitmweb</td>
+            <td data-i18n="sections.comparison.rows.tui.proxyman">-</td>
           </tr>
           <tr>
-            <td>pf Transparent Proxy</td>
-            <td class="check">macOS pf</td>
-            <td>-</td>
-            <td>-</td>
+            <td data-i18n="sections.comparison.rows.pf_transparent.feature">pf Transparent Proxy</td>
+            <td class="check" data-i18n="sections.comparison.rows.pf_transparent.proxybot">macOS pf</td>
+            <td data-i18n="sections.comparison.rows.pf_transparent.mitmproxy">-</td>
+            <td data-i18n="sections.comparison.rows.pf_transparent.proxyman">-</td>
           </tr>
           <tr>
-            <td>App Classification</td>
-            <td class="check">DNS correlation</td>
-            <td>-</td>
-            <td>-</td>
+            <td data-i18n="sections.comparison.rows.app_classification.feature">App Classification</td>
+            <td class="check" data-i18n="sections.comparison.rows.app_classification.proxybot">DNS correlation</td>
+            <td data-i18n="sections.comparison.rows.app_classification.mitmproxy">-</td>
+            <td data-i18n="sections.comparison.rows.app_classification.proxyman">-</td>
           </tr>
           <tr>
-            <td>Tauri GUI (Rust)</td>
-            <td class="check">Yew WASM</td>
-            <td>-</td>
-            <td>-</td>
+            <td data-i18n="sections.comparison.rows.tauri_gui.feature">Tauri GUI (Rust)</td>
+            <td class="check" data-i18n="sections.comparison.rows.tauri_gui.proxybot">Yew WASM</td>
+            <td data-i18n="sections.comparison.rows.tauri_gui.mitmproxy">-</td>
+            <td data-i18n="sections.comparison.rows.tauri_gui.proxyman">-</td>
           </tr>
           <tr>
-            <td>ADB Reverse Tunnel</td>
-            <td class="check">Android USB</td>
-            <td>-</td>
-            <td>-</td>
+            <td data-i18n="sections.comparison.rows.adb_tunnel.feature">ADB Reverse Tunnel</td>
+            <td class="check" data-i18n="sections.comparison.rows.adb_tunnel.proxybot">Android USB</td>
+            <td data-i18n="sections.comparison.rows.adb_tunnel.mitmproxy">-</td>
+            <td data-i18n="sections.comparison.rows.adb_tunnel.proxyman">-</td>
           </tr>
         </tbody>
       </table>
     </section>
 
     <section class="install-section">
-      <h2>Get Started</h2>
+      <h2 data-i18n="sections.get_started.title">Get Started</h2>
       <div class="install-steps">
         <ol>
-          <li><code>brew install mbpz/proxybot/proxybot-tui</code></li>
-          <li>Connect phone to same WiFi as Mac</li>
-          <li>Set phone's gateway and DNS to Mac's IP</li>
-          <li>Export CA cert from Certs tab → AirDrop to phone</li>
-          <li>Trust CA in iOS Settings → General → About → Certificate Trust</li>
-          <li>Run <code>proxybot-tui</code> and press <code>r</code> to start</li>
+          <li><code data-i18n="sections.get_started.steps.step1">brew install mbpz/proxybot/proxybot-tui</code></li>
+          <li data-i18n="sections.get_started.steps.step2">Connect phone to same WiFi as Mac</li>
+          <li data-i18n="sections.get_started.steps.step3">Set phone's gateway and DNS to Mac's IP</li>
+          <li data-i18n="sections.get_started.steps.step4">Export CA cert from Certs tab → AirDrop to phone</li>
+          <li data-i18n="sections.get_started.steps.step5">Trust CA in iOS Settings → General → About → Certificate Trust</li>
+          <li data-i18n="sections.get_started.steps.step6">Run <code>proxybot-tui</code> and press <code>r</code> to start</li>
         </ol>
       </div>
-      <p style="color: #8b949e; margin-top: 20px;">Find your Mac IP: <code>ipconfig getifaddr en0</code></p>
+      <p style="color: #8b949e; margin-top: 20px;" data-i18n="sections.get_started.find_ip_hint">Find your Mac IP: <code>ipconfig getifaddr en0</code></p>
     </section>
 
     <section>
-      <h2>Architecture</h2>
+      <h2 data-i18n="sections.architecture.title">Architecture</h2>
       <div class="hero-demo">
-        <div style="color: #8b949e; margin-bottom: 15px;">// How traffic flows</div>
-        <div style="color: #c9d1d9;">
+        <div style="color: #8b949e; margin-bottom: 15px;" data-i18n="sections.architecture.diagram_label">// How traffic flows</div>
+        <div style="color: #c9d1d9;" data-i18n="sections.architecture.diagram">
 Phone --[WiFi]--> Mac (pf redirect :80/:443) --> ProxyBot (MITM) --> Internet<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+--> DNS Server (log queries, correlate with apps)
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
         </div>
       </div>
     </section>

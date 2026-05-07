@@ -1,0 +1,198 @@
+# TUI Chinese translations
+
+tabs:
+  traffic: "流量"
+  rules: "规则"
+  devices: "设备"
+  certs: "证书"
+  dns: "DNS"
+  alerts: "告警"
+  replay: "回放"
+  graph: "图表"
+  gen: "生成"
+
+traffic:
+  filter:
+    method: "方法"
+    host: "主机"
+    status: "状态"
+    app_tag: "应用"
+    placeholder: "筛选 {}: {} [Enter=确认, Esc=取消]"
+    line: " 方法:[{}] 主机:[{:<15}] 状态:[{}] 应用:[{:<10}] {} [m]方法 [f]主机 [o]状态 [a]应用"
+    hint: "[Enter]选择 [/]搜索 [1/2/3]详情标签 [Esc]清除筛选"
+  title: "拦截流量"
+  capturing: "正在捕获流量..."
+  waiting: "等待设备请求..."
+  configure_port: "请将设备配置为使用代理端口 8088"
+  no_requests: "无请求记录。启动代理开始捕获。"
+  no_selected: "未选择请求。"
+  request_headers: "--- 请求头 ---"
+  response_headers: "--- 响应头 ---"
+  request_body: "--- 请求体 ---"
+  response_body: "--- 响应体 ---"
+  empty_body: "(空)"
+  no_body: "(无)"
+  not_ws: "非 WebSocket 连接。"
+  no_frames: "尚无帧捕获。"
+  sub_tabs:
+    headers: "头"
+    body: "体"
+    ws_frames: "WS帧"
+    switch_tab: "[1/2/3]切换标签"
+  breakpoint:
+    request: "请求断点"
+    response: "响应断点"
+    edit_help: "[e]编辑 [g]发送 [c]取消"
+    nav_help: "[↑/↓]字段 [Enter]编辑 [g]发送 [Esc]取消"
+  controls:
+    running: "运行中"
+    stopped: "已停止"
+    ca_installed: "CA: 已安装"
+    ca_not_installed: "CA: 未安装"
+
+rules:
+  title: "规则 ({} 条)"
+  hot_reload: "热加载: {}"
+  hint: "[a]添加 [e]编辑 [d]删除 | j/k 上下"
+  actions:
+    direct: "直连"
+    proxy: "代理"
+    reject: "拒绝"
+    mapremote: "远程映射"
+    maplocal: "本地映射"
+    breakpoint: "断点"
+  pattern_types:
+    domain: "域名"
+    domain_suffix: "域名后缀"
+    domain_keyword: "域名关键字"
+    ip_cidr: "IP-CIDR"
+    geoip: "GEOIP"
+    rule_set: "规则集"
+  modal:
+    add: "添加规则"
+    edit: "编辑规则"
+    add_title: "添加规则"
+    edit_title: "编辑规则"
+    pattern: "模式: ..."
+    value: "值: ..."
+    action: "动作: ..."
+    tab_hint: "按 Tab 切换"
+
+devices:
+  title: "设备: {} | 上行: {} | 下行: {}"
+  hint: "[a]切换 ADB | j/k 上下 [e]编辑规则"
+  override_prompt: "规则覆盖: [{}] | Enter=确认 Esc=取消"
+  proxy_bot: "ProxyBot 服务器"
+  this_pc: "(本机)"
+  no_devices: "(无设备连接)"
+  setup:
+    configure_gateway: "配置设备网关:"
+    set_proxy: "将代理设置为本机"
+    port: "端口: 8088"
+    install_ca: "安装 CA 证书"
+    use_usb: "或使用 USB [a] 切换 ADB"
+  usb_adb: "USB ADB 设备:"
+  legend:
+    name: "[name] = 设备名"
+    app: "(app) = 检测到的应用"
+    mac: "MAC = 设备地址"
+
+certs:
+  title: "证书"
+  ca_info: "CA 证书信息"
+  fingerprint: "指纹 (SHA1):"
+  expiry: "过期时间:"
+  created: "创建时间:"
+  status: "状态:"
+  days_left: "剩余天数:"
+  serial: "序列号:"
+  status_labels:
+    unknown: "未知"
+    expired: "已过期"
+    expiring_soon: "即将过期"
+    valid: "有效"
+  actions:
+    regenerate: "[r] 重新生成 CA"
+    export: "[e] 导出 CA PEM 到 ~/.proxybot/ca.crt"
+  key_binding: "r=重新生成, e=导出, q=退出"
+
+dns:
+  title: "DNS"
+  server_status: "DNS 服务器状态"
+  query_log: "DNS 查询日志 (最近)"
+  upstream_config: "上游配置"
+  hosts_entries: "Hosts 条目"
+  running: "运行中"
+  stopped: "已停止"
+  labels:
+    server: "服务器:"
+    upstream: "上游:"
+    blocklist: "黑名单:"
+    hosts: "Hosts:"
+  actions:
+    toggle: "(s) 切换 DNS"
+    blocklist_toggle: "(b) 切换黑名单"
+    cycle_upstream: "(u) 轮换上游"
+  table:
+    name: "名称"
+    timestamp: "时间戳"
+    latency: "延迟 (ms)"
+    blocked: "已拦截"
+    response: "响应"
+  no_queries: "无 DNS 查询记录"
+
+alerts:
+  title: "告警: {} 活跃 | 基线: {} 域名 | 新域名告警: {}"
+  hint: "[j/k] 上下 [a] 确认 [c] 清除已确认"
+  empty: "无告警。新域名/IP 将触发告警。"
+  severity:
+    sev1: "严重1"
+    sev2: "严重2"
+    sev3: "严重3"
+  controls:
+    ack: "[a] 确认"
+    clear: "[c] 清除全部"
+    detail: "[Enter] 查看详情"
+
+replay:
+  title: "回放"
+  empty: "无回放目标。流量记录后将出现目标。"
+  status: "HAR 导出: {}"
+  hint: "[s]开始 [x]停止 [e]导出HAR [d]显示差异"
+  controls:
+    navigate: "[j/k] 上下"
+    start: "[s] 开始"
+    stop: "[x] 停止"
+    export_har: "[e] 导出 HAR"
+    show_diff: "[d] 显示差异"
+
+graph:
+  title: "图表"
+  dag_view: "DAG 视图"
+  auth_state: "认证状态"
+  refresh: "刷新"
+  empty: "尚无流量记录。启动代理查看 DAG。"
+  auth_empty: "尚无流量记录。启动代理查看认证流程。"
+  hint: "[g] DAG [a] 认证 [r] 刷新"
+
+gen:
+  title: "生成"
+  mock_api: "Mock API"
+  frontend_scaffold: "前端脚手架"
+  docker_bundle: "Docker 包"
+  hint: "[m]生成MockAPI [f]生成前端 [d]生成Docker [o]打开输出目录"
+  placeholder: "尚未生成。选择模式后按..."
+  note: "需要从捕获流量中推断 API。先运行推断。"
+  actions:
+    generate_mock: "[m] 生成 Mock API"
+    generate_frontend: "[f] 生成前端"
+    generate_docker: "[d] 生成 Docker"
+    open_folder: "[o] 打开输出目录"
+  generating: "生成中..."
+  done: "完成。按 [o] 打开输出目录。"
+
+wizard:
+  ios:
+    title: "iOS 证书安装"
+  android:
+    title: "Android 证书安装"

@@ -1,0 +1,94 @@
+{
+  "title": "ProxyBot",
+  "tagline": "macOS HTTPS MITM proxy for developers",
+  "badges": {
+    "macos": "macOS",
+    "rust": "Rust",
+    "tui_gui": "TUI + GUI",
+    "version": "v1.0.0"
+  },
+  "download": "Download for macOS",
+  "hero_demo_comment": "// Phone traffic flowing through Mac proxy",
+  "hero_demo": {
+    "get": "GET",
+    "post": "POST",
+    "status_200": "200",
+    "status_204": "204",
+    "status_302": "302"
+  },
+  "sections": {
+    "why_proxybot": "Why ProxyBot?",
+    "features": {
+      "transparent_proxy": {
+        "title": "Transparent Proxy",
+        "desc": "No per-app proxy configuration. pf redirects all traffic from your phone automatically."
+      },
+      "app_classification": {
+        "title": "App Classification",
+        "desc": "Traffic automatically grouped by app: WeChat, Douyin, Alipay, and more."
+      },
+      "https_decryption": {
+        "title": "Full HTTPS Decryption",
+        "desc": "MITM with dynamically generated certificates. See encrypted traffic in plain text."
+      },
+      "keyboard_tui": {
+        "title": "Keyboard-Driven TUI",
+        "desc": "Developer-friendly terminal UI. All 9 tabs accessible without a mouse."
+      },
+      "yew_gui": {
+        "title": "Yew GUI (Beta)",
+        "desc": "New desktop GUI built with Rust. No Node.js dependency."
+      },
+      "rule_engine": {
+        "title": "Rule Engine",
+        "desc": "Direct, Proxy, Reject, MapRemote, MapLocal — full control over traffic."
+      }
+    },
+    "keyboard_shortcuts": {
+      "title": "Keyboard Shortcuts",
+      "start_stop": "Start/Stop Proxy",
+      "toggle_pf": "Toggle pf",
+      "toggle_dns": "Toggle DNS",
+      "search": "Search",
+      "clear_filters": "Clear filters",
+      "quit": "Quit"
+    },
+    "comparison": {
+      "title": "Comparison",
+      "feature_col": "Feature",
+      "proxybot_col": "ProxyBot",
+      "mitmproxy_col": "mitmproxy",
+      "proxyman_col": "Proxyman",
+      "rows": {
+        "tui": { "feature": "TUI", "proxybot": "ratatui", "mitmproxy": "mitmweb", "proxyman": "-" },
+        "pf_transparent": { "feature": "pf Transparent Proxy", "proxybot": "macOS pf", "mitmproxy": "-", "proxyman": "-" },
+        "app_classification": { "feature": "App Classification", "proxybot": "DNS correlation", "mitmproxy": "-", "proxyman": "-" },
+        "tauri_gui": { "feature": "Tauri GUI (Rust)", "proxybot": "Yew WASM", "mitmproxy": "-", "proxyman": "-" },
+        "adb_tunnel": { "feature": "ADB Reverse Tunnel", "proxybot": "Android USB", "mitmproxy": "-", "proxyman": "-" }
+      }
+    },
+    "get_started": {
+      "title": "Get Started",
+      "steps": {
+        "step1": "brew install mbpz/proxybot/proxybot-tui",
+        "step2": "Connect phone to same WiFi as Mac",
+        "step3": "Set phone's gateway and DNS to Mac's IP",
+        "step4": "Export CA cert from Certs tab → AirDrop to phone",
+        "step5": "Trust CA in iOS Settings → General → About → Certificate Trust",
+        "step6": "Run proxybot-tui and press r to start"
+      },
+      "find_ip_hint": "Find your Mac IP: ipconfig getifaddr en0"
+    },
+    "architecture": {
+      "title": "Architecture",
+      "diagram_label": "// How traffic flows",
+      "diagram": "Phone --[WiFi]--> Mac (pf redirect :80/:443) --> ProxyBot (MITM) --> Internet\n                                                              |\n                                                              +--> DNS Server (log queries, correlate with apps)"
+    }
+  },
+  "footer": {
+    "github": "GitHub",
+    "releases": "Releases",
+    "discussions": "Discussions",
+    "copyright": "ProxyBot · MIT License · 2024-2026"
+  }
+}

@@ -1,0 +1,198 @@
+# TUI English translations
+
+tabs:
+  traffic: "Traffic"
+  rules: "Rules"
+  devices: "Devices"
+  certs: "Certs"
+  dns: "DNS"
+  alerts: "Alerts"
+  replay: "Replay"
+  graph: "Graph"
+  gen: "Gen"
+
+traffic:
+  filter:
+    method: "Method"
+    host: "Host"
+    status: "Status"
+    app_tag: "App Tag"
+    placeholder: "Filter {}: {} [Enter=confirm, Esc=cancel]"
+    line: " Method:[{}] Host:[{:<15}] Status:[{}] App:[{:<10}] {} [m]ethod [f]ost [o]kstatus [a]pp"
+    hint: "[Enter] select [/] search [1/2/3] detail tab [Esc] clear filters"
+  title: "Intercepted Traffic"
+  capturing: "Capturing traffic..."
+  waiting: "Waiting for requests from device..."
+  configure_port: "Configure your device to use proxy port 8088"
+  no_requests: "No requests captured. Start proxy to begin."
+  no_selected: "No request selected."
+  request_headers: "--- Request Headers ---"
+  response_headers: "--- Response Headers ---"
+  request_body: "--- Request Body ---"
+  response_body: "--- Response Body ---"
+  empty_body: "(empty)"
+  no_body: "(none)"
+  not_ws: "Not a WebSocket connection."
+  no_frames: "No frames captured yet."
+  sub_tabs:
+    headers: "Headers"
+    body: "Body"
+    ws_frames: "WS Frames"
+    switch_tab: "[1/2/3] switch tab"
+  breakpoint:
+    request: "REQUEST BREAKPOINT"
+    response: "RESPONSE BREAKPOINT"
+    edit_help: "[e]dit [g] send [c] cancel"
+    nav_help: "[↑/↓] field [Enter] edit [g] send [Esc] cancel"
+  controls:
+    running: "RUNNING"
+    stopped: "STOPPED"
+    ca_installed: "CA: INSTALLED"
+    ca_not_installed: "CA: NOT INSTALLED"
+
+rules:
+  title: "Rules ({} rules)"
+  hot_reload: "Hot-reload: {}"
+  hint: "[a]dd [e]dit [d]elete | j/k navigate"
+  actions:
+    direct: "DIRECT"
+    proxy: "PROXY"
+    reject: "REJECT"
+    mapremote: "MAPREMOTE"
+    maplocal: "MAPLOCAL"
+    breakpoint: "BREAKPOINT"
+  pattern_types:
+    domain: "DOMAIN"
+    domain_suffix: "DOMAIN-SUFFIX"
+    domain_keyword: "DOMAIN-KEYWORD"
+    ip_cidr: "IP-CIDR"
+    geoip: "GEOIP"
+    rule_set: "RULE-SET"
+  modal:
+    add: "Add Rule"
+    edit: "Edit Rule"
+    add_title: "ADD RULE"
+    edit_title: "EDIT RULE"
+    pattern: "Pattern: ..."
+    value: "Value: ..."
+    action: "Action: ..."
+    tab_hint: "Use Tab to cycle"
+
+devices:
+  title: "Devices: {} | Total Up: {} | Total Down: {}"
+  hint: "[a] toggle ADB | j/k navigate [e] edit rule"
+  override_prompt: "Rule override: [{}] | Enter=confirm Esc=cancel"
+  proxy_bot: "ProxyBot Server"
+  this_pc: "(This PC)"
+  no_devices: "(no devices connected)"
+  setup:
+    configure_gateway: "Configure device gateway:"
+    set_proxy: "Set proxy to this PC"
+    port: "Port: 8088"
+    install_ca: "Install CA certificate"
+    use_usb: "Or use USB with [a] toggle ADB"
+  usb_adb: "USB ADB Devices:"
+  legend:
+    name: "[name] = device name"
+    app: "(app) = detected app"
+    mac: "MAC = device address"
+
+certs:
+  title: "Certificates"
+  ca_info: "CA Certificate Info"
+  fingerprint: "Fingerprint (SHA1):"
+  expiry: "Expiry:"
+  created: "Created:"
+  status: "Status:"
+  days_left: "Days until expiry:"
+  serial: "Serial:"
+  status_labels:
+    unknown: "Unknown"
+    expired: "Expired"
+    expiring_soon: "Expiring Soon"
+    valid: "Valid"
+  actions:
+    regenerate: "[r] Regenerate CA"
+    export: "[e] Export CA PEM to ~/.proxybot/ca.crt"
+  key_binding: "r=regenerate, e=export, q=quit"
+
+dns:
+  title: "DNS"
+  server_status: "DNS Server Status"
+  query_log: "DNS Query Log (recent)"
+  upstream_config: "Upstream Configuration"
+  hosts_entries: "Hosts Entries"
+  running: "Running"
+  stopped: "Stopped"
+  labels:
+    server: "Server:"
+    upstream: "Upstream:"
+    blocklist: "Blocklist:"
+    hosts: "Hosts:"
+  actions:
+    toggle: "(s) toggle DNS"
+    blocklist_toggle: "(b) toggle blocklist"
+    cycle_upstream: "(u) cycle upstream"
+  table:
+    name: "Name"
+    timestamp: "Timestamp"
+    latency: "Latency (ms)"
+    blocked: "Blocked"
+    response: "Response"
+  no_queries: "No DNS queries recorded"
+
+alerts:
+  title: "Alerts: {} active | Baseline: {} domains | New domain alerts: {}"
+  hint: "[j/k] navigate [a] ack [c] clear all acknowledged"
+  empty: "No alerts. New domains/IPs will trigger alerts here."
+  severity:
+    sev1: "SEV1"
+    sev2: "SEV2"
+    sev3: "SEV3"
+  controls:
+    ack: "[a] ack"
+    clear: "[c] clear all"
+    detail: "[Enter] view detail"
+
+replay:
+  title: "Replay"
+  empty: "No replay targets. Targets appear after traffic is recorded."
+  status: "HAR export: {}"
+  hint: "[s] start [x] stop [e] export HAR [d] show diff"
+  controls:
+    navigate: "[j/k] navigate"
+    start: "[s] start"
+    stop: "[x] stop"
+    export_har: "[e] export HAR"
+    show_diff: "[d] show diff"
+
+graph:
+  title: "Graph"
+  dag_view: "DAG View"
+  auth_state: "Auth State"
+  refresh: "Refresh"
+  empty: "No traffic captured yet. Start proxy to see DAG."
+  auth_empty: "No traffic captured yet. Start proxy to see auth flow."
+  hint: "[g] DAG [a] Auth [r] refresh"
+
+gen:
+  title: "Gen"
+  mock_api: "Mock API"
+  frontend_scaffold: "Frontend Scaffold"
+  docker_bundle: "Docker Bundle"
+  hint: "[m] Generate Mock API [f] Generate Frontend [d] Generate Docker [o] Open Output Folder"
+  placeholder: "No generation yet. Select a mode and press..."
+  note: "Requires inferred APIs from captured traffic. Run inference before generating."
+  actions:
+    generate_mock: "[m] Generate Mock API"
+    generate_frontend: "[f] Generate Frontend"
+    generate_docker: "[d] Generate Docker"
+    open_folder: "[o] Open Output Folder"
+  generating: "Generating..."
+  done: "Done. Press [o] to open output folder."
+
+wizard:
+  ios:
+    title: "iOS Certificate Setup"
+  android:
+    title: "Android Certificate Setup"

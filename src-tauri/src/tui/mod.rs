@@ -6,6 +6,9 @@
 pub mod input;
 pub mod render;
 pub mod wizard;
+pub mod i18n;
+
+use i18n::LocaleState;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -454,6 +457,8 @@ pub struct TuiApp {
     pub breakpoint_decision_tx: Mutex<Option<tokio::sync::oneshot::Sender<BreakpointDecision>>>,
     /// Available update version (if newer than current)
     pub update_available: Arc<std::sync::Mutex<Option<String>>>,
+    /// i18n locale state
+    pub locale: LocaleState,
 
     // UI state
     pub current_tab: Tab,
@@ -497,6 +502,7 @@ impl TuiApp {
             shutdown_tx: Mutex::new(None),
             breakpoint_decision_tx: Mutex::new(None),
             update_available: Arc::new(std::sync::Mutex::new(None)),
+            locale: LocaleState::new(i18n::Language::from_env()),
             current_tab: Tab::Traffic,
             traffic: TrafficState::default(),
             devices: DevicesState::default(),

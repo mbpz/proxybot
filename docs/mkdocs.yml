@@ -1,0 +1,58 @@
+site_name: ProxyBot
+site_url: https://mbpz.github.io/proxybot/
+site_description: macOS HTTPS MITM proxy for developers
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/brightness-6
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mbpz/proxybot
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.snippets
+  - tables
+
+plugins:
+  - search:
+      lang:
+        - en
+        - zh
+  - i18n:
+      fallback_to_default: true
+      re_materialize: true
+      docs_structure: folder
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Keyboard Shortcuts: keyboard-shortcuts.md
+  - Comparison: comparison.md
