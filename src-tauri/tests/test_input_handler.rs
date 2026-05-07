@@ -49,8 +49,8 @@ fn test_h_key_navigates_backward() {
 }
 
 #[test]
-fn test_l_key_navigates_forward() {
-    assert_eq!(handle_key_event(&key_press(KeyCode::Char('l')), Tab::Traffic), InputAction::NextTab);
+fn test_l_key_toggles_language() {
+    assert_eq!(handle_key_event(&key_press(KeyCode::Char('l')), Tab::Traffic), InputAction::ToggleLanguage);
 }
 
 #[test]
