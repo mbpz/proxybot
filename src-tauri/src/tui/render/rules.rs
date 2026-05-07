@@ -10,6 +10,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use crate::tui::TuiApp;
+use crate::tui::i18n::{I18nKey as K, t as tr};
 use crate::rules::{RuleAction, RulePattern};
 
 /// Render the Rules tab with a table of rules and optional modal editor.
@@ -27,17 +28,18 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         .split(area);
 
     // Header with hot-reload status
-    let watcher_str = if watcher_active { "ACTIVE" } else { "INACTIVE" };
+    let watcher_str = if watcher_active { tr(K::RulesActive) } else { tr(K::RulesInactive) };
     let watcher_color = if watcher_active { Color::Green } else { Color::Red };
 
+    let rules_title = tr(K::RulesTitle);
     let header_text = Line::from(vec![
-        Span::raw(format!(" Rules ({} rules) | Hot-reload: ", rules_list.len())),
+        Span::raw(format!(" {} ({} {}) | {}: ", rules_title, rules_list.len(), rules_title, tr(K::RulesHotReload))),
         Span::styled(watcher_str, Style::new().fg(watcher_color)),
-        Span::raw(" | [a]dd [e]dit [d]elete | j/k navigate"),
+        Span::raw(format!(" | {}", tr(K::RulesHint))),
     ]);
     let header = Paragraph::new(header_text)
         .style(Style::new().fg(Color::Yellow))
-        .block(Block::default().borders(Borders::ALL).title("Rules"));
+        .block(Block::default().borders(Borders::ALL).title(rules_title.as_str()));
     f.render_widget(header, chunks[0]);
 
     // Build table rows
@@ -46,12 +48,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         .enumerate()
         .map(|(i, rule)| {
             let action_str = match &rule.action {
-                RuleAction::Direct => "DIRECT".to_string(),
-                RuleAction::Proxy => "PROXY".to_string(),
-                RuleAction::Reject => "REJECT".to_string(),
-                RuleAction::MapRemote(t) => format!("MAPREMOTE:{}", t),
-                RuleAction::MapLocal(t) => format!("MAPLOCAL:{}", t),
-                RuleAction::Breakpoint(t) => format!("BREAKPOINT:{:?}", t),
+                RuleAction::Direct => tr(K::RulesActionsDirect),
+                RuleAction::Proxy => tr(K::RulesActionsProxy),
+                RuleAction::Reject => tr(K::RulesActionsReject),
+                RuleAction::MapRemote(t) => format!("{}:{}", tr(K::RulesActionsMapremote), t),
+                RuleAction::MapLocal(t) => format!("{}:{}", tr(K::RulesActionsMaplocal), t),
+                RuleAction::Breakpoint(t) => format!("{}:{:?}", tr(K::RulesActionsBreakpoint), t),
             };
             let action_color = match &rule.action {
                 RuleAction::Direct => Color::Green,
@@ -62,12 +64,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
                 RuleAction::Breakpoint(_) => Color::Magenta,
             };
             let pattern_str = match rule.pattern {
-                RulePattern::Domain => "DOMAIN",
-                RulePattern::DomainSuffix => "DOMAIN-SUFFIX",
-                RulePattern::DomainKeyword => "DOMAIN-KEYWORD",
-                RulePattern::IpCidr => "IP-CIDR",
-                RulePattern::Geoip => "GEOIP",
-                RulePattern::RuleSet => "RULE-SET",
+                RulePattern::Domain => tr(K::RulesPatternDomain),
+                RulePattern::DomainSuffix => tr(K::RulesPatternDomainSuffix),
+                RulePattern::DomainKeyword => tr(K::RulesPatternDomainKeyword),
+                RulePattern::IpCidr => tr(K::RulesPatternIpCidr),
+                RulePattern::Geoip => tr(K::RulesPatternGeoip),
+                RulePattern::RuleSet => tr(K::RulesPatternRuleSet),
             };
             let selected = i == app.rules.selected;
             let row_style = if selected {
@@ -85,6 +87,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         })
         .collect();
 
+    let rule_list_title = tr(K::RulesRuleList);
     let table = Table::new(
         table_rows,
         [
@@ -93,7 +96,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
             Constraint::Percentage(25),
         ],
     )
-    .block(Block::default().borders(Borders::ALL).title("Rule List"))
+    .block(Block::default().borders(Borders::ALL).title(rule_list_title.as_str()))
     .column_spacing(1);
 
     f.render_widget(table, chunks[1]);
@@ -119,18 +122,18 @@ fn render_rule_modal(f: &mut Frame, area: Rect, app: &TuiApp) {
         .border_type(BorderType::Double)
         .borders(Borders::ALL)
         .border_style(border_style)
-        .title(if app.rules.modal_mode == "add" { " Add Rule " } else { " Edit Rule " });
+        .title(if app.rules.modal_mode == "add" { format!(" {} ", tr(K::RulesAddRule)) } else { format!(" {} ", tr(K::RulesEditRule)) });
 
     // Build modal content lines
-    let mode_label = if app.rules.modal_mode == "add" { "ADD RULE" } else { "EDIT RULE" };
+    let mode_label = if app.rules.modal_mode == "add" { tr(K::RulesAddRule).to_uppercase() } else { tr(K::RulesEditRule).to_uppercase() };
     let lines = vec![
-        format!("  {}  (press s to save, Esc/q to cancel)", mode_label),
+        format!("  {}  ({})", mode_label, tr(K::RulesPressSToSave)),
         format!(""),
-        format!("  Pattern: {}  (DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR)", pattern),
-        format!("  Value:   {}", name),
-        format!("  Action:  {}  (DIRECT, PROXY, REJECT)", action),
+        format!("  {}: {}  ({})", tr(K::RulesPattern), pattern, tr(K::RulesPatternTypes)),
+        format!("  {}:   {}", tr(K::RulesValue), name),
+        format!("  {}:  {}  (DIRECT, PROXY, REJECT)", tr(K::RulesAction), action),
         format!(""),
-        format!("  Use Tab to cycle: Pattern -> Value -> Action"),
+        format!("  {}", tr(K::RulesUseTab)),
     ];
 
     let text = lines.join("\n");

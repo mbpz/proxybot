@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use ratatui::{Frame, layout::Rect, widgets::{Block, Borders, Paragraph}};
 
 use crate::tui::{GraphViewType, TuiApp};
+use crate::tui::i18n::{I18nKey as K, t as tr};
 
 /// Build the DAG lines from recent requests in the DB.
 fn build_dag_lines(app: &TuiApp) -> Vec<String> {
@@ -15,7 +16,7 @@ fn build_dag_lines(app: &TuiApp) -> Vec<String> {
     let requests: Vec<_> = app.traffic.requests.iter().take(30).collect();
 
     if requests.is_empty() {
-        lines.push("No traffic captured yet. Start proxy to see DAG.".to_string());
+        lines.push(tr(K::GraphEmpty));
         return lines;
     }
 
@@ -42,7 +43,7 @@ fn build_dag_lines(app: &TuiApp) -> Vec<String> {
     }
 
     if nodes.is_empty() {
-        lines.push("No request patterns found.".to_string());
+        lines.push(tr(K::GraphNoRequestPatterns));
         return lines;
     }
 
@@ -139,7 +140,7 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
     let requests: Vec<_> = app.traffic.requests.iter().take(50).collect();
 
     if requests.is_empty() {
-        lines.push("No traffic captured yet. Start proxy to see auth flow.".to_string());
+        lines.push(tr(K::GraphAuthEmpty));
         return lines;
     }
 
@@ -232,9 +233,10 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let auth_lines = build_auth_state_machine_lines(app);
 
     // Select view based on view_type
+    let graph_title = tr(K::GraphTitle);
     let (title, content) = match app.graph.view_type {
-        GraphViewType::Dag => ("Graph │ DAG View", dag_lines.join("\n")),
-        GraphViewType::AuthStateMachine => ("Graph │ Auth State Machine", auth_lines.join("\n")),
+        GraphViewType::Dag => (format!("{} │ {}", graph_title, tr(K::GraphDagView)), dag_lines.join("\n")),
+        GraphViewType::AuthStateMachine => (format!("{} │ {}", graph_title, tr(K::GraphAuthView)), auth_lines.join("\n")),
     };
 
     let placeholder = "No data available. Start proxy to capture traffic.";

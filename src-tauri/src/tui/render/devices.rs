@@ -9,6 +9,7 @@ use ratatui::{
     text::Line,
 };
 use crate::tui::TuiApp;
+use crate::tui::i18n::{I18nKey as K, t as tr};
 use crate::db::get_devices_internal;
 use crate::adb::AdbDevice;
 
@@ -52,27 +53,32 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         .split(chunks[0]);
 
     // Stats header
+    let devices_title = tr(K::DevicesTitle);
     let stats_text = if app.devices.editing_override {
         let current = app.devices.override_input.as_str();
-        format!("Rule override: [{}] | Enter=confirm Esc=cancel", if current.is_empty() { "(none)" } else { current })
+        format!("{}: [{}] | Enter=confirm Esc=cancel", tr(K::DevicesOverridePrompt), if current.is_empty() { "(none)" } else { current })
     } else if app.devices.adb_enabled {
         format!(
-            " Devices: {} | Total Up: {} | Total Down: {} | [a] toggle ADB | j/k navigate [e] edit rule",
+            " {}: {} | Total Up: {} | Total Down: {} | {}",
+            devices_title,
             total_devices,
             format_bytes(total_up),
             format_bytes(total_down),
+            tr(K::DevicesHint),
         )
     } else {
         format!(
-            " Devices: {} | Total Up: {} | Total Down: {} | j/k navigate [e] edit rule",
+            " {}: {} | Total Up: {} | Total Down: {} | {}",
+            devices_title,
             total_devices,
             format_bytes(total_up),
             format_bytes(total_down),
+            tr(K::DevicesHint),
         )
     };
     let stats = Paragraph::new(stats_text)
         .style(Style::new().fg(Color::Yellow))
-        .block(Block::default().borders(Borders::ALL).title("Devices"));
+        .block(Block::default().borders(Borders::ALL).title(devices_title.as_str()));
     f.render_widget(stats, left_chunks[0]);
 
     // Device table
@@ -100,6 +106,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         })
         .collect();
 
+    let device_list_title = tr(K::DevicesDeviceList);
     let table = Table::new(
         table_rows,
         [
@@ -111,7 +118,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
             Constraint::Percentage(14),
         ],
     )
-    .block(Block::default().borders(Borders::ALL).title("Device List"))
+    .block(Block::default().borders(Borders::ALL).title(device_list_title.as_str()))
     .column_spacing(1);
 
     f.render_widget(table, left_chunks[1]);
@@ -127,20 +134,22 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
     let mut lines: Vec<Line> = Vec::new();
 
     // Server node
+    let proxy_bot_label = tr(K::DevicesProxyBot);
+    let this_pc_label = tr(K::DevicesThisPc);
     lines.push(Line::raw("       ┌─────────────────────┐").style(Color::Cyan));
-    lines.push(Line::raw("       │    ProxyBot Server   │").style(Color::Cyan));
-    lines.push(Line::raw("       │    (This PC)         │").style(Color::Cyan));
+    lines.push(Line::raw(format!("       │    {}   │", proxy_bot_label)).style(Color::Cyan));
+    lines.push(Line::raw(format!("       │    {}         │", this_pc_label)).style(Color::Cyan));
     lines.push(Line::raw("       └──────────┬──────────┘").style(Color::Cyan));
     lines.push(Line::raw("                  │").style(Color::Cyan));
 
     if devices.is_empty() && adb_devices.is_empty() {
-        lines.push(Line::raw("        (no devices connected)").style(Color::DarkGray));
+        lines.push(Line::raw(format!("        {}", tr(K::DevicesNoDevices))).style(Color::DarkGray));
         lines.push(Line::raw("".to_string()));
-        lines.push(Line::raw(" Configure device gateway:").style(Color::Yellow));
-        lines.push(Line::raw("  • Set proxy to this PC".to_string()));
-        lines.push(Line::raw("  • Port: 8088".to_string()));
-        lines.push(Line::raw("  • Install CA certificate".to_string()));
-        lines.push(Line::raw("  • Or use USB with [a] toggle ADB".to_string()));
+        lines.push(Line::raw(format!(" {}", tr(K::DevicesConfigureGateway))).style(Color::Yellow));
+        lines.push(Line::raw(format!("  • {}", tr(K::DevicesSetProxy))));
+        lines.push(Line::raw(format!("  • {}", tr(K::DevicesPort))));
+        lines.push(Line::raw(format!("  • {}", tr(K::DevicesInstallCa))));
+        lines.push(Line::raw(format!("  • {}", tr(K::DevicesOrUseUsb))));
     } else {
         let max_display = devices.len().min(4);
         for (i, dev) in devices.iter().take(max_display).enumerate() {
@@ -165,7 +174,7 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
     // Show ADB devices section
     if !adb_devices.is_empty() {
         lines.push(Line::raw("".to_string()));
-        lines.push(Line::raw("USB ADB Devices:").style(Color::Cyan));
+        lines.push(Line::raw(tr(K::DevicesUsbAdbDevices)).style(Color::Cyan));
         for dev in adb_devices.iter().take(3) {
             let model = dev.model.as_deref().unwrap_or("unknown");
             lines.push(Line::raw(format!("  • {} ({})", dev.serial.chars().take(12).collect::<String>(), model)).style(Color::Cyan));
@@ -173,13 +182,14 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
     }
 
     lines.push(Line::raw("".to_string()));
-    lines.push(Line::raw("Legend:").style(Color::Yellow));
-    lines.push(Line::raw(" [name] = device name".to_string()));
-    lines.push(Line::raw(" (app)  = detected app".to_string()));
-    lines.push(Line::raw(" MAC    = device address".to_string()));
+    lines.push(Line::raw(tr(K::DevicesLegend)).style(Color::Yellow));
+    lines.push(Line::raw(tr(K::DevicesName)));
+    lines.push(Line::raw(tr(K::DevicesApp)));
+    lines.push(Line::raw(tr(K::DevicesMac)));
 
+    let network_topology_title = tr(K::DevicesNetworkTopology);
     let content = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("Network Topology"))
+        .block(Block::default().borders(Borders::ALL).title(network_topology_title.as_str()))
         .style(Style::new().fg(Color::White));
 
     f.render_widget(content, area);

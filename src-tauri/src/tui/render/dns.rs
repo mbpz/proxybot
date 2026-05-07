@@ -11,6 +11,7 @@ use ratatui::{
 use ratatui::text::{Line, Span};
 
 use crate::tui::TuiApp;
+use crate::tui::i18n::{I18nKey as K, t as tr};
 
 fn fmt_ts_ms(ts_ms: u64) -> String {
     let total_secs = ts_ms / 1000;
@@ -23,9 +24,10 @@ fn fmt_ts_ms(ts_ms: u64) -> String {
 
 /// Render the DNS tab.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
+    let dns_config_title = tr(K::DnsConfiguration);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("DNS Configuration");
+        .title(dns_config_title.as_str());
 
     // Gather DNS state info
     let upstream = app.dns_state.get_upstream();
@@ -51,40 +53,40 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let mut lines = Vec::new();
 
     // === DNS Server Status ===
-    lines.push(Line::from(vec![Span::raw("DNS Server Status")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::DnsServerStatus))]));
     lines.push(Line::from(vec![Span::raw("─".repeat(50))]));
-    let status_str = if dns_running { "Running" } else { "Stopped" };
+    let status_str = if dns_running { tr(K::DnsRunning) } else { tr(K::DnsStopped) };
     lines.push(Line::from(vec![
-        Span::raw("Server: "),
+        Span::raw(tr(K::DnsServer)),
         Span::raw(status_str).style(Color::Green),
     ]));
     lines.push(Line::from(vec![
-        Span::raw("Upstream: "),
+        Span::raw(tr(K::DnsUpstream)),
         Span::raw(&upstream_label).style(Color::Cyan),
     ]));
     lines.push(Line::from(vec![
-        Span::raw("Blocklist: "),
+        Span::raw(tr(K::DnsBlocklist)),
         if blocklist_count > 0 {
-            Span::raw(format!("Enabled ({} entries)", blocklist_count)).style(Color::Green)
+            Span::raw(format!("{} ({})", tr(K::DnsBlocklistEnabled), blocklist_count)).style(Color::Green)
         } else {
-            Span::raw("Disabled").style(Color::Gray)
+            Span::raw(tr(K::DnsBlocklistDisabled)).style(Color::Gray)
         },
     ]));
-    lines.push(Line::from(vec![Span::raw("Hosts: "), Span::raw(format!("{} entries", hosts_count)).style(Color::Yellow)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::DnsHosts)), Span::raw(format!("{} {}", hosts_count, tr(K::DnsHostsEntriesCount))).style(Color::Yellow)]));
     lines.push(Line::from(vec![]));
 
     // === Upstream Selector ===
-    lines.push(Line::from(vec![Span::raw("Upstream Configuration")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::DnsUpstreamConfiguration))]));
     lines.push(Line::from(vec![Span::raw("─".repeat(50))]));
-    lines.push(Line::from(vec![Span::raw("(u) cycle upstream type")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::DnsCycleUpstreamHint))]));
     lines.push(Line::from(vec![]));
 
     // === Query Log ===
-    lines.push(Line::from(vec![Span::raw("DNS Query Log (recent)")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::DnsQueryLogRecent))]));
     lines.push(Line::from(vec![Span::raw("─".repeat(50))]));
 
     if recent_entries.is_empty() {
-        lines.push(Line::from(vec![Span::raw("(no queries yet)").style(Color::Gray)]));
+        lines.push(Line::from(vec![Span::raw(tr(K::DnsNoQueriesYet)).style(Color::Gray)]));
     } else {
         for entry in recent_entries.iter() {
             let ts_str = fmt_ts_ms(entry.timestamp_ms);
@@ -106,13 +108,14 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     // === Hosts Entries (first 10) ===
     if hosts_count > 0 {
-        lines.push(Line::from(vec![Span::raw(format!("Hosts Entries (showing {}/{})", 10.min(hosts_count), hosts_count))]));
+        let showing_entries = format!("{} ({}/{})", tr(K::DnsHostsEntries), 10.min(hosts_count), hosts_count);
+        lines.push(Line::from(vec![Span::raw(showing_entries)]));
         lines.push(Line::from(vec![Span::raw("─".repeat(50))]));
         for h in hosts_guard.iter().take(10) {
             lines.push(Line::from(vec![Span::raw(format!("  {} -> {}", h.domain, h.ip))]));
         }
         if hosts_count > 10 {
-            lines.push(Line::from(vec![Span::raw(format!("  ... and {} more", hosts_count - 10))]));
+            lines.push(Line::from(vec![Span::raw(format!("  {} {}", tr(K::DnsAndMore), hosts_count - 10))]));
         }
         lines.push(Line::from(vec![]));
     }
@@ -122,7 +125,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     // === Key Bindings ===
     lines.push(Line::from(vec![Span::raw("─".repeat(50))]));
-    lines.push(Line::from(vec![Span::raw("Key bindings: (s) toggle DNS, (b) toggle blocklist, (u) cycle upstream")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::DnsKeyBindings))]));
 
     let content = Paragraph::new(lines)
         .block(block)

@@ -10,6 +10,7 @@ use ratatui::{
 };
 
 use crate::tui::TuiApp;
+use crate::tui::i18n::{I18nKey as K, t as tr};
 use crate::anomaly::AlertSeverity;
 
 /// Render the Alerts tab with header stats and alert list.
@@ -40,15 +41,24 @@ fn render_header(f: &mut Frame, area: Rect, app: &TuiApp) {
         matches!(a.alert_type, crate::anomaly::AlertType::NewDomain) && !a.acknowledged
     }).count();
 
+    let alerts_title = tr(K::AlertsTitle);
     let header_text = format!(
-        " Alerts: {} active | Baseline: {} domains | New domain alerts: {} [j/k] navigate [a] ack [c] clear all acknowledged",
+        " {}: {} {} | {}: {} | {}: {} {} {} {}",
+        alerts_title,
         unack_count.to_string().red(),
+        tr(K::AlertsActive),
+        tr(K::AlertsBaseline),
         domain_count.to_string().cyan(),
-        new_domain_alerts.to_string().yellow()
+        tr(K::AlertsNewDomainAlerts),
+        new_domain_alerts.to_string().yellow(),
+        tr(K::AlertsNavigateHint),
+        tr(K::AlertsAckHint),
+        tr(K::AlertsClearHint)
     );
 
+    let alerts_summary_title = tr(K::AlertsSummary);
     let para = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL).title("Alerts Summary"))
+        .block(Block::default().borders(Borders::ALL).title(alerts_summary_title.as_str()))
         .style(Color::White);
 
     f.render_widget(para, area);
@@ -59,8 +69,9 @@ fn render_alert_list(f: &mut Frame, area: Rect, app: &TuiApp) {
     let alerts = &app.alerts.alerts_list;
 
     if alerts.is_empty() {
-        let empty = Paragraph::new("  No alerts. New domains/IPs will trigger alerts here.")
-            .block(Block::default().borders(Borders::ALL).title("Alerts"));
+        let alerts_title = tr(K::AlertsTitle);
+        let empty = Paragraph::new(format!("  {}", tr(K::AlertsEmpty)))
+            .block(Block::default().borders(Borders::ALL).title(alerts_title.as_str()));
         f.render_widget(empty, area);
         return;
     }
@@ -75,9 +86,9 @@ fn render_alert_list(f: &mut Frame, area: Rect, app: &TuiApp) {
             AlertSeverity::Critical => Color::Red,
         };
         let sev_badge = match alert.severity {
-            AlertSeverity::Info => "SEV3",
-            AlertSeverity::Warning => "SEV2",
-            AlertSeverity::Critical => "SEV1",
+            AlertSeverity::Info => tr(K::AlertsSev3),
+            AlertSeverity::Warning => tr(K::AlertsSev2),
+            AlertSeverity::Critical => tr(K::AlertsSev1),
         };
         let _ack_marker = if alert.acknowledged { "*" } else { " " };
 
@@ -104,8 +115,9 @@ fn render_alert_list(f: &mut Frame, area: Rect, app: &TuiApp) {
         Constraint::Length(60),  // description
         Constraint::Length(15),  // type
     ];
+    let alerts_title = tr(K::AlertsTitle);
     let table = Table::new(rows, widths)
-        .block(Block::default().borders(Borders::ALL).title("Alerts"))
+        .block(Block::default().borders(Borders::ALL).title(alerts_title.as_str()))
         .highlight_style(Color::Cyan);
 
     let mut list_state = ratatui::widgets::TableState::default().with_selected(Some(selected));
@@ -114,6 +126,7 @@ fn render_alert_list(f: &mut Frame, area: Rect, app: &TuiApp) {
 
 /// Render bottom controls bar.
 fn render_controls(f: &mut Frame, area: Rect, _app: &TuiApp) {
-    let controls = Paragraph::new("[j/k] up/down  [a] ack  [c] clear all  [Enter] view detail");
+    let controls_text = format!("{}  {}  {}  {}", tr(K::AlertsNavigateHint), tr(K::AlertsAckHint), tr(K::AlertsClearHint), tr(K::AlertsEnterDetail));
+    let controls = Paragraph::new(controls_text);
     f.render_widget(controls, area);
 }

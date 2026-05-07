@@ -12,6 +12,7 @@ use ratatui::{
 };
 
 use crate::tui::TuiApp;
+use crate::tui::i18n::{I18nKey as K, t as tr};
 
 /// Render the Replay tab with targets list, status, and diff view.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
@@ -35,8 +36,9 @@ fn render_targets(f: &mut Frame, area: Rect, app: &TuiApp) {
     let targets = &app.replay.targets_list;
 
     if targets.is_empty() {
-        let empty = Paragraph::new("  No replay targets. Targets appear after traffic is recorded.")
-            .block(Block::default().borders(Borders::ALL).title("Replay Targets"));
+        let replay_targets_title = tr(K::ReplayTargets);
+        let empty = Paragraph::new(format!("  {}", tr(K::ReplayEmpty)))
+            .block(Block::default().borders(Borders::ALL).title(replay_targets_title.as_str()));
         f.render_widget(empty, area);
         return;
     }
@@ -45,11 +47,11 @@ fn render_targets(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let rows: Vec<Row> = targets.iter().enumerate().map(|(idx, target)| {
         let host_cell = Cell::from(target.host.chars().take(30).collect::<String>());
-        let count_cell = Cell::from(format!("{} requests", target.request_count));
-        let path_cell = Cell::from(format!("{} paths", target.path_count));
+        let count_cell = Cell::from(format!("{} {}", target.request_count, tr(K::ReplayRequests)));
+        let path_cell = Cell::from(format!("{} {}", target.path_count, tr(K::ReplayPaths)));
 
         // Status shown based on running state
-        let status_text = "idle".dim();
+        let status_text = tr(K::ReplayStatusIdle).dim();
         let status_cell = Cell::from(status_text);
 
         let row = Row::new(vec![host_cell, count_cell, path_cell, status_cell])
@@ -68,8 +70,9 @@ fn render_targets(f: &mut Frame, area: Rect, app: &TuiApp) {
         Constraint::Length(15),  // path count
         Constraint::Length(10),  // status
     ];
+    let replay_targets_title = tr(K::ReplayTargets);
     let table = Table::new(rows, widths)
-        .block(Block::default().borders(Borders::ALL).title("Replay Targets"))
+        .block(Block::default().borders(Borders::ALL).title(replay_targets_title.as_str()))
         .highlight_style(Color::Cyan);
 
     let mut table_state = ratatui::widgets::TableState::default().with_selected(Some(selected));
@@ -92,21 +95,23 @@ fn render_diff_or_status(f: &mut Frame, area: Rect, app: &TuiApp) {
             })
             .collect();
 
+        let diff_view_title = tr(K::ReplayDiffView);
         let para = Paragraph::new(diff_lines)
-            .block(Block::default().borders(Borders::ALL).title("Diff View"))
+            .block(Block::default().borders(Borders::ALL).title(diff_view_title.as_str()))
             .scroll((0, 0));
 
         f.render_widget(para, area);
     } else {
         // Show status
         let status_text = if let Some(ref export_status) = app.replay.har_export_status {
-            format!(" HAR export: {}", export_status)
+            format!(" {}: {}", tr(K::ReplayStatus), export_status)
         } else {
-            " Select a target and press [s] to start replay, [x] to stop, [e] to export HAR".to_string()
+            tr(K::ReplaySelectTarget)
         };
 
+        let replay_status_title = tr(K::ReplayStatus);
         let para = Paragraph::new(status_text)
-            .block(Block::default().borders(Borders::ALL).title("Replay Status"))
+            .block(Block::default().borders(Borders::ALL).title(replay_status_title.as_str()))
             .style(Color::White);
 
         f.render_widget(para, area);
@@ -115,6 +120,7 @@ fn render_diff_or_status(f: &mut Frame, area: Rect, app: &TuiApp) {
 
 /// Render bottom controls bar.
 fn render_controls(f: &mut Frame, area: Rect, _app: &TuiApp) {
-    let controls = Paragraph::new("[j/k] navigate  [s] start  [x] stop  [e] export HAR  [d] show diff");
+    let controls_text = format!("{}  {}  {}  {}  {}", tr(K::ReplayNavigate), tr(K::ReplayStartStop), tr(K::ReplayExport), tr(K::ReplayExportHar), tr(K::ReplayShowDiff));
+    let controls = Paragraph::new(controls_text);
     f.render_widget(controls, area);
 }

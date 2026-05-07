@@ -10,12 +10,14 @@ use ratatui::{
 use ratatui::text::{Line, Span};
 
 use crate::tui::TuiApp;
+use crate::tui::i18n::{I18nKey as K, t as tr};
 
 /// Render the Certs tab.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
+    let certs_title = tr(K::CertsTitle);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title("Certificates");
+        .title(certs_title.as_str());
 
     // Gather cert info from cert_manager
     let fingerprint = app.cert_manager.get_ca_fingerprint();
@@ -23,13 +25,13 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     // Determine status badge
     let (status_text, status_color) = if days < 0 {
-        ("Unknown".to_string(), Color::Gray)
+        (tr(K::CertsUnknown), Color::Gray)
     } else if days == 0 {
-        ("Expired".to_string(), Color::Red)
+        (tr(K::CertsExpired), Color::Red)
     } else if days <= 30 {
-        ("Expiring Soon".to_string(), Color::Yellow)
+        (tr(K::CertsExpiringSoon), Color::Yellow)
     } else {
-        ("Valid".to_string(), Color::Green)
+        (tr(K::CertsValid), Color::Green)
     };
 
     let ca_meta = app.cert_manager.get_ca_metadata();
@@ -40,7 +42,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         let secs_in_day = secs % 86400;
         let days_since_epoch = secs / 86400;
         format!("Day {} + {:02}:{:02}:{:02}", days_since_epoch, hours, mins, secs_in_day % 60)
-    }).unwrap_or_else(|| "Unknown".to_string());
+    }).unwrap_or_else(|| tr(K::CertsUnknown));
 
     let serial_str = ca_meta.as_ref().map(|m| m.serial.clone()).unwrap_or_else(String::new);
 
@@ -48,39 +50,39 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let mut lines = Vec::new();
 
     // CA Info block
-    lines.push(Line::from(vec![Span::raw("CA Certificate Info")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsCaInfo))]));
     lines.push(Line::from(vec![Span::raw("─".repeat(40))]));
-    lines.push(Line::from(vec![Span::raw("Fingerprint (SHA1): "), Span::raw(&fingerprint).style(Color::Yellow)]));
-    lines.push(Line::from(vec![Span::raw("Expiry: "), Span::raw(&expiry_date).style(Color::Cyan)]));
-    lines.push(Line::from(vec![Span::raw("Created: "), Span::raw(&created_at).style(Color::Gray)]));
-    lines.push(Line::from(vec![Span::raw("Status: "), Span::raw(&status_text).style(status_color)]));
-    lines.push(Line::from(vec![Span::raw("Days until expiry: "), Span::raw(format!("{}", days)).style(status_color)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsFingerprintLabel)), Span::raw(&fingerprint).style(Color::Yellow)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsExpiryLabel)), Span::raw(&expiry_date).style(Color::Cyan)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsCreatedLabel)), Span::raw(&created_at).style(Color::Gray)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsStatusLabel)), Span::raw(&status_text).style(status_color)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsDaysUntilExpiry)), Span::raw(format!("{}", days)).style(status_color)]));
 
     if !serial_str.is_empty() {
-        lines.push(Line::from(vec![Span::raw("Serial: "), Span::raw(&serial_str).style(Color::Gray)]));
+        lines.push(Line::from(vec![Span::raw(tr(K::CertsSerialLabel)), Span::raw(&serial_str).style(Color::Gray)]));
     }
 
     lines.push(Line::from(vec![]));
     lines.push(Line::from(vec![Span::raw("─".repeat(40))]));
-    lines.push(Line::from(vec![Span::raw("Actions")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsActions))]));
     lines.push(Line::from(vec![Span::raw("─".repeat(40))]));
-    lines.push(Line::from(vec![Span::raw("[r] Regenerate CA")]));
-    lines.push(Line::from(vec![Span::raw("[e] Export CA PEM to ~/.proxybot/ca.crt")]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsRegenerate))]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsExport))]));
 
     // Show regenerate status if any
     if let Some(ref status) = app.certs.regenerate_status {
         lines.push(Line::from(vec![]));
-        lines.push(Line::from(vec![Span::raw("Regenerate: "), Span::raw(status).style(Color::Yellow)]));
+        lines.push(Line::from(vec![Span::raw(tr(K::CertsRegenerateStatus)), Span::raw(status).style(Color::Yellow)]));
     }
 
     // Show export path if any
     if let Some(ref path) = app.certs.export_path {
-        lines.push(Line::from(vec![Span::raw("Export: "), Span::raw(path).style(Color::Green)]));
+        lines.push(Line::from(vec![Span::raw(tr(K::CertsExportPath)), Span::raw(path).style(Color::Green)]));
     }
 
     lines.push(Line::from(vec![]));
     lines.push(Line::from(vec![Span::raw("─".repeat(40))]));
-    lines.push(Line::from(vec![Span::raw("Key bindings: r=regenerate, e=export, q=quit").style(Color::Gray)]));
+    lines.push(Line::from(vec![Span::raw(tr(K::CertsKeyBinding)).style(Color::Gray)]));
 
     let content = Paragraph::new(lines)
         .block(block)
