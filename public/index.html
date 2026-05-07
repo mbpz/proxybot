@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProxyBot — macOS HTTPS MITM Proxy for Developers</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      line-height: 1.6;
+    }
+    .container { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+    header {
+      padding: 60px 0;
+      text-align: center;
+      border-bottom: 1px solid #30363d;
+    }
+    h1 {
+      font-size: 3rem;
+      color: #58a6ff;
+      margin-bottom: 10px;
+    }
+    .tagline { font-size: 1.3rem; color: #8b949e; margin-bottom: 30px; }
+    .badges { display: flex; gap: 10px; justify-content: center; margin-bottom: 30px; }
+    .badge {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 20px;
+      padding: 5px 15px;
+      font-size: 0.85rem;
+    }
+    .install {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 12px 30px;
+      font-size: 1.1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .install:hover { background: #2ea043; }
+    .hero-demo {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 40px 0;
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 0.85rem;
+      overflow-x: auto;
+    }
+    .demo-line { display: flex; gap: 15px; padding: 4px 0; }
+    .demo-method { color: #79c0ff; min-width: 60px; }
+    .demo-host { color: #7ee787; }
+    .demo-path { color: #8b949e; }
+    .demo-status { color: #f0883e; }
+    section { padding: 60px 0; border-bottom: 1px solid #30363d; }
+    h2 { font-size: 2rem; margin-bottom: 20px; color: #f0f6fc; }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+    .feature-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .feature-card h3 { color: #58a6ff; margin-bottom: 10px; }
+    .feature-card p { color: #8b949e; font-size: 0.95rem; }
+    .shortcuts {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+      margin-top: 30px;
+    }
+    .shortcut {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .key {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-family: monospace;
+    }
+    .comparison { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    .comparison th, .comparison td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #30363d;
+    }
+    .comparison th { color: #f0f6fc; background: #161b22; }
+    .comparison td { color: #8b949e; }
+    .check { color: #7ee787; }
+    .minus { color: #f0883e; }
+    .install-section {
+      background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+      text-align: center;
+      padding: 80px 0;
+    }
+    .install-steps {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 30px;
+      margin: 30px auto;
+      max-width: 600px;
+      text-align: left;
+    }
+    .install-steps ol { padding-left: 25px; }
+    .install-steps li { margin: 15px 0; color: #c9d1d9; }
+    .install-steps code {
+      background: #21262d;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    footer {
+      padding: 40px 0;
+      text-align: center;
+      color: #8b949e;
+      font-size: 0.85rem;
+    }
+    footer a { color: #58a6ff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>ProxyBot</h1>
+      <p class="tagline">macOS HTTPS MITM proxy for developers</p>
+      <div class="badges">
+        <span class="badge">macOS</span>
+        <span class="badge">Rust</span>
+        <span class="badge">TUI + GUI</span>
+        <span class="badge">v1.0.0</span>
+      </div>
+      <a href="https://github.com/mbpz/proxybot/releases" class="install">Download for macOS</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <section>
+      <div class="hero-demo">
+        <div style="color: #8b949e; margin-bottom: 10px;">// Phone traffic flowing through Mac proxy</div>
+        <div class="demo-line">
+          <span class="demo-method">GET</span>
+          <span class="demo-host">api.weixin.qq.com</span>
+          <span class="demo-path">/cgi-bin/message/template/send</span>
+          <span class="demo-status">200</span>
+        </div>
+        <div class="demo-line">
+          <span class="demo-method">POST</span>
+          <span class="demo-host">log.douyin.com</span>
+          <span class="demo-path">/analytics/events</span>
+          <span class="demo-status">204</span>
+        </div>
+        <div class="demo-line">
+          <span class="demo-method">GET</span>
+          <span class="demo-host">safepay.alipay.com</span>
+          <span class="demo-path">/gateway.htm</span>
+          <span class="demo-status">302</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Why ProxyBot?</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <h3>Transparent Proxy</h3>
+          <p>No per-app proxy configuration. pf redirects all traffic from your phone automatically.</p>
+        </div>
+        <div class="feature-card">
+          <h3>App Classification</h3>
+          <p>Traffic automatically grouped by app: WeChat, Douyin, Alipay, and more.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Full HTTPS Decryption</h3>
+          <p>MITM with dynamically generated certificates. See encrypted traffic in plain text.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Keyboard-Driven TUI</h3>
+          <p>Developer-friendly terminal UI. All 9 tabs accessible without a mouse.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Yew GUI (Beta)</h3>
+          <p>New desktop GUI built with Rust. No Node.js dependency.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Rule Engine</h3>
+          <p>Direct, Proxy, Reject, MapRemote, MapLocal — full control over traffic.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Keyboard Shortcuts</h2>
+      <div class="shortcuts">
+        <div class="shortcut"><span>Start/Stop Proxy</span><span class="key">r</span></div>
+        <div class="shortcut"><span>Toggle pf</span><span class="key">p</span></div>
+        <div class="shortcut"><span>Toggle DNS</span><span class="key">n</span></div>
+        <div class="shortcut"><span>Search</span><span class="key">/</span></div>
+        <div class="shortcut"><span>Clear filters</span><span class="key">x</span></div>
+        <div class="shortcut"><span>Quit</span><span class="key">q</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Comparison</h2>
+      <table class="comparison">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>ProxyBot</th>
+            <th>mitmproxy</th>
+            <th>Proxyman</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>TUI</td>
+            <td class="check">ratatui</td>
+            <td>mitmweb</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>pf Transparent Proxy</td>
+            <td class="check">macOS pf</td>
+            <td>-</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>App Classification</td>
+            <td class="check">DNS correlation</td>
+            <td>-</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>Tauri GUI (Rust)</td>
+            <td class="check">Yew WASM</td>
+            <td>-</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>ADB Reverse Tunnel</td>
+            <td class="check">Android USB</td>
+            <td>-</td>
+            <td>-</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="install-section">
+      <h2>Get Started</h2>
+      <div class="install-steps">
+        <ol>
+          <li><code>brew install mbpz/proxybot/proxybot-tui</code></li>
+          <li>Connect phone to same WiFi as Mac</li>
+          <li>Set phone's gateway and DNS to Mac's IP</li>
+          <li>Export CA cert from Certs tab → AirDrop to phone</li>
+          <li>Trust CA in iOS Settings → General → About → Certificate Trust</li>
+          <li>Run <code>proxybot-tui</code> and press <code>r</code> to start</li>
+        </ol>
+      </div>
+      <p style="color: #8b949e; margin-top: 20px;">Find your Mac IP: <code>ipconfig getifaddr en0</code></p>
+    </section>
+
+    <section>
+      <h2>Architecture</h2>
+      <div class="hero-demo">
+        <div style="color: #8b949e; margin-bottom: 15px;">// How traffic flows</div>
+        <div style="color: #c9d1d9;">
+Phone --[WiFi]--> Mac (pf redirect :80/:443) --> ProxyBot (MITM) --> Internet<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+--> DNS Server (log queries, correlate with apps)
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="container">
+      <p>
+        <a href="https://github.com/mbpz/proxybot">GitHub</a> ·
+        <a href="https://github.com/mbpz/proxybot/releases">Releases</a> ·
+        <a href="https://github.com/mbpz/proxybot/discussions">Discussions</a>
+      </p>
+      <p style="margin-top: 10px;">ProxyBot · MIT License · 2024-2026</p>
+    </div>
+  </footer>
+</body>
+</html>
