@@ -15,21 +15,21 @@ pub mod gen;
 use ratatui::{Frame, layout::{Rect, Constraint, Direction, Layout}, widgets::Paragraph};
 use ratatui::style::{Stylize, Color};
 
-use super::{Tab, TuiApp, CertWizard, i18n::t};
+use crate::tui::{Tab, TuiApp, CertWizard, i18n::I18nKey as K, i18n::t};
 use super::wizard::render_wizard;
 
 /// Map Tab to its translated label key.
 fn tab_label(tab: Tab) -> String {
     match tab {
-        Tab::Traffic => t!("tabs.traffic").to_string(),
-        Tab::Rules => t!("tabs.rules").to_string(),
-        Tab::Devices => t!("tabs.devices").to_string(),
-        Tab::Certs => t!("tabs.certs").to_string(),
-        Tab::Dns => t!("tabs.dns").to_string(),
-        Tab::Alerts => t!("tabs.alerts").to_string(),
-        Tab::Replay => t!("tabs.replay").to_string(),
-        Tab::Graph => t!("tabs.graph").to_string(),
-        Tab::Gen => t!("tabs.gen").to_string(),
+        Tab::Traffic => t(K::TabTraffic),
+        Tab::Rules => t(K::TabRules),
+        Tab::Devices => t(K::TabDevices),
+        Tab::Certs => t(K::TabCerts),
+        Tab::Dns => t(K::TabDns),
+        Tab::Alerts => t(K::TabAlerts),
+        Tab::Replay => t(K::TabReplay),
+        Tab::Graph => t(K::TabGraph),
+        Tab::Gen => t(K::TabGen),
     }
 }
 
@@ -81,11 +81,11 @@ pub fn render_tab_bar(f: &mut Frame, area: Rect, current_tab: Tab) {
 /// Render the header bar with logo and status info.
 pub fn render_header(f: &mut Frame, area: Rect, app: &TuiApp) {
     let proxy_running = app.proxy_running.load(std::sync::atomic::Ordering::SeqCst);
-    let proxy_str = if proxy_running { t!("traffic.controls.running") } else { t!("traffic.controls.stopped") };
+    let proxy_str = if proxy_running { t(K::TrafficControlsRunning) } else { t(K::TrafficControlsStopped) };
 
     // Check CA status from cert_manager
     let ca_installed = app.cert_manager.get_ca_metadata().is_some();
-    let ca_status = if ca_installed { t!("traffic.controls.ca_installed") } else { t!("traffic.controls.ca_not_installed") };
+    let ca_status = if ca_installed { t(K::TrafficControlsCaInstalled) } else { t(K::TrafficControlsCaNotInstalled) };
 
     // Build header line
     let header_text = format!(

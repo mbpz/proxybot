@@ -7,7 +7,6 @@ use tauri_plugin_notification::NotificationExt;
 pub mod anomaly;
 pub mod app_rules;
 pub mod cert;
-rust_i18n::i18n!("locales");
 pub mod cert_server;
 pub mod config;
 pub mod error;
