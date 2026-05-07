@@ -1,15 +1,16 @@
+use crate::i18n::t;
 use yew::prelude::*;
 
 #[function_component(RulesTab)]
 pub fn rules_tab() -> Html {
     html! {
         <div class="rules-tab">
-            <h2>{"Rules"}</h2>
+            <h2>{t("rules")}</h2>
             <div class="rules-list">
-                <p>{"Rules management - add/edit/delete rules"}</p>
+                <p>{t("rules_management")}</p>
             </div>
             <div class="rules-actions">
-                <button>{"Add Rule"}</button>
+                <button>{t("add_rule")}</button>
             </div>
         </div>
     }

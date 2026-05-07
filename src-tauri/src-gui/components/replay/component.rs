@@ -1,16 +1,17 @@
+use crate::i18n::t;
 use yew::prelude::*;
 
 #[function_component(ReplayTab)]
 pub fn replay_tab() -> Html {
     html! {
         <div class="replay-tab">
-            <h2>{"Replay"}</h2>
+            <h2>{t("replay")}</h2>
             <div class="replay-list">
-                <p>{"Replay targets - start/stop, HAR export, diff view"}</p>
+                <p>{t("replay_targets")}</p>
             </div>
             <div class="replay-actions">
-                <button>{"Export HAR"}</button>
-                <button>{"Show Diff"}</button>
+                <button>{t("export_har")}</button>
+                <button>{t("show_diff")}</button>
             </div>
         </div>
     }

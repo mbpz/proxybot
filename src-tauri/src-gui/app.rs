@@ -1,15 +1,9 @@
-use yew::prelude::*;
 use crate::gui::components::{
-    alerts::AlertsTab,
-    certs::CertsTab,
-    devices::DevicesTab,
-    dns::DnsTab,
-    gen::GenTab,
-    graph::GraphTab,
-    replay::ReplayTab,
-    rules::RulesTab,
-    traffic::TrafficTab,
+    alerts::AlertsTab, certs::CertsTab, devices::DevicesTab, dns::DnsTab, gen::GenTab,
+    graph::GraphTab, replay::ReplayTab, rules::RulesTab, traffic::TrafficTab,
 };
+use crate::i18n::t;
+use yew::prelude::*;
 
 #[derive(PartialEq, Clone, Default)]
 pub enum Tab {
@@ -39,31 +33,31 @@ pub fn app(props: &AppProps) -> Html {
         <div class="app-container">
             <nav class="tab-nav">
                 <button class={format!("tab-btn{}", if active == Tab::Traffic { " active" } else { "" })}>
-                    { "Traffic" }
+                    { t("traffic") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Rules { " active" } else { "" })}>
-                    { "Rules" }
+                    { t("rules") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Devices { " active" } else { "" })}>
-                    { "Devices" }
+                    { t("devices") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Certs { " active" } else { "" })}>
-                    { "Certs" }
+                    { t("certs") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Dns { " active" } else { "" })}>
-                    { "DNS" }
+                    { t("dns") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Alerts { " active" } else { "" })}>
-                    { "Alerts" }
+                    { t("alerts") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Replay { " active" } else { "" })}>
-                    { "Replay" }
+                    { t("replay") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Graph { " active" } else { "" })}>
-                    { "Graph" }
+                    { t("graph") }
                 </button>
                 <button class={format!("tab-btn{}", if active == Tab::Gen { " active" } else { "" })}>
-                    { "Gen" }
+                    { t("gen") }
                 </button>
             </nav>
             <main class="content">

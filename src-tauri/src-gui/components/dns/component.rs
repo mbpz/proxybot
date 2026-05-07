@@ -1,6 +1,6 @@
-use yew::prelude::*;
-
 use super::types::{DnsConfig, DnsQuery, UpstreamType};
+use crate::i18n::t;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct DnsTabProps {}
@@ -20,7 +20,11 @@ pub fn dns_tab() -> Html {
         let config = config.clone();
         let upstream_type = upstream_type.clone();
         Callback::from(move |_| {
-            let new_type = if *upstream_type == "udp" { "doh" } else { "udp" };
+            let new_type = if *upstream_type == "udp" {
+                "doh"
+            } else {
+                "udp"
+            };
             upstream_type.set(new_type.to_string());
             let new_upstream = if new_type == "udp" {
                 UpstreamType::PlainUdp
@@ -48,44 +52,44 @@ pub fn dns_tab() -> Html {
 
     html! {
         <div class="dns-tab">
-            <h2>{"DNS"}</h2>
+            <h2>{t("dns")}</h2>
             <div class="dns-controls">
                 <button onclick={toggle_upstream}>
-                    {"Toggle Upstream"}
+                    {t("toggle_upstream")}
                 </button>
                 <button onclick={toggle_blocklist}>
-                    { if config.blocklist_enabled { "Disable Blocklist" } else { "Enable Blocklist" } }
+                    { if config.blocklist_enabled { t("disable_blocklist") } else { t("enable_blocklist") } }
                 </button>
                 <select value={(*upstream_type).clone()} onchange={Callback::from(move |e: Event| {
                     if let Some(target) = e.target_dyn_into::<web_sys::HtmlSelectElement>() {
                         upstream_type.set(target.value());
                     }
                 })}>
-                    <option value="udp">{"Plain UDP"}</option>
-                    <option value="doh">{"DNS-over-HTTPS"}</option>
+                    <option value="udp">{t("plain_udp")}</option>
+                    <option value="doh">{t("dns_over_https")}</option>
                 </select>
             </div>
             <div class="dns-config">
-                <p>{"Upstream: "}{ match config.upstream {
-                    UpstreamType::PlainUdp => "UDP",
-                    UpstreamType::DoH => "DoH",
+                <p>{t("upstream")}{ match config.upstream {
+                    UpstreamType::PlainUdp => t("no"),
+                    UpstreamType::DoH => t("yes"),
                 } }</p>
-                <p>{"Blocklist: "}{ if config.blocklist_enabled { "Enabled" } else { "Disabled" } }</p>
+                <p>{t("blocklist")}{ if config.blocklist_enabled { t("enabled") } else { t("disabled") } }</p>
             </div>
             <div class="query-log">
-                <h3>{"DNS Query Log"}</h3>
+                <h3>{t("dns_query_log")}</h3>
                 { if queries.is_empty() {
-                    html! { <p>{"No DNS queries recorded"}</p> }
+                    html! { <p>{t("no_dns_queries")}</p> }
                 } else {
                     html! {
                         <table class="query-table">
                             <thead>
                                 <tr>
-                                    <th>{"Name"}</th>
-                                    <th>{"Timestamp"}</th>
-                                    <th>{"Latency (ms)"}</th>
-                                    <th>{"Blocked"}</th>
-                                    <th>{"Response"}</th>
+                                    <th>{t("name")}</th>
+                                    <th>{t("timestamp")}</th>
+                                    <th>{t("latency_ms")}</th>
+                                    <th>{t("blocked")}</th>
+                                    <th>{t("response")}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -95,7 +99,7 @@ pub fn dns_tab() -> Html {
                                             <td>{ &q.name }</td>
                                             <td>{ q.timestamp }</td>
                                             <td>{ q.latency_ms }</td>
-                                            <td>{ if q.blocked { "Yes" } else { "No" } }</td>
+                                            <td>{ if q.blocked { t("yes") } else { t("no") } }</td>
                                             <td>{ q.response.as_deref().unwrap_or("-") }</td>
                                         </tr>
                                     }

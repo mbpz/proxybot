@@ -1,5 +1,6 @@
-use yew::prelude::*;
 use super::types::Request;
+use crate::i18n::t;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct TrafficProps {}
@@ -15,7 +16,7 @@ pub fn traffic_tab() -> Html {
             <div class="filter-bar">
                 <input
                     type="text"
-                    placeholder="Filter by host or path..."
+                    placeholder={t("filter_placeholder")}
                     value={(*filter_text).clone()}
                     oninput={Callback::from(move |e: InputEvent| {
                         if let Some(target) = e.target_dyn_into::<web_sys::HtmlInputElement>() {
@@ -25,7 +26,7 @@ pub fn traffic_tab() -> Html {
                 />
             </div>
             <div class="request-list">
-                <p>{"Request list - capture traffic to see requests here"}</p>
+                <p>{t("request_list_placeholder")}</p>
             </div>
         </div>
     }
