@@ -45,14 +45,10 @@ plugins:
       lang:
         - en
         - zh
-  - i18n:
-      fallback_to_default: true
-      re_materialize: true
-      docs_structure: folder
 
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
-  - Architecture: architecture.md
   - Keyboard Shortcuts: keyboard-shortcuts.md
   - Comparison: comparison.md
+  - Architecture: architecture.md
