@@ -45,18 +45,32 @@ plugins:
       lang:
         - en
         - zh
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          default: false
+          name: 中文
+          build: true
 
 nav:
-  - Home: index.md
+  - Home:
+      - index.md
+      - zh/index.md
   - Getting Started:
-    - getting-started.md
-    - i18n/zh/getting-started.md
+      - getting-started.md
+      - zh/getting-started.md
   - Keyboard Shortcuts:
-    - keyboard-shortcuts.md
-    - i18n/zh/keyboard-shortcuts.md
+      - keyboard-shortcuts.md
+      - zh/keyboard-shortcuts.md
   - Comparison:
-    - comparison.md
-    - i18n/zh/comparison.md
+      - comparison.md
+      - zh/comparison.md
   - Architecture:
-    - architecture.md
-    - i18n/zh/architecture.md
+      - architecture.md
+      - zh/architecture.md
