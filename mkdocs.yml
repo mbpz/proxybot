@@ -48,7 +48,15 @@ plugins:
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - Keyboard Shortcuts: keyboard-shortcuts.md
-  - Comparison: comparison.md
-  - Architecture: architecture.md
+  - Getting Started:
+    - getting-started.md
+    - i18n/zh/getting-started.md
+  - Keyboard Shortcuts:
+    - keyboard-shortcuts.md
+    - i18n/zh/keyboard-shortcuts.md
+  - Comparison:
+    - comparison.md
+    - i18n/zh/comparison.md
+  - Architecture:
+    - architecture.md
+    - i18n/zh/architecture.md
