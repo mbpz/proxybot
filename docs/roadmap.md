@@ -10,14 +10,12 @@ ProxyBot captures and decrypts all HTTPS/WSS traffic from your phone via macOS p
 
 ---
 
-## 2. What's Shipped (v0.4.x)
+## 2. What's Shipped (v0.10.x)
 
-Nine functional tabs, all accessible from the keyboard-driven TUI:
+### TUI (v0.4.x+): Nine keyboard-driven tabs
 
 ### Traffic
-
 Real-time request list with method/host/status/app filter. Regex search. 60/40 split between request list and detail panel. pf/DNS toggle controls.
-
 **Shortcut:** `p` toggle pf, `n` toggle DNS, `/` focus search, `x` clear filters, `Enter` load detail
 
 ### Rules
@@ -68,6 +66,18 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 
 **Shortcut:** `m` generate mock API, `f` generate frontend scaffold, `d` generate Docker, `o` open output
 
+### Tauri GUI (v0.6.0+): React + shadcn/ui desktop app
+
+**Traffic Page** — Virtual-scrolled request table (TanStack Virtual), 60/40 split with detail panel. Filter bar (method/host/search). App classification badges.
+**Composer** — 40/60 split edit-and-send view. Method/URL/Headers/Body form with live response preview.
+**Replay** — Targets table with enable/disable, ReplayModal editor, batch execution with reqwest engine.
+**WS Frame Viewer** — WebSocket frame list with direction arrows, opcode names, Text/Hex toggle, HexDump view.
+**Graph** — WaterfallChart (recharts), DependencyGraph (vis-network), AuthStateMachine (mermaid).
+**Filter DSL** — Lexer+Parser+Evaluator. Syntax: `method:GET AND status:2* OR host:*example.com`.
+**Code Export** — Copy as cURL, fetch(), Python requests, Go http.
+**Client Setup** — Detect installed browsers/Node.js/Python, copy proxy config commands.
+**App Classification** — TLS fingerprint + SNI pattern matching (TikTok, WeChat, Douyin, Alipay, Amazon, Apple).
+
 ---
 
 ## 3. Competitive Comparison
@@ -97,8 +107,8 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
 | **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
-| **v0.10.0 (NEXT)** | Quick Wins | Code export (cURL/fetch/Python/Go), Request Composer, JSON/XML syntax highlight, One-click client setup |
-| **v1.0.0** | Phase 2 Complete | Plugin system, Rhai scripting, gRPC/Protobuf, Network conditions, iOS VPN, Team collaboration |
+| **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go), Request Composer (split-view edit+send), Syntax highlighting (highlight.js + line numbers), Client setup wizard (detect browsers/Node/Python) |
+| **v1.0.0 (NEXT)** | Phase 2 Complete | Plugin system (Rust trait WASM sandbox), Rhai scripting engine, gRPC/Protobuf decoder, Network conditions (throttle/latency), iOS VPN, Team collaboration |
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
