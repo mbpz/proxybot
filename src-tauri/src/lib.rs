@@ -32,6 +32,7 @@ pub mod vision;
 pub mod tui;
 pub mod update_check;
 pub mod adb;
+pub mod cdp;
 pub mod commands;
 pub mod classifier;
 pub mod filter;
