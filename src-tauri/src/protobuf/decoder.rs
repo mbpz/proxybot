@@ -25,7 +25,7 @@ pub fn decode_grpc_web_frame(encoded: &str) -> Result<GrpcWebFrame, String> {
 
 /// Decode a protobuf message using descriptor
 /// Returns JSON representation
-pub fn decode_protobuf(body: &[u8], _descriptor: &[u8]) -> Result<String, String> {
+pub fn decode_protobuf(_body: &[u8], _descriptor: &[u8]) -> Result<String, String> {
     // TODO: Use prost for decoding when descriptor is available
     Ok("{}".into())
 }
