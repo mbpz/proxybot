@@ -613,20 +613,6 @@ fn render_mock_template(template: &str, req: &InterceptedRequest) -> String {
         .replace("{{request.id}}", &request_id)
 }
 
-fn parse_header_object(value: &serde_json::Value) -> Vec<(String, String)> {
-    value
-        .as_object()
-        .map(|obj| {
-            obj.iter()
-                .map(|(k, v)| {
-                    let value = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
-                    (k.clone(), value)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<RuleResponse, String> {
     if target.trim().is_empty() {
         return Err("MAPLOCAL target is empty".to_string());
@@ -652,7 +638,15 @@ fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<Ru
                     .unwrap_or(200);
                 let mut headers = json
                     .get("headers")
-                    .map(parse_header_object)
+                    .and_then(|v| v.as_object())
+                    .map(|obj| {
+                        obj.iter()
+                            .map(|(k, v)| {
+                                let value = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+                                (k.clone(), value)
+                            })
+                            .collect()
+                    })
                     .unwrap_or_else(Vec::new);
                 let body = match json.get("body") {
                     Some(v) if v.is_string() => render_mock_template(v.as_str().unwrap_or(""), req).into_bytes(),
@@ -933,16 +927,6 @@ fn build_request_context(
         is_websocket: false,
         ws_frames: None,
     }
-}
-
-fn classify_request(ctx: &ProxyContext, host: &str) -> Option<(String, String)> {
-    app_rules::classify_host(host).or_else(|| {
-        let request_ts_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        ctx.dns_state.correlate_app(host, request_ts_ms)
-    })
 }
 
 fn apply_request_rule(
