@@ -35,6 +35,7 @@ pub mod adb;
 pub mod commands;
 pub mod classifier;
 pub mod filter;
+pub mod protobuf;
 pub use commands::graph::*;
 pub use classifier::*;
 pub use commands::client_setup::*;
