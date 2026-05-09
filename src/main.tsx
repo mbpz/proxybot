@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { RulesPage } from "./components/rules/RulesPage";
 import { CertsPage } from "./components/certs/CertsPage";
+import { GraphPage } from "./components/graph/GraphPage";
 import "./index.css";
 
 // Placeholder pages for now - will implement in later phases
@@ -27,7 +28,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="dns" element={<PlaceholderPage name="DNS" />} />
           <Route path="alerts" element={<PlaceholderPage name="Alerts" />} />
           <Route path="replay" element={<PlaceholderPage name="Replay" />} />
-          <Route path="graph" element={<PlaceholderPage name="Graph" />} />
+          <Route path="graph" element={<GraphPage />} />
           <Route path="gen" element={<PlaceholderPage name="Gen" />} />
         </Route>
       </Routes>
