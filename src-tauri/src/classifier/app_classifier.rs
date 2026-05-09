@@ -132,17 +132,20 @@ impl AppRule {
                     }
                 }
                 RuleCondition::CipherSuite { value } => {
-                    if !hello.cipher_suites.contains(value) {
+                    // ClientHello vecs are typically small (10-20 entries), linear scan is fine
+                    if !hello.cipher_suites.iter().any(|c| c == value) {
                         return false;
                     }
                 }
                 RuleCondition::Extension { name } => {
-                    if !hello.extensions.contains(name) {
+                    // ClientHello vecs are typically small (10-20 entries), linear scan is fine
+                    if !hello.extensions.iter().any(|e| e == name) {
                         return false;
                     }
                 }
                 RuleCondition::Alpn { value } => {
-                    if !hello.alpn.contains(value) {
+                    // ClientHello vecs are typically small (10-20 entries), linear scan is fine
+                    if !hello.alpn.iter().any(|a| a == value) {
                         return false;
                     }
                 }
@@ -172,10 +175,30 @@ fn extract_fingerprint(hello: &ClientHello) -> TlsFingerprint {
 }
 
 fn glob_match(pattern: &str, value: &str) -> bool {
-    let pattern = pattern.replace("*.", ".*").replace("*", ".*");
-    if let Ok(re) = regex::Regex::new(&format!("^{}$", pattern)) {
-        re.is_match(value)
-    } else {
-        false
+    let mut re_pattern = String::with_capacity(pattern.len() + 2);
+    re_pattern.push('^');
+    let mut literal = String::new();
+    for ch in pattern.chars() {
+        match ch {
+            '*' | '?' => {
+                if !literal.is_empty() {
+                    re_pattern.push_str(&regex::escape(&literal));
+                    literal.clear();
+                }
+                if ch == '*' {
+                    re_pattern.push_str(".*");
+                } else {
+                    re_pattern.push('.');
+                }
+            }
+            _ => literal.push(ch),
+        }
     }
+    if !literal.is_empty() {
+        re_pattern.push_str(&regex::escape(&literal));
+    }
+    re_pattern.push('$');
+    regex::Regex::new(&re_pattern)
+        .map(|re| re.is_match(value))
+        .unwrap_or(false)
 }

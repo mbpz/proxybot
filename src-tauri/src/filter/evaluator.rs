@@ -1,5 +1,6 @@
 use crate::filter::dsl::{FilterExpr, FilterOp};
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -37,40 +38,45 @@ impl Evaluator {
         }
     }
 
-    fn get_field_value(req: &InterceptedRequest, field: &str) -> String {
+    fn get_field_value<'a>(req: &'a InterceptedRequest, field: &str) -> Cow<'a, str> {
         match field {
-            "method" => req.method.clone(),
-            "host" => req.host.clone(),
-            "path" => req.path.clone(),
-            "status" => req.status.map(|s| s.to_string()).unwrap_or_default(),
-            "duration" => req.duration_ms.to_string(),
-            _ => req.headers.get(field).cloned().unwrap_or_default(),
+            "method" => Cow::Borrowed(&req.method),
+            "host" => Cow::Borrowed(&req.host),
+            "path" => Cow::Borrowed(&req.path),
+            "status" => Cow::Owned(req.status.map(|s| s.to_string()).unwrap_or_default()),
+            "duration" => Cow::Owned(req.duration_ms.to_string()),
+            _ => Cow::Owned(req.headers.get(field).cloned().unwrap_or_default()),
         }
     }
 
     fn compare(field_value: &str, op: &FilterOp, filter_value: &str) -> bool {
         match op {
             FilterOp::Eq => field_value == filter_value,
-            FilterOp::Glob => {
-                let pattern = filter_value
-                    .replace('*', ".*")
-                    .replace('?', ".");
-                regex_match(&pattern, field_value)
-            }
-            FilterOp::Regex => {
-                regex_match(filter_value, field_value)
-            }
+            FilterOp::Glob => glob_match(filter_value, field_value),
+            FilterOp::Regex => regex_match(filter_value, field_value),
             FilterOp::Gt => {
-                field_value.parse::<u64>().map(|v| v > filter_value.parse().unwrap_or(0)).unwrap_or(false)
+                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                    (Ok(v), Ok(fv)) => v > fv,
+                    _ => false,
+                }
             }
             FilterOp::Lt => {
-                field_value.parse::<u64>().map(|v| v < filter_value.parse().unwrap_or(u64::MAX)).unwrap_or(false)
+                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                    (Ok(v), Ok(fv)) => v < fv,
+                    _ => false,
+                }
             }
             FilterOp::Gte => {
-                field_value.parse::<u64>().map(|v| v >= filter_value.parse().unwrap_or(0)).unwrap_or(false)
+                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                    (Ok(v), Ok(fv)) => v >= fv,
+                    _ => false,
+                }
             }
             FilterOp::Lte => {
-                field_value.parse::<u64>().map(|v| v <= filter_value.parse().unwrap_or(u64::MAX)).unwrap_or(false)
+                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                    (Ok(v), Ok(fv)) => v <= fv,
+                    _ => false,
+                }
             }
         }
     }
@@ -82,4 +88,33 @@ fn regex_match(pattern: &str, value: &str) -> bool {
     } else {
         false
     }
+}
+
+fn glob_match(pattern: &str, value: &str) -> bool {
+    let mut re_pattern = String::with_capacity(pattern.len() + 2);
+    re_pattern.push('^');
+    let mut literal = String::new();
+    for ch in pattern.chars() {
+        match ch {
+            '*' | '?' => {
+                if !literal.is_empty() {
+                    re_pattern.push_str(&regex::escape(&literal));
+                    literal.clear();
+                }
+                if ch == '*' {
+                    re_pattern.push_str(".*");
+                } else {
+                    re_pattern.push('.');
+                }
+            }
+            _ => literal.push(ch),
+        }
+    }
+    if !literal.is_empty() {
+        re_pattern.push_str(&regex::escape(&literal));
+    }
+    re_pattern.push('$');
+    regex::Regex::new(&re_pattern)
+        .map(|re| re.is_match(value))
+        .unwrap_or(false)
 }
