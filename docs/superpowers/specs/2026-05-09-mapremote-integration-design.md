@@ -153,15 +153,22 @@ async fn forward_map_remote(
 }
 ```
 
-## 6. 移除死代码
+## 6. 保留的必要代码
 
-以下函数/结构体将移除（已定义但未使用）：
+以下函数/结构体是 `Respond` case 所需的，**不应删除**：
 
 | 项目 | 类型 | 原因 |
 |------|------|------|
-| `RuleResponse` | 结构体 | 仅 `build_http_response` 使用，后者未使用 |
-| `build_map_local_response` | 函数 | MapLocal 暂不实现 |
-| `build_http_response` | 函数 | 未被调用 |
+| `RuleResponse` | 结构体 | `Respond` case 需要 `build_http_response(&RuleResponse {...})` |
+| `build_http_response` | 函数 | `Respond` case 需要构建HTTP响应 |
+| `build_map_local_response` | 函数 | MapLocal case 需要 |
+
+## 7. 移除死代码
+
+以下函数可以移除（确认未使用）：
+
+| 项目 | 类型 | 原因 |
+|------|------|------|
 | `parse_header_object` | 函数 | 未被调用 |
 | `classify_request` | 函数 | 已有 `app_rules::classify_host` |
 
