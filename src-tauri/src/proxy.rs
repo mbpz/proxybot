@@ -1371,14 +1371,14 @@ async fn handle_http(
     )?;
 
     match rule_result {
-        RuleApplication::Continue { method, path, headers, body } => {
+        RuleApplication::Continue { method: rule_method, path: rule_path, headers, body } => {
             // Proceed with normal request forwarding using rule-returned data
             let target_addr = format!("{}:{}", host, port);
             let mut target_stream = TcpStream::connect(&target_addr).await
                 .map_err(|e| format!("Failed to connect to {}: {}", target_addr, e))?;
 
             let http_version = "HTTP/1.1";
-            let mut request = format!("{} {} {}\r\n", method, path, http_version);
+            let mut request = format!("{} {} {}\r\n", rule_method, rule_path, http_version);
             for (name, value) in &headers {
                 request.push_str(&format!("{}: {}\r\n", name, value));
             }
@@ -1421,7 +1421,7 @@ async fn handle_http(
             let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
                 .unwrap_or((0u16, Vec::new(), Vec::new()));
             let resp_size = response_buf.len();
-            let query_params = extract_query_params(&path);
+            let query_params = extract_query_params(&rule_path);
             let req_body_str = body_to_string(&body);
             let resp_body_str = body_to_string(&resp_body);
 
@@ -1446,9 +1446,9 @@ async fn handle_http(
             let req = InterceptedRequest {
                 id: request_id,
                 timestamp: timestamp_now(),
-                method,
+                method: rule_method,
                 host: host.to_string(),
-                path,
+                path: rule_path,
                 query_params,
                 status: Some(status),
                 latency_ms: Some(latency),
