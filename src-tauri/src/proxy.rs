@@ -8,7 +8,7 @@ use crate::dns::DnsState;
 use crate::network::NetworkInfo;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use std::sync::Arc;
@@ -31,10 +31,11 @@ use rustls::{
 use std::fs::OpenOptions;
 
 // Breakpoint channel types
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BreakpointRequest {
     pub request: InterceptedRequest,
     pub target: BreakpointTarget,
+    pub decision_tx: tokio::sync::oneshot::Sender<BreakpointDecision>,
 }
 
 #[derive(Clone, Debug)]
@@ -529,6 +530,536 @@ fn body_to_string(body: &[u8]) -> Option<String> {
     String::from_utf8(body.to_vec()).ok()
 }
 
+#[derive(Clone, Debug)]
+struct RuleResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+struct RemoteTarget {
+    scheme: String,
+    host: String,
+    port: u16,
+    path_prefix: String,
+}
+
+fn http_reason(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        204 => "No Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        304 => "Not Modified",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        _ => "OK",
+    }
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
+fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: String) {
+    if let Some((_, existing)) = headers.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+        *existing = value;
+    } else {
+        headers.push((name.to_string(), value));
+    }
+}
+
+fn infer_content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()).unwrap_or_default() {
+        "json" => "application/json; charset=utf-8",
+        "html" | "htm" => "text/html; charset=utf-8",
+        "txt" => "text/plain; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
+        "js" => "application/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+fn expand_user_path(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home).join(rest)
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+fn render_mock_template(template: &str, req: &InterceptedRequest) -> String {
+    let timestamp = timestamp_now();
+    let request_id = generate_request_id();
+    template
+        .replace("{{request.method}}", &req.method)
+        .replace("{{request.host}}", &req.host)
+        .replace("{{request.path}}", &req.path)
+        .replace("{{request.body}}", req.req_body.as_deref().unwrap_or(""))
+        .replace("{{timestamp}}", &timestamp)
+        .replace("{{request.id}}", &request_id)
+}
+
+fn parse_header_object(value: &serde_json::Value) -> Vec<(String, String)> {
+    value
+        .as_object()
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| {
+                    let value = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+                    (k.clone(), value)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<RuleResponse, String> {
+    if target.trim().is_empty() {
+        return Err("MAPLOCAL target is empty".to_string());
+    }
+
+    let path = expand_user_path(target);
+    let raw = std::fs::read(&path)
+        .map_err(|e| format!("Failed to read MAPLOCAL target {}: {}", path.display(), e))?;
+
+    let raw_text = String::from_utf8(raw.clone()).ok();
+    if let Some(text) = raw_text.as_deref() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+            let structured = json
+                .as_object()
+                .map(|obj| obj.contains_key("status") || obj.contains_key("headers") || obj.contains_key("body"))
+                .unwrap_or(false);
+
+            if structured {
+                let status = json
+                    .get("status")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u16::try_from(v).ok())
+                    .unwrap_or(200);
+                let mut headers = json
+                    .get("headers")
+                    .map(parse_header_object)
+                    .unwrap_or_else(Vec::new);
+                let body = match json.get("body") {
+                    Some(v) if v.is_string() => render_mock_template(v.as_str().unwrap_or(""), req).into_bytes(),
+                    Some(v) => render_mock_template(&v.to_string(), req).into_bytes(),
+                    None => Vec::new(),
+                };
+                if header_value(&headers, "content-type").is_none() {
+                    headers.push(("Content-Type".to_string(), "application/json; charset=utf-8".to_string()));
+                }
+                return Ok(RuleResponse { status, headers, body });
+            }
+        }
+    }
+
+    let body = if let Some(text) = raw_text {
+        render_mock_template(&text, req).into_bytes()
+    } else {
+        raw
+    };
+    Ok(RuleResponse {
+        status: 200,
+        headers: vec![("Content-Type".to_string(), infer_content_type(&path).to_string())],
+        body,
+    })
+}
+
+fn build_http_response(response: &RuleResponse) -> Vec<u8> {
+    let mut headers = response.headers.clone();
+    set_header(&mut headers, "Content-Length", response.body.len().to_string());
+    if header_value(&headers, "Connection").is_none() {
+        headers.push(("Connection".to_string(), "close".to_string()));
+    }
+
+    let mut out = format!("HTTP/1.1 {} {}\r\n", response.status, http_reason(response.status)).into_bytes();
+    for (name, value) in headers {
+        out.extend_from_slice(format!("{}: {}\r\n", name, value).as_bytes());
+    }
+    out.extend_from_slice(b"\r\n");
+    out.extend_from_slice(&response.body);
+    out
+}
+
+fn parse_remote_target(target: &str) -> Result<RemoteTarget, String> {
+    let (scheme, rest) = target
+        .split_once("://")
+        .ok_or_else(|| "MAPREMOTE target must start with http:// or https://".to_string())?;
+    if scheme != "http" && scheme != "https" {
+        return Err("MAPREMOTE target only supports http and https".to_string());
+    }
+
+    let (authority, path_prefix) = rest
+        .split_once('/')
+        .map(|(a, p)| (a, format!("/{}", p.trim_end_matches('/'))))
+        .unwrap_or((rest, String::new()));
+    let (host, port) = if let Some((h, p)) = parse_host_port(authority) {
+        (h.to_string(), p)
+    } else {
+        (authority.to_string(), if scheme == "https" { 443 } else { 80 })
+    };
+    if host.is_empty() {
+        return Err("MAPREMOTE target host is empty".to_string());
+    }
+
+    Ok(RemoteTarget {
+        scheme: scheme.to_string(),
+        host,
+        port,
+        path_prefix,
+    })
+}
+
+fn combine_remote_path(prefix: &str, path: &str) -> String {
+    if prefix.is_empty() {
+        return path.to_string();
+    }
+    let path = if path.starts_with('/') { path } else { "/" };
+    format!("{}{}", prefix.trim_end_matches('/'), path)
+}
+
+fn build_upstream_request(method: &str, path: &str, host: &str, headers: &[(String, String)], body: &[u8]) -> Vec<u8> {
+    let mut request_headers: Vec<(String, String)> = headers
+        .iter()
+        .filter(|(name, _)| {
+            !name.eq_ignore_ascii_case("host")
+                && !name.eq_ignore_ascii_case("connection")
+                && !name.eq_ignore_ascii_case("proxy-connection")
+                && !name.eq_ignore_ascii_case("content-length")
+        })
+        .cloned()
+        .collect();
+    request_headers.insert(0, ("Host".to_string(), host.to_string()));
+    request_headers.push(("Connection".to_string(), "close".to_string()));
+    if !body.is_empty() {
+        request_headers.push(("Content-Length".to_string(), body.len().to_string()));
+    }
+
+    let mut request = format!("{} {} HTTP/1.1\r\n", method, path).into_bytes();
+    for (name, value) in request_headers {
+        request.extend_from_slice(format!("{}: {}\r\n", name, value).as_bytes());
+    }
+    request.extend_from_slice(b"\r\n");
+    request.extend_from_slice(body);
+    request
+}
+
+async fn read_full_response(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
+    let mut response = Vec::new();
+    tokio::time::timeout(std::time::Duration::from_secs(15), stream.read_to_end(&mut response))
+        .await
+        .map_err(|_| "Timed out reading upstream response".to_string())?
+        .map_err(|e| format!("Read upstream response failed: {}", e))?;
+    Ok(response)
+}
+
+async fn forward_map_remote(
+    cert_manager: &CertManager,
+    target: &RemoteTarget,
+    method: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<Vec<u8>, String> {
+    let addr = format!("{}:{}", target.host, target.port);
+    let remote_path = combine_remote_path(&target.path_prefix, path);
+    let request = build_upstream_request(method, &remote_path, &target.host, headers, body);
+
+    let mut tcp = TcpStream::connect(&addr)
+        .await
+        .map_err(|e| format!("Failed to connect MAPREMOTE target {}: {}", addr, e))?;
+
+    if target.scheme == "https" {
+        let config = build_client_config(cert_manager)?;
+        let server_name_static: &'static str = Box::leak(target.host.clone().into_boxed_str());
+        let server_name = ServerName::try_from(server_name_static)
+            .map_err(|e| format!("Invalid MAPREMOTE server name {}: {}", target.host, e))?;
+        let connector = TlsConnector::from(Arc::new(config));
+        let mut tls = connector
+            .connect(server_name, tcp)
+            .await
+            .map_err(|e| format!("TLS connect to MAPREMOTE target {} failed: {}", addr, e))?;
+        tls.write_all(&request)
+            .await
+            .map_err(|e| format!("Write MAPREMOTE request failed: {}", e))?;
+        let mut response = Vec::new();
+        tokio::time::timeout(std::time::Duration::from_secs(15), tls.read_to_end(&mut response))
+            .await
+            .map_err(|_| "Timed out reading MAPREMOTE HTTPS response".to_string())?
+            .map_err(|e| format!("Read MAPREMOTE HTTPS response failed: {}", e))?;
+        Ok(response)
+    } else {
+        tcp.write_all(&request)
+            .await
+            .map_err(|e| format!("Write MAPREMOTE request failed: {}", e))?;
+        read_full_response(&mut tcp).await
+    }
+}
+
+fn emit_and_record(ctx: &ProxyContext, req: InterceptedRequest) {
+    let _ = ctx.event_tx.send(req.clone());
+
+    if let Ok(conn) = ctx.db_state.conn.lock() {
+        let _ = record_http_request(
+            &conn,
+            &req.timestamp,
+            &req.method,
+            &req.scheme,
+            &req.host,
+            &req.path,
+            &req.req_headers,
+            req.req_body.as_deref(),
+            req.status,
+            &req.resp_headers,
+            req.resp_body.as_deref(),
+            req.latency_ms,
+            req.device_id,
+            req.app_name.as_deref(),
+        );
+    }
+}
+
+fn build_intercepted_request(
+    method: String,
+    scheme: String,
+    host: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    body: &[u8],
+    response_buf: &[u8],
+    latency: u64,
+    client_addr: SocketAddr,
+    device_ctx: Option<DeviceContext>,
+    app_info: Option<(String, String)>,
+) -> InterceptedRequest {
+    let (status, resp_headers, resp_body) = parse_http_response(response_buf)
+        .unwrap_or((0u16, Vec::new(), Vec::new()));
+    let (app_name, app_icon) = app_info
+        .map(|(n, i)| (Some(n), Some(i)))
+        .unwrap_or((None, None));
+    let (device_id, device_name) = device_ctx
+        .map(|d| (Some(d.device_id), Some(d.device_name)))
+        .unwrap_or((None, None));
+
+    InterceptedRequest {
+        id: generate_request_id(),
+        timestamp: timestamp_now(),
+        method,
+        host,
+        path: path.clone(),
+        query_params: extract_query_params(&path),
+        status: Some(status),
+        latency_ms: Some(latency),
+        scheme,
+        req_headers: headers,
+        req_body: body_to_string(body),
+        resp_headers,
+        resp_body: body_to_string(&resp_body),
+        resp_size: Some(response_buf.len()),
+        app_name,
+        app_icon,
+        device_id,
+        device_name,
+        client_ip: Some(client_addr.ip().to_string()),
+        is_websocket: false,
+        ws_frames: None,
+    }
+}
+
+enum RuleApplication {
+    Continue {
+        method: String,
+        path: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    },
+    MapRemote {
+        target: RemoteTarget,
+        method: String,
+        path: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    },
+}
+
+fn classify_request(ctx: &ProxyContext, host: &str) -> Option<(String, String)> {
+    app_rules::classify_host(host).or_else(|| {
+        let request_ts_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        ctx.dns_state.correlate_app(host, request_ts_ms)
+    })
+}
+
+async fn apply_request_rule(
+    ctx: &ProxyContext,
+    client_addr: SocketAddr,
+    scheme: &str,
+    host: &str,
+    method: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Result<RuleApplication, String> {
+    let Some(action) = ctx.rules_engine.match_host(host, None) else {
+        return Ok(RuleApplication::Continue {
+            method: method.to_string(),
+            path: path.to_string(),
+            headers: headers.to_vec(),
+            body: body.to_vec(),
+        });
+    };
+
+    match action {
+        RuleAction::Direct | RuleAction::Proxy => Ok(RuleApplication::Continue {
+            method: method.to_string(),
+            path: path.to_string(),
+            headers: headers.to_vec(),
+            body: body.to_vec(),
+        }),
+        RuleAction::Reject => {
+            let response = RuleResponse {
+                status: 403,
+                headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
+                body: b"ProxyBot rule rejected this request\n".to_vec(),
+            };
+            Ok(RuleApplication::Continue {
+                method: "HTTP".to_string(),
+                path: "/".to_string(),
+                headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
+                body: build_http_response(&response),
+            })
+        }
+        RuleAction::MapLocal(target) => {
+            let req = InterceptedRequest {
+                id: generate_request_id(),
+                timestamp: timestamp_now(),
+                method: method.to_string(),
+                scheme: scheme.to_string(),
+                host: host.to_string(),
+                path: path.to_string(),
+                query_params: extract_query_params(path),
+                status: None,
+                latency_ms: None,
+                req_headers: headers.to_vec(),
+                req_body: body_to_string(body),
+                resp_headers: Vec::new(),
+                resp_body: None,
+                resp_size: None,
+                app_name: None,
+                app_icon: None,
+                device_id: None,
+                device_name: None,
+                client_ip: Some(client_addr.ip().to_string()),
+                is_websocket: false,
+                ws_frames: None,
+            };
+            let response = build_map_local_response(&target, &req)?;
+            Ok(RuleApplication::Continue {
+                method: "HTTP".to_string(),
+                path: "/".to_string(),
+                headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
+                body: build_http_response(&response),
+            })
+        }
+        RuleAction::MapRemote(target) => {
+            let remote = parse_remote_target(&target)?;
+            Ok(RuleApplication::MapRemote {
+                target: remote,
+                method: method.to_string(),
+                path: path.to_string(),
+                headers: headers.to_vec(),
+                body: body.to_vec(),
+            })
+        }
+        RuleAction::Breakpoint(target) => {
+            log::info!("Breakpoint triggered for host: {} (target: {:?})", host, target);
+
+            let req = InterceptedRequest {
+                id: generate_request_id(),
+                timestamp: timestamp_now(),
+                method: method.to_string(),
+                scheme: scheme.to_string(),
+                host: host.to_string(),
+                path: path.to_string(),
+                query_params: extract_query_params(path),
+                status: None,
+                latency_ms: None,
+                req_headers: headers.to_vec(),
+                req_body: body_to_string(body),
+                resp_headers: Vec::new(),
+                resp_body: None,
+                resp_size: None,
+                app_name: None,
+                app_icon: None,
+                device_id: None,
+                device_name: None,
+                client_ip: Some(client_addr.ip().to_string()),
+                is_websocket: false,
+                ws_frames: None,
+            };
+
+            let (decision_tx, decision_rx) = tokio::sync::oneshot::channel();
+            if ctx.breakpoint_tx.send(BreakpointRequest {
+                request: req,
+                target,
+                decision_tx,
+            }).await.is_err() {
+                log::warn!("Breakpoint receiver dropped, proceeding with request");
+                return Ok(RuleApplication::Continue {
+                    method: method.to_string(),
+                    path: path.to_string(),
+                    headers: headers.to_vec(),
+                    body: body.to_vec(),
+                });
+            }
+
+            match decision_rx.await {
+                Ok(BreakpointDecision::Drop) => {
+                    let response = RuleResponse {
+                        status: 403,
+                        headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
+                        body: b"ProxyBot breakpoint dropped this request\n".to_vec(),
+                    };
+                    Ok(RuleApplication::Continue {
+                        method: "HTTP".to_string(),
+                        path: "/".to_string(),
+                        headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
+                        body: build_http_response(&response),
+                    })
+                }
+                Ok(BreakpointDecision::Modify(m)) => Ok(RuleApplication::Continue {
+                    method: m.method,
+                    path: m.path,
+                    headers: m.req_headers,
+                    body: m.req_body.unwrap_or_default().into_bytes(),
+                }),
+                Ok(BreakpointDecision::Proceed) | Err(_) => Ok(RuleApplication::Continue {
+                    method: method.to_string(),
+                    path: path.to_string(),
+                    headers: headers.to_vec(),
+                    body: body.to_vec(),
+                }),
+            }
+        }
+    }
+}
+
 /// Pipe data between client and upstream using plain TCP (for tunnel mode).
 async fn pipe_tcp_bidirectional(
     mut client_stream: TcpStream,
@@ -878,6 +1409,7 @@ async fn handle_http(
         if ctx.breakpoint_tx.send(BreakpointRequest {
             request: req,
             target,
+            decision_tx: _decision_tx,
         }).await.is_err() {
             log::warn!("Breakpoint receiver dropped, proceeding with request");
             None
