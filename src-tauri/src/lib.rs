@@ -21,6 +21,7 @@ pub mod mockgen;
 pub mod network;
 pub mod normalize;
 pub mod pf;
+pub mod plugin;
 pub mod proxy;
 pub mod replay;
 pub mod rules;
