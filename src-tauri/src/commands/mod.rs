@@ -1,3 +1,4 @@
+pub mod ai_stats;
 pub mod client_setup;
 pub mod compose;
 pub mod filter;
