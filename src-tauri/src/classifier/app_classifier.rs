@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppMatch {
@@ -154,6 +153,7 @@ impl AppRule {
 }
 
 struct ClientHello {
+    client_version: String,
     sni: Option<String>,
     cipher_suites: Vec<String>,
     extensions: Vec<String>,
