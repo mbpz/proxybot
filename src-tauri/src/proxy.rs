@@ -1345,7 +1345,7 @@ async fn handle_https_connect(
 async fn handle_http(
     ctx: ProxyContext,
     device_ctx: Option<DeviceContext>,
-    client_stream: TcpStream,
+    mut client_stream: TcpStream,
     client_addr: SocketAddr,
     method: &str,
     path: &str,
@@ -1354,197 +1354,200 @@ async fn handle_http(
     headers: &[(String, String)],
     body: &[u8],
 ) -> Result<(), String> {
-    let target_addr = format!("{}:{}", host, port);
     log::info!("HTTP {} {} from {}", method, path, client_addr);
 
     let start = std::time::Instant::now();
 
-    // Evaluate rules for breakpoint
-    let breakpoint_override = if let Some(RuleAction::Breakpoint(target)) = ctx.rules_engine.match_host(host, None) {
-        log::info!("Breakpoint triggered for host: {} (target: {:?})", host, target);
+    // Apply rules - check for MapRemote, Respond, or breakpoint modifications
+    let rule_result = apply_request_rule(
+        &ctx,
+        client_addr,
+        if port == 443 { "https" } else { "http" },
+        host,
+        method,
+        path,
+        headers,
+        body,
+    )?;
 
-        let req = InterceptedRequest {
-            id: generate_request_id(),
-            timestamp: timestamp_now(),
-            method: method.to_string(),
-            scheme: if port == 443 { "https" } else { "http" }.to_string(),
-            host: host.to_string(),
-            path: path.to_string(),
-            query_params: extract_query_params(path),
-            status: None,
-            latency_ms: None,
-            req_headers: headers.to_vec(),
-            req_body: body_to_string(body),
-            resp_headers: Vec::new(),
-            resp_body: None,
-            resp_size: None,
-            app_name: None,
-            app_icon: None,
-            device_id: None,
-            device_name: None,
-            client_ip: Some(client_addr.ip().to_string()),
-            is_websocket: false,
-            ws_frames: None,
-        };
+    match rule_result {
+        RuleApplication::Continue { method, path, headers, body } => {
+            // Proceed with normal request forwarding using rule-returned data
+            let target_addr = format!("{}:{}", host, port);
+            let mut target_stream = TcpStream::connect(&target_addr).await
+                .map_err(|e| format!("Failed to connect to {}: {}", target_addr, e))?;
 
-        let (_decision_tx, decision_rx) = tokio::sync::oneshot::channel();
-        if ctx.breakpoint_tx.send(BreakpointRequest {
-            request: req,
-            target,
-            decision_tx: _decision_tx,
-        }).await.is_err() {
-            log::warn!("Breakpoint receiver dropped, proceeding with request");
-            None
-        } else {
-            match decision_rx.await {
-                Ok(BreakpointDecision::Drop) => {
-                    log::info!("Breakpoint: request dropped by user");
-                    return Ok(());
-                }
-                Ok(BreakpointDecision::Modify(m)) => {
-                    log::info!("Breakpoint: proceeding with modified request to {}", m.host);
-                    Some(m)
-                }
-                Ok(BreakpointDecision::Proceed) => {
-                    None
-                }
-                Err(_) => {
-                    log::warn!("Breakpoint decision channel closed, proceeding");
-                    None
-                }
+            let http_version = "HTTP/1.1";
+            let mut request = format!("{} {} {}\r\n", method, path, http_version);
+            for (name, value) in &headers {
+                request.push_str(&format!("{}: {}\r\n", name, value));
             }
-        }
-    } else {
-        None
-    };
+            request.push_str("\r\n");
 
-    let mut target_stream = TcpStream::connect(&target_addr).await
-        .map_err(|e| format!("Failed to connect to {}: {}", target_addr, e))?;
-
-    let http_version = "HTTP/1.1";
-    let (use_method, use_path, use_headers) = if let Some(ref m) = breakpoint_override {
-        (m.method.clone(), m.path.clone(), m.req_headers.clone())
-    } else {
-        (method.to_string(), path.to_string(), headers.to_vec())
-    };
-    let mut request = format!("{} {} {}\r\n", use_method, use_path, http_version);
-    for (name, value) in &use_headers {
-        request.push_str(&format!("{}: {}\r\n", name, value));
-    }
-    request.push_str("\r\n");
-
-    target_stream.write_all(request.as_bytes()).await.map_err(|e| format!("Write request failed: {}", e))?;
-    // Use modified body if breakpoint override provided it
-    let use_body: &[u8] = if let Some(ref m) = breakpoint_override {
-        m.req_body.as_ref().map(|s| s.as_bytes()).unwrap_or(&[])
-    } else {
-        body
-    };
-    if !use_body.is_empty() {
-        target_stream.write_all(use_body).await.map_err(|e| format!("Write body failed: {}", e))?;
-    }
-
-    let mut response_buf = Vec::new();
-    let mut buf = vec![0u8; 16384];
-    loop {
-        match target_stream.read(&mut buf).await {
-            Ok(0) => break,
-            Ok(n) => {
-                response_buf.extend_from_slice(&buf[..n]);
-                if response_buf.len() > 4 && response_buf.ends_with(b"\r\n\r\n") {
-                    break;
-                }
+            target_stream.write_all(request.as_bytes()).await.map_err(|e| format!("Write request failed: {}", e))?;
+            if !body.is_empty() {
+                target_stream.write_all(&body).await.map_err(|e| format!("Write body failed: {}", e))?;
             }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    if !response_buf.is_empty() {
+
+            let mut response_buf = Vec::new();
+            let mut buf = vec![0u8; 16384];
+            loop {
+                match target_stream.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        response_buf.extend_from_slice(&buf[..n]);
+                        if response_buf.len() > 4 && response_buf.ends_with(b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            if !response_buf.is_empty() {
+                                break;
+                            }
+                            continue;
+                        }
                         break;
                     }
-                    continue;
                 }
-                break;
             }
+
+            let mut client_stream = client_stream;
+            client_stream.write_all(&response_buf).await.map_err(|e| format!("Write response failed: {}", e))?;
+
+            let latency = start.elapsed().as_millis() as u64;
+            let request_id = generate_request_id();
+
+            let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
+                .unwrap_or((0u16, Vec::new(), Vec::new()));
+            let resp_size = response_buf.len();
+            let query_params = extract_query_params(&path);
+            let req_body_str = body_to_string(&body);
+            let resp_body_str = body_to_string(&resp_body);
+
+            // Classify by direct domain match first, then fall back to DNS correlation
+            let app_info = app_rules::classify_host(host)
+                .or_else(|| {
+                    let request_ts_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    ctx.dns_state.correlate_app(host, request_ts_ms)
+                });
+            let (app_name, app_icon) = app_info
+                .map(|(n, i)| (Some(n), Some(i)))
+                .unwrap_or((None, None));
+
+            let client_ip = client_addr.ip().to_string();
+            let (device_id, device_name) = device_ctx
+                .map(|d| (Some(d.device_id), Some(d.device_name)))
+                .unwrap_or((None, None));
+
+            let req = InterceptedRequest {
+                id: request_id,
+                timestamp: timestamp_now(),
+                method,
+                host: host.to_string(),
+                path,
+                query_params,
+                status: Some(status),
+                latency_ms: Some(latency),
+                scheme: if port == 443 { "https" } else { "http" }.to_string(),
+                req_headers: headers,
+                req_body: req_body_str,
+                resp_headers,
+                resp_body: resp_body_str,
+                resp_size: Some(resp_size),
+                app_name,
+                app_icon,
+                device_id,
+                device_name,
+                client_ip: Some(client_ip),
+                is_websocket: false,
+                ws_frames: None,
+            };
+
+            let _ = ctx.event_tx.send(req.clone());
+
+            // Record to database for TUI/persistence
+            if let Ok(conn) = ctx.db_state.conn.lock() {
+                let _ = record_http_request(
+                    &conn,
+                    &req.timestamp,
+                    &req.method,
+                    &req.scheme,
+                    &req.host,
+                    &req.path,
+                    &req.req_headers,
+                    req.req_body.as_deref(),
+                    req.status,
+                    &req.resp_headers,
+                    req.resp_body.as_deref(),
+                    req.latency_ms,
+                    req.device_id,
+                    req.app_name.as_deref(),
+                );
+            }
+
+            Ok(())
+        }
+        RuleApplication::Respond { status, headers: resp_headers, body: resp_body } => {
+            // Direct response without connecting to upstream
+            let response = build_http_response(&RuleResponse {
+                status,
+                headers: resp_headers,
+                body: resp_body,
+            });
+            client_stream.write_all(&response).await
+                .map_err(|e| format!("Write rule response failed: {}", e))?;
+            Ok(())
+        }
+        RuleApplication::MapRemote { target, method, path, headers, body } => {
+            // Forward to remote target
+            let response_buf = forward_map_remote(
+                &ctx.cert_manager,
+                &target,
+                &method,
+                &path,
+                &headers,
+                &body,
+            ).await?;
+
+            client_stream.write_all(&response_buf).await
+                .map_err(|e| format!("Write MapRemote response failed: {}", e))?;
+
+            // Record the request
+            let latency = start.elapsed().as_millis() as u64;
+            let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
+                .unwrap_or((0u16, Vec::new(), Vec::new()));
+
+            let app_info = app_rules::classify_host(host)
+                .or_else(|| {
+                    let request_ts_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    ctx.dns_state.correlate_app(host, request_ts_ms)
+                });
+
+            let req = build_intercepted_request(
+                method,
+                if port == 443 { "https" } else { "http" }.to_string(),
+                host.to_string(),
+                path,
+                headers,
+                &body,
+                &response_buf,
+                latency,
+                client_addr,
+                device_ctx,
+                app_info,
+            );
+            emit_and_record(&ctx, req);
+
+            Ok(())
         }
     }
-
-    let mut client_stream = client_stream;
-    client_stream.write_all(&response_buf).await.map_err(|e| format!("Write response failed: {}", e))?;
-
-    let latency = start.elapsed().as_millis() as u64;
-    let request_id = generate_request_id();
-
-    let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
-        .unwrap_or((0u16, Vec::new(), Vec::new()));
-    let resp_size = response_buf.len();
-    let query_params = extract_query_params(path);
-    let req_body_str = body_to_string(body);
-    let resp_body_str = body_to_string(&resp_body);
-
-    // Classify by direct domain match first, then fall back to DNS correlation
-    let app_info = app_rules::classify_host(host)
-        .or_else(|| {
-            let request_ts_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            ctx.dns_state.correlate_app(host, request_ts_ms)
-        });
-    let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n), Some(i)))
-        .unwrap_or((None, None));
-
-    let client_ip = client_addr.ip().to_string();
-    let (device_id, device_name) = device_ctx
-        .map(|d| (Some(d.device_id), Some(d.device_name)))
-        .unwrap_or((None, None));
-
-    let req = InterceptedRequest {
-        id: request_id,
-        timestamp: timestamp_now(),
-        method: method.to_string(),
-        host: host.to_string(),
-        path: path.to_string(),
-        query_params,
-        status: Some(status),
-        latency_ms: Some(latency),
-        scheme: if port == 443 { "https" } else { "http" }.to_string(),
-        req_headers: headers.to_vec(),
-        req_body: req_body_str,
-        resp_headers,
-        resp_body: resp_body_str,
-        resp_size: Some(resp_size),
-        app_name,
-        app_icon,
-        device_id,
-        device_name,
-        client_ip: Some(client_ip),
-        is_websocket: false,
-        ws_frames: None,
-    };
-
-    let _ = ctx.event_tx.send(req.clone());
-
-    // Record to database for TUI/persistence
-    if let Ok(conn) = ctx.db_state.conn.lock() {
-        let _ = record_http_request(
-            &conn,
-            &req.timestamp,
-            &req.method,
-            &req.scheme,
-            &req.host,
-            &req.path,
-            &req.req_headers,
-            req.req_body.as_deref(),
-            req.status,
-            &req.resp_headers,
-            req.resp_body.as_deref(),
-            req.latency_ms,
-            req.device_id,
-            req.app_name.as_deref(),
-        );
-    }
-
-    Ok(())
 }
 
 fn trim_bytes(s: &[u8]) -> &[u8] {
