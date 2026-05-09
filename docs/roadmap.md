@@ -97,7 +97,8 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
 | **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
-| **v1.0.0** | Phase 2 Complete | iOS VPN API via NEPacketTunnel, WebView debugging, documentation complete |
+| **v0.10.0 (NEXT)** | Quick Wins | Code export (cURL/fetch/Python/Go), Request Composer, JSON/XML syntax highlight, One-click client setup |
+| **v1.0.0** | Phase 2 Complete | Plugin system, Rhai scripting, gRPC/Protobuf, Network conditions, iOS VPN, Team collaboration |
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
@@ -141,22 +142,81 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 
 ### Key Improvements for ProxyBot
 
-**Priority 1 — Quick Wins**
-1. **cURL/fetch code export** — Export any captured request as cURL, fetch(), Python requests
-2. **Request Composer** — Edit-and-resend panel (already have ReplayPage, add single-request composer)
-3. **JSON/XML syntax highlighting** — BodyView with proper code highlighting (Prism.js or shiki)
-4. **One-click client setup** — Auto-configure system proxy for browsers, Node.js, Python
+**Priority 1 — Quick Wins (v0.10.0)**
 
-**Priority 2 — Architecture Upgrades**
-5. **Plugin system** — Rust trait-based plugin API for custom request/response handlers
-6. **Scripting hooks** — Lua or Rhai scripting engine for user-defined traffic transforms
-7. **gRPC/Protobuf support** — Decode protobuf bodies, show .proto definitions
-8. **Network condition simulation** — Throttle bandwidth, inject latency, packet loss
+1. **cURL/fetch code export** — Export any captured request from detail panel
+   - Formats: cURL, fetch(), Python requests, Go http
+   - UI: "Copy as cURL" button + format dropdown in RequestDetail
+   - Files: `src/components/shared/CodeExport.tsx`, `src-tauri/src/commands/code_export.rs`
 
-**Priority 3 — Product Expansion**
-9. **Process-level attribution** — Which process on the phone sent this request (ps/pid via adb)
-10. **Team collaboration** — Share HAR files, rule sets, mock configs with team
-11. **iOS VPN mode** — NEPacketTunnel for on-device capture without Mac
+2. **Request Composer** — Edit-and-resend single request
+   - Split view: left=original request, right=modified response preview
+   - Method/URL/Headers/Body form editor (reuse ReplayModal patterns)
+   - Live preview of response status/duration/body
+   - Files: `src/components/composer/ComposerPage.tsx`, `src/components/composer/ComposerEditor.tsx`
+
+3. **JSON/XML syntax highlighting** — BodyView with code highlighting
+   - Use shiki (same engine as VSCode) for syntax highlighting
+   - Auto-detect content type: JSON, XML, HTML, JavaScript, CSS
+   - Line numbers, folding, search within body
+   - Files: `src/components/shared/CodeViewer.tsx` (replace BodyView)
+
+4. **One-click client setup** — Auto-configure proxy for browsers/Node.js
+   - Detect installed browsers (Chrome, Firefox, Safari, Edge)
+   - Generate proxy PAC file or set system proxy flags
+   - Node.js: set http_proxy/https_proxy env vars
+   - Python: export REQUESTS_CA_BUNDLE pointing to ProxyBot CA
+   - Files: `src-tauri/src/commands/client_setup.rs`, `src/components/setup/ClientSetup.tsx`
+
+**Priority 2 — Architecture Upgrades (v0.11.0)**
+
+5. **Plugin system** — Rust trait-based plugin API
+   - `ProxyPlugin` trait: on_request, on_response, on_connect, on_error hooks
+   - Plugin discovery: scan `~/.proxybot/plugins/` for .wasm or .so files
+   - Hot-reload: watch plugin directory for changes
+   - Sandbox: WASM runtime for untrusted plugins
+   - Files: `src-tauri/src/plugin/` (loader, registry, sandbox, wasm_runtime)
+   - API surface: read/modify headers, read body, inject response, log
+
+6. **Scripting hooks** — Rhai scripting engine
+   - Rhai (Rust-native, no unsafe) for user-defined traffic transforms
+   - Editor UI with syntax highlighting and live validation
+   - Hook points: request received, response received, before forward
+   - Script API: `request.headers`, `request.body`, `response.status`, `ctx.log()`
+   - Files: `src-tauri/src/scripting/` (engine, api, sandbox), `src/components/scripts/ScriptEditor.tsx`
+
+7. **gRPC/Protobuf support** — Decode protobuf bodies
+   - Detect `content-type: application/grpc` and `application/x-protobuf`
+   - Protobuf descriptor discovery: upload .proto or auto-detect via reflection
+   - Decode protobuf to JSON display, show field names and types
+   - gRPC-Web support (base64 + binary frames)
+   - Files: `src-tauri/src/protobuf/` (decoder, descriptor, grpc_web)
+
+8. **Network condition simulation** — Throttle + latency + packet loss
+   - Presets: 3G (1.6Mbps/768kbps/300ms), 4G (20Mbps/10Mbps/100ms), Custom
+   - Per-host or global throttle rules
+   - Buffered delay with configurable jitter
+   - Visual indicator in status bar when throttling active
+   - Files: `src-tauri/src/network_conditions.rs`, `src/components/conditions/NetworkConditions.tsx`
+
+**Priority 3 — Product Expansion (v1.0.0+)**
+
+9. **Process-level attribution** — Which app sent this request
+   - ADB: run `ps` on device, map PID→package name
+   - iOS: use NEPacketTunnel flow metadata (iOS 15+)
+   - Show app icon + name in traffic list (AppBadge component already exists)
+   - Per-app traffic statistics: bytes, request count, latency distribution
+
+10. **Team collaboration** — Share proxy configurations
+    - Export/import: HAR, ProxyBot project file, CA certificate bundle
+    - Rule sets: share MapRemote/MapLocal configurations as YAML/JSON
+    - Mock configs: export generated mocks with Docker bundle
+
+11. **iOS VPN mode** — On-device capture
+    - NEPacketTunnel provider (Swift, packaged separately)
+    - Local VPN → forward to local proxy → MITM on device
+    - No Mac required for basic capture
+    - Certificate install via MDM profile
 
 ---
 
