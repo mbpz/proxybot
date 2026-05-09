@@ -17,6 +17,7 @@ use crate::rules::{RulesEngine, RuleAction};
 pub use crate::rules::BreakpointTarget;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::InterceptedResponse;
+use crate::plugin::{RuleEngine, HookExecutor};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -94,6 +95,7 @@ struct ProxyContext {
     db_state: Arc<DbState>,
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
+    plugin_rules: Arc<RuleEngine>,
 }
 
 /// Device context for tracking which device made a request.
@@ -119,25 +121,34 @@ fn generate_request_id() -> String {
         .unwrap_or_else(|_| format!("req-{}", std::time::Instant::now().elapsed().as_nanos()))
 }
 
-/// Call on_request hooks for all registered plugins
-fn call_on_request_hooks(plugins: &Arc<PluginRegistry>, request: &mut InterceptedRequest) {
-    for plugin_name in plugins.list_plugins() {
-        if let Some(plugin) = plugins.get(&plugin_name) {
-            if let Some(ref hook) = plugin.hooks().on_request {
-                hook(request);
-            }
-        }
-    }
+/// Call on_request hooks using rule-based dispatch
+fn call_on_request_hooks(
+    plugins: &Arc<PluginRegistry>,
+    rule_engine: &Arc<RuleEngine>,
+    request: &mut InterceptedRequest,
+) {
+    let matched = rule_engine.match_all(request);
+    HookExecutor::run_request_hooks(plugins, &matched, request);
 }
 
-/// Call on_response hooks for all registered plugins
-fn call_on_response_hooks(plugins: &Arc<PluginRegistry>, response: &mut InterceptedResponse) {
-    for plugin_name in plugins.list_plugins() {
-        if let Some(plugin) = plugins.get(&plugin_name) {
-            if let Some(ref hook) = plugin.hooks().on_response {
-                hook(response);
-            }
-        }
+/// Call on_response hooks using rule-based dispatch
+fn call_on_response_hooks(
+    plugins: &Arc<PluginRegistry>,
+    rule_engine: &Arc<RuleEngine>,
+    response: &mut InterceptedResponse,
+) {
+    let matched = rule_engine.match_all(&response_to_request(response));
+    HookExecutor::run_response_hooks(plugins, &matched, response);
+}
+
+/// Build a minimal request from response for rule matching (host-based only)
+fn response_to_request(response: &InterceptedResponse) -> InterceptedRequest {
+    InterceptedRequest {
+        host: response.headers.iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("host"))
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default(),
+        ..Default::default()
     }
 }
 
@@ -1401,7 +1412,7 @@ async fn handle_http(
         body,
         client_addr,
     );
-    call_on_request_hooks(&ctx.plugins, &mut request_ctx);
+    call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
 
     // Apply rules - check for MapRemote, Respond, or breakpoint modifications
     let rule_result = apply_request_rule(
@@ -1476,7 +1487,7 @@ async fn handle_http(
                 headers: resp_headers.clone(),
                 body: resp_body_str.clone(),
             };
-            call_on_response_hooks(&ctx.plugins, &mut response_ctx);
+            call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx);
 
             // Classify by direct domain match first, then fall back to DNS correlation
             let app_info = app_rules::classify_host(host)
@@ -1818,6 +1829,7 @@ async fn run_proxy(
     db_state: Arc<DbState>,
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
+    plugin_rules: Arc<RuleEngine>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", proxy_port());
@@ -1839,6 +1851,7 @@ async fn run_proxy(
                             db_state: db_state.clone(),
                             rules_engine: rules_engine.clone(),
                             plugins: plugins.clone(),
+                            plugin_rules: plugin_rules.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -1880,6 +1893,9 @@ pub fn start_proxy(
     // Create empty plugin registry (stub - plugins not yet registered)
     let plugins = Arc::new(PluginRegistry::new());
 
+    // Create plugin rule engine (loads rules from config if available)
+    let plugin_rules = Arc::new(RuleEngine::new());
+
     // Create breakpoint channel (receiver unused in Tauri mode, sender passed to run_proxy)
     let (bp_tx, _bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
 
@@ -1896,7 +1912,7 @@ pub fn start_proxy(
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, shutdown_rx).await {
+        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, plugin_rules, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -1923,6 +1939,7 @@ pub fn start_proxy_core(
     db_state: Arc<DbState>,
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
+    plugin_rules: Arc<RuleEngine>,
 ) -> Result<(
     broadcast::Receiver<InterceptedRequest>,
     tokio::sync::mpsc::Receiver<BreakpointRequest>,
@@ -1943,7 +1960,7 @@ pub fn start_proxy_core(
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, shutdown_rx).await {
+            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, plugin_rules, shutdown_rx).await {
                 log::error!("Proxy error: {}", e);
             }
             PROXY_RUNNING.store(false, Ordering::SeqCst);

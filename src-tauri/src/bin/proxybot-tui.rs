@@ -27,6 +27,8 @@ use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal, set_device_
 use proxybot_lib::dns::DnsState;
 use proxybot_lib::network::get_network_info;
 use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest, BreakpointRequest, BreakpointDecision, BreakpointTarget};
+use proxybot_lib::plugin::registry::PluginRegistry;
+use proxybot_lib::plugin::RuleEngine as PluginRuleEngine;
 use proxybot_lib::rules::{RulesEngine, Rule, RulePattern, RuleAction, MoveDirection};
 use proxybot_lib::anomaly::AnomalyDetector;
 use proxybot_lib::tun::TunState;
@@ -55,6 +57,8 @@ fn start_proxy(
         app.dns_state.clone(),
         app.db_state.clone(),
         app.rules_engine.clone(),
+        Arc::new(PluginRegistry::new()),
+        Arc::new(PluginRuleEngine::new()),
     )?;
 
     // Store shutdown sender

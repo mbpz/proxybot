@@ -3,7 +3,11 @@ pub mod loader;
 pub mod plugin_trait;
 pub mod sandbox;
 pub mod rule_engine;
+pub mod executor;
 pub use plugin_trait::{Plugin, PluginHooks, ConnectDecision, InterceptedResponse};
+pub use registry::PluginRegistry;
+pub use rule_engine::{RuleEngine, RulePattern, PluginRule};
+pub use executor::HookExecutor;
 
 #[cfg(test)]
 mod tests {
