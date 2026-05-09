@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/core";
 import json from "highlight.js/lib/languages/json";
 import xml from "highlight.js/lib/languages/xml";
@@ -67,6 +68,14 @@ export function CodeViewer({
     }
   }, [formatted, lang]);
 
+  const sanitizedHtml = useMemo(() => {
+    if (!highlighted) return null;
+    return DOMPurify.sanitize(highlighted, {
+      ALLOWED_TAGS: ["span", "br"],
+      ALLOWED_ATTR: ["class"],
+    });
+  }, [highlighted]);
+
   if (!content) {
     return <div className="p-4 text-gray-500">No content</div>;
   }
@@ -90,7 +99,7 @@ export function CodeViewer({
             <pre className="text-sm font-mono leading-6">
               <code
                 className={`hljs language-${lang}`}
-                dangerouslySetInnerHTML={{ __html: highlighted }}
+                dangerouslySetInnerHTML={{ __html: sanitizedHtml || "" }}
               />
             </pre>
           ) : (

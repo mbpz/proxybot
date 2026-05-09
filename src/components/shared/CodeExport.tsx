@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { generateCurl, generateFetch, generatePython, generateGo } from "./codeGenerators";
 
 interface CodeExportProps {
   method: string;
@@ -17,24 +17,24 @@ const FORMAT_LABELS: Record<ExportFormat, string> = {
   go: "Go http",
 };
 
-export function CodeExport({ method, url, headers, body }: CodeExportProps) {
+const GENERATORS: Record<ExportFormat, (m: string, u: string, h: Record<string, string>, b: string) => string> = {
+  curl: generateCurl,
+  fetch: generateFetch,
+  python: generatePython,
+  go: generateGo,
+};
+
+export function CodeExport({ method, url, headers, body = "" }: CodeExportProps) {
   const [copied, setCopied] = useState(false);
 
-  async function handleCopy(format: ExportFormat) {
-    try {
-      const code = await invoke<string>("generate_code_snippet", {
-        method,
-        url,
-        headers,
-        body: body || "",
-        format,
-      });
-      await navigator.clipboard.writeText(code);
+  function handleCopy(format: ExportFormat) {
+    const code = GENERATORS[format](method, url, headers, body);
+    navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to generate code:", err);
-    }
+    }).catch((err) => {
+      console.error("Failed to copy:", err);
+    });
   }
 
   return (

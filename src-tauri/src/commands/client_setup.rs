@@ -53,6 +53,36 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         config_instructions: "Uses system proxy settings (System Preferences → Network → Proxies)".into(),
     });
 
+    // Brave
+    clients.push(ClientInfo {
+        id: "brave".into(),
+        name: "Brave Browser".into(),
+        client_type: ClientType::Browser,
+        installed: app_exists("Brave Browser"),
+        proxy_configured: false,
+        config_instructions: "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+    });
+
+    // Edge
+    clients.push(ClientInfo {
+        id: "edge".into(),
+        name: "Microsoft Edge".into(),
+        client_type: ClientType::Browser,
+        installed: app_exists("Microsoft Edge"),
+        proxy_configured: false,
+        config_instructions: "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+    });
+
+    // Arc
+    clients.push(ClientInfo {
+        id: "arc".into(),
+        name: "Arc".into(),
+        client_type: ClientType::Browser,
+        installed: app_exists("Arc"),
+        proxy_configured: false,
+        config_instructions: "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+    });
+
     // Node.js
     clients.push(ClientInfo {
         id: "nodejs".into(),
@@ -87,11 +117,29 @@ pub fn get_proxy_config_command(client_id: String) -> Result<String, String> {
 }
 
 fn app_exists(name: &str) -> bool {
-    Command::new("ls")
-        .arg(format!("/Applications/{}.app", name))
+    // 1. Check standard locations
+    let paths = [
+        format!("/Applications/{}.app", name),
+        format!("/Applications/{} Canary.app", name), // Chrome Canary etc
+        format!("{}/Applications/{}.app", std::env::var("HOME").unwrap_or_default(), name),
+    ];
+    for path in &paths {
+        if std::path::Path::new(path).exists() {
+            return true;
+        }
+    }
+
+    // 2. Use mdfind for broader search (macOS Spotlight)
+    if let Ok(output) = Command::new("mdfind")
+        .args(["kMDItemKind == 'Application'", &format!("kMDItemDisplayName == '*{}*'", name)])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    {
+        if output.status.success() && !output.stdout.is_empty() {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn command_exists(cmd: &str) -> bool {
