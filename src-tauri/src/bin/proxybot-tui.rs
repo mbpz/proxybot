@@ -178,11 +178,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             rt.block_on(async move {
                 let mut bp_rx = bp_receiver;
                 while let Some(bp_req) = bp_rx.recv().await {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-
                     // Store decision sender in app's breakpoint_decision_tx
                     let mut app_lock = app2.lock().unwrap();
-                    *app_lock.breakpoint_decision_tx.lock().unwrap() = Some(tx);
+                    *app_lock.breakpoint_decision_tx.lock().unwrap() = Some(bp_req.decision_tx);
                     drop(app_lock);
 
                     let mut app_lock = app2.lock().unwrap();
@@ -198,12 +196,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         app_lock.traffic.breakpoint.current_edit = Some(bp_req.request);
                     }
                     drop(app_lock);
-
-                    // Wait for user decision (g or c) via the oneshot channel
-                    if let Ok(decision) = rx.await {
-                        // Decision was sent via BreakpointGo/BreakpointCancel handlers
-                        log::info!("Breakpoint decision: {:?}", decision);
-                    }
                 }
             });
         });

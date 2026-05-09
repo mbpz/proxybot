@@ -238,6 +238,7 @@ fn load_rules_from_dir(dir: &PathBuf) -> Vec<Rule> {
     }
 
     log::info!("Total rules loaded: {}", all_rules.len());
+    all_rules.sort_by_key(|rule| rule.priority);
     all_rules
 }
 
@@ -511,6 +512,10 @@ impl Default for RulesEngine {
 
 /// Match a single rule against host/IP.
 fn match_rule(rule: &Rule, host: &str, ip: Option<IpAddr>) -> Option<RuleAction> {
+    if !rule.enabled {
+        return None;
+    }
+
     match rule.pattern {
         RulePattern::Domain => {
             if host.eq_ignore_ascii_case(&rule.value) {
@@ -775,5 +780,20 @@ mod tests {
             match_rule(&rule, "host.example.com", Some("192.168.1.1".parse().unwrap())),
             None
         );
+    }
+
+    #[test]
+    fn test_disabled_rule_does_not_match() {
+        let rule = Rule {
+            pattern: RulePattern::Domain,
+            value: "example.com".to_string(),
+            action: RuleAction::Reject,
+            name: "disabled".to_string(),
+            priority: 1,
+            enabled: false,
+            comment: "".to_string(),
+        };
+
+        assert_eq!(match_rule(&rule, "example.com", None), None);
     }
 }
