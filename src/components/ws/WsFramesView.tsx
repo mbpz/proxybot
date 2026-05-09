@@ -6,6 +6,7 @@ import { WsFrameDetail } from "./WsFrameDetail";
 
 interface WsFrame {
   id: string;
+  requestId?: string;
   direction: "incoming" | "outgoing";
   opcode: number;
   payload: string;
