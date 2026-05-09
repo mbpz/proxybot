@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use futures_util::{SinkExt, StreamExt};
-use crate::cdp::{CdpMessage, CdpResponse, CdpEvent};
+use crate::cdp::{CdpMessage, CdpResponse};
 
 pub struct CdpServer {
     port: u16,
@@ -35,7 +35,7 @@ impl CdpServer {
         }
     }
 
-    async fn handle_connection(stream: TcpStream, port: u16) {
+    async fn handle_connection(stream: TcpStream, _port: u16) {
         let ws = match accept_async(stream).await {
             Ok(ws) => ws,
             Err(e) => {
@@ -68,11 +68,19 @@ impl CdpServer {
     fn handle_text_message(text: &str) -> Option<String> {
         let msg: CdpMessage = serde_json::from_str(text).ok()?;
         let response = Self::dispatch(&msg)?;
-        Some(serde_json::to_string(&response).unwrap_or_default())
+        Some(serde_json::to_string(&response).map_err(|e| {
+            eprintln!("CDP serialize error: {}", e);
+        }).ok()?)
     }
 
     fn dispatch(msg: &CdpMessage) -> Option<CdpResponse> {
-        let id = msg.id?;
+        let id = match msg.id {
+            Some(id) => id,
+            None => {
+                eprintln!("CDP dispatch error: missing message id for method {}", msg.method);
+                return None;
+            }
+        };
 
         // Handle basic CDP methods
         match msg.method.as_str() {
