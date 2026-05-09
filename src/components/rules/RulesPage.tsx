@@ -17,6 +17,7 @@ export function RulesPage() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadRules();
@@ -24,9 +25,12 @@ export function RulesPage() {
 
   async function loadRules() {
     try {
+      setError(null);
       const result = await invoke<Rule[]>("get_rules");
       setRules(result);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
       console.error("Failed to load rules:", err);
     }
   }
@@ -60,6 +64,15 @@ export function RulesPage() {
     }
   }
 
+  async function handleToggleRule(rule: Rule, enabled: boolean) {
+    try {
+      await invoke("save_rule", { rule: { ...rule, enabled }, filename: "custom.yaml" });
+      loadRules();
+    } catch (err) {
+      console.error("Failed to toggle rule:", err);
+    }
+  }
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
@@ -72,13 +85,18 @@ export function RulesPage() {
         </button>
       </div>
 
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">{error}</div>
+      )}
+
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        {rules.map((rule, index) => (
+        {rules.map((rule) => (
           <RuleCard
-            key={index}
+            key={`${rule.pattern}-${rule.value}`}
             rule={rule}
             onEdit={() => handleEditRule(rule)}
             onDelete={() => handleDeleteRule(rule)}
+            onToggle={(enabled) => handleToggleRule(rule, enabled)}
           />
         ))}
       </div>

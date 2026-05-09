@@ -5,6 +5,7 @@ import {
   X,
   List,
   Shield,
+  Key,
   Smartphone,
   Globe,
   AlertTriangle,
@@ -22,7 +23,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { path: "/", label: "Traffic", icon: <List size={20} /> },
   { path: "/rules", label: "Rules", icon: <Shield size={20} /> },
-  { path: "/certs", label: "Certs", icon: <Shield size={20} /> },
+  { path: "/certs", label: "Certs", icon: <Key size={20} /> },
   { path: "/devices", label: "Devices", icon: <Smartphone size={20} /> },
   { path: "/dns", label: "DNS", icon: <Globe size={20} /> },
   { path: "/alerts", label: "Alerts", icon: <AlertTriangle size={20} /> },
