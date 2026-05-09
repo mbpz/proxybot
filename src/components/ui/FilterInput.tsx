@@ -21,7 +21,7 @@ export function FilterInput({
   onSavePreset,
   error,
 }: FilterInputProps) {
-  const [showPresets, setShowPresets] = useState(false);
+  const [_showPresets, setShowPresets] = useState(false);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {

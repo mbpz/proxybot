@@ -13,7 +13,7 @@ pub enum FilterExpr {
     Group(Box<FilterExpr>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FilterOp {
     Eq,      // :
     Glob,    // :*
@@ -97,8 +97,19 @@ impl Lexer {
                     } else {
                         FilterOp::Eq
                     };
+                    // Consume the value after the operator
+                    let start = self.pos;
+                    while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_' || self.input[self.pos] == '.' || self.input[self.pos] == '-' || self.input[self.pos] == '*') {
+                        self.pos += 1;
+                    }
+                    let value: String = self.input[start..self.pos].iter().collect();
+                    if value.is_empty() {
+                        return Err("Expected value after operator".to_string());
+                    }
                     tokens.push(Token::Field(word));
                     tokens.push(Token::Op(op));
+                    tokens.push(Token::Value(value));
+                    continue;
                 } else {
                     return Err(format!("Unexpected token: {}", word));
                 }
@@ -214,21 +225,18 @@ impl Parser {
                 Ok(FilterExpr::Group(Box::new(expr)))
             }
             Token::Field(name) => {
+                let name = name.clone();
                 self.advance();
                 let op = match self.peek() {
-                    Token::Op(op) => {
-                        self.advance();
-                        op
-                    }
+                    Token::Op(op) => *op,
                     _ => return Err("Expected operator".to_string()),
                 };
+                self.advance();
                 let value = match self.peek() {
-                    Token::Value(v) => {
-                        self.advance();
-                        v
-                    }
+                    Token::Value(v) => v.clone(),
                     _ => return Err("Expected value".to_string()),
                 };
+                self.advance();
                 Ok(FilterExpr::Field {
                     field: name,
                     op,

@@ -1,6 +1,8 @@
 use crate::filter::dsl::{FilterExpr, FilterOp};
+use serde::Deserialize;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Deserialize)]
 pub struct InterceptedRequest {
     pub method: String,
     pub host: String,
