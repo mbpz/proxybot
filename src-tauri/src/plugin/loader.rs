@@ -1,6 +1,5 @@
 use std::path::Path;
 use super::registry::PluginRegistry;
-use super::plugin_trait::Plugin;
 
 pub struct PluginLoader;
 
@@ -25,7 +24,7 @@ impl PluginLoader {
         Ok(count)
     }
 
-    fn load_plugin(path: &Path, _registry: &PluginRegistry) -> Result<(), String> {
+    fn load_plugin(_path: &Path, _registry: &PluginRegistry) -> Result<(), String> {
         // TODO: WASM runtime (wasmtime) or native .so (libloading)
         // For now, this is a stub that just logs
         Err("Plugin loading not yet implemented - use native plugins only".into())
