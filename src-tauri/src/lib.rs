@@ -35,6 +35,7 @@ pub mod commands;
 pub mod filter;
 pub use commands::graph::*;
 pub use commands::filter::*;
+pub use commands::ws_frames::*;
 // gui module removed - Yew frontend is compiled separately via wasm-pack
 // See src/gui/ directory for Yew code (compiled to pkg/ via wasm-pack build)
 
