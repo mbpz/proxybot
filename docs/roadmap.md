@@ -98,6 +98,61 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.8.0 (NEXT)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
 | **v1.0.0** | Phase 2 Complete | iOS VPN API via NEPacketTunnel, WebView debugging, documentation complete |
 
+## 4.1 Enhanced Detection (from rkn-block-checker analysis)
+
+Inspired by [rkn-block-checker](https://github.com/MayersScott/rkn-block-checker) architecture for deep censorship detection:
+
+### Multi-Layer Diagnosis System
+
+```
+check_url() progressive detection:
+├── DNS layer: system DNS vs DoH comparison → detect DNS poisoning
+├── TCP layer: port connectivity → detect IP blacklist/TCP reset
+├── TLS layer: SNI handshake → detect TLS DPI (SNI filtering)
+└── HTTP layer: status code + body signature → detect HTTP stub pages (451, ISP inject)
+```
+
+### Verdict + Confidence System
+
+| Verdict | Description | Confidence Calibration |
+|---------|-------------|------------------------|
+| `OK` | Connection normal | HIGH if all layers pass |
+| `DNS_BLOCK` | System DNS fails, DoH succeeds | HIGH - dual signal confirmation |
+| `TCP_RESET` | TCP RST received | MEDIUM - known censorship pattern |
+| `TLS_BLOCK` | TLS handshake dropped on ClientHello | MEDIUM - SNI-based DPI signature |
+| `HTTP_STUB` | HTTP 451 or ISP stub page marker | HIGH - explicit signal |
+| `TIMEOUT` | Connection timeout | LOW - ambiguous |
+| `DOWN` | Generic failure | LOW - multiple possible causes |
+
+### Stub Page Detection
+
+```python
+STUB_MARKERS = [...]  # ISP signature strings for body matching
+
+def looks_like_stub(body_snippet: str) -> bool:
+    return any(marker in body_snippet for marker in STUB_MARKERS)
+```
+
+### DNS Comparison (ProxyBot already has foundation)
+
+```rust
+// System DNS vs DoH对比检测DNS污染
+sys_ips = resolve_system_all(host)
+doh_ips = resolve_doh_all(host)
+
+if sys_ips.is_disjoint(doh_ips) {
+    → DNS mismatch detected (transparent DNS rewriting)
+}
+```
+
+### Implementation Priority
+
+1. **Stub page signatures** - Add ISP stub markers to response analyzer
+2. **Confidence scoring** - Add Verdict + Confidence to anomaly alerts
+3. **DNS对比检测** - Leverage existing DNS log for poisoning detection
+4. **TLS DPI detection** - Detect握手被重置的审查模式
+5. **流式诊断报告** - 分层展示诊断结果
+
 ---
 
 ## 5. Installation
