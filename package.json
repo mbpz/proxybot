@@ -16,8 +16,13 @@
     "prepare": "if [ -d .git ]; then git config core.hooksPath .githooks 2>/dev/null || true; fi"
   },
   "dependencies": {
+    "@egjs/hammerjs": "^2.0.17",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.24",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "component-emitter": "^2.0.0",
+    "keycharm": "^0.4.0",
     "lucide-react": "^1.14.0",
     "mermaid": "^11.14.0",
     "qrcode": "^1.5.4",
@@ -25,6 +30,8 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.15.0",
     "recharts": "^3.8.1",
+    "uuid": "^14.0.0",
+    "vis-data": "^8.0.4",
     "vis-network": "^10.0.3"
   },
   "devDependencies": {
