@@ -39,14 +39,22 @@ handle_http()
 
 ```rust
 enum RuleApplication {
+    /// 继续正常流程，连接上游服务器
     Continue {
         method: String,
         path: String,
         headers: Vec<(String, String)>,
         body: Vec<u8>,
     },
+    /// 发送HTTP响应给客户端后结束（用于Reject、MapLocal、Breakpoint Drop）
+    Respond {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    },
+    /// 转发请求到远程目标
     MapRemote {
-        target: RemoteTarget,   // 解析后的目标地址
+        target: RemoteTarget,
         method: String,
         path: String,
         headers: Vec<(String, String)>,
@@ -54,6 +62,11 @@ enum RuleApplication {
     },
 }
 ```
+
+**说明**:
+- `Continue` - Direct/Proxy/BreakpointDecision::Proceed 使用，继续正常流程
+- `Respond` - Reject/MapLocal/BreakpointDecision::Drop 使用，直接返回HTTP响应
+- `MapRemote` - 转发到远程目标，调用方调用 `forward_map_remote()`
 
 ## 4. handle_http 集成点
 
@@ -89,6 +102,13 @@ async fn handle_http(
     )? {
         RuleApplication::Continue { method, path, headers, body } => {
             // 继续现有逻辑，使用规则返回的修改后数据
+        }
+        RuleApplication::Respond { status, headers: resp_headers, body: resp_body } => {
+            // 直接发送响应给客户端，不连接上游
+            let response = build_http_response(status, resp_headers, resp_body);
+            client_stream.write_all(&response).await
+                .map_err(|e| format!("Write rule response failed: {}", e))?;
+            return Ok(());
         }
         RuleApplication::MapRemote { target, method, path, headers, body } => {
             // 发送请求到远程目标
