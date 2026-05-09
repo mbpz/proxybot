@@ -18,8 +18,8 @@ ProxyBot 当前定位：macOS TUI 工具，pf 透明代理 + DNS 服务器 + App
 
 | 优先级 | 改进项 | 竞品参考 | 工作量 | 价值 | 状态 |
 |--------|--------|---------|--------|------|------|
-| P0 | 规则系统升级 | mitmproxy / Proxyman | M | 高 | ✅ DONE |
-| P0 | Tauri GUI | Proxyman / HTTP Toolkit | L | 高 | ⚠️ Alpha |
+| P0 | 规则系统升级 | mitmproxy / Proxyman | M | 高 | ✅ DONE (v0.7.0) |
+| P0 | Tauri GUI 完善 | Proxyman / HTTP Toolkit | L | 高 | ⚠️ Alpha → 进行中 |
 | P1 | Breakpoint 断点拦截 | mitmproxy | S | 中 | ✅ DONE |
 | P1 | Android 无代理抓包 | HTTP Toolkit | M | 中 | ✅ DONE |
 | P1 | 自动 CA 配置引导 | HTTP Toolkit | S | 中 | ✅ DONE |

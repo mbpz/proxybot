@@ -256,8 +256,12 @@ brew uninstall proxybot-tui
 - Rules engine integrated: MapRemote/MapLocal/Respond
 - `apply_request_rule()` sync rule engine with hot-reload
 
+### v0.8.0 (Next)
+- Tauri GUI complete: Rules editor, Devices management, Certs UI
+- Full parity with TUI features
+
 ### v1.0.0
-- iOS VPN API, WebView debugging, full GUI parity
+- iOS VPN API via NEPacketTunnel, WebView debugging, documentation complete
 
 ## Development
 

@@ -3,13 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { RuleCard } from "./RuleCard";
 import { RuleModal } from "./RuleModal";
 
-type RulePattern = "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "IP-CIDR" | "GEOIP" | "RULE-SET";
-type RuleAction = "DIRECT" | "PROXY" | "REJECT";
-
 interface Rule {
-  pattern: RulePattern;
+  pattern: string;
   value: string;
-  action: RuleAction;
+  action: string;
   name: string;
   priority: number;
   enabled: boolean;
