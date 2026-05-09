@@ -2,6 +2,7 @@ pub mod registry;
 pub mod loader;
 pub mod plugin_trait;
 pub mod sandbox;
+pub mod rule_engine;
 pub use plugin_trait::{Plugin, PluginHooks, ConnectDecision, InterceptedResponse};
 
 #[cfg(test)]
