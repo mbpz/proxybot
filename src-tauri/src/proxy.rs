@@ -1883,9 +1883,6 @@ pub fn start_proxy(
     // Create breakpoint channel (receiver unused in Tauri mode, sender passed to run_proxy)
     let (bp_tx, _bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
 
-    // Create empty plugin registry (stub - plugins not yet registered)
-    let plugins = Arc::new(PluginRegistry::new());
-
     // Spawn task to forward events to Tauri frontend
     let app_handle_clone = app_handle.clone();
     tauri::async_runtime::spawn(async move {

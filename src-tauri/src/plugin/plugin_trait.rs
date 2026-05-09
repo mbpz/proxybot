@@ -23,7 +23,7 @@ pub trait Plugin: Send + Sync {
     fn config_schema(&self) -> Option<&'static str> { None }
 }
 
-// Stub for InterceptedResponse (placeholder until proxy.rs defines it)
+// InterceptedResponse for on_response plugin hooks
 #[derive(Debug, Clone, Default)]
 pub struct InterceptedResponse {
     pub status: Option<u16>,

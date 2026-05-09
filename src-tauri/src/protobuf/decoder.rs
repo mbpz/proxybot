@@ -8,7 +8,7 @@ pub struct GrpcWebFrame {
 }
 
 /// Decode a gRPC-Web frame (base64 encoded)
-/// gRPC-Web uses 5-byte header: [version, type, flags, stream_id (4 bytes)]
+/// gRPC-Web uses 5-byte header: [version (0), type (1), flags (2-4), stream_id (5-8)]
 pub fn decode_grpc_web_frame(encoded: &str) -> Result<GrpcWebFrame, String> {
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
@@ -18,7 +18,7 @@ pub fn decode_grpc_web_frame(encoded: &str) -> Result<GrpcWebFrame, String> {
     }
 
     Ok(GrpcWebFrame {
-        frame_type: bytes[0],
+        frame_type: bytes[1], // byte 1 = frame type
         data: bytes[5..].to_vec(),
     })
 }

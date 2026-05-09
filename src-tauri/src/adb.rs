@@ -42,7 +42,7 @@ impl AdbDevice {
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
     pub pid: u32,
-    pub package_name: String,
+    pub user: String, // Android user (e.g., u0_a123) - NOT the app package name
     pub name: String,
 }
 
@@ -60,7 +60,7 @@ pub fn parse_adb_ps_output(output: &str) -> Vec<ProcessInfo> {
                 let pid: u32 = parts[1].parse().ok()?;
                 Some(ProcessInfo {
                     pid,
-                    package_name: parts[0].to_string(),
+                    user: parts[0].to_string(),
                     name: parts[2..].join(" "), // Name may have spaces
                 })
             } else {
@@ -194,7 +194,7 @@ u0_a456        7890  com.another.app"#;
         let processes = parse_adb_ps_output(output);
         assert_eq!(processes.len(), 2);
         assert_eq!(processes[0].pid, 4567);
-        assert_eq!(processes[0].package_name, "u0_a123");
+        assert_eq!(processes[0].user, "u0_a123");
         assert_eq!(processes[0].name, "com.example.app");
     }
 
