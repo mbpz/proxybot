@@ -25,35 +25,63 @@ pub struct ReplayResult {
 }
 
 #[tauri::command]
-pub fn get_replay_targets() -> Result<Vec<ReplayTarget>, String> {
-    // 从配置加载保存的目标
-    Ok(vec![])
-}
-
-#[tauri::command]
 pub fn save_replay_target(target: ReplayTarget) -> Result<(), String> {
     // 保存到配置
     Ok(())
 }
 
 #[tauri::command]
-pub fn delete_replay_target(id: String) -> Result<(), String> {
+pub fn delete_replay_target(_id: String) -> Result<(), String> {
     Ok(())
 }
 
 #[tauri::command]
-pub fn toggle_replay_target(id: String, enabled: bool) -> Result<(), String> {
+pub fn toggle_replay_target(_id: String, _enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
 #[tauri::command]
 pub async fn execute_replay(targets: Vec<ReplayTarget>) -> Result<Vec<ReplayResult>, String> {
     let mut results = Vec::new();
-
+    let client = reqwest::Client::new();
     for target in targets {
-        let result = crate::replay::engine::execute_target(&target).await;
+        let start = std::time::Instant::now();
+        let result = match execute_one(&client, &target).await {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                ReplayResult {
+                    target_id: target.id.clone(),
+                    status,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    success: target.expected_status.map(|e| status == e).unwrap_or(status < 400),
+                    error: None,
+                }
+            }
+            Err(e) => ReplayResult {
+                target_id: target.id.clone(),
+                status: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+                success: false,
+                error: Some(e.to_string()),
+            },
+        };
         results.push(result);
     }
-
     Ok(results)
+}
+
+async fn execute_one(
+    client: &reqwest::Client,
+    target: &ReplayTarget,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let method = reqwest::Method::from_bytes(target.method.as_bytes())
+        .unwrap_or(reqwest::Method::GET);
+    let mut req = client.request(method, &target.url);
+    for (k, v) in &target.headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    if let Some(body) = &target.body {
+        req = req.body(body.clone());
+    }
+    req.send().await
 }

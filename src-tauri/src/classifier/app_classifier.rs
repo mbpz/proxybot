@@ -35,7 +35,7 @@ pub struct AppSignature {
     pub alpn: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TlsFingerprint {
     pub client_version: String,
     pub cipher_suites: Vec<String>,

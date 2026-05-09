@@ -21,14 +21,10 @@ pub enum FrameDirection {
 }
 
 #[tauri::command]
-pub fn get_ws_frames(request_id: String) -> Result<Vec<WsFrame>, String> {
+pub fn get_ws_frames(_request_id: String) -> Result<Vec<WsFrame>, String> {
     // 从连接状态获取该请求关联的WS帧
     // 返回帧列表
     Ok(vec![])
 }
 
-#[tauri::command]
-pub fn subscribe_ws_frames(request_id: String) -> Result<Channel<WsFrame>, String> {
-    // 创建channel用于实时推送帧
-    Err("Not implemented".to_string())
-}
+// subscribe_ws_frames reserved for future channel-based implementation
