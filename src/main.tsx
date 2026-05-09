@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
+import { TrafficPage } from "./components/traffic/TrafficPage";
 import { RulesPage } from "./components/rules/RulesPage";
 import { CertsPage } from "./components/certs/CertsPage";
 import { GraphPage } from "./components/graph/GraphPage";
@@ -21,7 +22,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<div className="p-8"><h1 className="text-2xl">Traffic Page - Coming Soon</h1></div>} />
+          <Route index element={<TrafficPage />} />
           <Route path="rules" element={<RulesPage />} />
           <Route path="certs" element={<CertsPage />} />
           <Route path="devices" element={<PlaceholderPage name="Devices" />} />
