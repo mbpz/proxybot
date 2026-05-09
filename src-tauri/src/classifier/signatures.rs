@@ -1,4 +1,4 @@
-use super::app_classifier::{AppSignature, TlsFingerprint};
+use super::app_classifier::AppSignature;
 
 pub fn builtin_signatures() -> Vec<AppSignature> {
     vec![
@@ -84,6 +84,76 @@ pub fn builtin_signatures() -> Vec<AppSignature> {
             cipher_suites: vec!["TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384".to_string()],
             elliptic_curves: vec![],
             alpn: vec!["h2".to_string(), "http/1.1".to_string()],
+        },
+        // AI Services - OpenAI
+        AppSignature {
+            app_id: "openai".to_string(),
+            app_name: "OpenAI".to_string(),
+            sni_patterns: vec![
+                "api.openai.com".to_string(),
+                "openai.com".to_string(),
+                "oaistg.com".to_string(),
+            ],
+            fingerprints: vec![],
+            cipher_suites: vec![],
+            elliptic_curves: vec![],
+            alpn: vec![],
+        },
+        // AI Services - Anthropic
+        AppSignature {
+            app_id: "anthropic".to_string(),
+            app_name: "Anthropic".to_string(),
+            sni_patterns: vec![
+                "api.anthropic.com".to_string(),
+                "anthropic.com".to_string(),
+            ],
+            fingerprints: vec![],
+            cipher_suites: vec![],
+            elliptic_curves: vec![],
+            alpn: vec![],
+        },
+        // AI Services - Azure OpenAI
+        AppSignature {
+            app_id: "azure-openai".to_string(),
+            app_name: "Azure-OpenAI".to_string(),
+            sni_patterns: vec![
+                "openai.azure.com".to_string(),
+                "cognitiveservices.azure.com".to_string(),
+            ],
+            fingerprints: vec![],
+            cipher_suites: vec![],
+            elliptic_curves: vec![],
+            alpn: vec![],
+        },
+        // AI Services - Google AI
+        AppSignature {
+            app_id: "google-ai".to_string(),
+            app_name: "Google-AI".to_string(),
+            sni_patterns: vec!["generativelanguage.googleapis.com".to_string()],
+            fingerprints: vec![],
+            cipher_suites: vec![],
+            elliptic_curves: vec![],
+            alpn: vec![],
+        },
+        // AI Services - Cohere
+        AppSignature {
+            app_id: "cohere".to_string(),
+            app_name: "Cohere".to_string(),
+            sni_patterns: vec!["api.cohere.ai".to_string()],
+            fingerprints: vec![],
+            cipher_suites: vec![],
+            elliptic_curves: vec![],
+            alpn: vec![],
+        },
+        // AI Services - Groq
+        AppSignature {
+            app_id: "groq".to_string(),
+            app_name: "Groq".to_string(),
+            sni_patterns: vec!["api.groq.com".to_string()],
+            fingerprints: vec![],
+            cipher_suites: vec![],
+            elliptic_curves: vec![],
+            alpn: vec![],
         },
     ]
 }
