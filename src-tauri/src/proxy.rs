@@ -131,25 +131,17 @@ fn call_on_request_hooks(
     HookExecutor::run_request_hooks(plugins, &matched, request);
 }
 
-/// Call on_response hooks using rule-based dispatch
+/// Call on_response hooks using rule-based dispatch.
+/// Uses the original request context for host-based rule matching, since HTTP
+/// responses do not carry a `Host` header.
 fn call_on_response_hooks(
     plugins: &Arc<PluginRegistry>,
     rule_engine: &Arc<RuleEngine>,
     response: &mut InterceptedResponse,
+    request: &InterceptedRequest,
 ) {
-    let matched = rule_engine.match_all(&response_to_request(response));
+    let matched = rule_engine.match_all(request);
     HookExecutor::run_response_hooks(plugins, &matched, response);
-}
-
-/// Build a minimal request from response for rule matching (host-based only)
-fn response_to_request(response: &InterceptedResponse) -> InterceptedRequest {
-    InterceptedRequest {
-        host: response.headers.iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("host"))
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default(),
-        ..Default::default()
-    }
 }
 
 /// Call on_connect hooks for all registered plugins
@@ -1313,6 +1305,19 @@ async fn handle_https_connect(
     let req_body_str = body_to_string(&req_body);
     let resp_body_str = body_to_string(&resp_body);
 
+    // Build request context and run plugin hooks for HTTPS interception
+    let mut request_ctx = build_request_context(
+        &method, "https", &target_host, &path, &req_headers, &req_body, client_addr,
+    );
+    call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
+
+    let mut response_ctx = InterceptedResponse {
+        status: Some(status),
+        headers: resp_headers.clone(),
+        body: resp_body_str.clone(),
+    };
+    call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx, &request_ctx);
+
     // Classify by direct domain match first, then fall back to DNS correlation
     let app_info = app_rules::classify_host(&target_host)
         .or_else(|| {
@@ -1487,7 +1492,7 @@ async fn handle_http(
                 headers: resp_headers.clone(),
                 body: resp_body_str.clone(),
             };
-            call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx);
+            call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx, &request_ctx);
 
             // Classify by direct domain match first, then fall back to DNS correlation
             let app_info = app_rules::classify_host(host)
