@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { HeadersView } from "./HeadersView";
-import { BodyView } from "./BodyView";
 import { WsFramesView } from "./WsFramesView";
+import { CodeExport } from "../shared/CodeExport";
+import { CodeViewer } from "../shared/CodeViewer";
 
 interface InterceptedRequest {
   id: string;
@@ -43,6 +44,14 @@ export function RequestDetail({ request }: RequestDetailProps) {
           {" | "}
           Duration: {request.duration_ms}ms
         </div>
+        <div className="mt-2">
+          <CodeExport
+            method={request.method}
+            url={`${request.host}${request.path}`}
+            headers={request.headers}
+            body={request.body}
+          />
+        </div>
       </div>
 
       {/* Tabs */}
@@ -65,7 +74,12 @@ export function RequestDetail({ request }: RequestDetailProps) {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {activeTab === "headers" && <HeadersView headers={request.headers} />}
-        {activeTab === "body" && <BodyView body={request.body} />}
+        {activeTab === "body" && (
+          <CodeViewer
+            content={request.body || ""}
+            contentType={request.headers?.["content-type"]}
+          />
+        )}
         {activeTab === "ws" && <WsFramesView requestId={request.id} />}
       </div>
     </div>

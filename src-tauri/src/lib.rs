@@ -36,6 +36,9 @@ pub mod classifier;
 pub mod filter;
 pub use commands::graph::*;
 pub use classifier::*;
+pub use commands::client_setup::*;
+pub use commands::code_export::*;
+pub use commands::compose::*;
 pub use commands::filter::*;
 pub use commands::replay::*;
 pub use commands::ws_frames::*;
@@ -238,6 +241,10 @@ pub fn run() {
             rules::match_host,
             har::export_har,
             har::save_har_file,
+            generate_code_snippet,
+            detect_clients,
+            get_proxy_config_command,
+            compose_request,
             replay::get_replay_targets,
             replay::get_requests_for_replay,
             replay::get_recorded_responses,

@@ -6,6 +6,7 @@ import { TrafficPage } from "./components/traffic/TrafficPage";
 import { RulesPage } from "./components/rules/RulesPage";
 import { CertsPage } from "./components/certs/CertsPage";
 import { GraphPage } from "./components/graph/GraphPage";
+import { ComposerPage } from "./components/composer/ComposerPage";
 import "./index.css";
 
 // Placeholder pages for now - will implement in later phases
@@ -29,6 +30,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="dns" element={<PlaceholderPage name="DNS" />} />
           <Route path="alerts" element={<PlaceholderPage name="Alerts" />} />
           <Route path="replay" element={<PlaceholderPage name="Replay" />} />
+          <Route path="composer" element={<ComposerPage />} />
           <Route path="graph" element={<GraphPage />} />
           <Route path="gen" element={<PlaceholderPage name="Gen" />} />
         </Route>
