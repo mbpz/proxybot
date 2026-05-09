@@ -95,8 +95,70 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.5.0 (DONE)** | Breakpoint Editing | Full TUI breakpoint UI — pause, edit request/response, continue. Android adb reverse support via USB |
 | **v0.6.0 (DONE)** | Tauri GUI Alpha | React UI traffic panel, proxybot-gui binary, CA wizard, system tray with notifications |
 | **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
-| **v0.8.0 (NEXT)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
+| **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
+| **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
 | **v1.0.0** | Phase 2 Complete | iOS VPN API via NEPacketTunnel, WebView debugging, documentation complete |
+
+## 3.1 Competitive Deep-Dive (May 2026)
+
+Researched 6 comparable projects for architecture, interaction, and product insights.
+
+| Project | Stars | Lang | UI | Key Differentiator |
+|---------|-------|------|----|--------------------|
+| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 43k | Python | TUI+Web | Industry standard, addon system, Python scripting |
+| [whistle](https://github.com/avwo/whistle) | 15.5k | Node.js | Web UI | Plugin ecosystem, Weinre remote debugging, Composer |
+| [bandwhich](https://github.com/imsnif/bandwhich) | 11.7k | Rust | TUI | Process-level bandwidth attribution |
+| [Proxyman](https://github.com/ProxymanApp/Proxyman) | 6.8k | Swift | macOS native | SwiftNIO performance, iOS app, team workspace |
+| [HTTP Toolkit](https://github.com/httptoolkit/httptoolkit) | 3.5k | TS+React | Electron | Modular (mockttp lib), one-click client setup |
+| [proxy.py](https://github.com/abhinavsingh/proxy.py) | 3.5k | Python | CLI | Zero-dependency, plugin framework, GROUT tunnel |
+
+### Feature Gap Analysis
+
+| Feature | ProxyBot | mitmproxy | Proxyman | HTTP Toolkit | whistle | proxy.py |
+|---------|----------|-----------|----------|--------------|---------|----------|
+| Transparent proxy (pf) | ✅ | — | — | — | — | — |
+| App classification | ✅ | — | — | — | — | — |
+| TUI | ✅ ratatui | ✅ NCurses | — | — | — | — |
+| Tauri GUI | ✅ | — | — | — | — | — |
+| ADB tunnel | ✅ | — | — | — | — | — |
+| Plugin system | — | ✅ addons | — | — | ✅ plugins | ✅ plugins |
+| Scripting hooks | — | ✅ Python | ✅ Scripting | — | ✅ rules | ✅ plugins |
+| Request composer | — | — | ✅ Compose | ✅ Send | ✅ Composer | — |
+| Diff tool | — | — | ✅ | — | — | — |
+| DNS spoofing | — | — | ✅ | — | — | ✅ |
+| Network throttling | — | — | ✅ | ✅ | — | — |
+| Protobuf/gRPC | — | ✅ | ✅ | — | — | — |
+| gRPC-web/WebSocket frame | ✅ WS | ✅ | ✅ | ✅ | ✅ | — |
+| HAR export | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Mock API generation | ✅ Gen tab | — | Map Local | ✅ mockttp | ✅ | ✅ |
+| Remote debugging | — | — | — | — | ✅ Weinre | — |
+| Tunnel (ngrok alt) | — | — | — | — | — | ✅ GROUT |
+| Team workspace | — | — | ✅ | — | — | — |
+| API diff / regression | — | — | — | — | — | — |
+| Code export (cURL/fetch) | — | ✅ | ✅ | ✅ | ✅ | — |
+| One-click client setup | — | ✅ | ✅ | ✅ | — | — |
+| iOS standalone app | — | — | ✅ | — | — | — |
+
+### Key Improvements for ProxyBot
+
+**Priority 1 — Quick Wins**
+1. **cURL/fetch code export** — Export any captured request as cURL, fetch(), Python requests
+2. **Request Composer** — Edit-and-resend panel (already have ReplayPage, add single-request composer)
+3. **JSON/XML syntax highlighting** — BodyView with proper code highlighting (Prism.js or shiki)
+4. **One-click client setup** — Auto-configure system proxy for browsers, Node.js, Python
+
+**Priority 2 — Architecture Upgrades**
+5. **Plugin system** — Rust trait-based plugin API for custom request/response handlers
+6. **Scripting hooks** — Lua or Rhai scripting engine for user-defined traffic transforms
+7. **gRPC/Protobuf support** — Decode protobuf bodies, show .proto definitions
+8. **Network condition simulation** — Throttle bandwidth, inject latency, packet loss
+
+**Priority 3 — Product Expansion**
+9. **Process-level attribution** — Which process on the phone sent this request (ps/pid via adb)
+10. **Team collaboration** — Share HAR files, rule sets, mock configs with team
+11. **iOS VPN mode** — NEPacketTunnel for on-device capture without Mac
+
+---
 
 ## 4.1 Enhanced Detection (from rkn-block-checker analysis)
 
