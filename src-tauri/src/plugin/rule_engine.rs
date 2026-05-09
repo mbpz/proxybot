@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use notify::{EventKind, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use serde::Deserialize;
 
 use crate::proxy::InterceptedRequest;
@@ -68,7 +68,11 @@ impl RulePattern {
     /// Match this pattern against an intercepted request
     pub fn matches(&self, request: &InterceptedRequest) -> bool {
         match self {
-            RulePattern::DomainSuffix(suffix) => request.host.ends_with(suffix),
+            // Fix 2: strip "*. " prefix so DomainSuffix works with wildcard notation
+            RulePattern::DomainSuffix(suffix) => {
+                let stripped = suffix.strip_prefix("*.").unwrap_or(suffix);
+                request.host.ends_with(stripped)
+            }
             RulePattern::DomainKeyword(keyword) => request.host.contains(keyword),
             RulePattern::UrlPattern { method, scheme, host, path } => {
                 method.as_ref().map_or(true, |m| m == "*" || m == &request.method)
@@ -76,8 +80,11 @@ impl RulePattern {
                     && host.as_ref().map_or(true, |h| h == "*" || h == &request.host)
                     && path.as_ref().map_or(true, |p| wildcard_match(p, &request.path))
             }
+            // Fix 3: case-insensitive header key matching per RFC 7230
             RulePattern::Header { key, value } => {
-                request.req_headers.iter().any(|(k, v)| k == key && glob_match(value, v))
+                request.req_headers.iter().any(|(k, v)| {
+                    k.eq_ignore_ascii_case(key) && glob_match(value, v)
+                })
             }
         }
     }
@@ -235,26 +242,31 @@ impl RuleEngine {
         let (tx, rx) = std::sync::mpsc::channel();
 
         let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            if let Ok(event) = res {
-                if matches!(event.kind, EventKind::Modify(_)) {
-                    let _ = tx.send(());
-                }
+            if res.is_ok() {
+                let _ = tx.send(());
             }
         }).map_err(|e| format!("Watcher failed: {}", e))?;
 
-        watcher.watch(path, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
+        watcher.watch(&path_owned, RecursiveMode::NonRecursive)
+            .map_err(|e| e.to_string())?;
 
+        // Fix 1: move watcher into the spawned thread so it stays alive
         std::thread::spawn(move || {
+            let _watcher = watcher; // keep alive for thread lifetime
             let mut last_reload = std::time::Instant::now() - std::time::Duration::from_secs(1);
             loop {
-                if rx.recv_timeout(std::time::Duration::from_millis(500)).is_ok() {
-                    let now = std::time::Instant::now();
-                    if now.duration_since(last_reload) > std::time::Duration::from_millis(500) {
-                        last_reload = now;
-                        if let Err(e) = engine_clone.reload(&path_owned) {
-                            eprintln!("Rule reload failed: {}", e);
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(()) => {
+                        let now = std::time::Instant::now();
+                        if now.duration_since(last_reload) > std::time::Duration::from_millis(500) {
+                            last_reload = now;
+                            if let Err(e) = engine_clone.reload(&path_owned) {
+                                eprintln!("Rule reload failed: {}", e);
+                            }
                         }
                     }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
         });
@@ -296,6 +308,14 @@ mod tests {
         assert!(!pattern.matches(&request));
     }
 
+    // Fix 2 test: DomainSuffix with "*. " wildcard prefix
+    #[test]
+    fn test_domain_suffix_with_wildcard_prefix() {
+        let pattern = RulePattern::DomainSuffix("*.weixin.qq.com".into());
+        let request = make_request("api.weixin.qq.com", "GET", "https", "/", vec![]);
+        assert!(pattern.matches(&request));
+    }
+
     #[test]
     fn test_domain_keyword_match() {
         let pattern = RulePattern::DomainKeyword("weixin".into());
@@ -327,6 +347,23 @@ mod tests {
             "https",
             "/",
             vec![("Authorization".into(), "Bearer token123".into())],
+        );
+        assert!(pattern.matches(&request));
+    }
+
+    // Fix 3 test: header keys must be case-insensitive per RFC 7230
+    #[test]
+    fn test_header_case_insensitive() {
+        let pattern = RulePattern::Header {
+            key: "content-type".into(),
+            value: "application/json".into(),
+        };
+        let request = make_request(
+            "api.example.com",
+            "GET",
+            "https",
+            "/",
+            vec![("Content-Type".into(), "application/json".into())],
         );
         assert!(pattern.matches(&request));
     }
