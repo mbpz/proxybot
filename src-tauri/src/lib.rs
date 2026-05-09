@@ -32,7 +32,6 @@ pub mod tui;
 pub mod update_check;
 pub mod adb;
 pub mod commands;
-pub mod commands::graph;
 pub use commands::graph::*;
 // gui module removed - Yew frontend is compiled separately via wasm-pack
 // See src/gui/ directory for Yew code (compiled to pkg/ via wasm-pack build)

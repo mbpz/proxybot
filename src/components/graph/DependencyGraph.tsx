@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo } from "react";
-import { Network, DataSet } from "vis-network";
+import { Network } from "vis-network";
+import { DataSet } from "vis-data";
 
 interface RequestNode {
   id: string;

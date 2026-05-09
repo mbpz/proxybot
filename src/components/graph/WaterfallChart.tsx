@@ -69,7 +69,7 @@ export function WaterfallChart({ data }: WaterfallChartProps) {
             fontSize={10}
           />
           <Tooltip
-            formatter={(value, name, props) => [
+            formatter={(_value, _name, props) => [
               `${props.payload.duration}ms`,
               "Duration",
             ]}
