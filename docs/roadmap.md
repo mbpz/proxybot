@@ -89,9 +89,12 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | pf transparent proxy | macOS pf integration | Manual proxy config | Mac GUI proxy | — |
 | Breakpoint | ✅ Full | Full | Full | Full |
 | Auto CA install | Wizard guide | Manual | One-click | One-click |
-| Tauri GUI | ✅ Alpha | — | Mac GUI | — |
+| Tauri GUI | ✅ v0.6+ | — | Mac GUI | — |
 | System tray | ✅ With notifications | — | ✅ | — |
 | ADB reverse tunnel | ✅ Android USB | — | — | — |
+| Code export | ✅ v0.10 | ✅ | ✅ | ✅ |
+| Syntax highlighting | ✅ v0.10 | — | ✅ | ✅ |
+| Client setup | ✅ v0.10 | ✅ | ✅ | ✅ |
 
 **ProxyBot's edge:** pf transparent proxy means no per-app proxy configuration on the phone. App classification groups traffic automatically. TUI is first-class on macOS.
 
@@ -107,7 +110,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
 | **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
-| **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go), Request Composer (split-view edit+send), Syntax highlighting (highlight.js + line numbers), Client setup wizard (detect browsers/Node/Python) |
+| **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
 | **v1.0.0 (NEXT)** | Phase 2 Complete | Plugin system (Rust trait WASM sandbox), Rhai scripting engine, gRPC/Protobuf decoder, Network conditions (throttle/latency), iOS VPN, Team collaboration |
 
 ## 3.1 Competitive Deep-Dive (May 2026)
@@ -116,7 +119,7 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 
 | Project | Stars | Lang | UI | Key Differentiator |
 |---------|-------|------|----|--------------------|
-| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 43k | Python | TUI+Web | Industry standard, addon system, Python scripting |
+| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 43.5k | Python | TUI+Web | Industry standard, addon system, Python scripting |
 | [whistle](https://github.com/avwo/whistle) | 15.5k | Node.js | Web UI | Plugin ecosystem, Weinre remote debugging, Composer |
 | [bandwhich](https://github.com/imsnif/bandwhich) | 11.7k | Rust | TUI | Process-level bandwidth attribution |
 | [Proxyman](https://github.com/ProxymanApp/Proxyman) | 6.8k | Swift | macOS native | SwiftNIO performance, iOS app, team workspace |
@@ -134,7 +137,7 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | ADB tunnel | ✅ | — | — | — | — | — |
 | Plugin system | — | ✅ addons | — | — | ✅ plugins | ✅ plugins |
 | Scripting hooks | — | ✅ Python | ✅ Scripting | — | ✅ rules | ✅ plugins |
-| Request composer | — | — | ✅ Compose | ✅ Send | ✅ Composer | — |
+| Request composer | ✅ v0.10 | — | ✅ Compose | ✅ Send | ✅ Composer | — |
 | Diff tool | — | — | ✅ | — | — | — |
 | DNS spoofing | — | — | ✅ | — | — | ✅ |
 | Network throttling | — | — | ✅ | ✅ | — | — |
@@ -146,37 +149,66 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | Tunnel (ngrok alt) | — | — | — | — | — | ✅ GROUT |
 | Team workspace | — | — | ✅ | — | — | — |
 | API diff / regression | — | — | — | — | — | — |
-| Code export (cURL/fetch) | — | ✅ | ✅ | ✅ | ✅ | — |
-| One-click client setup | — | ✅ | ✅ | ✅ | — | — |
+| Code export (cURL/fetch) | ✅ v0.10 | ✅ | ✅ | ✅ | ✅ | — |
+| One-click client setup | ✅ v0.10 | ✅ | ✅ | ✅ | — | — |
 | iOS standalone app | — | — | ✅ | — | — | — |
+| Syntax highlighting | ✅ v0.10 | — | ✅ | ✅ | ✅ | — |
+
+## 3.1 Competitive Insights from Deep-Dive (May 2026)
+
+### From whistle (15.5k stars) — Plugin Architecture
+- **Hook chain model**: `onRequest → onResponse → onConnect → onServer → onSocket → onError`
+- **Rules-based routing**: `pattern pluginName` declarative dispatch
+- **Hot-reload**: Rules file changes trigger automatic reload
+- **ProxyBot opportunity**: Implement whistle-style hook priorities + rules-based plugin dispatch
+
+### From HTTP Toolkit (3.5k stars) — UI/UX Excellence
+- **Three-panel layout**: Request list | Overview | Details (tabs: Headers/Body/Timing)
+- **Color coding**: GET=green, POST=blue, DELETE=red; 2xx=green, 4xx=orange, 5xx=red
+- **CA wizard**: Platform detection → Visual guide → Verification → Confirmation
+- **ADB integration**: `adb reverse` + QR-coded WiFi proxy setup
+- **ProxyBot opportunity**: Adopt three-panel GUI, enhance CA wizard, improve ADB UX
+
+### From Proxyman Atlantis — iOS VPN Simplification
+- **Minimal approach**: Don't do on-device MITM, just forward packets to Mac's existing MITM
+- **Protocol**: Raw IP over TCP (simplified) with length-prefixed framing
+- **Already has**: `ios/PacketTunnel/PacketTunnelProvider.swift` skeleton with entitlements
+- **ProxyBot opportunity**: TCP bridge MVP (2-3 weeks), skip on-device TLS termination
+
+### Competitive Gap Matrix (Updated)
+
+| Feature | ProxyBot | whistle | HTTP Toolkit | Proxyman | Gap Priority |
+|---------|----------|---------|--------------|----------|--------------|
+| Plugin system | Stub (v1.0) | Full | — | — | P1 |
+| CA wizard | Basic | — | Full | One-click | P2 |
+| ADB integration | USB | — | Full | — | P2 |
+| iOS VPN | Research only | — | — | Full | P2 |
+| WebView debugging | CDP stub | Full | — | — | P3 |
+
+**ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, Rust TUI+GUI dual interface. These are unique to ProxyBot.
+
+---
+
+## 3.2 新兴竞争格局 (2026)
+
+### AI 流量分类机会
+- LLM API 调用爆发（OpenAI/Anthropic/Azure/Groq）
+- AI 流量分类成为差异化功能（v1.0 已添加签名）
+- Token 成本估算功能（v1.0 已添加 ai_stats）
+
+### 移动端零配置趋势
+- Proxyman Atlantis: iOS 无代理抓包
+- HTTP Toolkit: Android adb 一键配置
+- ProxyBot 机会: 简化移动端配置流程
+
+### 竞品威胁
+- **mitmproxy** 生态持续扩展，Flow 表达式更强大
+- **Proxyman** 商业化加速，功能追赶
+- **HTTP Toolkit** Electron 性能问题可能转向 Tauri
+
+---
 
 ### Key Improvements for ProxyBot
-
-**Priority 1 — Quick Wins (v0.10.0)**
-
-1. **cURL/fetch code export** — Export any captured request from detail panel
-   - Formats: cURL, fetch(), Python requests, Go http
-   - UI: "Copy as cURL" button + format dropdown in RequestDetail
-   - Files: `src/components/shared/CodeExport.tsx`, `src-tauri/src/commands/code_export.rs`
-
-2. **Request Composer** — Edit-and-resend single request
-   - Split view: left=original request, right=modified response preview
-   - Method/URL/Headers/Body form editor (reuse ReplayModal patterns)
-   - Live preview of response status/duration/body
-   - Files: `src/components/composer/ComposerPage.tsx`, `src/components/composer/ComposerEditor.tsx`
-
-3. **JSON/XML syntax highlighting** — BodyView with code highlighting
-   - Use shiki (same engine as VSCode) for syntax highlighting
-   - Auto-detect content type: JSON, XML, HTML, JavaScript, CSS
-   - Line numbers, folding, search within body
-   - Files: `src/components/shared/CodeViewer.tsx` (replace BodyView)
-
-4. **One-click client setup** — Auto-configure proxy for browsers/Node.js
-   - Detect installed browsers (Chrome, Firefox, Safari, Edge)
-   - Generate proxy PAC file or set system proxy flags
-   - Node.js: set http_proxy/https_proxy env vars
-   - Python: export REQUESTS_CA_BUNDLE pointing to ProxyBot CA
-   - Files: `src-tauri/src/commands/client_setup.rs`, `src/components/setup/ClientSetup.tsx`
 
 **Priority 2 — Architecture Upgrades (v0.11.0)**
 

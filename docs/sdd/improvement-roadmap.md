@@ -1,16 +1,15 @@
 # ProxyBot 改进路线图 SDD
 
-## Status: Draft
+## Status: Updated May 2026
 
 ## 1. Context
 
-ProxyBot 当前定位：macOS TUI 工具，pf 透明代理 + DNS 服务器 + App 分类（微信/抖音/支付宝）。
+ProxyBot 当前定位：macOS Rust TUI 工具，pf 透明代理 + DNS 服务器 + App 分类（微信/抖音/支付宝）+ Tauri GUI。
 
-竞品分析结论（见 `competitors-analysis.md`）：
-- **核心优势**: App 分类、pf 透明代理、TUI
-- **最大短板**: 规则系统弱、无 GUI、无流量篡改
-
-本 SDD 制定从现在到 Phase 2 结束的完整改进计划。
+竞品分析结论（见 `competitors-analysis.md` v2.0）：
+- **核心优势**: App 分类、pf 透明代理、TUI/Rust、DNS DoH、Mock 生成
+- **已补齐短板**: 规则系统（v0.7）、GUI（v0.6+）、Breakpoint（v0.5）、自动 CA（v0.6+）
+- **剩余差距**: 插件系统、iOS VPN、进程级监控、WebView 调试
 
 ---
 
@@ -19,13 +18,18 @@ ProxyBot 当前定位：macOS TUI 工具，pf 透明代理 + DNS 服务器 + App
 | 优先级 | 改进项 | 竞品参考 | 工作量 | 价值 | 状态 |
 |--------|--------|---------|--------|------|------|
 | P0 | 规则系统升级 | mitmproxy / Proxyman | M | 高 | ✅ DONE (v0.7.0) |
-| P0 | Tauri GUI 完善 | Proxyman / HTTP Toolkit | L | 高 | ⚠️ Alpha → 进行中 |
-| P1 | Breakpoint 断点拦截 | mitmproxy | S | 中 | ✅ DONE |
-| P1 | Android 无代理抓包 | HTTP Toolkit | M | 中 | ✅ DONE |
-| P1 | 自动 CA 配置引导 | HTTP Toolkit | S | 中 | ✅ DONE |
+| P0 | Tauri GUI 完善 | Proxyman / HTTP Toolkit | L | 高 | ✅ DONE (v0.6-v0.10) |
+| P1 | Breakpoint 断点拦截 | mitmproxy | S | 中 | ✅ DONE (v0.5.0) |
+| P1 | Android 无代理抓包 | HTTP Toolkit | M | 中 | ✅ DONE (v0.5.0) |
+| P1 | 自动 CA 配置引导 | HTTP Toolkit | S | 中 | ✅ DONE (v0.6.0) |
+| P2 | 插件系统 | mitmproxy / whistle | L | 高 | ❌ Pending (v1.0) |
 | P2 | iOS VPN API | Proxyman Atlantis | L | 高 | ❌ Pending |
-| P2 | WebView 调试 | spy-debugger | M | 低 | ❌ Pending |
+| P2 | WebView 调试 | whistle weinre | M | 中 | ❌ Pending |
+| P2 | gRPC/Protobuf | mitmproxy / Proxyman | M | 中 | ❌ Pending (v1.0) |
 | P2 | 文档完善 | mitmproxy | S | 中 | ⚠️ 进行中 |
+| P3 | 进程级监控 | bandwhich | M | 中 | ❌ Pending |
+| P3 | AI 流量分类 | 新兴需求 | S | 中 | ❌ Pending |
+| P3 | Team 协作 | Proxyman | L | 低 | ❌ Pending |
 
 ---
 
