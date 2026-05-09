@@ -94,6 +94,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.4.x (DONE)** | TUI complete | All 9 tabs shipped, pf + DNS, basic breakpoint intercept |
 | **v0.5.0 (DONE)** | Breakpoint Editing | Full TUI breakpoint UI — pause, edit request/response, continue. Android adb reverse support via USB |
 | **v0.6.0 (DONE)** | Tauri GUI Alpha | React UI traffic panel, proxybot-gui binary, CA wizard, system tray with notifications |
+| **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
 | **v1.0.0** | Phase 2 Complete | Full GUI with traffic editor, iOS VPN API via NEPacketTunnel, WebView debugging |
 
 ---

@@ -240,17 +240,21 @@ brew uninstall proxybot-tui
 
 ## Roadmap
 
-### v0.4.x (Current)
+### v0.4.x ✅
 - TUI 9-tab system, pf transparent proxy, DNS server
 - App classification (WeChat/Douyin/Alipay)
 - Breakpoint interception (basic)
 
-### v0.5.0 (Next)
+### v0.5.0 ✅
 - Breakpoint editing (request/response edit before send)
 - Android adb reverse capture
 
-### v0.6.0
+### v0.6.0 ✅
 - Tauri GUI Alpha (React + Rust core)
+
+### v0.7.0 ✅
+- Rules engine integrated: MapRemote/MapLocal/Respond
+- `apply_request_rule()` sync rule engine with hot-reload
 
 ### v1.0.0
 - iOS VPN API, WebView debugging, full GUI parity

@@ -16,16 +16,16 @@ ProxyBot 当前定位：macOS TUI 工具，pf 透明代理 + DNS 服务器 + App
 
 ## 2. 改进优先级矩阵
 
-| 优先级 | 改进项 | 竞品参考 | 工作量 | 价值 |
-|--------|--------|---------|--------|------|
-| P0 | 规则系统升级 | mitmproxy / Proxyman | M | 高 |
-| P0 | Tauri GUI | Proxyman / HTTP Toolkit | L | 高 |
-| P1 | Breakpoint 断点拦截 | mitmproxy | S | 中 |
-| P1 | Android 无代理抓包 | HTTP Toolkit | M | 中 |
-| P1 | 自动 CA 配置引导 | HTTP Toolkit | S | 中 |
-| P2 | iOS VPN API | Proxyman Atlantis | L | 高 |
-| P2 | WebView 调试 | spy-debugger | M | 低 |
-| P2 | 文档完善 | mitmproxy | S | 中 |
+| 优先级 | 改进项 | 竞品参考 | 工作量 | 价值 | 状态 |
+|--------|--------|---------|--------|------|------|
+| P0 | 规则系统升级 | mitmproxy / Proxyman | M | 高 | ✅ DONE |
+| P0 | Tauri GUI | Proxyman / HTTP Toolkit | L | 高 | ⚠️ Alpha |
+| P1 | Breakpoint 断点拦截 | mitmproxy | S | 中 | ✅ DONE |
+| P1 | Android 无代理抓包 | HTTP Toolkit | M | 中 | ✅ DONE |
+| P1 | 自动 CA 配置引导 | HTTP Toolkit | S | 中 | ✅ DONE |
+| P2 | iOS VPN API | Proxyman Atlantis | L | 高 | ❌ Pending |
+| P2 | WebView 调试 | spy-debugger | M | 低 | ❌ Pending |
+| P2 | 文档完善 | mitmproxy | S | 中 | ⚠️ 进行中 |
 
 ---
 
