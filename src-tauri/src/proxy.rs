@@ -901,6 +901,40 @@ enum RuleApplication {
     },
 }
 
+fn build_request_context(
+    method: &str,
+    scheme: &str,
+    host: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+    client_addr: SocketAddr,
+) -> InterceptedRequest {
+    InterceptedRequest {
+        id: generate_request_id(),
+        timestamp: timestamp_now(),
+        method: method.to_string(),
+        scheme: scheme.to_string(),
+        host: host.to_string(),
+        path: path.to_string(),
+        query_params: extract_query_params(path),
+        status: None,
+        latency_ms: None,
+        req_headers: headers.to_vec(),
+        req_body: body_to_string(body),
+        resp_headers: Vec::new(),
+        resp_body: None,
+        resp_size: None,
+        app_name: None,
+        app_icon: None,
+        device_id: None,
+        device_name: None,
+        client_ip: Some(client_addr.ip().to_string()),
+        is_websocket: false,
+        ws_frames: None,
+    }
+}
+
 fn classify_request(ctx: &ProxyContext, host: &str) -> Option<(String, String)> {
     app_rules::classify_host(host).or_else(|| {
         let request_ts_ms = SystemTime::now()
@@ -945,29 +979,7 @@ fn apply_request_rule(
             })
         }
         RuleAction::MapLocal(target) => {
-            let req = InterceptedRequest {
-                id: generate_request_id(),
-                timestamp: timestamp_now(),
-                method: method.to_string(),
-                scheme: scheme.to_string(),
-                host: host.to_string(),
-                path: path.to_string(),
-                query_params: extract_query_params(path),
-                status: None,
-                latency_ms: None,
-                req_headers: headers.to_vec(),
-                req_body: body_to_string(body),
-                resp_headers: Vec::new(),
-                resp_body: None,
-                resp_size: None,
-                app_name: None,
-                app_icon: None,
-                device_id: None,
-                device_name: None,
-                client_ip: Some(client_addr.ip().to_string()),
-                is_websocket: false,
-                ws_frames: None,
-            };
+            let req = build_request_context(method, scheme, host, path, headers, body, client_addr);
             let response = build_map_local_response(&target, &req)?;
             Ok(RuleApplication::Respond {
                 status: response.status,
@@ -988,29 +1000,7 @@ fn apply_request_rule(
         RuleAction::Breakpoint(target) => {
             log::info!("Breakpoint triggered for host: {} (target: {:?})", host, target);
 
-            let req = InterceptedRequest {
-                id: generate_request_id(),
-                timestamp: timestamp_now(),
-                method: method.to_string(),
-                scheme: scheme.to_string(),
-                host: host.to_string(),
-                path: path.to_string(),
-                query_params: extract_query_params(path),
-                status: None,
-                latency_ms: None,
-                req_headers: headers.to_vec(),
-                req_body: body_to_string(body),
-                resp_headers: Vec::new(),
-                resp_body: None,
-                resp_size: None,
-                app_name: None,
-                app_icon: None,
-                device_id: None,
-                device_name: None,
-                client_ip: Some(client_addr.ip().to_string()),
-                is_websocket: false,
-                ws_frames: None,
-            };
+            let req = build_request_context(method, scheme, host, path, headers, body, client_addr);
 
             let (decision_tx, decision_rx) = tokio::sync::oneshot::channel();
             if ctx.breakpoint_tx.try_send(BreakpointRequest {
