@@ -887,6 +887,11 @@ enum RuleApplication {
         headers: Vec<(String, String)>,
         body: Vec<u8>,
     },
+    Respond {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    },
     MapRemote {
         target: RemoteTarget,
         method: String,
@@ -906,7 +911,7 @@ fn classify_request(ctx: &ProxyContext, host: &str) -> Option<(String, String)> 
     })
 }
 
-async fn apply_request_rule(
+fn apply_request_rule(
     ctx: &ProxyContext,
     client_addr: SocketAddr,
     scheme: &str,
@@ -933,16 +938,10 @@ async fn apply_request_rule(
             body: body.to_vec(),
         }),
         RuleAction::Reject => {
-            let response = RuleResponse {
+            Ok(RuleApplication::Respond {
                 status: 403,
                 headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
                 body: b"ProxyBot rule rejected this request\n".to_vec(),
-            };
-            Ok(RuleApplication::Continue {
-                method: "HTTP".to_string(),
-                path: "/".to_string(),
-                headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
-                body: build_http_response(&response),
             })
         }
         RuleAction::MapLocal(target) => {
@@ -970,11 +969,10 @@ async fn apply_request_rule(
                 ws_frames: None,
             };
             let response = build_map_local_response(&target, &req)?;
-            Ok(RuleApplication::Continue {
-                method: "HTTP".to_string(),
-                path: "/".to_string(),
-                headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
-                body: build_http_response(&response),
+            Ok(RuleApplication::Respond {
+                status: response.status,
+                headers: response.headers,
+                body: response.body,
             })
         }
         RuleAction::MapRemote(target) => {
@@ -1015,12 +1013,12 @@ async fn apply_request_rule(
             };
 
             let (decision_tx, decision_rx) = tokio::sync::oneshot::channel();
-            if ctx.breakpoint_tx.send(BreakpointRequest {
+            if ctx.breakpoint_tx.try_send(BreakpointRequest {
                 request: req,
                 target,
                 decision_tx,
-            }).await.is_err() {
-                log::warn!("Breakpoint receiver dropped, proceeding with request");
+            }).is_err() {
+                log::warn!("Breakpoint receiver buffer full, proceeding with request");
                 return Ok(RuleApplication::Continue {
                     method: method.to_string(),
                     path: path.to_string(),
@@ -1029,18 +1027,12 @@ async fn apply_request_rule(
                 });
             }
 
-            match decision_rx.await {
+            match decision_rx.blocking_recv() {
                 Ok(BreakpointDecision::Drop) => {
-                    let response = RuleResponse {
+                    Ok(RuleApplication::Respond {
                         status: 403,
                         headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
                         body: b"ProxyBot breakpoint dropped this request\n".to_vec(),
-                    };
-                    Ok(RuleApplication::Continue {
-                        method: "HTTP".to_string(),
-                        path: "/".to_string(),
-                        headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
-                        body: build_http_response(&response),
                     })
                 }
                 Ok(BreakpointDecision::Modify(m)) => Ok(RuleApplication::Continue {
