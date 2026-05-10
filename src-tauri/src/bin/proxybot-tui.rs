@@ -403,7 +403,10 @@ fn handle_metrics_cli() -> Result<bool, String> {
         }
     };
 
-    println!("Starting Prometheus metrics server on http://127.0.0.1:{}", port);
+    println!(
+        "Starting Prometheus metrics server on http://127.0.0.1:{}",
+        port
+    );
 
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("Failed to create Tokio runtime: {}", e))?;
