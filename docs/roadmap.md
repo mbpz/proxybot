@@ -113,8 +113,8 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
 | **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
 | **v1.1.0 (DONE)** | Phase 3 Start | GraphQL decoder ✅, Prometheus metrics ✅, LLM token tracking ✅, Web dashboard ✅, HTTP/3 research ✅ |
-| **v1.2.0 (IN PROGRESS)** | AI + MCP | MCP Server (P0 ✅ implemented: stdio transport + JSON-RPC server + 5 tools), AI two-phase analysis (P1 ✅planned), Column-scoped filter DSL (P1 ✅planned), QR code CA distribution (P2 ✅planned) |
-| **v1.3.0** | Architecture | proxybot-core standalone crate (library-first), Project file management (save/restore sessions), Mobile web dashboard (lightweight mitmweb-style) |
+| **v1.2.0 (DONE)** | AI + MCP | MCP Server (P0 ✅ stdio transport + 5 tools), AI two-phase analysis (P1 ✅ NoiseFilter+ApiAnalyzer+Cost), Column-scoped filter DSL (P1 ✅ `method:POST host:api` + text search), QR code CA distribution (P2 ✅ QR code SVG generation) |
+| **v1.3.0** | Architecture | proxybot-core standalone crate (✅ library-first), Project file management (✅ .proxybot workspace), Mobile web dashboard (lightweight mitmweb-style) |
 | **v2.0.0** | Platform | Windows support (WFP transparent proxy), HTTP/3 & QUIC research/prototype, Transport-layer TCP/UDP proxy |
 
 ### v1.2.0 Implementation Plans
@@ -122,9 +122,9 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | Feature | Plan | Spec | Status |
 |---------|------|------|--------|
 | **MCP Server** (P0) | `plans/2026-05-10-mcp-server.md` | `specs/2026-05-10-mcp-server-design.md` | ✅ Implemented (src-tauri/src/mcp/) |
-| **AI Two-Phase Analysis** (P1) | `plans/2026-05-10-ai-two-phase-analysis.md` | — | ✅ Planned |
-| **Column-Scoped Filter DSL** (P1) | `plans/2026-05-10-column-filter-dsl.md` | `specs/2026-05-09-advanced-filter-dsl.md` | ✅ Planned |
-| **QR Code CA Distribution** (P2) | `plans/2026-05-10-qr-ca-distribution.md` (in specs) | `specs/2026-05-10-qr-ca-distribution.md` | ✅ Planned |
+| **AI Two-Phase Analysis** (P1) | `plans/2026-05-10-ai-two-phase-analysis.md` | `specs/2026-05-10-ai-pipeline-design.md` | ✅ Implemented (src-tauri/src/ai_pipeline/) |
+| **Column-Scoped Filter DSL** (P1) | `plans/2026-05-10-column-filter-dsl.md` | `specs/2025-05-09-advanced-filter-dsl.md` | ✅ Implemented (src-tauri/src/filter/) |
+| **QR Code CA Distribution** (P2) | `plans/2026-05-10-qr-ca-distribution.md` | `specs/2026-05-10-qr-ca-distribution.md` | ✅ Implemented (src-tauri/src/cert/qr.rs) |
 
 ### MCP Server Implementation Details (v1.2.0 P0)
 
@@ -301,12 +301,12 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 
 | Feature | ProxyBot | whistle | HTTP Toolkit | Proxyman | anything-analyzer | Gap Priority |
 |---------|----------|---------|--------------|----------|-------------------|--------------|
-| MCP Server | ❌ | ❌ | ❌ | ❌ | ✅ | **P0** (新增) |
-| AI two-phase analysis | ❌ | ❌ | ❌ | ❌ | ✅ | P1 (新增) |
+| MCP Server | ✅ v1.2 | ❌ | ❌ | ❌ | ✅ | ✅ DONE |
+| AI two-phase analysis | ✅ v1.2 | ❌ | ❌ | ❌ | ✅ | ✅ DONE |
 | Plugin system | ✅ v2.0 | Full | — | — | — | ✅ DONE |
 | CA wizard | Basic | — | Full | One-click | — | P2 |
-| Column-scoped filter | Regex | — | — | ✅ | — | P1 |
-| QR code CA | ❌ | — | — | — | — | P2 (新增) |
+| Column-scoped filter | ✅ v1.2 | — | — | ✅ | — | ✅ DONE |
+| QR code CA | ✅ v1.2 | — | — | — | — | ✅ DONE |
 | ADB integration | USB | — | Full | — | — | P2 |
 | iOS VPN | ✅ v1.0 | — | — | ✅ Atlantis | — | ✅ DONE |
 | Network conditions | ✅ v1.0 | — | ✅ | ✅ | — | ✅ DONE |
@@ -361,15 +361,15 @@ Discovered 6 more high-value projects not covered in earlier rounds:
 
 ### New Strategic Opportunities (Round 4)
 
-| Opportunity | Rationale | Gap |
-|-------------|-----------|-----|
-| **MCP Server** | anything-analyzer proves proxy-as-AI-tool is high-demand; ProxyBot can expose capture/classify/rules as MCP tools | P0 |
-| **AI two-phase analysis** | anything-analyzer's filter→deep-analysis pipeline improves Gen tab quality significantly | P1 |
-| **Column-scoped filter DSL** | proxelar's `method:POST host:api` syntax is more intuitive than regex; integrate into existing Filter DSL | P1 |
-| **QR code CA distribution** | hyperfox/proxelar both use QR codes for mobile CA install; ProxyBot still uses manual AirDrop | P2 |
-| **proxybot-core crate** | gomitmproxy/mitmproxy-rs show library-first expands ecosystem; extract core proxy engine as standalone Rust crate | P2 |
-| **Project file management** | InterceptSuite saves/restores capture sessions; ProxyBot could add workspace persistence | P2 |
-| **HTTP/3 & QUIC** | Still zero open-source proxies support it; remains major whitespace opportunity | P3 |
+| Opportunity | Rationale | Status |
+|-------------|-----------|--------|
+| **MCP Server** | anything-analyzer proves proxy-as-AI-tool is high-demand; ProxyBot exposed capture/classify/rules as MCP tools | ✅ DONE |
+| **AI two-phase analysis** | anything-analyzer's filter→deep-analysis pipeline improves Gen tab quality significantly | ✅ DONE |
+| **Column-scoped filter DSL** | proxelar's `method:POST host:api` syntax is more intuitive than regex; integrated into existing Filter DSL | ✅ DONE |
+| **QR code CA distribution** | hyperfox/proxelar both use QR codes for mobile CA install; implemented QR code SVG generation | ✅ DONE |
+| **proxybot-core crate** | gomitmproxy/mitmproxy-rs show library-first expands ecosystem; created standalone Rust crate | ✅ DONE |
+| **Project file management** | InterceptSuite saves/restores capture sessions; implemented .proxybot workspace export/import | ✅ DONE |
+| **HTTP/3 & QUIC** | Still zero open-source proxies support it; remains major whitespace opportunity | P3 (research) |
 | **Transport-layer proxy** | InterceptSuite proves demand for non-HTTP MITM (MQTT/CoAP/gaming/DB protocols) | P3 |
 
 ---
