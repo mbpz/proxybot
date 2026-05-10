@@ -1,39 +1,38 @@
 use crate::app_rules;
-use crate::config::proxy_port;
-use crate::history::HistoryStore;
 use crate::cert::{CaMetadata, CertManager};
-use crate::db::{DbState, record_http_request};
+use crate::config::proxy_port;
+use crate::db::{record_http_request, DbState};
 use crate::dns;
 use crate::dns::DnsState;
+use crate::graphql::GraphQLDecoder;
+use crate::history::HistoryStore;
+use crate::metrics::counters::METRICS;
+use crate::metrics::ProxyMetrics;
 use crate::network::{NetworkConditionEngine, NetworkInfo};
+use crate::plugin::registry::PluginRegistry;
+use crate::plugin::InterceptedResponse;
+use crate::plugin::{HookExecutor, RuleEngine};
 use crate::protobuf;
+pub use crate::rules::BreakpointTarget;
+use crate::rules::{RuleAction, RulesEngine};
+use crate::scripting::ScriptEngine;
+use rustls::client::danger as rustls_danger;
+use rustls::{
+    pki_types::ServerName, ClientConfig, DigitallySignedStruct, ServerConfig, SignatureScheme,
+};
+use std::fs::OpenOptions;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::LazyLock;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::rules::{RulesEngine, RuleAction};
-pub use crate::rules::BreakpointTarget;
-use crate::plugin::registry::PluginRegistry;
-use crate::plugin::InterceptedResponse;
-use crate::plugin::{RuleEngine, HookExecutor};
-use crate::scripting::ScriptEngine;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
-use rustls::client::danger as rustls_danger;
-use rustls::{
-    ServerConfig,
-    ClientConfig,
-    pki_types::ServerName,
-    SignatureScheme,
-    DigitallySignedStruct,
-};
-use std::fs::OpenOptions;
 
 // Breakpoint channel types
 #[derive(Debug)]
@@ -79,6 +78,7 @@ pub struct InterceptedRequest {
     pub is_websocket: bool,
     pub ws_frames: Option<Vec<WsFrame>>,
     pub grpc_decoded: Option<String>,
+    pub graphql_op: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -101,6 +101,7 @@ struct ProxyContext {
     plugin_rules: Arc<RuleEngine>,
     network: Arc<NetworkConditionEngine>,
     scripts: Arc<ScriptEngine>,
+    metrics: Arc<ProxyMetrics>,
 }
 
 /// Device context for tracking which device made a request.
@@ -134,6 +135,7 @@ fn call_on_request_hooks(
 ) {
     let matched = rule_engine.match_all(request);
     HookExecutor::run_request_hooks(plugins, &matched, request);
+    METRICS.plugin_hooks_total.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Call on_response hooks using rule-based dispatch.
@@ -147,14 +149,19 @@ fn call_on_response_hooks(
 ) {
     let matched = rule_engine.match_all(request);
     HookExecutor::run_response_hooks(plugins, &matched, response);
+    METRICS.plugin_hooks_total.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Call on_connect hooks for all registered plugins
-fn call_on_connect_hooks(plugins: &Arc<PluginRegistry>, host: &str) -> Option<crate::plugin::ConnectDecision> {
+fn call_on_connect_hooks(
+    plugins: &Arc<PluginRegistry>,
+    host: &str,
+) -> Option<crate::plugin::ConnectDecision> {
     for plugin_name in plugins.list_plugins() {
         if let Some(plugin) = plugins.get(&plugin_name) {
             if let Some(ref hook) = plugin.hooks().on_connect {
                 let decision = hook(host);
+                METRICS.plugin_hooks_total.fetch_add(1, Ordering::Relaxed);
                 match decision {
                     crate::plugin::ConnectDecision::Allow => continue,
                     crate::plugin::ConnectDecision::Block => return Some(decision),
@@ -362,8 +369,8 @@ fn get_original_dst(peer_addr: SocketAddr, local_addr: SocketAddr) -> Option<Soc
         dport: local_addr.port().to_be(),
         rsport: 0,
         rdport: 0,
-        af: 2, // AF_INET
-        proto: 6, // IPPROTO_TCP
+        af: 2,        // AF_INET
+        proto: 6,     // IPPROTO_TCP
         direction: 1, // PF_IN (rdr redirects inbound traffic)
         pad: [0u8; 5],
     };
@@ -373,12 +380,21 @@ fn get_original_dst(peer_addr: SocketAddr, local_addr: SocketAddr) -> Option<Soc
 
     // Issue the ioctl
     let ret = unsafe {
-        libc::ioctl(fd.as_raw_fd(), DIOCNATLOOK as libc::c_ulong, &mut nl as *mut _ as *mut libc::c_void)
+        libc::ioctl(
+            fd.as_raw_fd(),
+            DIOCNATLOOK as libc::c_ulong,
+            &mut nl as *mut _ as *mut libc::c_void,
+        )
     };
 
     if ret != 0 {
         let err = std::io::Error::last_os_error();
-        log::warn!("DIOCNATLOOK failed for {}→{}: {}", peer_addr, local_addr, err);
+        log::warn!(
+            "DIOCNATLOOK failed for {}→{}: {}",
+            peer_addr,
+            local_addr,
+            err
+        );
         return None;
     }
 
@@ -432,7 +448,15 @@ async fn handle_transparent_https(
     );
 
     // Use the existing HTTPS CONNECT handler with the SNI-based host if available.
-    handle_https_connect(ctx, device_ctx, client_stream, client_addr, effective_host, target_port).await;
+    handle_https_connect(
+        ctx,
+        device_ctx,
+        client_stream,
+        client_addr,
+        effective_host,
+        target_port,
+    )
+    .await;
 }
 
 /// A ServerCertVerifier that accepts all certificates.
@@ -497,7 +521,9 @@ fn build_client_config(_cert_manager: &CertManager) -> Result<ClientConfig, Stri
 }
 
 /// Parse HTTP request line, headers, and body from buffered data.
-fn parse_http_request(data: &[u8]) -> Option<(String, String, String, Vec<(String, String)>, Vec<u8>)> {
+fn parse_http_request(
+    data: &[u8],
+) -> Option<(String, String, String, Vec<(String, String)>, Vec<u8>)> {
     let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
     let first_line = String::from_utf8_lossy(&data[..first_line_end]);
     let parts: Vec<&str> = first_line.split_whitespace().collect();
@@ -616,6 +642,28 @@ fn try_decode_grpc_body(resp_headers: &[(String, String)], resp_body: &[u8]) -> 
     }
 }
 
+/// Auto-detect and parse GraphQL request bodies.
+///
+/// Returns a JSON representation of the parsed `GraphQLOperation`, or
+/// `None` if the request does not look like GraphQL or parsing fails.
+fn try_decode_graphql_body(
+    req_headers: &[(String, String)],
+    req_body: Option<&str>,
+) -> Option<String> {
+    let body = req_body?;
+    if body.is_empty() {
+        return None;
+    }
+    if !GraphQLDecoder::is_graphql_content_type(req_headers) {
+        return None;
+    }
+    if !GraphQLDecoder::is_graphql_body(body) {
+        return None;
+    }
+    let op = GraphQLDecoder::parse_request(body).ok()?;
+    serde_json::to_string(&op).ok()
+}
+
 #[derive(Clone, Debug)]
 struct RuleResponse {
     status: u16,
@@ -659,7 +707,10 @@ fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a s
 }
 
 fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: String) {
-    if let Some((_, existing)) = headers.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+    if let Some((_, existing)) = headers
+        .iter_mut()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+    {
         *existing = value;
     } else {
         headers.push((name.to_string(), value));
@@ -667,7 +718,11 @@ fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: String) {
 }
 
 fn infer_content_type(path: &Path) -> &'static str {
-    match path.extension().and_then(|ext| ext.to_str()).unwrap_or_default() {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+    {
         "json" => "application/json; charset=utf-8",
         "html" | "htm" => "text/html; charset=utf-8",
         "txt" => "text/plain; charset=utf-8",
@@ -699,7 +754,10 @@ fn render_mock_template(template: &str, req: &InterceptedRequest) -> String {
         .replace("{{request.id}}", &request_id)
 }
 
-fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<RuleResponse, String> {
+fn build_map_local_response(
+    target: &str,
+    req: &InterceptedRequest,
+) -> Result<RuleResponse, String> {
     if target.trim().is_empty() {
         return Err("MAPLOCAL target is empty".to_string());
     }
@@ -713,7 +771,11 @@ fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<Ru
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
             let structured = json
                 .as_object()
-                .map(|obj| obj.contains_key("status") || obj.contains_key("headers") || obj.contains_key("body"))
+                .map(|obj| {
+                    obj.contains_key("status")
+                        || obj.contains_key("headers")
+                        || obj.contains_key("body")
+                })
                 .unwrap_or(false);
 
             if structured {
@@ -728,21 +790,33 @@ fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<Ru
                     .map(|obj| {
                         obj.iter()
                             .map(|(k, v)| {
-                                let value = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+                                let value = v
+                                    .as_str()
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| v.to_string());
                                 (k.clone(), value)
                             })
                             .collect()
                     })
                     .unwrap_or_else(Vec::new);
                 let body = match json.get("body") {
-                    Some(v) if v.is_string() => render_mock_template(v.as_str().unwrap_or(""), req).into_bytes(),
+                    Some(v) if v.is_string() => {
+                        render_mock_template(v.as_str().unwrap_or(""), req).into_bytes()
+                    }
                     Some(v) => render_mock_template(&v.to_string(), req).into_bytes(),
                     None => Vec::new(),
                 };
                 if header_value(&headers, "content-type").is_none() {
-                    headers.push(("Content-Type".to_string(), "application/json; charset=utf-8".to_string()));
+                    headers.push((
+                        "Content-Type".to_string(),
+                        "application/json; charset=utf-8".to_string(),
+                    ));
                 }
-                return Ok(RuleResponse { status, headers, body });
+                return Ok(RuleResponse {
+                    status,
+                    headers,
+                    body,
+                });
             }
         }
     }
@@ -754,19 +828,31 @@ fn build_map_local_response(target: &str, req: &InterceptedRequest) -> Result<Ru
     };
     Ok(RuleResponse {
         status: 200,
-        headers: vec![("Content-Type".to_string(), infer_content_type(&path).to_string())],
+        headers: vec![(
+            "Content-Type".to_string(),
+            infer_content_type(&path).to_string(),
+        )],
         body,
     })
 }
 
 fn build_http_response(response: &RuleResponse) -> Vec<u8> {
     let mut headers = response.headers.clone();
-    set_header(&mut headers, "Content-Length", response.body.len().to_string());
+    set_header(
+        &mut headers,
+        "Content-Length",
+        response.body.len().to_string(),
+    );
     if header_value(&headers, "Connection").is_none() {
         headers.push(("Connection".to_string(), "close".to_string()));
     }
 
-    let mut out = format!("HTTP/1.1 {} {}\r\n", response.status, http_reason(response.status)).into_bytes();
+    let mut out = format!(
+        "HTTP/1.1 {} {}\r\n",
+        response.status,
+        http_reason(response.status)
+    )
+    .into_bytes();
     for (name, value) in headers {
         out.extend_from_slice(format!("{}: {}\r\n", name, value).as_bytes());
     }
@@ -790,7 +876,10 @@ fn parse_remote_target(target: &str) -> Result<RemoteTarget, String> {
     let (host, port) = if let Some((h, p)) = parse_host_port(authority) {
         (h.to_string(), p)
     } else {
-        (authority.to_string(), if scheme == "https" { 443 } else { 80 })
+        (
+            authority.to_string(),
+            if scheme == "https" { 443 } else { 80 },
+        )
     };
     if host.is_empty() {
         return Err("MAPREMOTE target host is empty".to_string());
@@ -812,7 +901,13 @@ fn combine_remote_path(prefix: &str, path: &str) -> String {
     format!("{}{}", prefix.trim_end_matches('/'), path)
 }
 
-fn build_upstream_request(method: &str, path: &str, host: &str, headers: &[(String, String)], body: &[u8]) -> Vec<u8> {
+fn build_upstream_request(
+    method: &str,
+    path: &str,
+    host: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> Vec<u8> {
     let mut request_headers: Vec<(String, String)> = headers
         .iter()
         .filter(|(name, _)| {
@@ -840,10 +935,13 @@ fn build_upstream_request(method: &str, path: &str, host: &str, headers: &[(Stri
 
 async fn read_full_response(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
     let mut response = Vec::new();
-    tokio::time::timeout(std::time::Duration::from_secs(15), stream.read_to_end(&mut response))
-        .await
-        .map_err(|_| "Timed out reading upstream response".to_string())?
-        .map_err(|e| format!("Read upstream response failed: {}", e))?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        stream.read_to_end(&mut response),
+    )
+    .await
+    .map_err(|_| "Timed out reading upstream response".to_string())?
+    .map_err(|e| format!("Read upstream response failed: {}", e))?;
     Ok(response)
 }
 
@@ -877,10 +975,13 @@ async fn forward_map_remote(
             .await
             .map_err(|e| format!("Write MAPREMOTE request failed: {}", e))?;
         let mut response = Vec::new();
-        tokio::time::timeout(std::time::Duration::from_secs(15), tls.read_to_end(&mut response))
-            .await
-            .map_err(|_| "Timed out reading MAPREMOTE HTTPS response".to_string())?
-            .map_err(|e| format!("Read MAPREMOTE HTTPS response failed: {}", e))?;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            tls.read_to_end(&mut response),
+        )
+        .await
+        .map_err(|_| "Timed out reading MAPREMOTE HTTPS response".to_string())?
+        .map_err(|e| format!("Read MAPREMOTE HTTPS response failed: {}", e))?;
         Ok(response)
     } else {
         tcp.write_all(&request)
@@ -926,9 +1027,10 @@ fn build_intercepted_request(
     device_ctx: Option<DeviceContext>,
     app_info: Option<(String, String)>,
 ) -> InterceptedRequest {
-    let (status, resp_headers, resp_body) = parse_http_response(response_buf)
-        .unwrap_or((0u16, Vec::new(), Vec::new()));
+    let (status, resp_headers, resp_body) =
+        parse_http_response(response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
     let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
+    let graphql_op = try_decode_graphql_body(&headers, body_to_string(body).as_deref());
     let (app_name, app_icon) = app_info
         .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
@@ -959,6 +1061,7 @@ fn build_intercepted_request(
         is_websocket: false,
         ws_frames: None,
         grpc_decoded,
+        graphql_op,
     }
 }
 
@@ -1015,6 +1118,7 @@ fn build_request_context(
         is_websocket: false,
         ws_frames: None,
         grpc_decoded: None,
+        graphql_op: None,
     }
 }
 
@@ -1044,13 +1148,14 @@ fn apply_request_rule(
             headers: headers.to_vec(),
             body: body.to_vec(),
         }),
-        RuleAction::Reject => {
-            Ok(RuleApplication::Respond {
-                status: 403,
-                headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
-                body: b"ProxyBot rule rejected this request\n".to_vec(),
-            })
-        }
+        RuleAction::Reject => Ok(RuleApplication::Respond {
+            status: 403,
+            headers: vec![(
+                "Content-Type".to_string(),
+                "text/plain; charset=utf-8".to_string(),
+            )],
+            body: b"ProxyBot rule rejected this request\n".to_vec(),
+        }),
         RuleAction::MapLocal(target) => {
             let req = build_request_context(method, scheme, host, path, headers, body, client_addr);
             let response = build_map_local_response(&target, &req)?;
@@ -1071,16 +1176,24 @@ fn apply_request_rule(
             })
         }
         RuleAction::Breakpoint(target) => {
-            log::info!("Breakpoint triggered for host: {} (target: {:?})", host, target);
+            log::info!(
+                "Breakpoint triggered for host: {} (target: {:?})",
+                host,
+                target
+            );
 
             let req = build_request_context(method, scheme, host, path, headers, body, client_addr);
 
             let (decision_tx, decision_rx) = tokio::sync::oneshot::channel();
-            if ctx.breakpoint_tx.try_send(BreakpointRequest {
-                request: req,
-                target,
-                decision_tx,
-            }).is_err() {
+            if ctx
+                .breakpoint_tx
+                .try_send(BreakpointRequest {
+                    request: req,
+                    target,
+                    decision_tx,
+                })
+                .is_err()
+            {
                 log::warn!("Breakpoint receiver buffer full, proceeding with request");
                 return Ok(RuleApplication::Continue {
                     method: method.to_string(),
@@ -1091,13 +1204,14 @@ fn apply_request_rule(
             }
 
             match decision_rx.blocking_recv() {
-                Ok(BreakpointDecision::Drop) => {
-                    Ok(RuleApplication::Respond {
-                        status: 403,
-                        headers: vec![("Content-Type".to_string(), "text/plain; charset=utf-8".to_string())],
-                        body: b"ProxyBot breakpoint dropped this request\n".to_vec(),
-                    })
-                }
+                Ok(BreakpointDecision::Drop) => Ok(RuleApplication::Respond {
+                    status: 403,
+                    headers: vec![(
+                        "Content-Type".to_string(),
+                        "text/plain; charset=utf-8".to_string(),
+                    )],
+                    body: b"ProxyBot breakpoint dropped this request\n".to_vec(),
+                }),
                 Ok(BreakpointDecision::Modify(m)) => Ok(RuleApplication::Continue {
                     method: m.method,
                     path: m.path,
@@ -1173,14 +1287,27 @@ async fn handle_https_connect(
     target_port: u16,
 ) {
     let target_addr = format!("{}:{}", target_host, target_port);
-    log::info!("HTTPS CONNECT tunnel to {} from {}", target_addr, client_addr);
+    log::info!(
+        "HTTPS CONNECT tunnel to {} from {}",
+        target_addr,
+        client_addr
+    );
 
     let start = std::time::Instant::now();
 
+    // Metrics: count the HTTPS request
+    ctx.metrics
+        .https_requests_total
+        .fetch_add(1, Ordering::Relaxed);
+
     // Call on_connect hooks - block or redirect if needed
-    if let Some(crate::plugin::ConnectDecision::Block) = call_on_connect_hooks(&ctx.plugins, &target_host) {
+    if let Some(crate::plugin::ConnectDecision::Block) =
+        call_on_connect_hooks(&ctx.plugins, &target_host)
+    {
         log::info!("Connection to {} blocked by plugin", target_host);
-        let _ = client_stream.write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n").await;
+        let _ = client_stream
+            .write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+            .await;
         return;
     }
 
@@ -1189,7 +1316,12 @@ async fn handle_https_connect(
         .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         .await
     {
-        log::error!("Failed to send 200 response to browser {}: {}", client_addr, e);
+        log::error!(
+            "Failed to send 200 response to browser {}: {}",
+            client_addr,
+            e
+        );
+        ctx.metrics.connect_errors.fetch_add(1, Ordering::Relaxed);
         return;
     }
 
@@ -1255,6 +1387,7 @@ async fn handle_https_connect(
         Ok(stream) => stream,
         Err(e) => {
             log::error!("TLS accept failed for browser {}: {}", client_addr, e);
+            ctx.metrics.tls_errors.fetch_add(1, Ordering::Relaxed);
             return;
         }
     };
@@ -1276,6 +1409,7 @@ async fn handle_https_connect(
         Ok(stream) => stream,
         Err(e) => {
             log::error!("Failed to connect to upstream {}: {}", upstream_addr, e);
+            ctx.metrics.connect_errors.fetch_add(1, Ordering::Relaxed);
             return;
         }
     };
@@ -1296,6 +1430,7 @@ async fn handle_https_connect(
         Ok(stream) => stream,
         Err(e) => {
             log::error!("TLS connect to upstream {} failed: {}", upstream_addr, e);
+            ctx.metrics.tls_errors.fetch_add(1, Ordering::Relaxed);
             return;
         }
     };
@@ -1369,12 +1504,32 @@ async fn handle_https_connect(
     // Log the intercepted request
     let latency = start.elapsed().as_millis() as u64;
 
+    // Metrics: bytes transferred
+    ctx.metrics
+        .bytes_received
+        .fetch_add(request_data.len() as u64, Ordering::Relaxed);
+    ctx.metrics
+        .bytes_sent
+        .fetch_add(response_data.len() as u64, Ordering::Relaxed);
+
     // Parse request and response for logging
     let (method, path, _, req_headers, req_body) = parse_http_request(&request_data)
-        .unwrap_or_else(|| ("CONNECT".to_string(), "/".to_string(), "1.1".to_string(), Vec::new(), Vec::new()));
+        .unwrap_or_else(|| {
+            (
+                "CONNECT".to_string(),
+                "/".to_string(),
+                "1.1".to_string(),
+                Vec::new(),
+                Vec::new(),
+            )
+        });
 
-    let (status, resp_headers, resp_body) = parse_http_response(&response_data)
-        .unwrap_or((0u16, Vec::new(), Vec::new()));
+    let (status, resp_headers, resp_body) =
+        parse_http_response(&response_data).unwrap_or((0u16, Vec::new(), Vec::new()));
+
+    // Metrics: method and status
+    ctx.metrics.record_method(&method);
+    ctx.metrics.record_status(status);
 
     let request_id = generate_request_id();
     let query_params = extract_query_params(&path);
@@ -1382,14 +1537,22 @@ async fn handle_https_connect(
     let req_body_str = body_to_string(&req_body);
     let resp_body_str = body_to_string(&resp_body);
     let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
+    let graphql_op = try_decode_graphql_body(&req_headers, req_body_str.as_deref());
 
     // Build request context and run plugin hooks for HTTPS interception
     let mut request_ctx = build_request_context(
-        &method, "https", &target_host, &path, &req_headers, &req_body, client_addr,
+        &method,
+        "https",
+        &target_host,
+        &path,
+        &req_headers,
+        &req_body,
+        client_addr,
     );
     call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
     // Also run Rhai script hooks
-    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block {
+    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block
+    {
         log::info!("Rhai script blocked request to {}", target_host);
         // Drop this request silently
         return;
@@ -1400,18 +1563,22 @@ async fn handle_https_connect(
         headers: resp_headers.clone(),
         body: resp_body_str.clone(),
     };
-    call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx, &request_ctx);
+    call_on_response_hooks(
+        &ctx.plugins,
+        &ctx.plugin_rules,
+        &mut response_ctx,
+        &request_ctx,
+    );
     ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
 
     // Classify by direct domain match first, then fall back to DNS correlation
-    let app_info = app_rules::classify_host(&target_host)
-        .or_else(|| {
-            let request_ts_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            ctx.dns_state.correlate_app(&target_host, request_ts_ms)
-        });
+    let app_info = app_rules::classify_host(&target_host).or_else(|| {
+        let request_ts_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        ctx.dns_state.correlate_app(&target_host, request_ts_ms)
+    });
     let (app_name, app_icon) = app_info
         .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
@@ -1444,6 +1611,7 @@ async fn handle_https_connect(
         is_websocket: false,
         ws_frames: None,
         grpc_decoded,
+        graphql_op,
     };
 
     let _ = ctx.event_tx.send(req.clone());
@@ -1493,6 +1661,15 @@ async fn handle_http(
 
     let start = std::time::Instant::now();
 
+    // Metrics: count the plain HTTP request
+    ctx.metrics
+        .http_requests_total
+        .fetch_add(1, Ordering::Relaxed);
+    ctx.metrics.record_method(method);
+    ctx.metrics
+        .bytes_received
+        .fetch_add(body.len() as u64, Ordering::Relaxed);
+
     // Build request context and call on_request hooks
     let mut request_ctx = build_request_context(
         method,
@@ -1505,7 +1682,8 @@ async fn handle_http(
     );
     call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
     // Also run Rhai script hooks
-    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block {
+    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block
+    {
         log::info!("Rhai script blocked HTTP request to {}", host);
         return Ok(());
     }
@@ -1519,15 +1697,26 @@ async fn handle_http(
         &request_ctx.method,
         &request_ctx.path,
         &request_ctx.req_headers,
-        request_ctx.req_body.as_deref().unwrap_or_default().as_bytes(),
+        request_ctx
+            .req_body
+            .as_deref()
+            .unwrap_or_default()
+            .as_bytes(),
     )?;
 
     match rule_result {
-        RuleApplication::Continue { method: rule_method, path: rule_path, headers, body } => {
+        RuleApplication::Continue {
+            method: rule_method,
+            path: rule_path,
+            headers,
+            body,
+        } => {
             // Proceed with normal request forwarding using rule-returned data
             let target_addr = format!("{}:{}", host, port);
-            let mut target_stream = TcpStream::connect(&target_addr).await
-                .map_err(|e| format!("Failed to connect to {}: {}", target_addr, e))?;
+            let mut target_stream = TcpStream::connect(&target_addr).await.map_err(|e| {
+                ctx.metrics.connect_errors.fetch_add(1, Ordering::Relaxed);
+                format!("Failed to connect to {}: {}", target_addr, e)
+            })?;
 
             let http_version = "HTTP/1.1";
             let mut request = format!("{} {} {}\r\n", rule_method, rule_path, http_version);
@@ -1536,9 +1725,15 @@ async fn handle_http(
             }
             request.push_str("\r\n");
 
-            target_stream.write_all(request.as_bytes()).await.map_err(|e| format!("Write request failed: {}", e))?;
+            target_stream
+                .write_all(request.as_bytes())
+                .await
+                .map_err(|e| format!("Write request failed: {}", e))?;
             if !body.is_empty() {
-                target_stream.write_all(&body).await.map_err(|e| format!("Write body failed: {}", e))?;
+                target_stream
+                    .write_all(&body)
+                    .await
+                    .map_err(|e| format!("Write body failed: {}", e))?;
             }
 
             let mut response_buf = Vec::new();
@@ -1565,18 +1760,28 @@ async fn handle_http(
             }
 
             let mut client_stream = client_stream;
-            client_stream.write_all(&response_buf).await.map_err(|e| format!("Write response failed: {}", e))?;
+            client_stream
+                .write_all(&response_buf)
+                .await
+                .map_err(|e| format!("Write response failed: {}", e))?;
 
             let latency = start.elapsed().as_millis() as u64;
             let request_id = generate_request_id();
 
-            let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
-                .unwrap_or((0u16, Vec::new(), Vec::new()));
+            let (status, resp_headers, resp_body) =
+                parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
             let resp_size = response_buf.len();
+
+            // Metrics: response status and bytes sent
+            ctx.metrics.record_status(status);
+            ctx.metrics
+                .bytes_sent
+                .fetch_add(resp_size as u64, Ordering::Relaxed);
             let query_params = extract_query_params(&rule_path);
             let req_body_str = body_to_string(&body);
             let resp_body_str = body_to_string(&resp_body);
             let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
+            let graphql_op = try_decode_graphql_body(&headers, req_body_str.as_deref());
 
             // Call on_response hooks with the response data
             let mut response_ctx = crate::plugin::InterceptedResponse {
@@ -1584,18 +1789,22 @@ async fn handle_http(
                 headers: resp_headers.clone(),
                 body: resp_body_str.clone(),
             };
-            call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx, &request_ctx);
+            call_on_response_hooks(
+                &ctx.plugins,
+                &ctx.plugin_rules,
+                &mut response_ctx,
+                &request_ctx,
+            );
             ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
 
             // Classify by direct domain match first, then fall back to DNS correlation
-            let app_info = app_rules::classify_host(host)
-                .or_else(|| {
-                    let request_ts_ms = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0);
-                    ctx.dns_state.correlate_app(host, request_ts_ms)
-                });
+            let app_info = app_rules::classify_host(host).or_else(|| {
+                let request_ts_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                ctx.dns_state.correlate_app(host, request_ts_ms)
+            });
             let (app_name, app_icon) = app_info
                 .map(|(n, i)| (Some(n), Some(i)))
                 .unwrap_or((None, None));
@@ -1628,6 +1837,7 @@ async fn handle_http(
                 is_websocket: false,
                 ws_frames: None,
                 grpc_decoded,
+                graphql_op,
             };
 
             let _ = ctx.event_tx.send(req.clone());
@@ -1654,44 +1864,52 @@ async fn handle_http(
 
             Ok(())
         }
-        RuleApplication::Respond { status, headers: resp_headers, body: resp_body } => {
+        RuleApplication::Respond {
+            status,
+            headers: resp_headers,
+            body: resp_body,
+        } => {
             // Direct response without connecting to upstream
             let response = build_http_response(&RuleResponse {
                 status,
                 headers: resp_headers,
                 body: resp_body,
             });
-            client_stream.write_all(&response).await
+            client_stream
+                .write_all(&response)
+                .await
                 .map_err(|e| format!("Write rule response failed: {}", e))?;
             Ok(())
         }
-        RuleApplication::MapRemote { target, method, path, headers, body } => {
+        RuleApplication::MapRemote {
+            target,
+            method,
+            path,
+            headers,
+            body,
+        } => {
             // Forward to remote target
-            let response_buf = forward_map_remote(
-                &ctx.cert_manager,
-                &target,
-                &method,
-                &path,
-                &headers,
-                &body,
-            ).await?;
+            let response_buf =
+                forward_map_remote(&ctx.cert_manager, &target, &method, &path, &headers, &body)
+                    .await?;
 
-            client_stream.write_all(&response_buf).await
+            client_stream
+                .write_all(&response_buf)
+                .await
                 .map_err(|e| format!("Write MapRemote response failed: {}", e))?;
 
             // Record the request
             let latency = start.elapsed().as_millis() as u64;
-            let (status, resp_headers, resp_body) = parse_http_response(&response_buf)
-                .unwrap_or((0u16, Vec::new(), Vec::new()));
+            let (status, resp_headers, resp_body) =
+                parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
 
-            let app_info = app_rules::classify_host(host)
-                .or_else(|| {
-                    let request_ts_ms = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0);
-                    ctx.dns_state.correlate_app(host, request_ts_ms)
-                });
+            let app_info = app_rules::classify_host(host).or_else(|| {
+                let request_ts_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                ctx.dns_state.correlate_app(host, request_ts_ms)
+            });
 
             let req = build_intercepted_request(
                 method,
@@ -1714,15 +1932,22 @@ async fn handle_http(
 }
 
 fn trim_bytes(s: &[u8]) -> &[u8] {
-    let start = s.iter().position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n').unwrap_or(s.len());
-    let end = s.iter().rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n').map(|p| p + 1).unwrap_or(0);
+    let start = s
+        .iter()
+        .position(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .unwrap_or(s.len());
+    let end = s
+        .iter()
+        .rposition(|&b| b != b' ' && b != b'\t' && b != b'\r' && b != b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
     &s[start..end.max(start)]
 }
 
 fn find_colon(line: &[u8]) -> Option<(&[u8], &[u8])> {
     for (i, &b) in line.iter().enumerate() {
         if b == b':' {
-            return Some((&line[..i], &line[i+1..]));
+            return Some((&line[..i], &line[i + 1..]));
         }
     }
     None
@@ -1802,10 +2027,21 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
                 client_addr,
                 original_dst
             );
-            handle_transparent_https(ctx, device_ctx.clone(), client_stream, client_addr, original_dst, data.to_vec()).await;
+            handle_transparent_https(
+                ctx,
+                device_ctx.clone(),
+                client_stream,
+                client_addr,
+                original_dst,
+                data.to_vec(),
+            )
+            .await;
             return;
         } else {
-            log::warn!("Could not get original destination for TLS connection from {}", client_addr);
+            log::warn!(
+                "Could not get original destination for TLS connection from {}",
+                client_addr
+            );
         }
     }
 
@@ -1826,7 +2062,15 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
 
     if method == "CONNECT" {
         if let Some((host, port)) = parse_host_port(path) {
-            handle_https_connect(ctx, device_ctx.clone(), client_stream, client_addr, host.to_string(), port).await;
+            handle_https_connect(
+                ctx,
+                device_ctx.clone(),
+                client_stream,
+                client_addr,
+                host.to_string(),
+                port,
+            )
+            .await;
         }
         return;
     }
@@ -1835,7 +2079,8 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
     let mut body_start = 0;
 
     for i in 0..data.len().saturating_sub(3) {
-        if data[i] == b'\r' && data[i+1] == b'\n' && data[i+2] == b'\r' && data[i+3] == b'\n' {
+        if data[i] == b'\r' && data[i + 1] == b'\n' && data[i + 2] == b'\r' && data[i + 3] == b'\n'
+        {
             body_start = i + 4;
             break;
         }
@@ -1896,7 +2141,11 @@ async fn handle_client(ctx: ProxyContext, client_stream: TcpStream, client_addr:
     let path_to_use = if path.starts_with("http://") {
         path.split("//")
             .nth(2)
-            .map(|s| s.split_once('/').map(|(_, p)| format!("/{}", p)).unwrap_or_else(|| "/".to_string()))
+            .map(|s| {
+                s.split_once('/')
+                    .map(|(_, p)| format!("/{}", p))
+                    .unwrap_or_else(|| "/".to_string())
+            })
             .unwrap_or_else(|| "/".to_string())
     } else {
         path.to_string()
@@ -1931,10 +2180,12 @@ async fn run_proxy(
     plugin_rules: Arc<RuleEngine>,
     network: Arc<NetworkConditionEngine>,
     scripts: Arc<ScriptEngine>,
+    metrics: Arc<ProxyMetrics>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", proxy_port());
-    let listener = TcpListener::bind(&addr).await
+    let listener = TcpListener::bind(&addr)
+        .await
         .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
 
     log::info!("Proxy listening on {}", addr);
@@ -1944,6 +2195,8 @@ async fn run_proxy(
             result = listener.accept() => {
                 match result {
                     Ok((stream, client_addr)) => {
+                        metrics.connections_total.fetch_add(1, Ordering::Relaxed);
+                        metrics.connections_active.fetch_add(1, Ordering::Relaxed);
                         let ctx = ProxyContext {
                             event_tx: event_tx.clone(),
                             breakpoint_tx: breakpoint_tx.clone(),
@@ -1955,8 +2208,14 @@ async fn run_proxy(
                             plugin_rules: plugin_rules.clone(),
                             network: network.clone(),
                             scripts: scripts.clone(),
+                            metrics: metrics.clone(),
                         };
-                        tokio::spawn(handle_client(ctx, stream, client_addr));
+                        let m = metrics.clone();
+                        tokio::spawn(async move {
+                            handle_client(ctx, stream, client_addr).await;
+                            m.connections_closed.fetch_add(1, Ordering::Relaxed);
+                            m.connections_active.fetch_sub(1, Ordering::Relaxed);
+                        });
                     }
                     Err(e) => {
                         log::error!("Accept failed: {}", e);
@@ -2001,6 +2260,9 @@ pub fn start_proxy(
 
     // Create network condition engine
     let network_engine = Arc::new(NetworkConditionEngine::new());
+
+    // Create metrics (use global singleton so CLI metrics command sees the same counters)
+    let metrics = METRICS.clone();
 
     // Create scripting engine and load scripts from ~/.proxybot/scripts/
     let scripts = Arc::new(ScriptEngine::new());
@@ -2054,7 +2316,22 @@ if host.contains("tiktok") || host.contains("douyin") {
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, plugin_rules, network_engine, scripts, shutdown_rx).await {
+        if let Err(e) = run_proxy(
+            event_tx,
+            bp_tx,
+            cm,
+            ds,
+            db,
+            re,
+            plugins,
+            plugin_rules,
+            network_engine,
+            scripts,
+            metrics,
+            shutdown_rx,
+        )
+        .await
+        {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -2083,11 +2360,14 @@ pub fn start_proxy_core(
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
     network_engine: Arc<NetworkConditionEngine>,
-) -> Result<(
-    broadcast::Receiver<InterceptedRequest>,
-    tokio::sync::mpsc::Receiver<BreakpointRequest>,
-    tokio::sync::oneshot::Sender<()>,
-), String> {
+) -> Result<
+    (
+        broadcast::Receiver<InterceptedRequest>,
+        tokio::sync::mpsc::Receiver<BreakpointRequest>,
+        tokio::sync::oneshot::Sender<()>,
+    ),
+    String,
+> {
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
         return Err("Proxy already running".to_string());
     }
@@ -2100,6 +2380,7 @@ pub fn start_proxy_core(
     let ds = dns_state.clone();
     let db = db_state.clone();
     let ne = network_engine.clone();
+    let metrics = METRICS.clone();
 
     // Create scripting engine and load scripts from ~/.proxybot/scripts/
     let scripts = Arc::new(ScriptEngine::new());
@@ -2140,7 +2421,22 @@ if host.contains("tiktok") || host.contains("douyin") {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, plugin_rules, ne, scripts, shutdown_rx).await {
+            if let Err(e) = run_proxy(
+                event_tx,
+                bp_tx,
+                cm,
+                ds,
+                db,
+                rules_engine,
+                plugins,
+                plugin_rules,
+                ne,
+                scripts,
+                metrics,
+                shutdown_rx,
+            )
+            .await
+            {
                 log::error!("Proxy error: {}", e);
             }
             PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -2153,7 +2449,11 @@ if host.contains("tiktok") || host.contains("douyin") {
 #[tauri::command]
 pub fn get_ca_cert_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".proxybot").join("ca.pem").to_string_lossy().to_string()
+    PathBuf::from(home)
+        .join(".proxybot")
+        .join("ca.pem")
+        .to_string_lossy()
+        .to_string()
 }
 
 #[tauri::command]
@@ -2200,9 +2500,17 @@ pub fn setup_pf(
     dns_state: State<'_, Arc<DnsState>>,
     proxy_state: State<'_, Arc<ProxyState>>,
 ) -> Result<String, String> {
-    let interface = proxy_state.interface.lock().unwrap().clone()
+    let interface = proxy_state
+        .interface
+        .lock()
+        .unwrap()
+        .clone()
         .ok_or_else(|| "Network info not set. Call get_network_info first.")?;
-    let local_ip = proxy_state.local_ip.lock().unwrap().clone()
+    let local_ip = proxy_state
+        .local_ip
+        .lock()
+        .unwrap()
+        .clone()
         .ok_or_else(|| "Network info not set. Call get_network_info first.")?;
     let result = crate::pf::setup_pf(interface, local_ip);
     if result.is_ok() {
@@ -2251,7 +2559,10 @@ pub fn stop_proxy() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Result<InterceptedRequest, String> {
+pub fn get_request_detail(
+    db_state: State<'_, Arc<DbState>>,
+    id: String,
+) -> Result<InterceptedRequest, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT id, timestamp, method, scheme, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms, app_name, app_icon FROM http_requests WHERE id = ?1")
@@ -2259,12 +2570,19 @@ pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Resu
     stmt.query_row([&id], |row| {
         let resp_headers: Vec<(String, String)> =
             serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default();
+        let req_headers: Vec<(String, String)> =
+            serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default();
+        let req_body: Option<String> = row
+            .get::<_, Option<Vec<u8>>>(7)?
+            .map(|b| String::from_utf8_lossy(&b).to_string());
         let resp_body_bytes: Option<Vec<u8>> = row.get::<_, Option<Vec<u8>>>(10)?;
-        let resp_body_str =
-            resp_body_bytes.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+        let resp_body_str = resp_body_bytes
+            .as_ref()
+            .map(|b| String::from_utf8_lossy(b).to_string());
         let grpc_decoded = resp_body_bytes
             .as_deref()
             .and_then(|body| try_decode_grpc_body(&resp_headers, body));
+        let graphql_op = try_decode_graphql_body(&req_headers, req_body.as_deref());
 
         Ok(InterceptedRequest {
             id: row.get(0)?,
@@ -2276,8 +2594,8 @@ pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Resu
             query_params: None,
             status: row.get(8)?,
             latency_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
-            req_headers: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
-            req_body: row.get::<_, Option<Vec<u8>>>(7)?.map(|b| String::from_utf8_lossy(&b).to_string()),
+            req_headers,
+            req_body,
             resp_headers,
             resp_body: resp_body_str,
             resp_size: None,
@@ -2289,6 +2607,7 @@ pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Resu
             is_websocket: false,
             ws_frames: None,
             grpc_decoded,
+            graphql_op,
         })
     })
     .map_err(|e| e.to_string())
