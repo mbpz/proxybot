@@ -116,7 +116,9 @@ impl Lexer {
                             || self.input[self.pos] == '/'
                             || self.input[self.pos] == '?'
                             || self.input[self.pos] == '&'
-                            || self.input[self.pos] == '=')
+                            || self.input[self.pos] == '='
+                            || self.input[self.pos] == '>'
+                            || self.input[self.pos] == '<')
                     {
                         self.pos += 1;
                     }
@@ -300,6 +302,60 @@ mod tests {
     #[test]
     fn test_glob() {
         let result = parse("host:*example.com");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_text_search() {
+        let result = parse("api");
+        assert!(result.is_ok());
+        if let Ok(expr) = result {
+            match expr {
+                FilterExpr::Text(t) => assert_eq!(t, "api"),
+                _ => panic!("Expected Text variant"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_field_with_extended_chars() {
+        // Test URLs in values
+        let result = parse("path:/api/v1/users");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_mixed_column_and_text() {
+        // method:POST followed by bare text "api"
+        let result = parse("method:POST api");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_query_params() {
+        // URL with query params
+        let result = parse("path:/api?foo=bar");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_status_comparison() {
+        // status:>400 parses as status field with value ">400"
+        // The > is part of the value in column-scoped syntax
+        let result = parse("status:>400");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_comparison_op() {
+        // Standalone comparison: status>400 (no space, column syntax)
+        let result = parse("status:>400");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_not_expr() {
+        let result = parse("NOT method:POST");
         assert!(result.is_ok());
     }
 }
