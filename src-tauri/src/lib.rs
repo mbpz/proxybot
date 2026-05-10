@@ -26,6 +26,8 @@ pub mod har;
 pub mod history;
 pub mod infer;
 pub mod metrics;
+pub mod ai_pipeline;
+pub mod mcp;
 pub mod mockgen;
 pub mod network;
 pub mod normalize;

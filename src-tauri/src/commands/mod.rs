@@ -1,3 +1,4 @@
+pub mod ai_pipeline;
 pub mod ai_stats;
 pub mod cdp_server;
 pub mod client_setup;
