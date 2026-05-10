@@ -26,6 +26,7 @@ pub mod proxy;
 pub mod replay;
 pub mod rules;
 pub mod scaffoldgen;
+pub mod scripting;
 pub mod state_machine;
 pub mod tun;
 pub mod vision;

@@ -6,6 +6,7 @@ use crate::db::{DbState, record_http_request};
 use crate::dns;
 use crate::dns::DnsState;
 use crate::network::{NetworkConditionEngine, NetworkInfo};
+use crate::protobuf;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ pub use crate::rules::BreakpointTarget;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::InterceptedResponse;
 use crate::plugin::{RuleEngine, HookExecutor};
+use crate::scripting::ScriptEngine;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -76,6 +78,7 @@ pub struct InterceptedRequest {
     pub client_ip: Option<String>,
     pub is_websocket: bool,
     pub ws_frames: Option<Vec<WsFrame>>,
+    pub grpc_decoded: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -97,6 +100,7 @@ struct ProxyContext {
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
     network: Arc<NetworkConditionEngine>,
+    scripts: Arc<ScriptEngine>,
 }
 
 /// Device context for tracking which device made a request.
@@ -576,6 +580,42 @@ fn body_to_string(body: &[u8]) -> Option<String> {
     String::from_utf8(body.to_vec()).ok()
 }
 
+/// Auto-decode gRPC response body if the content-type indicates gRPC.
+/// Returns JSON representation of protobuf fields, or None if not gRPC or decode fails.
+fn try_decode_grpc_body(resp_headers: &[(String, String)], resp_body: &[u8]) -> Option<String> {
+    if !protobuf::is_grpc_request(resp_headers) {
+        return None;
+    }
+    if resp_body.is_empty() {
+        return None;
+    }
+    // For standard gRPC, extract protobuf messages from each frame
+    if protobuf::is_standard_grpc(resp_headers) {
+        let frames = protobuf::decode_grpc_frames(resp_body);
+        if frames.is_empty() {
+            return None;
+        }
+        let mut results: Vec<String> = Vec::new();
+        for (i, frame) in frames.iter().enumerate() {
+            match protobuf::decode_protobuf(&frame.data) {
+                Ok(decoded) if decoded != "[]" => {
+                    results.push(format!(r#"{{"frame":{},"decoded":{}}}"#, i, decoded));
+                }
+                _ => {}
+            }
+        }
+        if results.is_empty() {
+            // Fall back to raw protobuf decode on whole body
+            protobuf::decode_protobuf(resp_body).ok()
+        } else {
+            Some(format!("[{}]", results.join(",")))
+        }
+    } else {
+        // gRPC-Web: decode body directly as protobuf
+        protobuf::decode_protobuf(resp_body).ok()
+    }
+}
+
 #[derive(Clone, Debug)]
 struct RuleResponse {
     status: u16,
@@ -888,6 +928,7 @@ fn build_intercepted_request(
 ) -> InterceptedRequest {
     let (status, resp_headers, resp_body) = parse_http_response(response_buf)
         .unwrap_or((0u16, Vec::new(), Vec::new()));
+    let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
     let (app_name, app_icon) = app_info
         .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
@@ -917,6 +958,7 @@ fn build_intercepted_request(
         client_ip: Some(client_addr.ip().to_string()),
         is_websocket: false,
         ws_frames: None,
+        grpc_decoded,
     }
 }
 
@@ -972,6 +1014,7 @@ fn build_request_context(
         client_ip: Some(client_addr.ip().to_string()),
         is_websocket: false,
         ws_frames: None,
+        grpc_decoded: None,
     }
 }
 
@@ -1338,12 +1381,19 @@ async fn handle_https_connect(
     let resp_size = response_data.len();
     let req_body_str = body_to_string(&req_body);
     let resp_body_str = body_to_string(&resp_body);
+    let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
 
     // Build request context and run plugin hooks for HTTPS interception
     let mut request_ctx = build_request_context(
         &method, "https", &target_host, &path, &req_headers, &req_body, client_addr,
     );
     call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
+    // Also run Rhai script hooks
+    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block {
+        log::info!("Rhai script blocked request to {}", target_host);
+        // Drop this request silently
+        return;
+    }
 
     let mut response_ctx = InterceptedResponse {
         status: Some(status),
@@ -1351,6 +1401,7 @@ async fn handle_https_connect(
         body: resp_body_str.clone(),
     };
     call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx, &request_ctx);
+    ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
 
     // Classify by direct domain match first, then fall back to DNS correlation
     let app_info = app_rules::classify_host(&target_host)
@@ -1392,6 +1443,7 @@ async fn handle_https_connect(
         client_ip: Some(client_ip),
         is_websocket: false,
         ws_frames: None,
+        grpc_decoded,
     };
 
     let _ = ctx.event_tx.send(req.clone());
@@ -1452,6 +1504,11 @@ async fn handle_http(
         client_addr,
     );
     call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
+    // Also run Rhai script hooks
+    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block {
+        log::info!("Rhai script blocked HTTP request to {}", host);
+        return Ok(());
+    }
 
     // Apply rules - check for MapRemote, Respond, or breakpoint modifications
     let rule_result = apply_request_rule(
@@ -1519,6 +1576,7 @@ async fn handle_http(
             let query_params = extract_query_params(&rule_path);
             let req_body_str = body_to_string(&body);
             let resp_body_str = body_to_string(&resp_body);
+            let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
 
             // Call on_response hooks with the response data
             let mut response_ctx = crate::plugin::InterceptedResponse {
@@ -1527,6 +1585,7 @@ async fn handle_http(
                 body: resp_body_str.clone(),
             };
             call_on_response_hooks(&ctx.plugins, &ctx.plugin_rules, &mut response_ctx, &request_ctx);
+            ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
 
             // Classify by direct domain match first, then fall back to DNS correlation
             let app_info = app_rules::classify_host(host)
@@ -1568,6 +1627,7 @@ async fn handle_http(
                 client_ip: Some(client_ip),
                 is_websocket: false,
                 ws_frames: None,
+                grpc_decoded,
             };
 
             let _ = ctx.event_tx.send(req.clone());
@@ -1870,6 +1930,7 @@ async fn run_proxy(
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
     network: Arc<NetworkConditionEngine>,
+    scripts: Arc<ScriptEngine>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", proxy_port());
@@ -1893,6 +1954,7 @@ async fn run_proxy(
                             plugins: plugins.clone(),
                             plugin_rules: plugin_rules.clone(),
                             network: network.clone(),
+                            scripts: scripts.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -1940,6 +2002,42 @@ pub fn start_proxy(
     // Create network condition engine
     let network_engine = Arc::new(NetworkConditionEngine::new());
 
+    // Create scripting engine and load scripts from ~/.proxybot/scripts/
+    let scripts = Arc::new(ScriptEngine::new());
+    let scripts_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".proxybot")
+        .join("scripts");
+    if let Err(e) = std::fs::create_dir_all(&scripts_dir) {
+        log::error!("Failed to create scripts directory: {}", e);
+    }
+    // Create example script if directory is empty
+    let example_path = scripts_dir.join("example.rhai");
+    if !example_path.exists() {
+        let example = r#"// ProxyBot Example Script
+// Return true to allow requests, false to block them.
+// Available scope variables: method, scheme, host, path, query_params, status, resp_body
+
+// Log all requests
+log(`Request: ${method} ${host}${path}`);
+
+// Block TikTok domains
+if host.contains("tiktok") || host.contains("douyin") {
+    warn(`Blocked: ${host}`);
+    false
+} else {
+    true
+}
+"#;
+        if let Err(e) = std::fs::write(&example_path, example) {
+            log::error!("Failed to write example script: {}", e);
+        }
+    }
+    // Auto-load scripts from the directory
+    if let Err(e) = scripts.load_dir(&scripts_dir) {
+        log::error!("Failed to load scripts: {}", e);
+    }
+
     // Create breakpoint channel (receiver unused in Tauri mode, sender passed to run_proxy)
     let (bp_tx, _bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
 
@@ -1956,7 +2054,7 @@ pub fn start_proxy(
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, plugin_rules, network_engine, shutdown_rx).await {
+        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, plugin_rules, network_engine, scripts, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -2003,10 +2101,46 @@ pub fn start_proxy_core(
     let db = db_state.clone();
     let ne = network_engine.clone();
 
+    // Create scripting engine and load scripts from ~/.proxybot/scripts/
+    let scripts = Arc::new(ScriptEngine::new());
+    let scripts_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".proxybot")
+        .join("scripts");
+    if let Err(e) = std::fs::create_dir_all(&scripts_dir) {
+        log::error!("Failed to create scripts directory: {}", e);
+    }
+    // Create example script if directory is empty
+    let example_path = scripts_dir.join("example.rhai");
+    if !example_path.exists() {
+        let example = r#"// ProxyBot Example Script
+// Return true to allow requests, false to block them.
+// Available scope variables: method, scheme, host, path, query_params, status, resp_body
+
+// Log all requests
+log(`Request: ${method} ${host}${path}`);
+
+// Block TikTok domains
+if host.contains("tiktok") || host.contains("douyin") {
+    warn(`Blocked: ${host}`);
+    false
+} else {
+    true
+}
+"#;
+        if let Err(e) = std::fs::write(&example_path, example) {
+            log::error!("Failed to write example script: {}", e);
+        }
+    }
+    // Auto-load scripts from the directory
+    if let Err(e) = scripts.load_dir(&scripts_dir) {
+        log::error!("Failed to load scripts: {}", e);
+    }
+
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, plugin_rules, ne, shutdown_rx).await {
+            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, plugin_rules, ne, scripts, shutdown_rx).await {
                 log::error!("Proxy error: {}", e);
             }
             PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -2123,6 +2257,15 @@ pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Resu
         .prepare("SELECT id, timestamp, method, scheme, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms, app_name, app_icon FROM http_requests WHERE id = ?1")
         .map_err(|e| e.to_string())?;
     stmt.query_row([&id], |row| {
+        let resp_headers: Vec<(String, String)> =
+            serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default();
+        let resp_body_bytes: Option<Vec<u8>> = row.get::<_, Option<Vec<u8>>>(10)?;
+        let resp_body_str =
+            resp_body_bytes.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+        let grpc_decoded = resp_body_bytes
+            .as_deref()
+            .and_then(|body| try_decode_grpc_body(&resp_headers, body));
+
         Ok(InterceptedRequest {
             id: row.get(0)?,
             timestamp: row.get(1)?,
@@ -2135,8 +2278,8 @@ pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Resu
             latency_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
             req_headers: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
             req_body: row.get::<_, Option<Vec<u8>>>(7)?.map(|b| String::from_utf8_lossy(&b).to_string()),
-            resp_headers: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
-            resp_body: row.get::<_, Option<Vec<u8>>>(10)?.map(|b| String::from_utf8_lossy(&b).to_string()),
+            resp_headers,
+            resp_body: resp_body_str,
             resp_size: None,
             app_name: row.get(12)?,
             app_icon: row.get(13)?,
@@ -2145,6 +2288,7 @@ pub fn get_request_detail(db_state: State<'_, Arc<DbState>>, id: String) -> Resu
             client_ip: None,
             is_websocket: false,
             ws_frames: None,
+            grpc_decoded,
         })
     })
     .map_err(|e| e.to_string())

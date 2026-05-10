@@ -166,9 +166,117 @@ fn handle_workspace_cli() -> Result<bool, String> {
     Ok(true)
 }
 
+/// Handle script subcommands from CLI args.
+/// Returns Ok(true) if a script command was handled (caller should exit).
+/// Returns Ok(false) if no script command was given (continue to TUI).
+fn handle_script_cli() -> Result<bool, String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 || args[1] != "script" {
+        return Ok(false);
+    }
+
+    let scripts_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".proxybot")
+        .join("scripts");
+
+    match args.get(2).map(|s| s.as_str()) {
+        Some("load") => {
+            let name = args.get(3).ok_or("Usage: script load <name> <path>")?;
+            let path = args.get(4).ok_or("Usage: script load <name> <path>")?;
+            let src = std::path::PathBuf::from(path);
+
+            if !src.exists() {
+                return Err(format!("Script file not found: {}", src.display()));
+            }
+            if src.extension().map(|e| e != "rhai").unwrap_or(true) {
+                return Err(format!("Script must have .rhai extension: {}", src.display()));
+            }
+
+            // Check if the script compiles
+            let content = std::fs::read_to_string(&src)
+                .map_err(|e| format!("Cannot read {}: {}", src.display(), e))?;
+            let engine = rhai::Engine::new();
+            engine.compile(&content)
+                .map_err(|e| format!("Script compile error: {}", e))?;
+
+            // Copy the script to the scripts directory
+            std::fs::create_dir_all(&scripts_dir)
+                .map_err(|e| format!("Cannot create scripts dir: {}", e))?;
+            let dest = scripts_dir.join(format!("{}.rhai", name));
+            std::fs::copy(&src, &dest)
+                .map_err(|e| format!("Cannot copy script: {}", e))?;
+
+            println!("Script '{}' loaded from {} -> {}", name, src.display(), dest.display());
+            println!("Restart the proxy for the script to take effect.");
+        }
+        Some("unload") => {
+            let name = args.get(3).ok_or("Usage: script unload <name>")?;
+            let script_path = scripts_dir.join(format!("{}.rhai", name));
+            if script_path.exists() {
+                std::fs::remove_file(&script_path)
+                    .map_err(|e| format!("Cannot remove script: {}", e))?;
+                println!("Script '{}' unloaded.", name);
+            } else {
+                println!("Script '{}' not found.", name);
+            }
+        }
+        Some("list") => {
+            if !scripts_dir.exists() {
+                println!("No scripts loaded. Scripts directory: {}", scripts_dir.display());
+                return Ok(true);
+            }
+            let entries: Vec<_> = std::fs::read_dir(&scripts_dir)
+                .map_err(|e| format!("Cannot read scripts dir: {}", e))?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().map(|ext| ext == "rhai").unwrap_or(false))
+                .collect();
+
+            if entries.is_empty() {
+                println!("No scripts found in {}", scripts_dir.display());
+                println!("Use 'script load <name> <path>' to add a script.");
+            } else {
+                println!("Loaded scripts ({}):", entries.len());
+                for entry in &entries {
+                    let path = entry.path();
+                    let name = path.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy();
+                    let size = entry.metadata()
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    println!("  {}  ({} bytes)", name, size);
+                }
+            }
+        }
+        Some(cmd) => {
+            return Err(format!("Unknown script command: {}. Available: load, unload, list", cmd));
+        }
+        None => {
+            println!("Usage: proxybot-tui script <command> [args]");
+            println!("Commands:");
+            println!("  load <name> <path>   Load a Rhai script from file");
+            println!("  unload <name>         Remove a loaded script");
+            println!("  list                  List all loaded scripts");
+        }
+    }
+
+    Ok(true)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle workspace CLI commands (non-interactive mode)
     match handle_workspace_cli() {
+        Ok(true) => return Ok(()),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        Ok(false) => {} // Continue to TUI
+    }
+
+    // Handle script CLI commands (non-interactive mode)
+    match handle_script_cli() {
         Ok(true) => return Ok(()),
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -1292,6 +1400,7 @@ fn fetch_request_detail(conn: &Connection, id: i64) -> Result<InterceptedRequest
             client_ip: None,
             is_websocket: false,
             ws_frames: None,
+            grpc_decoded: None,
         })
     })
     .map_err(|e| e.to_string())

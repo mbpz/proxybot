@@ -21,6 +21,8 @@ serde_json = "1"
 ureq = "2"
 thiserror = "2"
 
+rhai = { version = "1", features = ["sync"] }
+
 # Yew GUI dependencies (compiled separately via wasm-pack)
 # Note: These are NOT cargo build dependencies - they are built by wasm-pack
 
