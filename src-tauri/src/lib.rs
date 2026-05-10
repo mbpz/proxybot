@@ -5,6 +5,7 @@ use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
 
 pub mod adb;
+pub mod ai;
 pub mod anomaly;
 pub mod app_rules;
 pub mod cdp;
@@ -14,6 +15,7 @@ pub mod classifier;
 pub mod commands;
 pub mod config;
 pub mod dag;
+pub mod dashboard;
 pub mod db;
 pub mod deploy;
 pub mod dns;
@@ -312,6 +314,8 @@ pub fn run() {
             fuse_vision_with_api,
             generate_deployment_bundle,
             write_deployment_bundle,
+            commands::ai_stats::get_ai_stats,
+            commands::ai_stats::get_ai_context_windows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

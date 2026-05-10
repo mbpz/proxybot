@@ -19,6 +19,9 @@
 //!   proxybot-tui workspace list
 //!   proxybot-tui workspace switch <name>
 //!   proxybot-tui workspace status
+//!
+//! Dashboard command:
+//!   proxybot-tui dashboard [--port 9091]   # Start web dashboard
 
 use crossterm::event::{self, KeyEventKind};
 use crossterm::execute;
@@ -424,6 +427,89 @@ fn handle_metrics_cli() -> Result<bool, String> {
     Ok(true)
 }
 
+/// Handle dashboard subcommands from CLI args.
+/// Returns Ok(true) if a dashboard command was handled (caller should exit).
+/// Returns Ok(false) if no dashboard command was given (continue to TUI).
+fn handle_dashboard_cli() -> Result<bool, String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 || args[1] != "dashboard" {
+        return Ok(false);
+    }
+
+    // Parse optional --port argument
+    let port: u16 = {
+        let port_idx = args.iter().position(|a| a == "--port");
+        match port_idx.and_then(|i| args.get(i + 1)) {
+            Some(p) => p.parse().map_err(|_| format!("Invalid port: {}", p))?,
+            None => 9091,
+        }
+    };
+
+    // Initialize subsystems needed for the proxy
+    let db_state = Arc::new(DbState::new().expect("Failed to initialize database"));
+    let cert_manager =
+        Arc::new(CertManager::new().expect("Failed to initialize certificate manager"));
+    let rules_engine = Arc::new(RulesEngine::new());
+    let dns_state =
+        Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
+
+    println!(
+        "Starting dashboard server on http://127.0.0.1:{}",
+        port
+    );
+
+    // Start the proxy core to get live intercepted requests
+    let (event_rx, _bp_rx, _shutdown_tx) = start_proxy_core(
+        cert_manager,
+        dns_state,
+        db_state,
+        rules_engine,
+        Arc::new(PluginRegistry::new()),
+        Arc::new(PluginRuleEngine::new()),
+        Arc::new(NetworkConditionEngine::new()),
+    )?;
+
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("Failed to create Tokio runtime: {}", e))?;
+
+    let dashboard = proxybot_lib::dashboard::DashboardServer::new(port);
+    let handle = dashboard.requests_handle();
+
+    // Spawn a task that forwards intercepted requests into the dashboard buffer
+    rt.spawn(async move {
+        let mut rx = event_rx;
+        loop {
+            match rx.recv().await {
+                Ok(req) => {
+                    let mut guard = handle.write().unwrap();
+                    if guard.len() >= 1000 {
+                        guard.remove(0);
+                    }
+                    guard.push(req);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    log::warn!("Dashboard event receiver lagged by {} messages", n);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    log::info!("Dashboard event channel closed");
+                    break;
+                }
+            }
+        }
+    });
+
+    rt.block_on(async {
+        match dashboard.start().await {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Dashboard server error: {}", e);
+            }
+        }
+    });
+
+    Ok(true)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle workspace CLI commands (non-interactive mode)
     match handle_workspace_cli() {
@@ -457,6 +543,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Handle metrics CLI commands (non-interactive mode)
     match handle_metrics_cli() {
+        Ok(true) => return Ok(()),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        Ok(false) => {} // Continue to TUI
+    }
+
+    // Handle dashboard CLI commands (non-interactive mode)
+    match handle_dashboard_cli() {
         Ok(true) => return Ok(()),
         Err(e) => {
             eprintln!("Error: {}", e);

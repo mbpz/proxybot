@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProxyBot Dashboard</title>
+<style>
+  :root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #c9d1d9;
+          --green: #3fb950; --blue: #58a6ff; --orange: #d29922; --red: #f85149;
+          --purple: #bc8cff; --font: 'JetBrains Mono', monospace; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 16px; font-weight: 600; }
+  .stats { display: flex; gap: 20px; }
+  .stat { text-align: center; }
+  .stat-value { font-size: 18px; font-weight: 700; }
+  .stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+  .container { display: flex; height: calc(100vh - 52px); }
+  .request-list { width: 40%; border-right: 1px solid var(--border); overflow-y: auto; }
+  .request-item { padding: 8px 16px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .request-item:hover { background: var(--surface); }
+  .request-item.active { background: #1f6feb22; border-left: 3px solid var(--blue); }
+  .method-badge { padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; min-width: 48px; text-align: center; }
+  .method-GET { background: #23863622; color: var(--green); }
+  .method-POST { background: #1f6feb22; color: var(--blue); }
+  .method-DELETE { background: #da363322; color: var(--red); }
+  .host { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status-badge { font-weight: 700; font-size: 11px; }
+  .status-2xx { color: var(--green); } .status-4xx { color: var(--orange); } .status-5xx { color: var(--red); }
+  .detail-panel { flex: 1; padding: 20px; overflow-y: auto; }
+  .detail-header { margin-bottom: 16px; }
+  .detail-url { font-size: 15px; color: var(--blue); margin-bottom: 8px; }
+  .detail-meta { display: flex; gap: 16px; font-size: 11px; color: #8b949e; }
+  .detail-section { margin-top: 16px; }
+  .detail-section h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .key-value { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; }
+  .key-value .key { color: var(--purple); min-width: 140px; }
+  .body-panel { background: var(--surface); padding: 12px; border-radius: 4px; font-family: var(--font); font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; }
+  .ai-badge { background: #bc8cff22; color: var(--purple); padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+  .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #8b949e; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>ProxyBot Dashboard</h1>
+  <div class="stats">
+    <div class="stat"><div class="stat-value" id="statRequests">0</div><div class="stat-label">Requests</div></div>
+    <div class="stat"><div class="stat-value" id="statActive">0</div><div class="stat-label">Active</div></div>
+    <div class="stat"><div class="stat-value" id="statBytes">0</div><div class="stat-label">MB Transferred</div></div>
+  </div>
+</div>
+<div class="container">
+  <div class="request-list" id="requestList"></div>
+  <div class="detail-panel" id="detailPanel">
+    <div class="empty-state">Select a request to view details</div>
+  </div>
+</div>
+<script>
+  let requests = [];
+  let selectedId = null;
+
+  async function poll() {
+    try {
+      const [reqRes, statsRes] = await Promise.all([
+        fetch('/api/requests'),
+        fetch('/api/stats')
+      ]);
+      requests = await reqRes.json();
+      const stats = await statsRes.json();
+
+      document.getElementById('statRequests').textContent = stats.total_requests || 0;
+      document.getElementById('statActive').textContent = stats.active_connections || 0;
+      document.getElementById('statBytes').textContent = ((stats.bytes_total || 0) / 1024 / 1024).toFixed(1);
+
+      renderList();
+    } catch(e) { console.error(e); }
+  }
+
+  function renderList() {
+    const el = document.getElementById('requestList');
+    el.innerHTML = requests.slice(0, 100).map(r => `
+      <div class="request-item ${r.id === selectedId ? 'active' : ''}" onclick="selectRequest('${r.id}')">
+        <span class="method-badge method-${r.method}">${r.method}</span>
+        <span class="host">${r.host || ''}${r.path || ''}</span>
+        <span class="status-badge status-${Math.floor(r.status/100)}xx">${r.status || '—'}</span>
+        ${r.app_name ? `<span class="ai-badge">${r.app_name}</span>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function selectRequest(id) {
+    selectedId = id;
+    const r = requests.find(r => r.id === id);
+    if (!r) return;
+
+    document.getElementById('detailPanel').innerHTML = `
+      <div class="detail-header">
+        <div class="detail-url"><span class="method-badge method-${r.method}">${r.method}</span> ${r.scheme}://${r.host}${r.path}</div>
+        <div class="detail-meta">
+          <span>Status: <span class="status-badge status-${Math.floor(r.status/100)}xx">${r.status || '—'}</span></span>
+          <span>App: ${r.app_name || 'unknown'}</span>
+          <span>Latency: ${r.latency_ms || 0}ms</span>
+        </div>
+      </div>
+      <div class="detail-section">
+        <h3>Request Headers</h3>
+        ${(r.req_headers||[]).map(h => `<div class="key-value"><span class="key">${h[0]}</span><span>${h[1]}</span></div>`).join('')}
+      </div>
+      ${r.req_body ? `<div class="detail-section"><h3>Request Body</h3><div class="body-panel">${escapeHtml(r.req_body)}</div></div>` : ''}
+      <div class="detail-section">
+        <h3>Response Headers</h3>
+        ${(r.resp_headers||[]).map(h => `<div class="key-value"><span class="key">${h[0]}</span><span>${h[1]}</span></div>`).join('')}
+      </div>
+      ${r.resp_body ? `<div class="detail-section"><h3>Response Body</h3><div class="body-panel">${escapeHtml(r.resp_body)}</div></div>` : ''}
+    `;
+
+    renderList();
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  poll();
+  setInterval(poll, 2000);
+</script>
+</body>
+</html>
