@@ -29,6 +29,7 @@ pub mod scaffoldgen;
 pub mod scripting;
 pub mod state_machine;
 pub mod tun;
+pub mod vpn;
 pub mod vision;
 pub mod workspace;
 pub mod tui;

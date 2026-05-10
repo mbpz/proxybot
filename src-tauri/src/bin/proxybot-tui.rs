@@ -264,6 +264,89 @@ fn handle_script_cli() -> Result<bool, String> {
     Ok(true)
 }
 
+/// Handle VPN subcommands from CLI args.
+/// Returns Ok(true) if a VPN command was handled (caller should exit).
+/// Returns Ok(false) if no VPN command was given (continue to TUI).
+fn handle_vpn_cli() -> Result<bool, String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 || args[1] != "vpn" {
+        return Ok(false);
+    }
+
+    match args.get(2).map(|s| s.as_str()) {
+        Some("start") => {
+            // Parse optional --port argument
+            let port: u16 = {
+                let port_idx = args.iter().position(|a| a == "--port");
+                match port_idx.and_then(|i| args.get(i + 1)) {
+                    Some(p) => p.parse().map_err(|_| format!("Invalid port: {}", p))?,
+                    None => 9999,
+                }
+            };
+            println!("Starting VPN tunnel server on port {}...", port);
+
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| format!("Failed to create Tokio runtime: {}", e))?;
+            rt.block_on(async {
+                let server = proxybot_lib::vpn::TunnelServer::new(port);
+                match server.start().await {
+                    Ok(()) => {
+                        println!("VPN tunnel server is running on 0.0.0.0:{}", port);
+                        println!("Waiting for iOS devices to connect... (Ctrl+C to stop)");
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to start VPN tunnel server: {}", e);
+                    }
+                }
+
+                // Block until Ctrl+C
+                tokio::signal::ctrl_c().await.ok();
+                println!("\nShutting down VPN tunnel server...");
+                server.stop();
+            });
+        }
+        Some("status") => {
+            let port: u16 = {
+                let port_idx = args.iter().position(|a| a == "--port");
+                match port_idx.and_then(|i| args.get(i + 1)) {
+                    Some(p) => p.parse().map_err(|_| format!("Invalid port: {}", p))?,
+                    None => 9999,
+                }
+            };
+            let server = proxybot_lib::vpn::TunnelServer::new(port);
+            let status = server.current_status();
+            println!("VPN Tunnel Server Status: {:?}", status);
+        }
+        Some("stop") => {
+            let port: u16 = {
+                let port_idx = args.iter().position(|a| a == "--port");
+                match port_idx.and_then(|i| args.get(i + 1)) {
+                    Some(p) => p.parse().map_err(|_| format!("Invalid port: {}", p))?,
+                    None => 9999,
+                }
+            };
+            let server = proxybot_lib::vpn::TunnelServer::new(port);
+            server.stop();
+            println!("VPN tunnel server stop signal sent.");
+        }
+        Some(cmd) => {
+            return Err(format!(
+                "Unknown VPN command: {}. Available: start, stop, status",
+                cmd
+            ));
+        }
+        None => {
+            println!("Usage: proxybot-tui vpn <command> [--port <port>]");
+            println!("Commands:");
+            println!("  start [--port 9999]   Start the VPN tunnel server");
+            println!("  stop [--port 9999]    Signal the VPN tunnel server to stop");
+            println!("  status [--port 9999]  Show VPN tunnel server status");
+        }
+    }
+
+    Ok(true)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle workspace CLI commands (non-interactive mode)
     match handle_workspace_cli() {
@@ -277,6 +360,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Handle script CLI commands (non-interactive mode)
     match handle_script_cli() {
+        Ok(true) => return Ok(()),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        Ok(false) => {} // Continue to TUI
+    }
+
+    // Handle VPN CLI commands (non-interactive mode)
+    match handle_vpn_cli() {
         Ok(true) => return Ok(()),
         Err(e) => {
             eprintln!("Error: {}", e);
