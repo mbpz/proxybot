@@ -111,7 +111,8 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
 | **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
-| **v1.0.0 (NOW)** | Phase 2 In Progress | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting engine, gRPC/Protobuf decoder, iOS VPN |
+| **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
+| **v1.1.0 (NEXT)** | Phase 3 Start | GraphQL decoder, Prometheus metrics, LLM token tracking, Web dashboard, HTTP/3 research |
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
@@ -136,7 +137,7 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | Tauri GUI | ✅ | — | — | — | — | — |
 | ADB tunnel | ✅ | — | — | — | — | — |
 | Plugin system | ✅ v2.0 | ✅ addons | — | — | ✅ plugins | ✅ plugins |
-| Scripting hooks | — | ✅ Python | ✅ Scripting | — | ✅ rules | ✅ plugins |
+| Scripting hooks | ✅ Rhai v1.0 | ✅ Python | ✅ Scripting | — | ✅ rules | ✅ plugins |
 | Request composer | ✅ v0.10 | — | ✅ Compose | ✅ Send | ✅ Composer | — |
 | Diff tool | — | — | ✅ | — | — | — |
 | DNS spoofing | — | — | ✅ | — | — | ✅ |
@@ -188,6 +189,33 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | Team workspace | — | — | ✅ | — | ✅ DONE |
 
 **ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, Rust TUI+GUI dual interface. These are unique to ProxyBot.
+
+---
+
+## 3.3 Emerging Competitors Round 3 (May 2026)
+
+Discovered 8 new projects filling gaps not covered by earlier research:
+
+| Project | Stars | Key Innovation |
+|---------|-------|---------------|
+| [TokenTap](https://github.com/jmuncor/tokentap) | 797 | LLM API traffic interceptor, token-aware, context window tracking |
+| [Rockxy](https://github.com/RockxyApp/Rockxy) | 404 | Native macOS Swift proxy, GraphQL introspection, Charles alternative |
+| [KtorMonitor](https://github.com/CosminMihuMDC/KtorMonitor) | 217 | SDK-level interceptor, Compose Multiplatform (not network proxy) |
+| [httpmon](https://github.com/kostyay/httpmon) | 80 | Go Bubble Tea TUI, .proto gRPC decoding, JS scripting hooks |
+| [int3rceptor](https://github.com/S1b-Team/int3rceptor) | 4 | Rust+Vue.js hybrid, pentesting-first (Burp alternative) |
+| [intercept](https://github.com/mrceha/intercept) | — | Go single-binary, web dashboard, zero-dependency |
+| [mitmproxy-rs](https://github.com/josexy/mitmproxy-rs) | — | Library-first MITM for Rust, embeddable |
+| [go-traffic-proxy-analyzer](https://github.com/tahsinmert/go-traffic-proxy-analyzer) | — | Built-in Prometheus metrics + alerting |
+
+### New Strategic Opportunities
+
+| Opportunity | Rationale | Gap |
+|-------------|-----------|-----|
+| **GraphQL decoder** | Rockxy has it; no open-source tool decodes GraphQL-WS subscription traffic | P1 |
+| **Prometheus metrics** | go-traffic-proxy-analyzer pattern; makes ProxyBot CI/CD-friendly | P1 |
+| **LLM token tracking** | TokenTap hit 797 stars in 4 months; ProxyBot already has AI signatures | P2 |
+| **Web dashboard** | intercept pattern; complementary to TUI+Tauri GUI | P2 |
+| **HTTP/3 & QUIC** | ZERO open-source proxies support it; major whitespace | P3 (research) |
 
 ---
 

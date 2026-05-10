@@ -525,3 +525,84 @@ iOS Device                    Mac ProxyBot
 - 简约设计
 
 **ProxyBot 启示**: 移动端调试是核心场景，ProxyBot 的 app 分类是差异化优势。
+
+---
+
+## 11. 第三轮竞品搜集 (May 2026)
+
+深入挖掘 2025-2026 年新兴项目，聚焦创新架构和差异化功能。
+
+### 11.1 新兴竞品速览
+
+| 项目 | Stars | 语言 | 定位 | 创新点 |
+|------|-------|------|------|--------|
+| [TokenTap](https://github.com/jmuncor/tokentap) | 797 | Python | LLM API 流量拦截 | Token 感知、上下文窗口追踪、零配置 |
+| [Rockxy](https://github.com/RockxyApp/Rockxy) | 404 | Swift | macOS 原生代理 | SwiftUI+SwiftNIO、GraphQL 内省 |
+| [KtorMonitor](https://github.com/CosminMihuMDC/KtorMonitor) | 217 | Kotlin | SDK 层拦截器 | Compose Multiplatform、非代理模式 |
+| [httpmon](https://github.com/kostyay/httpmon) | 80 | Go | 终端 HTTP 代理 | Bubble Tea TUI、.proto 加载、JS 脚本 |
+| [int3rceptor](https://github.com/S1b-Team/int3rceptor) | 4 | Rust+Vue | 渗透测试代理 | Rust 核心 + Vue UI、Fuzzing |
+| [intercept](https://github.com/mrceha/intercept) | — | Go | 轻量代理 | 单二进制、Web Dashboard |
+| [mitmproxy-rs](https://github.com/josexy/mitmproxy-rs) | — | Rust | MITM 库 | 可嵌入、库优先设计 |
+| [go-traffic-proxy-analyzer](https://github.com/tahsinmert/go-traffic-proxy-analyzer) | — | Go | 流量分析 | 内置 Metrics+Alerting |
+
+### 11.2 关键发现
+
+**1. LLM/AI 流量调试是新战场**
+- TokenTap 4 个月冲到 797 stars，证明 AI API 流量分析是刚需
+- ProxyBot 已有 AI 签名分类（OpenAI/Anthropic/Azure），可增强 token 计数和上下文窗口追踪
+- 机遇：做第一个同时支持 LLM 流量分类 + token 成本估算 + 提示词审计的开源代理
+
+**2. GraphQL 支持已成标配**
+- Rockxy 内置 GraphQL 自省解码，mock-smith 支持浏览器端 GraphQL 拦截
+- 尚无人结构化解码 GraphQL Subscription (WebSocket) 流量
+- ProxyBot 已有 WebSocket frame viewer，扩展到 GraphQL-WS 协议解析成本低
+
+**3. HTTP/3 & QUIC 是最大空白**
+- 11 个新兴项目中零个支持 HTTP/3
+- QUIC 基于 UDP，传统 HTTP 代理模型不适用，需要全新方案
+- 这是 ProxyBot 可以建立技术护城河的领域
+
+**4. Web Dashboard 模式兴起**
+- intercept、int3rceptor、httpmon 都提供 Web UI 作为 TUI/CUI 的补充
+- ProxyBot 已有 Tauri GUI + TUI，增加轻量 Web dashboard（类似 mitmweb）可覆盖远程访问场景
+
+**5. 库优先 + 可嵌入趋势**
+- mitmproxy-rs 将 MITM 能力封装为库，供其他 Rust 项目集成
+- KtorMonitor 走 SDK 拦截器路线，在应用层而非网络层工作
+- ProxyBot 可参考：将核心 proxy engine 拆为独立 crate，允许被其他项目引用
+
+**6. Prometheus Metrics + Alerting**
+- go-traffic-proxy-analyzer 内置实时指标和告警
+- ProxyBot 已有 Alerts 面板，可增加 Prometheus `/metrics` 端点供外部监控集成
+
+### 11.3 竞品对比矩阵 v3 (新增维度)
+
+| 维度 | ProxyBot | httpmon | Rockxy | TokenTap | intercept | mitmproxy-rs |
+|------|----------|---------|--------|----------|-----------|--------------|
+| TUI | ✅ ratatui | ✅ Bubble Tea | — | ✅ Textual | — | — |
+| GUI | ✅ Tauri | — | ✅ SwiftUI | — | ✅ Web | — |
+| Web Dashboard | — | — | — | — | ✅ | — |
+| GraphQL 解码 | — | — | ✅ | — | — | — |
+| LLM Token 追踪 | 部分(签名) | — | — | ✅ | — | — |
+| gRPC/Protobuf | ✅ v1.0 | ✅ .proto | — | — | — | — |
+| HTTP/3 QUIC | — | — | — | — | — | — |
+| Metrics 导出 | — | — | — | — | — | — |
+| 单二进制部署 | ✅ | ✅ | — | — | ✅ | ✅ |
+| 库/嵌入式 | — | — | — | — | — | ✅ |
+| 脚本引擎 | ✅ Rhai | ✅ JS | — | — | — | — |
+| App 分类 | ✅ | — | — | — | — | — |
+| pf 透明代理 | ✅ | — | — | — | — | — |
+
+### 11.4 ProxyBot 增强机会
+
+基于此轮调研，识别出 5 个高价值增强方向：
+
+| # | 方向 | 竞品参考 | 优先级 | 预计工期 |
+|---|------|---------|--------|----------|
+| 1 | **GraphQL 解码器** | Rockxy 内置 GraphQL | P1 | 3-4 天 |
+| 2 | **Prometheus Metrics** | go-traffic-proxy-analyzer | P1 | 1-2 天 |
+| 3 | **LLM Token 追踪增强** | TokenTap 上下文窗口 | P2 | 3-4 天 |
+| 4 | **Web Dashboard (mitmweb 风格)** | intercept 单二进制 | P2 | 1-2 周 |
+| 5 | **HTTP/3 & QUIC 研究** | (无竞品，新领域) | P3 | 研究性 2+ 周 |
+
+**ProxyBot 的护城河依然牢固**: App 分类 + pf 透明代理 + TUI+GUI 双界面 + Rust 核心的组合在 2026 年竞品中仍然独特。新增的 HTTP/3 空白和 LLM 流量追踪是两个关键战略机会。
