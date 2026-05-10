@@ -51,6 +51,43 @@ fn get_default_rules() -> Vec<AppRule> {
                 "mybank.com".to_string(),
             ],
         },
+        AppRule {
+            name: "OpenAI".to_string(),
+            icon: "O".to_string(),
+            domains: vec![
+                "api.openai.com".to_string(),
+                "openai.com".to_string(),
+                "oaistg.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Anthropic".to_string(),
+            icon: "A".to_string(),
+            domains: vec!["api.anthropic.com".to_string(), "anthropic.com".to_string()],
+        },
+        AppRule {
+            name: "Azure-OpenAI".to_string(),
+            icon: "Z".to_string(),
+            domains: vec![
+                "openai.azure.com".to_string(),
+                "cognitiveservices.azure.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Google-AI".to_string(),
+            icon: "G".to_string(),
+            domains: vec!["generativelanguage.googleapis.com".to_string()],
+        },
+        AppRule {
+            name: "Cohere".to_string(),
+            icon: "C".to_string(),
+            domains: vec!["api.cohere.ai".to_string()],
+        },
+        AppRule {
+            name: "Groq".to_string(),
+            icon: "Q".to_string(),
+            domains: vec!["api.groq.com".to_string()],
+        },
     ]
 }
 

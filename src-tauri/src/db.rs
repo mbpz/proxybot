@@ -37,6 +37,20 @@ impl DbState {
         })
     }
 
+    /// Create an in-memory database for CLI mode (e.g., MCP stdio).
+    /// Does not persist data - useful for standalone tools.
+    pub fn new_in_memory(_guard: std::sync::Mutex<()>) -> SqlResult<Self> {
+        let conn = Connection::open_in_memory()?;
+
+        // Initialize schema
+        Self::init_schema(&conn)?;
+
+        log::info!("In-memory database initialized for CLI mode");
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
     /// Internal method to get device by IP (used by mac_address field).
     pub(crate) fn get_device_by_ip_internal(&self, ip: &str) -> Option<DeviceInfo> {
         let conn = self.conn.lock().ok()?;
@@ -239,6 +253,24 @@ impl DbState {
             );
 
             CREATE INDEX IF NOT EXISTS idx_vision_analyses_session ON vision_analyses(session_id);
+
+            CREATE TABLE IF NOT EXISTS ai_token_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT,
+                request_id TEXT,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                max_tokens INTEGER,
+                context_window INTEGER,
+                estimated BOOLEAN DEFAULT 0,
+                cost_usd REAL DEFAULT 0.0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_token_usage_provider ON ai_token_usage(provider);
+            CREATE INDEX IF NOT EXISTS idx_ai_token_usage_timestamp ON ai_token_usage(timestamp);
             "#,
         )?;
         Ok(())
@@ -619,6 +651,91 @@ pub struct RecentRequest {
     pub status: Option<u16>,
     pub duration_ms: Option<i64>,
     pub app_tag: Option<String>,
+}
+
+/// AI token usage summary for stats queries.
+#[derive(Serialize, Debug)]
+pub struct AiTokenStats {
+    pub provider: String,
+    pub model: String,
+    pub total_tokens: i64,
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub cost_usd: f64,
+    pub requests: i64,
+}
+
+impl DbState {
+    /// Record AI token usage from the tracker.
+    ///
+    /// **Schema coupling note**: This INSERT writes 11 columns to `ai_token_usage`.
+    /// If the table schema changes, `get_ai_stats()` (which groups by provider+model
+    /// with 6 aggregate columns) must be kept in sync. Both are tested together
+    /// via `cargo test --lib ai_stats`.
+    pub fn record_token_usage(
+        &self,
+        timestamp: &str,
+        provider: &str,
+        model: &str,
+        request_id: &str,
+        prompt_tokens: i64,
+        completion_tokens: i64,
+        total_tokens: i64,
+        context_window: i64,
+        estimated: bool,
+        cost_usd: f64,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO ai_token_usage (timestamp, provider, model, request_id, prompt_tokens, completion_tokens, total_tokens, max_tokens, context_window, estimated, cost_usd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                timestamp,
+                provider,
+                model,
+                request_id,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                0i64,
+                context_window,
+                estimated,
+                cost_usd,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Get aggregated AI token usage stats grouped by provider and model.
+    /// **Schema coupling note**: Reads 7 columns (index 0-6) from `ai_token_usage` via
+    /// GROUP BY aggregation. Column count and order must match the INSERT in
+    /// `record_token_usage()` above. Tested together via `cargo test --lib ai_stats`.
+    pub fn get_ai_stats(&self) -> Result<Vec<AiTokenStats>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider, model, SUM(total_tokens) as total, SUM(prompt_tokens) as prompt_total, SUM(completion_tokens) as completion_total, SUM(cost_usd) as cost, COUNT(*) as requests FROM ai_token_usage GROUP BY provider, model",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(AiTokenStats {
+                    provider: row.get(0)?,
+                    model: row.get(1)?,
+                    total_tokens: row.get(2)?,
+                    prompt_tokens: row.get(3)?,
+                    completion_tokens: row.get(4)?,
+                    cost_usd: row.get(5)?,
+                    requests: row.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]

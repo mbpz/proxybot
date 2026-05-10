@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { AiTokenGauge } from "./components/ai/AiTokenGauge";
+import { AiUsageTable } from "./components/ai/AiUsageTable";
 import "./index.css";
 
 interface InterceptedRequest {
@@ -1507,6 +1509,27 @@ function App() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* ── AI Token Tracking ── */}
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">AI Token Usage</span>
+                <span className="text-xs text-muted">OpenAI / Anthropic / Azure / Google / Cohere / Groq</span>
+              </div>
+              <div className="panel-body" style={{ padding: "var(--space-3)" }}>
+                <AiTokenGauge />
+              </div>
+            </div>
+
+            {/* ── AI Usage Table ── */}
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">AI Usage Details</span>
+              </div>
+              <div className="panel-body" style={{ padding: "var(--space-3)", maxHeight: 300, overflowY: "auto" }}>
+                <AiUsageTable />
               </div>
             </div>
 

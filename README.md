@@ -2,6 +2,8 @@
 
 A macOS HTTPS MITM proxy tool for developers. Phone and PC on the same LAN — phone sets gateway/DNS to PC IP, and ProxyBot captures + decrypts all HTTPS/WSS traffic. Traffic is classified by app (WeChat, Douyin, Alipay), then by domain within each app.
 
+> **Unique in the market**: ProxyBot is the only MITM proxy combining **pf transparent proxy** (zero-config on phone) + **built-in DNS server** (app correlation) + **app classification** (WeChat/Douyin/Alipay/AI) + **Rust TUI+GUI dual interface** + **Tauri native desktop**. After analyzing 25+ competitors, no other tool has this combination.
+
 ## Features
 
 - **Transparent HTTPS/WSS interception** with MITM SSL
@@ -238,6 +240,25 @@ Not yet. Windows support is planned for Phase 2.
 brew uninstall proxybot-tui
 ```
 
+## Competitive Positioning
+
+ProxyBot is the **only** open-source proxy that combines pf transparent proxy + built-in DNS server + app classification + Rust TUI+GUI. After 4 rounds of competitive research covering ~25 projects, the moat is clear:
+
+| Capability | ProxyBot | mitmproxy | Proxyman | proxelar | anything-analyzer |
+|------------|:--------:|:---------:|:--------:|:--------:|:-----------------:|
+| pf transparent proxy | ✅ | — | — | — | — |
+| Built-in DNS + DoH | ✅ | — | — | — | — |
+| App classification | ✅ | — | — | — | — |
+| TUI + GUI dual | ✅ | TUI only | GUI only | TUI+Web | GUI only |
+| Rust core | ✅ | — | — | ✅ | — |
+| MCP Server | — | — | — | — | ✅ |
+| AI analysis | Gen tab | — | — | — | ✅★★★★★ |
+
+**Closest competitor**: [proxelar](https://github.com/emanuele-em/proxelar) (Rust + ratatui + Lua) — shares the Rust+TUI stack but lacks transparent proxy and app classification.
+**AI threat**: [anything-analyzer](https://github.com/Mouseww/anything-analyzer) — AI-first approach with MCP Server, but Electron-based and lacks transparent proxy.
+
+See [full competitive analysis](docs/sdd/competitors-analysis.md) for details.
+
 ## Roadmap
 
 ### v0.4.x ✅
@@ -256,12 +277,37 @@ brew uninstall proxybot-tui
 - Rules engine integrated: MapRemote/MapLocal/Respond
 - `apply_request_rule()` sync rule engine with hot-reload
 
-### v0.8.0 (Next)
+### v0.8.0 ✅
 - Tauri GUI complete: Rules editor, Devices management, Certs UI
 - Full parity with TUI features
 
-### v1.0.0
-- iOS VPN API via NEPacketTunnel, WebView debugging, documentation complete
+### v0.9.0 ✅
+- Filter DSL (AND/OR/NOT/glob), WebSocket frame viewer, Replay engine, DAG visualization
+
+### v0.10.0 ✅
+- Code export (cURL/fetch/Python/Go), Request Composer, Syntax highlighting, Client setup wizard
+
+### v1.0.0 ✅
+- Plugin system v2.0, Network conditions, Team workspace, Rhai scripting, gRPC/Protobuf decoder, iOS VPN
+
+### v1.1.0 (CURRENT) ✅
+- GraphQL decoder, Prometheus metrics endpoint
+
+### v1.2.0 (NEXT)
+- **MCP Server** — Expose proxy as AI agent tools (Claude Desktop / Cursor integration)
+- **AI two-phase analysis** — Smart noise filtering → deep API analysis pipeline
+- **Column-scoped filter DSL** — `method:POST host:api status:2*` intuitive filtering
+- **QR code CA distribution** — One-scan CA install for mobile devices
+
+### v1.3.0
+- **proxybot-core** standalone crate — Library-first packaging
+- **Project file management** — Save/restore capture sessions
+- **Mobile web dashboard** — Lightweight mitmweb-style remote access
+
+### v2.0.0
+- Windows support (WFP transparent proxy)
+- HTTP/3 & QUIC research/prototype
+- Transport-layer TCP/UDP proxy
 
 ## Development
 

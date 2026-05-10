@@ -112,7 +112,39 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
 | **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
 | **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
-| **v1.1.0 (NOW)** | Phase 3 Start | GraphQL decoder ✅, Prometheus metrics ✅, LLM token tracking, Web dashboard, HTTP/3 research |
+| **v1.1.0 (DONE)** | Phase 3 Start | GraphQL decoder ✅, Prometheus metrics ✅, LLM token tracking ✅, Web dashboard ✅, HTTP/3 research ✅ |
+| **v1.2.0 (IN PROGRESS)** | AI + MCP | MCP Server (P0 ✅ implemented: stdio transport + JSON-RPC server + 5 tools), AI two-phase analysis (P1 ✅planned), Column-scoped filter DSL (P1 ✅planned), QR code CA distribution (P2 ✅planned) |
+| **v1.3.0** | Architecture | proxybot-core standalone crate (library-first), Project file management (save/restore sessions), Mobile web dashboard (lightweight mitmweb-style) |
+| **v2.0.0** | Platform | Windows support (WFP transparent proxy), HTTP/3 & QUIC research/prototype, Transport-layer TCP/UDP proxy |
+
+### v1.2.0 Implementation Plans
+
+| Feature | Plan | Spec | Status |
+|---------|------|------|--------|
+| **MCP Server** (P0) | `plans/2026-05-10-mcp-server.md` | `specs/2026-05-10-mcp-server-design.md` | ✅ Implemented (src-tauri/src/mcp/) |
+| **AI Two-Phase Analysis** (P1) | `plans/2026-05-10-ai-two-phase-analysis.md` | — | ✅ Planned |
+| **Column-Scoped Filter DSL** (P1) | `plans/2026-05-10-column-filter-dsl.md` | `specs/2026-05-09-advanced-filter-dsl.md` | ✅ Planned |
+| **QR Code CA Distribution** (P2) | `plans/2026-05-10-qr-ca-distribution.md` (in specs) | `specs/2026-05-10-qr-ca-distribution.md` | ✅ Planned |
+
+### MCP Server Implementation Details (v1.2.0 P0)
+
+**Files created:**
+- `src-tauri/src/mcp/mod.rs` — JSON-RPC 2.0 types, McpState struct, re-exports
+- `src-tauri/src/mcp/server.rs` — McpServer with 5 tool handlers (capture_traffic, classify_request, apply_rule, get_devices, get_alerts)
+- `src-tauri/src/mcp/transport.rs` — stdio transport with `start_stdio_mode()`
+- `src-tauri/src/mcp/protocol/mod.rs` — Protocol re-exports
+- `src-tauri/src/db.rs` — Added `new_in_memory()` for CLI mode
+
+**Tools exposed:**
+| Tool | Description | Status |
+|------|-------------|--------|
+| `capture_traffic` | Get recent HTTP/HTTPS requests with limit/filter/since | ✅ |
+| `classify_request` | Classify host/SNI to identify app (WeChat/Douyin/Alipay/AI) | ✅ |
+| `apply_rule` | Apply allow/block/log rule to a request | ✅ |
+| `get_devices` | List all connected devices | ✅ |
+| `get_alerts` | Get security/anomaly alerts | ✅ |
+
+**Usage:** `cargo run --bin proxybot-tui -- mcp-stdio` (once binary entry point added)
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
@@ -157,7 +189,89 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | iOS standalone app | — | — | ✅ | — | — | — |
 | Syntax highlighting | ✅ v0.10 | — | ✅ | ✅ | ✅ | — |
 
-## 3.1 Competitive Insights from Deep-Dive (May 2026)
+### Five-Dimension Analysis
+
+#### 1. 技术架构 (Tech Stack)
+
+| Stack Type | Tools | ProxyBot Position |
+|------------|-------|------------------|
+| Python (async) | mitmproxy, proxy.py | v1.0 uses Rust async (tokio) — superior I/O performance |
+| Node.js | whistle, anyproxy | v1.0 Rust — no Node.js dependency, lower memory |
+| Go | Hetty, hyperfox, forwarder | Comparable performance; ProxyBot has TUI advantage |
+| Rust | proxelar, bandwhich, int3rceptor | **Only** Rust + Tauri + MITM combination |
+| Electron | HTTP Toolkit, anything-analyzer | ProxyBot (Tauri) has 10x lower memory footprint |
+| Swift native | Proxyman, Rockxy | ProxyBot Tauri is cross-platform |
+
+**Key finding: ProxyBot is the ONLY Tauri-based MITM proxy tool.** Clash Verge (116k stars) proves Tauri works for proxy/network tools but they are VPN routing tools — none do traffic interception/decryption. ProxyBot is first-mover in this space.
+
+#### 2. 原理 (Mechanism)
+
+| Mechanism | How It Works | ProxyBot |
+|-----------|--------------|----------|
+| **pf transparent proxy** | macOS pf redirects :80/:443 to local proxy | ✅ Unique — no manual proxy config on phone |
+| **MITM TLS termination** | Dynamic leaf certs signed by root CA | ✅ |
+| **DNS correlation** | Log DNS queries → correlate with connections → identify app | ✅ Unique — no competitor does this |
+| **SNI inspection** | TLS ClientHello domain extraction | ✅ |
+| **CDP capture** | Chrome DevTools Protocol browser interception | anything-analyzer (not ProxyBot) |
+| **Transport-layer** | TCP/UDP/DTLS interception (not just HTTP) | InterceptSuite only |
+
+**Mechanism Insight**: ProxyBot's pf transparent proxy + DNS correlation is a two-layer capture system no competitor has.
+
+#### 3. 实现方案 (Implementation)
+
+| Implementation | mitmproxy | Proxyman | HTTP Toolkit | ProxyBot |
+|---------------|-----------|----------|--------------|----------|
+| Proxy core | Python asyncio | SwiftNIO | Node.js mockttp | Rust tokio+hyper+rustls |
+| GUI framework | mitmweb (React) | AppKit | Electron | **Tauri v2 + React** |
+| TUI framework | NCurses | — | — | ratatui |
+| Script engine | Python | Scripting | — | Rhai |
+| Database | SQLite | SQLite | better-sqlite3 | SQLite |
+| Certificate | rcgen | Security framework | node-forge | rcgen |
+
+**Implementation Insight**: ProxyBot is the only MITM tool with dual interfaces (TUI + Tauri GUI). Tauri provides native desktop experience without Electron overhead.
+
+#### 4. 交互 (UX/Interaction)
+
+| UX Pattern | Leader | ProxyBot Status |
+|-------------|--------|-----------------|
+| **Three-panel layout** (list/overview/detail) | HTTP Toolkit | v1.0 has 60/40 split — needs three-panel upgrade |
+| **Color-coded methods** (GET=green, POST=blue) | HTTP Toolkit | Implemented in TUI |
+| **One-click CA install** | Proxyman, HTTP Toolkit | Basic wizard — needs improvement |
+| **QR code CA distribution** | proxelar, hyperfox | Not implemented |
+| **Column-scoped filter** | proxelar (`method:POST`) | RegEx search — proxelar wins |
+| **Keyboard-driven TUI** | ProxyBot (ratatui) | Best-in-class |
+| **Virtual scroll large lists** | HTTP Toolkit, Proxyman | TanStack Virtual — implemented |
+
+**UX Gap**: proxelar's `column:value` filter syntax is more intuitive than ProxyBot's regex. HTTP Toolkit's three-panel layout is the reference design.
+
+#### 5. 产品 (Positioning)
+
+| Positioning | Leader | ProxyBot |
+|-------------|--------|----------|
+| Target platform | mitmproxy (cross-platform) | macOS-only (Phase 1) |
+| Target user | Security researcher | Developer (mobile debugging) |
+| Primary differentiator | Addon ecosystem | App classification + pf transparent |
+| Pricing | Free (most) | MIT open source |
+| Enterprise features | Burp Suite ($449/yr) | Team workspace ✅ |
+| AI integration | anything-analyzer | Gen tab (LLM inference) |
+
+**Product Insight**: ProxyBot's positioning is "developer tool for mobile traffic debugging with app intelligence." This is unique — no competitor combines transparent proxy + app classification + mobile focus.
+
+---
+
+## 3.2 Competitive Insights from Deep-Dive
+
+### From anything-analyzer (2,366 stars) — AI + MCP Architecture
+- **MCP Server integration** — exposes proxy as MCP tools for AI agents (Claude Desktop, Cursor)
+- **AI two-phase pipeline** — Phase 1 filters noise → Phase 2 deep analysis
+- **CDP + MITM dual capture** — browser interception unified with proxy interception
+- **ProxyBot opportunity**: P0 priority — implement MCP Server to expose capture/classify/rules as tools
+
+### From proxelar (966 stars) — Rust TUI + Column Filter
+- **Column-scoped DSL** — `method:POST host:api status:200` is more intuitive than regex
+- **Three interfaces** — terminal/TUI/Web GUI via single binary
+- **Lua scripting** — more mature ecosystem than Rhai
+- **ProxyBot opportunity**: Integrate column:value syntax into Filter DSL
 
 ### From whistle (15.5k stars) — Plugin Architecture
 - **Hook chain model**: `onRequest → onResponse → onConnect → onServer → onSocket → onError`
@@ -172,6 +286,11 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 - **ADB integration**: `adb reverse` + QR-coded WiFi proxy setup
 - **ProxyBot opportunity**: Adopt three-panel GUI, enhance CA wizard, improve ADB UX
 
+### From hyperfox (1,631 stars) — QR Code CA Distribution
+- **QR code CA install** — 手机扫码安装CA，降低移动端配置门槛
+- **移动端 Web Dashboard** — 适配手机屏幕的轻量界面
+- **ProxyBot opportunity**: P2 实现 QR code + 内置 HTTP 下载 CA
+
 ### From Proxyman Atlantis — iOS VPN Simplification
 - **Minimal approach**: Don't do on-device MITM, just forward packets to Mac's existing MITM
 - **Protocol**: Raw IP over TCP (simplified) with length-prefixed framing
@@ -180,15 +299,21 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 
 ### Competitive Gap Matrix (Updated)
 
-| Feature | ProxyBot | whistle | HTTP Toolkit | Proxyman | Gap Priority |
-|---------|----------|---------|--------------|----------|--------------|
-| Plugin system | Stub (v1.0) | Full | — | — | ✅ DONE (P1) |
-| CA wizard | Basic | — | Full | One-click | P2 |
-| ADB integration | USB | — | Full | — | P2 |
-| iOS VPN | Research only | — | — | Full | P2 |
-| WebView debugging | CDP stub | Full | — | — | P3 |
-| Network conditions | — | — | ✅ | ✅ | ✅ DONE |
-| Team workspace | — | — | ✅ | — | ✅ DONE |
+| Feature | ProxyBot | whistle | HTTP Toolkit | Proxyman | anything-analyzer | Gap Priority |
+|---------|----------|---------|--------------|----------|-------------------|--------------|
+| MCP Server | ❌ | ❌ | ❌ | ❌ | ✅ | **P0** (新增) |
+| AI two-phase analysis | ❌ | ❌ | ❌ | ❌ | ✅ | P1 (新增) |
+| Plugin system | ✅ v2.0 | Full | — | — | — | ✅ DONE |
+| CA wizard | Basic | — | Full | One-click | — | P2 |
+| Column-scoped filter | Regex | — | — | ✅ | — | P1 |
+| QR code CA | ❌ | — | — | — | — | P2 (新增) |
+| ADB integration | USB | — | Full | — | — | P2 |
+| iOS VPN | ✅ v1.0 | — | — | ✅ Atlantis | — | ✅ DONE |
+| Network conditions | ✅ v1.0 | — | ✅ | ✅ | — | ✅ DONE |
+| Team workspace | ✅ v1.0 | — | ✅ | — | — | ✅ DONE |
+| WebView debugging | CDP stub | ✅ | — | ✅ | ✅ | P3 |
+| CDP browser capture | ❌ | — | — | — | ✅ | P3 |
+| HTTP/3 QUIC | ❌ | ❌ | ❌ | ❌ | ❌ | P3 |
 
 **ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, Rust TUI+GUI dual interface. These are unique to ProxyBot.
 
@@ -218,6 +343,34 @@ Discovered 8 new projects filling gaps not covered by earlier research:
 | **LLM token tracking** | TokenTap hit 797 stars in 4 months; ProxyBot already has AI signatures | P2 |
 | **Web dashboard** | intercept pattern; complementary to TUI+Tauri GUI | P2 |
 | **HTTP/3 & QUIC** | ZERO open-source proxies support it; major whitespace | P3 (research) |
+
+---
+
+## 3.4 Emerging Competitors Round 4 (May 2026)
+
+Discovered 6 more high-value projects not covered in earlier rounds:
+
+| Project | Stars | Key Innovation |
+|---------|-------|---------------|
+| [proxelar](https://github.com/emanuele-em/proxelar) | 966 | Rust+ratatui+Lua MITM, column-scoped filter DSL, TUI+CLI+Web three interfaces |
+| [anything-analyzer](https://github.com/Mouseww/anything-analyzer) | 2,366 | AI-powered auto reverse-engineering, MCP Server for AI agents, CDP+MITM dual capture |
+| [hyperfox](https://github.com/malfunkt/hyperfox) | 1,631 | QR code CA distribution, per-session SQLite DB, mobile-friendly web UI |
+| [InterceptSuite](https://github.com/InterceptSuite/InterceptSuite) | 772 | TCP/UDP/DTLS/TLS transport-layer MITM, IoT/Thick Client focus, Python extensions |
+| [forwarder](https://github.com/saucelabs/forwarder) | 280 | PAC auto-config, HTTP/2/WebSocket/SSE/TCP, production use at Sauce Labs |
+| [gomitmproxy](https://github.com/AdguardTeam/gomitmproxy) | 344 | Library-first Go MITM by AdGuard, embeddable, custom cert storage |
+
+### New Strategic Opportunities (Round 4)
+
+| Opportunity | Rationale | Gap |
+|-------------|-----------|-----|
+| **MCP Server** | anything-analyzer proves proxy-as-AI-tool is high-demand; ProxyBot can expose capture/classify/rules as MCP tools | P0 |
+| **AI two-phase analysis** | anything-analyzer's filter→deep-analysis pipeline improves Gen tab quality significantly | P1 |
+| **Column-scoped filter DSL** | proxelar's `method:POST host:api` syntax is more intuitive than regex; integrate into existing Filter DSL | P1 |
+| **QR code CA distribution** | hyperfox/proxelar both use QR codes for mobile CA install; ProxyBot still uses manual AirDrop | P2 |
+| **proxybot-core crate** | gomitmproxy/mitmproxy-rs show library-first expands ecosystem; extract core proxy engine as standalone Rust crate | P2 |
+| **Project file management** | InterceptSuite saves/restores capture sessions; ProxyBot could add workspace persistence | P2 |
+| **HTTP/3 & QUIC** | Still zero open-source proxies support it; remains major whitespace opportunity | P3 |
+| **Transport-layer proxy** | InterceptSuite proves demand for non-HTTP MITM (MQTT/CoAP/gaming/DB protocols) | P3 |
 
 ---
 

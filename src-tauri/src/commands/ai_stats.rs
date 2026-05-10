@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use crate::db::DbState;
+
 /// Estimate token count using simple character ratio
 /// AI APIs typically use ~4 chars/token for English text
 pub fn estimate_tokens(text: &str) -> usize {
@@ -98,6 +102,74 @@ pub fn estimate_api_cost(model: &str, input_tokens: usize, output_tokens: usize)
         + (output_tokens as f64 / 1_000_000.0 * pricing.output_per_m)
 }
 
+/// Get context window sizes as a static map (shared with Tauri frontend).
+pub fn get_context_windows_map() -> std::collections::HashMap<&'static str, u64> {
+    let mut map = std::collections::HashMap::new();
+    map.insert("gpt-4o", 128_000);
+    map.insert("gpt-4o-mini", 128_000);
+    map.insert("gpt-4-turbo", 128_000);
+    map.insert("gpt-3.5-turbo", 16_385);
+    map.insert("claude-3-5-sonnet", 200_000);
+    map.insert("claude-3-opus", 200_000);
+    map.insert("claude-3-sonnet", 200_000);
+    map.insert("claude-3-haiku", 200_000);
+    map.insert("gemini-1.5-pro", 2_097_152);
+    map.insert("gemini-1.5-flash", 1_048_576);
+    map.insert("llama-3.1-70b", 128_000);
+    map.insert("llama-3.1-8b", 128_000);
+    map.insert("command-r-plus", 128_000);
+    map.insert("command-r", 128_000);
+    map
+}
+
+/// Get aggregated AI token usage stats from the database.
+#[tauri::command]
+pub fn get_ai_stats(state: tauri::State<'_, Arc<DbState>>) -> Result<serde_json::Value, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT provider, model, SUM(total_tokens) as total, SUM(cost_usd) as cost, COUNT(*) as requests FROM ai_token_usage GROUP BY provider, model",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows: Vec<serde_json::Value> = stmt
+        .query_map([], |row| {
+            Ok(serde_json::json!({
+                "provider": row.get::<_, String>(0)?,
+                "model": row.get::<_, String>(1)?,
+                "total_tokens": row.get::<_, i64>(2)?,
+                "cost_usd": row.get::<_, f64>(3)?,
+                "requests": row.get::<_, i64>(4)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(serde_json::json!({ "stats": rows }))
+}
+
+/// Get context window sizes for display in the frontend.
+#[tauri::command]
+pub fn get_ai_context_windows() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "gpt-4o": 128_000,
+        "gpt-4o-mini": 128_000,
+        "gpt-4-turbo": 128_000,
+        "gpt-3.5-turbo": 16_385,
+        "claude-3-5-sonnet": 200_000,
+        "claude-3-opus": 200_000,
+        "claude-3-sonnet": 200_000,
+        "claude-3-haiku": 200_000,
+        "gemini-1.5-pro": 2_097_152,
+        "gemini-1.5-flash": 1_048_576,
+        "llama-3.1-70b": 128_000,
+        "llama-3.1-8b": 128_000,
+        "command-r-plus": 128_000,
+        "command-r": 128_000,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +193,20 @@ mod tests {
     fn test_estimate_api_cost_unknown_model() {
         let cost = estimate_api_cost("unknown-model", 1000, 1000);
         assert!(cost > 0.0);
+    }
+
+    #[test]
+    fn test_get_model_pricing_known() {
+        let p = get_model_pricing("gpt-4o");
+        assert_eq!(p.input_per_m, 2.50);
+        assert_eq!(p.output_per_m, 10.00);
+    }
+
+    #[test]
+    fn test_context_windows_api() {
+        let windows = get_context_windows_map();
+        assert_eq!(windows.get("gpt-4o"), Some(&128_000));
+        assert_eq!(windows.get("claude-3-5-sonnet"), Some(&200_000));
+        assert_eq!(windows.get("gemini-1.5-pro"), Some(&2_097_152));
     }
 }

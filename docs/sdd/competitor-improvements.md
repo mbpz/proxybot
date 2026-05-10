@@ -245,3 +245,182 @@ docs/
 | 微信 jssdk 注入 | spy-debugger | 中（移动端特色） |
 | 项目制管理 | Hetty | 低（暂不需要） |
 | Mock Server 内置 | HTTP Toolkit | 中（Gen tab 已覆盖） |
+
+---
+
+## 第四轮竞品分析新增行动计划 (May 2026)
+
+基于 proxelar、anything-analyzer、hyperfox、InterceptSuite、forwarder、gomitmproxy 的深度分析。
+
+### P0: 必须立即实现
+
+#### 1. MCP Server 集成
+
+**现状**: ProxyBot 无法被 AI Agent 直接调用
+**竞品参考**: anything-analyzer 内置 MCP Server，将抓包/分析能力暴露为 MCP 工具
+**建议实现**:
+
+```rust
+// MCP Server 暴露的工具
+#[mcp_tool]
+async fn capture_traffic(url: String) -> Vec<Request> { ... }
+
+#[mcp_tool]
+async fn classify_app(host: String) -> AppTag { ... }
+
+#[mcp_tool]
+async fn analyze_api(session_id: String) -> ApiSpec { ... }
+
+#[mcp_tool]
+async fn get_rules() -> Vec<Rule> { ... }
+```
+
+**收益**: Claude Desktop / Cursor / Windsurf 可直接调用 ProxyBot 进行流量分析
+**预计工期**: 3-5 天
+
+---
+
+### P1: 高优先级增强
+
+#### 2. AI 两阶段分析管道
+
+**现状**: Gen tab 的 LLM 推断直接处理全部请求，噪声多、token 成本高
+**竞品参考**: anything-analyzer Phase 1 (智能过滤) → Phase 2 (深度分析)
+**建议实现**:
+
+```
+Phase 1: 智能过滤
+├── 去重 (相同 endpoint + method)
+├── 过滤静态资源 (images/css/fonts)
+├── 过滤第三方 SDK 请求 (analytics/crash)
+├── 聚类相似请求 (RESTful 参数化)
+└── 输出: 去噪后的候选 API 列表
+
+Phase 2: 深度分析
+├── API 端点文档生成
+├── 鉴权流程识别 (OAuth/JWT/API Key)
+├── 请求/响应 schema 推断
+├── 生成复现代码 (Python/curl/Go)
+└── Token 使用量估算 (AI API)
+```
+
+**收益**: AI 推断质量提升，token 成本降低 ~60%
+**预计工期**: 1 周
+
+#### 3. 列作用域过滤 DSL
+
+**现状**: Filter DSL 基于 AND/OR/NOT + glob，语法较复杂
+**竞品参考**: proxelar `method:POST host:api status:200 type:json`
+**建议实现**:
+
+```rust
+// 集成到现有 Filter DSL
+// 简化语法: column:value 自动映射到对应列
+"method:POST host:*.example.com status:2* type:json duration:slow"
+
+// 保留高级 DSL 用于复杂查询
+"(method:GET OR method:POST) AND (status:4* OR status:5*)"
+```
+
+**收益**: 过滤效率提升 3-5x，降低学习曲线
+**预计工期**: 2-3 天
+
+---
+
+### P2: 体验优化
+
+#### 4. QR code CA 分发
+
+**现状**: CA 证书需手动 AirDrop/邮件，步骤多
+**竞品参考**: hyperfox 生成 QR code 供手机扫码下载；proxelar `http://proxel.ar` 内置 HTTP 下载
+**建议实现**:
+
+```rust
+// CA 安装向导
+1. 生成 QR code (CA PEM URL)
+2. 启动本地 HTTP server 提供证书下载
+3. 手机扫码 → 下载 → 安装 profile
+4. 验证安装 (检测请求是否被成功解密)
+```
+
+**收益**: CA 安装从 5 步降到 2 步 (扫码 → 授权)
+**预计工期**: 1 天
+
+#### 5. proxybot-core 独立 crate
+
+**现状**: 核心代理引擎与 Tauri/TUI 紧耦合
+**竞品参考**: gomitmproxy (AdGuard)、mitmproxy-rs 将 MITM 封装为独立库
+**建议实现**:
+
+```toml
+# Cargo.toml
+[workspace]
+members = [
+    "proxybot-core",    # 核心代理引擎 (可独立发布)
+    "proxybot-tui",     # TUI 界面
+    "proxybot-tauri",   # Tauri GUI
+    "proxybot-mcp",     # MCP Server
+]
+```
+
+**收益**: 
+- 其他 Rust 项目可直接引用 proxybot-core
+- 降低贡献门槛 (不需要理解 GUI 代码)
+- 扩大生态影响力
+**预计工期**: 1 周
+
+#### 6. 项目文件管理
+
+**现状**: 所有流量写入单一 SQLite，无会话隔离
+**竞品参考**: InterceptSuite 项目制管理；hyperfox 每会话独立 DB
+**建议实现**:
+
+```rust
+// Workspace 管理
+pub struct Workspace {
+    pub name: String,
+    pub db_path: PathBuf,      // 独立 SQLite
+    pub rules: Vec<Rule>,      // 工作区规则
+    pub devices: Vec<Device>,  // 关联设备
+    pub created_at: DateTime,
+}
+```
+
+**收益**: 按测试任务/项目隔离流量，支持导出分享
+**预计工期**: 3-4 天
+
+---
+
+### P3: 研究性任务
+
+#### 7. HTTP/3 & QUIC 支持
+
+**现状**: 零个开源代理支持 HTTP/3 解密
+**竞品参考**: 无 (蓝海)
+**研究方向**:
+- QUIC 连接迁移 vs MITM
+- HTTP/3 QPACK header 压缩
+- 0-RTT 会话恢复的安全影响
+**预计工期**: 2+ 周研究
+
+#### 8. 传输层 TCP/UDP 代理
+
+**现状**: ProxyBot 仅处理 HTTP/HTTPS/WSS
+**竞品参考**: InterceptSuite TCP/UDP/DTLS
+**建议**: 研究 MQTT/CoAP/gRPC-streaming 等非 HTTP 协议代理可行性
+**预计工期**: 2-3 周原型
+
+---
+
+## 更新后的优先级总览
+
+| # | 方向 | 来源 | 优先级 | 预计工期 |
+|---|------|------|--------|----------|
+| 1 | **MCP Server** | anything-analyzer | P0 | 3-5 天 |
+| 2 | **AI 两阶段分析管道** | anything-analyzer | P1 | 1 周 |
+| 3 | **列作用域过滤 DSL** | proxelar | P1 | 2-3 天 |
+| 4 | **QR code CA 分发** | hyperfox/proxelar | P2 | 1 天 |
+| 5 | **proxybot-core crate** | gomitmproxy/mitmproxy-rs | P2 | 1 周 |
+| 6 | **项目文件管理** | InterceptSuite/hyperfox | P2 | 3-4 天 |
+| 7 | **HTTP/3 & QUIC** | (蓝海) | P3 | 2+ 周 |
+| 8 | **传输层代理** | InterceptSuite | P3 | 2-3 周 |

@@ -510,7 +510,30 @@ fn handle_dashboard_cli() -> Result<bool, String> {
     Ok(true)
 }
 
+/// Handle MCP CLI subcommand (non-interactive mode).
+/// Returns Ok(true) if the mcp-stdio command was handled (caller should exit).
+/// Returns Ok(false) if no MCP command was given (continue to TUI).
+fn handle_mcp_cli() -> Result<bool, String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 || args[1] != "mcp-stdio" {
+        return Ok(false);
+    }
+
+    proxybot_lib::mcp::transport::start_stdio_mode();
+    Ok(true)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Handle MCP CLI command (non-interactive mode)
+    match handle_mcp_cli() {
+        Ok(true) => return Ok(()),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        Ok(false) => {} // Continue to TUI
+    }
+
     // Handle workspace CLI commands (non-interactive mode)
     match handle_workspace_cli() {
         Ok(true) => return Ok(()),

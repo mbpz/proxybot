@@ -4020,6 +4020,7 @@ dependencies = [
  "tun",
  "tungstenite",
  "ureq",
+ "uuid",
 ]
 
 [[package]]

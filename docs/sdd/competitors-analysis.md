@@ -606,3 +606,370 @@ iOS Device                    Mac ProxyBot
 | 5 | **HTTP/3 & QUIC 研究** | (无竞品，新领域) | P3 | 研究性 2+ 周 |
 
 **ProxyBot 的护城河依然牢固**: App 分类 + pf 透明代理 + TUI+GUI 双界面 + Rust 核心的组合在 2026 年竞品中仍然独特。新增的 HTTP/3 空白和 LLM 流量追踪是两个关键战略机会。
+
+---
+
+## 12. 第四轮竞品搜集 (May 2026)
+
+深入挖掘 6 个前 3 轮未覆盖的高价值项目。
+
+### 12.1 新增竞品速览
+
+| 项目 | Stars | 语言 | 定位 | 创新点 |
+|------|-------|------|------|--------|
+| [proxelar](https://github.com/emanuele-em/proxelar) | 966 | Rust | 可编程 MITM 代理 | Rust+ratatui+Lua、三界面(TUI/CLI/Web)、列作用域过滤 |
+| [anything-analyzer](https://github.com/Mouseww/anything-analyzer) | 2,366 | TypeScript | 全场景协议分析 | 浏览器CDP+MITM双通道、AI逆向分析、MCP Server集成 |
+| [hyperfox](https://github.com/malfunkt/hyperfox) | 1,631 | Go | HTTP/HTTPS 录制代理 | SQLite 录制、QR code CA 分发、Web UI + REST API |
+| [InterceptSuite](https://github.com/InterceptSuite/InterceptSuite) | 772 | C# | 传输层 MITM | TCP/UDP/DTLS/TLS、IoT/Thick Client、Python 扩展 API |
+| [forwarder](https://github.com/saucelabs/forwarder) | 280 | Go | 生产级 MITM | PAC 支持、HTTP/2/WebSocket/SSE/TCP、Sauce Labs 生产环境使用 |
+| [gomitmproxy](https://github.com/AdguardTeam/gomitmproxy) | 344 | Go | 库优先 MITM | AdGuard 出品、可嵌入、自定义证书存储、onRequest/onResponse |
+
+---
+
+### 12.2 proxelar (966 ⭐) — Rust 可编程 MITM 代理
+
+**定位**: 最接近 ProxyBot 架构的竞品。Rust 核心 + ratatui TUI + Lua 脚本。
+
+**技术架构**:
+```
+Your App → Proxelar :8080 → Internet
+                │
+          Inspect · Modify · Mock (Lua)
+```
+- 核心: Rust + hyper + rustls + tokio
+- TUI: ratatui (与 ProxyBot 相同框架)
+- Web GUI: axum + WebSocket 实时推送
+- 脚本: Lua (mlua crate)，非 Rhai
+- 安装: Homebrew / Cargo / Docker
+
+**核心功能**:
+- **Lua 脚本**: on_request / on_response hooks，可修改/阻断/mock
+- **三界面**: terminal (stdout)、TUI (ratatui)、Web GUI (axum)
+- **列作用域过滤**: `time:14:`, `proto:https`, `method:POST`, `host:github`, `path:/api`, `status:404`, `type:json`, `size:1KB`, `duration:slow` — 比正则更直观
+- **正向/反向代理**: CONNECT 隧道或上游 URI 重写
+- **WebSocket 检查**: 按方向/opcode/payload 浏览帧
+- **CA 自动安装**: 访问 `http://proxel.ar` 下载并安装根证书
+- **请求重放**: TUI 内 `r` 键重放选中请求
+
+**TUI 快捷键**:
+| 键 | 动作 |
+|----|------|
+| `j/k/↑/↓` | 导航列表 |
+| `Enter` | 打开详情面板 |
+| `Tab` | 切换 Request/Response/Frames |
+| `/` | 过滤 (plain text 或 column:value) |
+| `r` | 重放请求 |
+| `g/G` | 跳转顶部/底部 |
+| `c` | 清空请求列表 |
+
+**与 ProxyBot 对比**:
+
+| 维度 | proxelar | ProxyBot |
+|------|---------|----------|
+| 语言 | Rust | Rust |
+| TUI 框架 | ratatui | ratatui |
+| GUI | axum Web GUI | Tauri v2 + React |
+| 脚本 | Lua (mlua) | Rhai |
+| 过滤 | 列作用域 DSL | 正则搜索 |
+| 透明代理 | ❌ | ✅ pf |
+| DNS 服务器 | ❌ | ✅ 内置 DoH/UDP |
+| App 分类 | ❌ | ✅ DNS+SNI+规则 |
+| 设备管理 | ❌ | ✅ 多设备注册 |
+| 规则引擎 | 仅 Lua 脚本 | ✅ YAML 规则 + 5 动作 |
+| Mock 生成 | Lua return | ✅ Gen tab (API/前端/Docker) |
+| DAG 分析 | ❌ | ✅ 流量 DAG + Auth 状态机 |
+| HAR 导出 | ❌ | ✅ |
+| 安装方式 | brew/cargo/docker | brew/cargo/build |
+| Stars | 966 | — |
+
+**ProxyBot 可借鉴**:
+1. **列作用域过滤 DSL** — `method:POST host:api` 比纯正则更直观，可集成到 Filter DSL
+2. **三界面策略** — proxelar 的 terminal/TUI/GUI 三选一设计验证了多界面路线的可行性
+3. **CA auto-install wizard** — `http://proxel.ar` 方案比手动导出更友好
+4. **WebSocket 帧浏览** — 按方向/opcode 分类比 ProxyBot 当前的 text/hex 视图更结构化
+
+**威胁评估**: 中。proxelar 是最接近 ProxyBot 的开源竞品，但缺少透明代理、DNS 服务器和 App 分类这三个 ProxyBot 的核心差异化能力。proxelar 的 Lua 脚本在生态上比 Rhai 更成熟（更多现成脚本可复用）。
+
+---
+
+### 12.3 anything-analyzer (2,366 ⭐) — AI 驱动的全场景协议分析
+
+**定位**: 不只是抓包工具，是 AI 自动逆向分析平台。4 个月冲到 2.3k stars。
+
+**技术架构**:
+```
+网页(Chrome CDP) + 桌面应用(MITM) + 终端(curl) + 脚本(Python/Node) + 手机(Wi-Fi代理)
+                              ↓
+                    统一会话 Session (SQLite)
+                              ↓
+                AI 两阶段分析 (过滤 → 深度分析)
+                              ↓
+              MCP Server → AI Agent/IDE 直接调用
+```
+- 框架: Electron 35 + React 19 + TypeScript
+- 数据库: better-sqlite3
+- 浏览器: Chrome DevTools Protocol (CDP) Fetch domain
+- 代理: 内置 MITM HTTPS (node-forge TLS)
+- AI: OpenAI / Anthropic / 自定义 LLM (Chat Completions + Responses API)
+- MCP: Client (stdio + StreamableHTTP) + 内置 MCP Server
+
+**核心差异化能力**:
+
+1. **双通道统一捕获** — CDP (浏览器) + MITM (外部) → 同一 Session
+2. **AI 两阶段分析** — Phase 1 智能过滤噪声 → Phase 2 深度分析
+3. **5 种分析模式** — 自动识别 / API 逆向 / 安全审计 / 性能分析 / JS 加密逆向
+4. **JS Hook 注入** — 自动拦截 fetch、XHR、crypto.subtle、CryptoJS、SM2/3/4
+5. **加密代码提取** — 从 JS 文件中自动提取加密相关代码片段
+6. **MCP Server** — 将抓包能力暴露为 MCP 工具，Claude Desktop/Cursor 可直接调用
+7. **流式 AI 输出 + 多轮追问** — 报告实时显示，可追问细节
+8. **内嵌浏览器** — 多标签页，OAuth 弹窗自动捕获
+
+**5 维分析**:
+
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 技术架构 | ★★★★ | 双通道(CDP+MITM)设计巧妙，但 Electron 性能开销大 |
+| 设计理念 | ★★★★★ | "抓包→AI分析"闭环创新，从工具到平台的跃迁 |
+| 实现方案 | ★★★★ | CDP+MITM 混合架构独特，JS Hook 注入技术领先 |
+| 交互设计 | ★★★★ | Ant Design 现代 UI，但 Electron 不够原生 |
+| 产品定位 | ★★★★★ | 唯一将 AI 分析作为一等公民的抓包工具 |
+
+**与 ProxyBot 对比**:
+
+| 维度 | anything-analyzer | ProxyBot |
+|------|-------------------|----------|
+| 核心技术 | Electron + TypeScript | Rust + Tauri |
+| 性能 | 中 (Electron) | 高 (Rust 原生) |
+| 抓包方式 | CDP + MITM 双通道 | pf 透明代理 |
+| AI 能力 | ★★★★★ 自动逆向分析 | ★★ Gen tab (LLM 推断) |
+| MCP 集成 | ✅ Client + Server | ❌ |
+| JS Hook 注入 | ✅ crypto.subtle/CryptoJS | ❌ |
+| 移动端 | Wi-Fi 代理 | pf 透明代理 (零配置) |
+| App 分类 | ❌ | ✅ |
+| 平台 | Win/Mac/Linux | macOS (Win 计划中) |
+| 开源 | MIT | MIT |
+
+**ProxyBot 可借鉴**:
+1. **MCP Server 集成** (P1) — 将 ProxyBot 的抓包/分类/规则能力暴露为 MCP 工具，让 Claude/Cursor 直接操作
+2. **AI 两阶段分析** (P1) — Phase 1 过滤噪声请求 → Phase 2 深度分析，提升 Gen tab 的 AI 推断质量
+3. **流式 AI 输出** (P2) — Gen tab 的 LLM 推断改为流式显示，改善长等待体验
+4. **JS Hook 注入思路** (P3) — 可用于客户端加密逆向场景
+
+**威胁评估**: 低-中。anything-analyzer 的 AI 分析是其核心差异，但 Electron 性能和 pf 透明代理的缺失使其无法直接竞争移动端场景。然而其 MCP Server 策略值得警惕——如果抓包工具变成 AI Agent 的基础设施，先发优势会迅速放大。
+
+---
+
+### 12.4 hyperfox (1,631 ⭐) — HTTP/HTTPS 录制代理
+
+**定位**: 轻量级 Go 代理，专注 HTTP/HTTPS 流量录制和回放。
+
+**技术架构**:
+```
+Client → Hyperfox (:1080 HTTP / :10443 HTTPS) → Internet
+                   ↓
+              SQLite DB (per-session)
+                   ↓
+         Web UI (:1984) + REST API (:4891)
+```
+- 核心: Go 单二进制
+- 存储: SQLite (每会话一个 DB 文件)
+- UI: Web UI (Go 内嵌) + REST API
+- CA: 内置 root CA 生成
+
+**核心功能**:
+- 透明 HTTP 代理 (端口 1080) + HTTPS MITM (端口 10443)
+- 每会话自动创建 SQLite 数据库
+- Web UI 带 QR code（方便手机访问）
+- REST API（随机 key 认证）
+- DNS 解析器 override（绕过系统 DNS）
+- ARP spoofing 支持（LAN 内 MITM 攻击场景）
+
+**创新点**:
+- **QR code CA 分发** — 生成 QR code 让手机扫码安装 CA，降低移动端配置门槛
+- **移动端优先 UI** — Web UI 适配手机屏幕，`-ui-addr` 绑定 LAN IP 后输出 QR code
+- **per-session 数据库** — 每次启动创建独立 DB，便于按测试任务隔离
+
+**ProxyBot 可借鉴**:
+1. **QR code CA 分发** (P2) — 在 GUI 的 CA 安装向导中生成 QR code，手机扫码即可下载安装
+2. **per-session 数据库** (P3) — 类似 InterceptSuite 的项目文件管理，支持多测试任务隔离
+3. **移动端 Web Dashboard** (P2) — 轻量 Web 界面供手机查看实时流量
+
+**威胁评估**: 低。hyperfox 开发活跃度低（2020 年后更新缓慢），功能集远小于 ProxyBot。但 QR code 和移动端 Web UI 思路值得借鉴。
+
+---
+
+### 12.5 InterceptSuite (772 ⭐) — 传输层 MITM
+
+**定位**: 非 HTTP 协议的 MITM 代理，IoT/Thick Client/数据库 TLS 专用。
+
+**技术架构**:
+```
+IoT Device / Thick Client / DB → InterceptSuite (TCP/UDP/DTLS/TLS) → Server
+                                          ↓
+                              Python Extension API (协议解析)
+```
+- 核心: C (性能关键路径) + C# (Avalonia .NET GUI)
+- TLS: OpenSSL
+- GUI: Avalonia .NET (跨平台原生)
+- 扩展: Python Extension API
+
+**核心差异化**:
+- **传输层拦截**: TCP/UDP/DTLS/TLS，不仅是 HTTP
+- **STARTTLS 自动检测** (Pro): SMTP/IMAP/PostgreSQL/MySQL 的 TLS 升级自动识别
+- **DTLS 支持** (Pro): IoT 和实时通信协议的 UDP+TLS
+- **Python 扩展 API**: 自定义协议解析器
+- **PCAP 导出** (Pro): 兼容 Wireshark 分析
+- **项目文件管理** (Pro): 保存和组织捕获会话
+
+**定价**: 免费版 (社区) + Professional ($300 一次性)
+
+**与 ProxyBot 对比**:
+
+| 维度 | InterceptSuite | ProxyBot |
+|------|---------------|----------|
+| 协议层 | TCP/UDP/DTLS/TLS | HTTP/HTTPS/WSS |
+| 目标场景 | IoT/Thick Client/DB | 移动 App HTTP 流量 |
+| 核心语言 | C + C# | Rust |
+| GUI | Avalonia .NET 原生 | Tauri + React |
+| TUI | ❌ | ✅ ratatui |
+| HTTP 专用功能 | 有限 | ✅ 完整 |
+| 扩展性 | Python | Rhai 脚本 |
+| 开源策略 | AGPL + Pro 付费 | MIT |
+| App 分类 | ❌ | ✅ |
+| 透明代理 | ❌ | ✅ pf |
+
+**ProxyBot 可借鉴**:
+1. **项目文件管理** (P2) — 类似 InterceptSuite 的项目制管理，支持保存/恢复捕获会话
+2. **Python 扩展 API** (P3) — 除 Rhai 外增加 Python 脚本支持（通过 PyO3）
+3. **PCAP 导出** (P3) — 导出流量为 PCAP 格式供 Wireshark 分析
+4. **STARTTLS 升级检测** (P3) — 检测非 443 端口的 TLS 升级（SMTP/IMAP 等）
+
+**威胁评估**: 低。InterceptSuite 聚焦传输层，与 ProxyBot 的 HTTP/移动端定位互补而非竞争。但其 Python 扩展 API 和项目文件管理是值得借鉴的产品设计。
+
+---
+
+### 12.6 forwarder (280 ⭐) + gomitmproxy (344 ⭐) — Go 库生态
+
+**forwarder** (Sauce Labs):
+- 生产级 MITM 代理，用于 Sauce Connect Proxy
+- 支持 HTTP/HTTPS/HTTP2/WebSocket/SSE/TCP
+- **PAC (Proxy Auto-Config)** 支持 — 按 URL pattern 路由
+- Go 库 + CLI 二进制
+
+**gomitmproxy** (AdGuard):
+- AdGuard Home 的 MITM 核心提取为独立库
+- **库优先设计** — 供 Go 项目嵌入，非独立应用
+- onRequest/onResponse handlers
+- 自定义证书存储接口
+- 代理鉴权 (Basic Auth)
+
+**两个项目共同揭示的趋势**:
+- **库优先**: MITM 能力封装为库，供其他项目集成（mitmproxy-rs 同样思路）
+- **PAC 支持**: 按 URL pattern 的智能路由
+
+**ProxyBot 可借鉴**:
+1. **核心引擎拆分为独立 crate** (P2) — `proxybot-core` 作为独立 Rust crate，供其他 Rust 项目引用
+2. **PAC 风格路由** (P3) — 在规则引擎中增加 PAC-like URL pattern 匹配
+3. **代理鉴权** (P3) — 代理层增加 Basic Auth 保护
+
+**威胁评估**: 极低。这两个是库而非独立工具，与 ProxyBot 的应用定位不冲突。
+
+---
+
+### 12.7 第四轮竞品对比矩阵
+
+| 维度 | ProxyBot | proxelar | anything-analyzer | hyperfox | InterceptSuite | forwarder | gomitmproxy |
+|------|----------|----------|-------------------|----------|---------------|-----------|-------------|
+| 核心语言 | Rust | Rust | TypeScript | Go | C# + C | Go | Go |
+| TUI | ✅ ratatui | ✅ ratatui | — | — | — | — | — |
+| GUI | ✅ Tauri | ✅ Web | ✅ Electron | ✅ Web | ✅ Avalonia | — | — |
+| MITM TLS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 透明代理 | ✅ pf | ❌ | ❌ | /etc/hosts | ❌ | ❌ | ❌ |
+| DNS 服务器 | ✅ | ❌ | ❌ | ✅(override) | ❌ | ❌ | ❌ |
+| App 分类 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 脚本引擎 | ✅ Rhai | ✅ Lua | ✅ JS Hook | ❌ | ✅ Python | ❌ | ✅ Go |
+| 规则引擎 | ✅ YAML 5动作 | Lua 脚本 | ❌ | ❌ | ❌ | ✅ PAC | ❌ |
+| AI 分析 | ✅ Gen tab | ❌ | ✅★★★★★ | ❌ | ❌ | ❌ | ❌ |
+| MCP Server | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| CDP 浏览器 | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 请求编辑 | ✅ Breakpoint | ✅ Lua | ❌(只读) | ❌ | ✅ | ✅ | ✅ |
+| WebSocket | ✅ frames | ✅ frames | ✅(隧道) | ❌ | ❌ | ✅ | ❌ |
+| HTTP/2 | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Mock 生成 | ✅ Gen tab | ✅ Lua | ❌ | ❌ | ❌ | ❌ | ❌ |
+| DAG 分析 | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 跨平台 | macOS | All | All | All | All | All | All |
+| Stars | — | 966 | 2,366 | 1,631 | 772 | 280 | 344 |
+
+---
+
+### 12.8 第四轮关键洞察
+
+**1. proxelar 是最接近的直接竞品**
+- Rust + ratatui + 脚本 + MITM 的技术栈几乎完全重叠
+- proxelar 的优势: Lua 生态、列作用域过滤 DSL、三界面设计、更简洁的 CA 安装
+- ProxyBot 的优势: 透明代理、DNS 服务器、App 分类、规则引擎、Gen tab、DAG 分析
+- **建议**: 密切关注 proxelar 发展，重点强化 ProxyBot 的差异化能力
+
+**2. AI+抓包融合是确定趋势**
+- anything-analyzer 用 4 个月证明 "AI 自动分析 + 抓包" 是强烈的市场需求
+- ProxyBot 的 Gen tab 已有 LLM 推断基础，升级到两阶段分析 + MCP Server 成本可控
+- **建议**: P1 优先级实现 MCP Server + AI 两阶段分析管道
+
+**3. MCP Server 是新的分发渠道**
+- anything-analyzer 将抓包能力作为 MCP 工具暴露给 AI Agent
+- 这创造了新的使用场景: AI Agent 自动抓包分析 → 生成复现代码
+- **建议**: P1 优先级实现 ProxyBot MCP Server
+
+**4. 库优先 + 可嵌入是架构趋势**
+- gomitmproxy、mitmproxy-rs、forwarder 都选择库优先
+- 降低集成门槛，扩大生态影响力
+- **建议**: P2 提取 proxybot-core 为独立 crate
+
+**5. 传输层代理是蓝海**
+- InterceptSuite 在 TCP/UDP/DTLS 领域几乎没有竞品
+- ProxyBot 目前仅覆盖 HTTP/HTTPS/WSS
+- **建议**: P3 研究 TCP/TLS 通用代理能力
+
+**6. 移动端 CA 安装体验是关键瓶颈**
+- hyperfox 的 QR code + proxelar 的 `http://proxel.ar` 都简化了 CA 安装
+- ProxyBot 目前仍需手动 AirDrop/邮件
+- **建议**: P2 实现 QR code + 内置 HTTP 下载 CA
+
+---
+
+### 12.9 增强优先级更新 (第四轮后)
+
+| # | 方向 | 竞品参考 | 优先级 | 预计工期 | 状态 |
+|---|------|---------|--------|----------|------|
+| 1 | **MCP Server** | anything-analyzer 内置 MCP | **P0** | 3-5 天 | 新增 |
+| 2 | **AI 两阶段分析管道** | anything-analyzer Phase 1/2 | **P1** | 1 周 | 新增 |
+| 3 | **列作用域过滤 DSL** | proxelar column:value | **P1** | 2-3 天 | 新增 |
+| 4 | **QR code CA 分发** | hyperfox QR code | **P2** | 1 天 | 新增 |
+| 5 | **proxybot-core crate** | gomitmproxy/mitmproxy-rs | **P2** | 1 周 | 新增 |
+| 6 | **项目文件管理** | InterceptSuite 项目制 | **P2** | 3-4 天 | 新增 |
+| 7 | **HTTP/3 QUIC 研究** | (空白领域) | P3 | 2+ 周 | 保持 |
+| 8 | **传输层 TCP/UDP 代理** | InterceptSuite | P3 | 2-3 周 | 新增 |
+
+---
+
+### 12.10 总结: ProxyBot 竞争定位 v4
+
+经过 4 轮竞品分析 (覆盖 ~25 个项目)，ProxyBot 的核心定位清晰:
+
+```
+ProxyBot = pf 透明代理 + DNS 服务器 + App 分类 + TUI+GUI 双界面 + Rust 核心
+         + 规则引擎 + Breakpoint + Mock 生成 + DAG 分析 + Rhai 脚本
+         + (即将) MCP Server + AI 两阶段分析 + GraphQL 解码 + Prometheus
+```
+
+**不可替代的护城河** (竞品均无):
+1. **pf 透明代理** — 手机零配置抓包
+2. **DNS 服务器 + DoH** — 内置 DNS 日志 + App 关联
+3. **App 分类** — WeChat/Douyin/Alipay/AI 服务自动识别
+4. **TUI + GUI 双界面** — 终端效率 + 桌面体验
+
+**需要追赶的能力**:
+1. **MCP Server** (P0) — anything-analyzer 先行
+2. **AI 分析深度** (P1) — anything-analyzer 的两阶段分析更成熟
+3. **过滤体验** (P1) — proxelar 的列作用域 DSL 更直观
+4. **CA 安装体验** (P2) — hyperfox/proxelar 的 QR code 更友好

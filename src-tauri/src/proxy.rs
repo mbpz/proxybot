@@ -2311,6 +2311,23 @@ if host.contains("tiktok") || host.contains("douyin") {
         }
     });
 
+    // AI token tracking - subscribe to request events
+    let mut ai_event_rx = event_tx.subscribe();
+    let ai_tracker = Arc::new(crate::ai::AiTracker::new(db.clone()));
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match ai_event_rx.recv().await {
+                Ok(req) => {
+                    ai_tracker.process_request(&req);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    log::warn!("AI tracker lagged by {} messages", n);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
     tauri::async_runtime::spawn(async move {
