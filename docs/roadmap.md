@@ -111,7 +111,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
 | **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
-| **v1.0.0 (NEXT)** | Phase 2 Complete | Plugin system (Rust trait WASM sandbox), Rhai scripting engine, gRPC/Protobuf decoder, Network conditions (throttle/latency), iOS VPN, Team collaboration |
+| **v1.0.0 (NOW)** | Phase 2 In Progress | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting engine, gRPC/Protobuf decoder, iOS VPN |
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
@@ -135,19 +135,19 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | TUI | ✅ ratatui | ✅ NCurses | — | — | — | — |
 | Tauri GUI | ✅ | — | — | — | — | — |
 | ADB tunnel | ✅ | — | — | — | — | — |
-| Plugin system | — | ✅ addons | — | — | ✅ plugins | ✅ plugins |
+| Plugin system | ✅ v2.0 | ✅ addons | — | — | ✅ plugins | ✅ plugins |
 | Scripting hooks | — | ✅ Python | ✅ Scripting | — | ✅ rules | ✅ plugins |
 | Request composer | ✅ v0.10 | — | ✅ Compose | ✅ Send | ✅ Composer | — |
 | Diff tool | — | — | ✅ | — | — | — |
 | DNS spoofing | — | — | ✅ | — | — | ✅ |
-| Network throttling | — | — | ✅ | ✅ | — | — |
+| Network throttling | ✅ v1.0 | — | ✅ | ✅ | — | — |
 | Protobuf/gRPC | — | ✅ | ✅ | — | — | — |
+| Team workspace | ✅ v1.0 | — | ✅ | — | — | — |
 | gRPC-web/WebSocket frame | ✅ WS | ✅ | ✅ | ✅ | ✅ | — |
 | HAR export | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | Mock API generation | ✅ Gen tab | — | Map Local | ✅ mockttp | ✅ | ✅ |
 | Remote debugging | — | — | — | — | ✅ Weinre | — |
 | Tunnel (ngrok alt) | — | — | — | — | — | ✅ GROUT |
-| Team workspace | — | — | ✅ | — | — | — |
 | API diff / regression | — | — | — | — | — | — |
 | Code export (cURL/fetch) | ✅ v0.10 | ✅ | ✅ | ✅ | ✅ | — |
 | One-click client setup | ✅ v0.10 | ✅ | ✅ | ✅ | — | — |
@@ -179,11 +179,13 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 
 | Feature | ProxyBot | whistle | HTTP Toolkit | Proxyman | Gap Priority |
 |---------|----------|---------|--------------|----------|--------------|
-| Plugin system | Stub (v1.0) | Full | — | — | P1 |
+| Plugin system | Stub (v1.0) | Full | — | — | ✅ DONE (P1) |
 | CA wizard | Basic | — | Full | One-click | P2 |
 | ADB integration | USB | — | Full | — | P2 |
 | iOS VPN | Research only | — | — | Full | P2 |
 | WebView debugging | CDP stub | Full | — | — | P3 |
+| Network conditions | — | — | ✅ | ✅ | ✅ DONE |
+| Team workspace | — | — | ✅ | — | ✅ DONE |
 
 **ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, Rust TUI+GUI dual interface. These are unique to ProxyBot.
 

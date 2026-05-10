@@ -5,7 +5,7 @@ use crate::cert::{CaMetadata, CertManager};
 use crate::db::{DbState, record_http_request};
 use crate::dns;
 use crate::dns::DnsState;
-use crate::network::NetworkInfo;
+use crate::network::{NetworkConditionEngine, NetworkInfo};
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -96,6 +96,7 @@ struct ProxyContext {
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
+    network: Arc<NetworkConditionEngine>,
 }
 
 /// Device context for tracking which device made a request.
@@ -1075,6 +1076,7 @@ fn apply_request_rule(
 async fn pipe_tcp_bidirectional(
     mut client_stream: TcpStream,
     mut upstream_stream: TcpStream,
+    network: &NetworkConditionEngine,
 ) -> Result<(), String> {
     let mut client_buf = vec![0u8; 16384];
     let mut upstream_buf = vec![0u8; 16384];
@@ -1087,6 +1089,14 @@ async fn pipe_tcp_bidirectional(
                     let _ = upstream_stream.shutdown().await;
                     return Ok(());
                 }
+                // Apply network conditions before writing upstream
+                let effect = network.apply(n);
+                if effect.drop {
+                    continue; // drop this chunk
+                }
+                if effect.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(effect.delay_ms)).await;
+                }
                 upstream_stream.write_all(&client_buf[..n]).await
                     .map_err(|e| format!("Write to upstream failed: {}", e))?;
             }
@@ -1094,6 +1104,14 @@ async fn pipe_tcp_bidirectional(
                 let n = n.map_err(|e| format!("Read from upstream failed: {}", e))?;
                 if n == 0 {
                     return Ok(());
+                }
+                // Apply network conditions before writing to client
+                let effect = network.apply(n);
+                if effect.drop {
+                    continue; // drop this chunk
+                }
+                if effect.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(effect.delay_ms)).await;
                 }
                 client_stream.write_all(&upstream_buf[..n]).await
                     .map_err(|e| format!("Write to client failed: {}", e))?;
@@ -1146,7 +1164,7 @@ async fn handle_https_connect(
                 }
             };
             let client = client_stream;
-            if let Err(e) = pipe_tcp_bidirectional(client, upstream).await {
+            if let Err(e) = pipe_tcp_bidirectional(client, upstream, &ctx.network).await {
                 log::error!("Tunnel pipe failed: {}", e);
             }
             return;
@@ -1264,6 +1282,14 @@ async fn handle_https_connect(
                     break;
                 }
                 request_data.extend_from_slice(&client_buf[..n]);
+                // Apply network conditions before writing upstream
+                let effect = ctx.network.apply(n);
+                if effect.drop {
+                    continue; // drop this chunk
+                }
+                if effect.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(effect.delay_ms)).await;
+                }
                 if let Err(e) = upstream_write.write_all(&client_buf[..n]).await {
                     log::error!("Write to upstream failed: {}", e);
                     break;
@@ -1281,6 +1307,14 @@ async fn handle_https_connect(
                     break;
                 }
                 response_data.extend_from_slice(&upstream_buf[..n]);
+                // Apply network conditions before writing to client
+                let effect = ctx.network.apply(n);
+                if effect.drop {
+                    continue; // drop this chunk
+                }
+                if effect.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(effect.delay_ms)).await;
+                }
                 if let Err(e) = client_write.write_all(&upstream_buf[..n]).await {
                     log::error!("Write to client failed: {}", e);
                     break;
@@ -1835,6 +1869,7 @@ async fn run_proxy(
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
+    network: Arc<NetworkConditionEngine>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let addr = format!("0.0.0.0:{}", proxy_port());
@@ -1857,6 +1892,7 @@ async fn run_proxy(
                             rules_engine: rules_engine.clone(),
                             plugins: plugins.clone(),
                             plugin_rules: plugin_rules.clone(),
+                            network: network.clone(),
                         };
                         tokio::spawn(handle_client(ctx, stream, client_addr));
                     }
@@ -1901,6 +1937,9 @@ pub fn start_proxy(
     // Create plugin rule engine (loads rules from config if available)
     let plugin_rules = Arc::new(RuleEngine::new());
 
+    // Create network condition engine
+    let network_engine = Arc::new(NetworkConditionEngine::new());
+
     // Create breakpoint channel (receiver unused in Tauri mode, sender passed to run_proxy)
     let (bp_tx, _bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
 
@@ -1917,7 +1956,7 @@ pub fn start_proxy(
     tauri::async_runtime::spawn(async move {
         // Keep shutdown_tx alive by dropping it at the end
         let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, plugin_rules, shutdown_rx).await {
+        if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, re, plugins, plugin_rules, network_engine, shutdown_rx).await {
             log::error!("Proxy error: {}", e);
         }
         PROXY_RUNNING.store(false, Ordering::SeqCst);
@@ -1945,6 +1984,7 @@ pub fn start_proxy_core(
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
+    network_engine: Arc<NetworkConditionEngine>,
 ) -> Result<(
     broadcast::Receiver<InterceptedRequest>,
     tokio::sync::mpsc::Receiver<BreakpointRequest>,
@@ -1961,11 +2001,12 @@ pub fn start_proxy_core(
     let cm = cert_manager.clone();
     let ds = dns_state.clone();
     let db = db_state.clone();
+    let ne = network_engine.clone();
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, plugin_rules, shutdown_rx).await {
+            if let Err(e) = run_proxy(event_tx, bp_tx, cm, ds, db, rules_engine, plugins, plugin_rules, ne, shutdown_rx).await {
                 log::error!("Proxy error: {}", e);
             }
             PROXY_RUNNING.store(false, Ordering::SeqCst);

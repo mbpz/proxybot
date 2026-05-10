@@ -11,6 +11,14 @@
 //!   S          Stop proxy
 //!   c          Clear request list
 //!   j/k / Up/Down   Navigate list
+//!
+//! Workspace commands (non-interactive mode):
+//!   proxybot-tui workspace init <name> [description]
+//!   proxybot-tui workspace export <name> [output]
+//!   proxybot-tui workspace import <path>
+//!   proxybot-tui workspace list
+//!   proxybot-tui workspace switch <name>
+//!   proxybot-tui workspace status
 
 use crossterm::event::{self, KeyEventKind};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
@@ -18,6 +26,7 @@ use crossterm::execute;
 use ratatui::backend::CrosstermBackend;
 use rusqlite::Connection;
 use std::io;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +34,7 @@ use std::time::Duration;
 use proxybot_lib::cert::CertManager;
 use proxybot_lib::db::{DbState, RecentRequest, get_devices_internal, set_device_rule_override_internal};
 use proxybot_lib::dns::DnsState;
-use proxybot_lib::network::get_network_info;
+use proxybot_lib::network::{get_network_info, NetworkConditionEngine};
 use proxybot_lib::proxy::{start_proxy_core, InterceptedRequest, BreakpointRequest, BreakpointDecision, BreakpointTarget};
 use proxybot_lib::plugin::registry::PluginRegistry;
 use proxybot_lib::plugin::RuleEngine as PluginRuleEngine;
@@ -43,6 +52,7 @@ use proxybot_lib::tui::input::{InputAction, handle_key_event};
 use proxybot_lib::pf;
 use proxybot_lib::dns;
 use proxybot_lib::config::{proxy_port, db_path};
+use proxybot_lib::workspace::WorkspaceManager;
 
 /// Start the proxy using proxybot_lib's start_proxy_core.
 fn start_proxy(
@@ -59,6 +69,7 @@ fn start_proxy(
         app.rules_engine.clone(),
         Arc::new(PluginRegistry::new()),
         Arc::new(PluginRuleEngine::new()),
+        Arc::new(NetworkConditionEngine::new()),
     )?;
 
     // Store shutdown sender
@@ -76,7 +87,96 @@ fn stop_proxy(app: &TuiApp) -> Result<(), String> {
     Ok(())
 }
 
+/// Handle workspace subcommands from CLI args.
+/// Returns Ok(true) if a workspace command was handled (caller should exit).
+/// Returns Ok(false) if no workspace command was given (continue to TUI).
+fn handle_workspace_cli() -> Result<bool, String> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 || args[1] != "workspace" {
+        return Ok(false);
+    }
+
+    let mgr = WorkspaceManager::new();
+
+    match args.get(2).map(|s| s.as_str()) {
+        Some("init") => {
+            let name = args.get(3).ok_or("Usage: workspace init <name> [description]")?;
+            let desc = args.get(4).map(|s| s.as_str()).unwrap_or("");
+            let ws = mgr.init(name, desc)?;
+            println!("Workspace initialized: {}", ws.name);
+            println!("  Path: {}", ws.path.display());
+            println!("  Created: {}", ws.created);
+        }
+        Some("export") => {
+            let name = args.get(3).ok_or("Usage: workspace export <name> [output]")?;
+            let output = args.get(4)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(format!("{}.tar.gz", name)));
+            mgr.export(name, &output)?;
+            println!("Workspace exported to: {}", output.display());
+        }
+        Some("import") => {
+            let path = args.get(3).ok_or("Usage: workspace import <path>")?;
+            let ws = mgr.import(&PathBuf::from(path))?;
+            println!("Workspace imported: {}", ws.name);
+            println!("  Path: {}", ws.path.display());
+        }
+        Some("list") => {
+            let workspaces = mgr.list();
+            if workspaces.is_empty() {
+                println!("No workspaces found.");
+            } else {
+                println!("Workspaces:");
+                for ws in &workspaces {
+                    let active_marker = if mgr.active() == Some(ws.name.clone()) { " [active]" } else { "" };
+                    println!("  {} ({}){}", ws.name, ws.description, active_marker);
+                }
+            }
+        }
+        Some("switch") => {
+            let name = args.get(3).ok_or("Usage: workspace switch <name>")?;
+            mgr.switch(name)?;
+            println!("Switched to workspace: {}", name);
+        }
+        Some("status") => {
+            println!("{}", mgr.status());
+            let workspaces = mgr.list();
+            if !workspaces.is_empty() {
+                println!("Available workspaces: {}", workspaces.iter()
+                    .map(|w| w.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "));
+            }
+        }
+        Some(cmd) => {
+            return Err(format!("Unknown workspace command: {}. Available: init, export, import, list, switch, status", cmd));
+        }
+        None => {
+            println!("Usage: proxybot-tui workspace <command> [args]");
+            println!("Commands:");
+            println!("  init <name> [description]   Create a workspace from current config");
+            println!("  export <name> [output]      Export workspace as tar.gz");
+            println!("  import <path>               Import workspace from tar.gz");
+            println!("  list                        List all workspaces");
+            println!("  switch <name>               Switch to a workspace");
+            println!("  status                      Show active workspace");
+        }
+    }
+
+    Ok(true)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Handle workspace CLI commands (non-interactive mode)
+    match handle_workspace_cli() {
+        Ok(true) => return Ok(()),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+        Ok(false) => {} // Continue to TUI
+    }
+
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("Starting ProxyBot TUI");
@@ -893,6 +993,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.traffic.breakpoint.body_input = req.req_body.clone().unwrap_or_default();
                                 }
                             }
+                        }
+                        InputAction::WorkspaceStatus => {
+                            let mgr = WorkspaceManager::new();
+                            app.status_message = Some(format!(
+                                "{} | Workspaces: {}",
+                                mgr.status(),
+                                mgr.list().iter()
+                                    .map(|w| format!("{}{}", w.name, if mgr.active() == Some(w.name.clone()) { "*" } else { "" }))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ));
                         }
                         InputAction::None => {}
                     }

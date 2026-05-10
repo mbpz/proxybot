@@ -29,6 +29,7 @@ pub mod scaffoldgen;
 pub mod state_machine;
 pub mod tun;
 pub mod vision;
+pub mod workspace;
 pub mod tui;
 pub mod update_check;
 pub mod adb;

@@ -473,6 +473,8 @@ pub struct TuiApp {
     pub gen: GenState,
     /// Certificate installation wizard (opened with 'w' on Certs tab)
     pub wizard: Option<CertWizard>,
+    /// Status message to display (e.g. workspace info, last operation result)
+    pub status_message: Option<String>,
 }
 
 impl TuiApp {
@@ -514,6 +516,7 @@ impl TuiApp {
             graph: GraphState::default(),
             gen: GenState::default(),
             wizard: None,
+            status_message: None,
         }
     }
 

@@ -111,6 +111,8 @@ pub enum InputAction {
     FilterAppTag,
     /// Open the certificate installation wizard (Certs tab).
     OpenWizard,
+    /// Show workspace status and information.
+    WorkspaceStatus,
     /// No action.
     None,
 }
@@ -140,6 +142,9 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('g') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
         KeyCode::Char('a') if current_tab == Tab::Graph => InputAction::ToggleGraphView,
         KeyCode::Char('r') if current_tab == Tab::Graph => InputAction::RefreshGraph,
+
+        // Workspace status (W key)
+        KeyCode::Char('W') => InputAction::WorkspaceStatus,
 
         // Proxy control (r = start proxy on non-Certs tabs, S = stop)
         KeyCode::Char('r') if current_tab != Tab::Certs => InputAction::StartProxy,
