@@ -400,9 +400,9 @@ ProxyBot 的 app 分类技术可扩展到 AI 服务识别:
 - [x] **v1.0: 插件系统** — RuleEngine 规则路由 + 优先级 + 热重载 + async hooks
 - [x] **v1.0: Network conditions** — 延迟/带宽/丢包模拟 (2G/3G/4G/WiFi/Edge 预设)
 - [x] **v1.0: Team collaboration** — Workspace 导出/导入 tar.gz 共享配置
-- [ ] **v1.0: Rhai 脚本引擎** — 规则脚本化
-- [ ] **v1.0: gRPC/Protobuf 解码** — 协议支持扩展
-- [ ] **v1.0: iOS VPN** — Atlantis 方案研究
+- [x] **v1.0: Rhai 脚本引擎** — on_request/on_response hooks + 沙箱脚本
+- [x] **v1.0: gRPC/Protobuf 解码** — gRPC frame + protobuf wire format parser
+- [x] **v1.0: iOS VPN** — TCP bridge server + PacketTunnelProvider + .mobileconfig
 
 ### Phase 3: 差异化创新
 - [ ] AI 流量分类（OpenAI/Anthropic/Azure）
