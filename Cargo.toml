@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "proxybot-core",
+    "src-tauri",
+]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
