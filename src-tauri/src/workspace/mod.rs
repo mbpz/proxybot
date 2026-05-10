@@ -1,2 +1,5 @@
 pub mod manager;
-pub use manager::{Workspace, WorkspaceManager};
+pub mod serialize;
+
+pub use serialize::{Device, Rule, RuleAction, Workspace, WorkspaceInfo};
+pub use manager::WorkspaceManager;

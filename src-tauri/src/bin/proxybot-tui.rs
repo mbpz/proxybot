@@ -119,8 +119,8 @@ fn handle_workspace_cli() -> Result<bool, String> {
             let desc = args.get(4).map(|s| s.as_str()).unwrap_or("");
             let ws = mgr.init(name, desc)?;
             println!("Workspace initialized: {}", ws.name);
-            println!("  Path: {}", ws.path.display());
-            println!("  Created: {}", ws.created);
+            println!("  DB Path: {}", ws.db_path.display());
+            println!("  Created: {}", ws.created_at);
         }
         Some("export") => {
             let name = args
@@ -129,15 +129,20 @@ fn handle_workspace_cli() -> Result<bool, String> {
             let output = args
                 .get(4)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(format!("{}.tar.gz", name)));
-            mgr.export(name, &output)?;
+                .unwrap_or_else(|| PathBuf::from(format!("{}.proxybot", name)));
+
+            // Load workspace from disk and export
+            let workspaces = mgr.list();
+            let ws = workspaces.iter().find(|w| w.name == *name)
+                .ok_or_else(|| format!("Workspace not found: {}", name))?;
+            mgr.export(ws, &output)?;
             println!("Workspace exported to: {}", output.display());
         }
         Some("import") => {
             let path = args.get(3).ok_or("Usage: workspace import <path>")?;
             let ws = mgr.import(&PathBuf::from(path))?;
             println!("Workspace imported: {}", ws.name);
-            println!("  Path: {}", ws.path.display());
+            println!("  DB Path: {}", ws.db_path.display());
         }
         Some("list") => {
             let workspaces = mgr.list();
@@ -151,7 +156,8 @@ fn handle_workspace_cli() -> Result<bool, String> {
                     } else {
                         ""
                     };
-                    println!("  {} ({}){}", ws.name, ws.description, active_marker);
+                    println!("  {} ({} rules, {} devices){}",
+                        ws.name, ws.rules.len(), ws.devices.len(), active_marker);
                 }
             }
         }
