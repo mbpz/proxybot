@@ -16,7 +16,7 @@ pub fn parse_filter(expr: &str) -> Result<String, String> {
 #[tauri::command]
 pub fn evaluate_filter(expr: &str, request_json: &str) -> Result<bool, String> {
     let expr = crate::filter::dsl::parse(expr)?;
-    let request: crate::filter::evaluator::InterceptedRequest =
+    let request: crate::proxy::InterceptedRequest =
         serde_json::from_str(request_json).map_err(|e| e.to_string())?;
     Ok(crate::filter::evaluator::Evaluator::evaluate(
         &expr, &request,

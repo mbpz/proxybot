@@ -11,6 +11,8 @@ pub enum FilterExpr {
     Or(Box<FilterExpr>, Box<FilterExpr>),
     Not(Box<FilterExpr>),
     Group(Box<FilterExpr>),
+    /// Plain text search across multiple fields (host, path, body)
+    Text(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,6 +36,8 @@ pub enum Token {
     Not,
     LParen,
     RParen,
+    /// Plain text search term (unquoted text not part of a field:op:value)
+    Text(String),
     EOF,
 }
 
@@ -108,7 +112,11 @@ impl Lexer {
                             || self.input[self.pos] == '_'
                             || self.input[self.pos] == '.'
                             || self.input[self.pos] == '-'
-                            || self.input[self.pos] == '*')
+                            || self.input[self.pos] == '*'
+                            || self.input[self.pos] == '/'
+                            || self.input[self.pos] == '?'
+                            || self.input[self.pos] == '&'
+                            || self.input[self.pos] == '=')
                     {
                         self.pos += 1;
                     }
@@ -121,7 +129,9 @@ impl Lexer {
                     tokens.push(Token::Value(value));
                     continue;
                 } else {
-                    return Err(format!("Unexpected token: {}", word));
+                    // Bare word without colon = plain text search
+                    tokens.push(Token::Text(word));
+                    continue;
                 }
                 continue;
             }
@@ -260,6 +270,11 @@ impl Parser {
                     op,
                     value,
                 })
+            }
+            Token::Text(text) => {
+                let text = text.clone();
+                self.advance();
+                Ok(FilterExpr::Text(text))
             }
             _ => Err("Unexpected token".to_string()),
         }
