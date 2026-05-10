@@ -38,13 +38,15 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
                             tiny_http::Header::from_bytes(
                                 &b"Content-Type"[..],
                                 &b"application/x-x509-ca-cert"[..],
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                         )
                         .with_header(
                             tiny_http::Header::from_bytes(
                                 &b"Content-Disposition"[..],
                                 &b"attachment; filename=\"ProxyBot_CA.crt\""[..],
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                         );
                     if let Err(e) = request.respond(response) {
                         log::error!("Cert server respond error: {}", e);

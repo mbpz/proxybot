@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::plugin_trait::InterceptedResponse;
 use super::registry::PluginRegistry;
 use super::rule_engine::PluginRule;
 use crate::proxy::InterceptedRequest;
-use super::plugin_trait::InterceptedResponse;
 
 const HOOK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -18,7 +18,8 @@ impl HookExecutor {
         rules: &[PluginRule],
         request: &mut InterceptedRequest,
     ) {
-        let matched = rules.iter()
+        let matched = rules
+            .iter()
             .filter(|r| r.enabled && r.pattern.matches(request))
             .min_by_key(|r| r.priority);
 
@@ -38,7 +39,8 @@ impl HookExecutor {
         rules: &[PluginRule],
         request: &mut InterceptedRequest,
     ) {
-        let mut matched: Vec<_> = rules.iter()
+        let mut matched: Vec<_> = rules
+            .iter()
             .filter(|r| r.enabled && r.pattern.matches(request))
             .collect();
         matched.sort_by_key(|r| r.priority);
@@ -59,9 +61,7 @@ impl HookExecutor {
         rules: &[PluginRule],
         response: &mut InterceptedResponse,
     ) {
-        let mut matched: Vec<_> = rules.iter()
-            .filter(|r| r.enabled)
-            .collect();
+        let mut matched: Vec<_> = rules.iter().filter(|r| r.enabled).collect();
         matched.sort_by_key(|r| r.priority);
 
         for rule in matched {
@@ -137,23 +137,27 @@ impl HookExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use super::super::plugin_trait::{Plugin, PluginHooks};
     use super::super::registry::PluginRegistry;
-    use super::super::rule_engine::{RulePattern, PluginRule};
+    use super::super::rule_engine::{PluginRule, RulePattern};
+    use super::*;
     use crate::proxy::InterceptedRequest;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TestPlugin {
         name: String,
         call_count: Arc<AtomicUsize>,
     }
     impl Plugin for TestPlugin {
-        fn name(&self) -> &str { &self.name }
+        fn name(&self) -> &str {
+            &self.name
+        }
         fn hooks(&self) -> PluginHooks {
             let count = self.call_count.clone();
             PluginHooks {
-                on_request: Some(Box::new(move |_| { count.fetch_add(1, Ordering::SeqCst); })),
+                on_request: Some(Box::new(move |_| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                })),
                 ..Default::default()
             }
         }

@@ -14,40 +14,88 @@ pub struct ModelPricing {
 pub fn get_model_pricing(model: &str) -> ModelPricing {
     match model {
         // OpenAI
-        "gpt-4o" => ModelPricing { input_per_m: 2.50, output_per_m: 10.00 },
-        "gpt-4o-mini" => ModelPricing { input_per_m: 0.15, output_per_m: 0.60 },
-        "gpt-4-turbo" => ModelPricing { input_per_m: 10.00, output_per_m: 30.00 },
-        "gpt-3.5-turbo" => ModelPricing { input_per_m: 0.50, output_per_m: 1.50 },
+        "gpt-4o" => ModelPricing {
+            input_per_m: 2.50,
+            output_per_m: 10.00,
+        },
+        "gpt-4o-mini" => ModelPricing {
+            input_per_m: 0.15,
+            output_per_m: 0.60,
+        },
+        "gpt-4-turbo" => ModelPricing {
+            input_per_m: 10.00,
+            output_per_m: 30.00,
+        },
+        "gpt-3.5-turbo" => ModelPricing {
+            input_per_m: 0.50,
+            output_per_m: 1.50,
+        },
 
         // Anthropic
-        "claude-3-5-sonnet" => ModelPricing { input_per_m: 3.00, output_per_m: 15.00 },
-        "claude-3-5-haiku" => ModelPricing { input_per_m: 0.80, output_per_m: 4.00 },
-        "claude-3-opus" => ModelPricing { input_per_m: 15.00, output_per_m: 75.00 },
-        "claude-3-sonnet" => ModelPricing { input_per_m: 3.00, output_per_m: 15.00 },
-        "claude-3-haiku" => ModelPricing { input_per_m: 0.25, output_per_m: 1.25 },
+        "claude-3-5-sonnet" => ModelPricing {
+            input_per_m: 3.00,
+            output_per_m: 15.00,
+        },
+        "claude-3-5-haiku" => ModelPricing {
+            input_per_m: 0.80,
+            output_per_m: 4.00,
+        },
+        "claude-3-opus" => ModelPricing {
+            input_per_m: 15.00,
+            output_per_m: 75.00,
+        },
+        "claude-3-sonnet" => ModelPricing {
+            input_per_m: 3.00,
+            output_per_m: 15.00,
+        },
+        "claude-3-haiku" => ModelPricing {
+            input_per_m: 0.25,
+            output_per_m: 1.25,
+        },
 
         // Google
-        "gemini-1.5-pro" => ModelPricing { input_per_m: 1.25, output_per_m: 5.00 },
-        "gemini-1.5-flash" => ModelPricing { input_per_m: 0.075, output_per_m: 0.30 },
+        "gemini-1.5-pro" => ModelPricing {
+            input_per_m: 1.25,
+            output_per_m: 5.00,
+        },
+        "gemini-1.5-flash" => ModelPricing {
+            input_per_m: 0.075,
+            output_per_m: 0.30,
+        },
 
         // Groq
-        "llama-3.1-70b" => ModelPricing { input_per_m: 0.65, output_per_m: 2.75 },
-        "llama-3.1-8b" => ModelPricing { input_per_m: 0.20, output_per_m: 0.80 },
+        "llama-3.1-70b" => ModelPricing {
+            input_per_m: 0.65,
+            output_per_m: 2.75,
+        },
+        "llama-3.1-8b" => ModelPricing {
+            input_per_m: 0.20,
+            output_per_m: 0.80,
+        },
 
         // Cohere
-        "command-r-plus" => ModelPricing { input_per_m: 2.50, output_per_m: 12.50 },
-        "command-r" => ModelPricing { input_per_m: 0.50, output_per_m: 1.50 },
+        "command-r-plus" => ModelPricing {
+            input_per_m: 2.50,
+            output_per_m: 12.50,
+        },
+        "command-r" => ModelPricing {
+            input_per_m: 0.50,
+            output_per_m: 1.50,
+        },
 
         // Default
-        _ => ModelPricing { input_per_m: 1.00, output_per_m: 2.00 },
+        _ => ModelPricing {
+            input_per_m: 1.00,
+            output_per_m: 2.00,
+        },
     }
 }
 
 /// Estimate API cost for a model with given token counts
 pub fn estimate_api_cost(model: &str, input_tokens: usize, output_tokens: usize) -> f64 {
     let pricing = get_model_pricing(model);
-    (input_tokens as f64 / 1_000_000.0 * pricing.input_per_m) +
-    (output_tokens as f64 / 1_000_000.0 * pricing.output_per_m)
+    (input_tokens as f64 / 1_000_000.0 * pricing.input_per_m)
+        + (output_tokens as f64 / 1_000_000.0 * pricing.output_per_m)
 }
 
 #[cfg(test)]

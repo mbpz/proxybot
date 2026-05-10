@@ -171,15 +171,25 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('d') if current_tab == Tab::Replay => InputAction::ShowDiff,
 
         // Rules tab: a=add, e=edit, d=delete, s=save (not on Graph/Gen tabs)
-        KeyCode::Char('a') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::AddRule,
+        KeyCode::Char('a') if current_tab != Tab::Graph && current_tab != Tab::Gen => {
+            InputAction::AddRule
+        }
         KeyCode::Char('e') if current_tab == Tab::Rules => InputAction::EditRule,
         KeyCode::Char('e') if current_tab == Tab::Devices => InputAction::EditDeviceRule,
-        KeyCode::Char('d') if current_tab != Tab::Graph && current_tab != Tab::Gen => InputAction::DeleteRule,
-        KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => InputAction::SaveRule,
+        KeyCode::Char('d') if current_tab != Tab::Graph && current_tab != Tab::Gen => {
+            InputAction::DeleteRule
+        }
+        KeyCode::Char('s') if current_tab != Tab::Dns && current_tab != Tab::Replay => {
+            InputAction::SaveRule
+        }
 
         // List navigation (Up/Down only, not with Alt modifier — Alt is for rule reordering)
-        KeyCode::Up | KeyCode::Char('k') if !key.modifiers.contains(KeyModifiers::ALT) => InputAction::Up,
-        KeyCode::Down | KeyCode::Char('j') if !key.modifiers.contains(KeyModifiers::ALT) => InputAction::Down,
+        KeyCode::Up | KeyCode::Char('k') if !key.modifiers.contains(KeyModifiers::ALT) => {
+            InputAction::Up
+        }
+        KeyCode::Down | KeyCode::Char('j') if !key.modifiers.contains(KeyModifiers::ALT) => {
+            InputAction::Down
+        }
         KeyCode::Enter => InputAction::Enter,
 
         // Detail sub-tab switching (1=Headers, 2=Body, 3=WS Frames)
@@ -202,7 +212,9 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
 
         // Certs tab: r=regenerate, e=export, w=open wizard
         KeyCode::Char('r') if current_tab == Tab::Certs => InputAction::RegenerateCert,
-        KeyCode::Char('e') if current_tab == Tab::Certs || current_tab == Tab::Replay => InputAction::ExportCert,
+        KeyCode::Char('e') if current_tab == Tab::Certs || current_tab == Tab::Replay => {
+            InputAction::ExportCert
+        }
         KeyCode::Char('w') if current_tab == Tab::Certs => InputAction::OpenWizard,
 
         // DNS tab: s=toggle DNS server, b=toggle blocklist, u=cycle upstream
@@ -223,8 +235,12 @@ pub fn handle_key_event(key: &event::KeyEvent, current_tab: Tab) -> InputAction 
         KeyCode::Char('o') if current_tab == Tab::Gen => InputAction::OpenOutput,
 
         // Rules tab: Alt+Up/Down to reorder rules
-        KeyCode::Up if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleUp,
-        KeyCode::Down if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => InputAction::MoveRuleDown,
+        KeyCode::Up if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => {
+            InputAction::MoveRuleUp
+        }
+        KeyCode::Down if key.modifiers.contains(KeyModifiers::ALT) && current_tab == Tab::Rules => {
+            InputAction::MoveRuleDown
+        }
 
         _ => InputAction::None,
     }

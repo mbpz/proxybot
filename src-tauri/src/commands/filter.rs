@@ -17,9 +17,10 @@ pub fn parse_filter(expr: &str) -> Result<String, String> {
 pub fn evaluate_filter(expr: &str, request_json: &str) -> Result<bool, String> {
     let expr = crate::filter::dsl::parse(expr)?;
     let request: crate::filter::evaluator::InterceptedRequest =
-        serde_json::from_str(request_json)
-            .map_err(|e| e.to_string())?;
-    Ok(crate::filter::evaluator::Evaluator::evaluate(&expr, &request))
+        serde_json::from_str(request_json).map_err(|e| e.to_string())?;
+    Ok(crate::filter::evaluator::Evaluator::evaluate(
+        &expr, &request,
+    ))
 }
 
 #[tauri::command]

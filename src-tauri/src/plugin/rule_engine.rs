@@ -74,18 +74,30 @@ impl RulePattern {
                 request.host.ends_with(stripped)
             }
             RulePattern::DomainKeyword(keyword) => request.host.contains(keyword),
-            RulePattern::UrlPattern { method, scheme, host, path } => {
-                method.as_ref().map_or(true, |m| m == "*" || m == &request.method)
-                    && scheme.as_ref().map_or(true, |s| s == "*" || s == &request.scheme)
-                    && host.as_ref().map_or(true, |h| h == "*" || h == &request.host)
-                    && path.as_ref().map_or(true, |p| wildcard_match(p, &request.path))
+            RulePattern::UrlPattern {
+                method,
+                scheme,
+                host,
+                path,
+            } => {
+                method
+                    .as_ref()
+                    .map_or(true, |m| m == "*" || m == &request.method)
+                    && scheme
+                        .as_ref()
+                        .map_or(true, |s| s == "*" || s == &request.scheme)
+                    && host
+                        .as_ref()
+                        .map_or(true, |h| h == "*" || h == &request.host)
+                    && path
+                        .as_ref()
+                        .map_or(true, |p| wildcard_match(p, &request.path))
             }
             // Fix 3: case-insensitive header key matching per RFC 7230
-            RulePattern::Header { key, value } => {
-                request.req_headers.iter().any(|(k, v)| {
-                    k.eq_ignore_ascii_case(key) && glob_match(value, v)
-                })
-            }
+            RulePattern::Header { key, value } => request
+                .req_headers
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(key) && glob_match(value, v)),
         }
     }
 }
@@ -108,14 +120,22 @@ struct RuleFileEntry {
     enabled: bool,
 }
 
-fn default_priority() -> u16 { 100 }
-fn default_enabled() -> bool { true }
+fn default_priority() -> u16 {
+    100
+}
+fn default_enabled() -> bool {
+    true
+}
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
 enum PatternEntry {
-    DomainSuffix { value: String },
-    DomainKeyword { value: String },
+    DomainSuffix {
+        value: String,
+    },
+    DomainKeyword {
+        value: String,
+    },
     UrlPattern {
         #[serde(default)]
         method: Option<String>,
@@ -126,29 +146,44 @@ enum PatternEntry {
         #[serde(default)]
         path: Option<String>,
     },
-    Header { key: String, value: String },
+    Header {
+        key: String,
+        value: String,
+    },
 }
 
 impl RuleFile {
     fn into_rules(self, start_id: u64) -> Vec<PluginRule> {
-        self.rules.into_iter().enumerate().map(|(i, entry)| {
-            let pattern = match entry.pattern {
-                PatternEntry::DomainSuffix { value } => RulePattern::DomainSuffix(value),
-                PatternEntry::DomainKeyword { value } => RulePattern::DomainKeyword(value),
-                PatternEntry::UrlPattern { method, scheme, host, path } => {
-                    RulePattern::UrlPattern { method, scheme, host, path }
+        self.rules
+            .into_iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let pattern = match entry.pattern {
+                    PatternEntry::DomainSuffix { value } => RulePattern::DomainSuffix(value),
+                    PatternEntry::DomainKeyword { value } => RulePattern::DomainKeyword(value),
+                    PatternEntry::UrlPattern {
+                        method,
+                        scheme,
+                        host,
+                        path,
+                    } => RulePattern::UrlPattern {
+                        method,
+                        scheme,
+                        host,
+                        path,
+                    },
+                    PatternEntry::Header { key, value } => RulePattern::Header { key, value },
+                };
+                PluginRule {
+                    id: start_id + i as u64,
+                    name: entry.name,
+                    pattern,
+                    plugin_name: entry.plugin,
+                    priority: entry.priority,
+                    enabled: entry.enabled,
                 }
-                PatternEntry::Header { key, value } => RulePattern::Header { key, value },
-            };
-            PluginRule {
-                id: start_id + i as u64,
-                name: entry.name,
-                pattern,
-                plugin_name: entry.plugin,
-                priority: entry.priority,
-                enabled: entry.enabled,
-            }
-        }).collect()
+            })
+            .collect()
     }
 }
 
@@ -170,13 +205,16 @@ pub struct RuleEngine {
 
 impl RuleEngine {
     pub fn new() -> Self {
-        Self { rules: std::sync::RwLock::new(Vec::new()) }
+        Self {
+            rules: std::sync::RwLock::new(Vec::new()),
+        }
     }
 
     /// Match request against rules, return first matching rule (highest priority)
     pub fn match_request(&self, request: &InterceptedRequest) -> Option<PluginRule> {
         let rules = self.rules.read().unwrap();
-        rules.iter()
+        rules
+            .iter()
             .filter(|r| r.enabled && r.pattern.matches(request))
             .min_by_key(|r| r.priority)
             .cloned()
@@ -185,7 +223,8 @@ impl RuleEngine {
     /// Match request against all matching rules sorted by priority
     pub fn match_all(&self, request: &InterceptedRequest) -> Vec<PluginRule> {
         let rules = self.rules.read().unwrap();
-        let mut matched: Vec<_> = rules.iter()
+        let mut matched: Vec<_> = rules
+            .iter()
             .filter(|r| r.enabled && r.pattern.matches(request))
             .cloned()
             .collect();
@@ -196,7 +235,8 @@ impl RuleEngine {
     /// Add a rule (insertion-sorted by priority, stable for equal priorities)
     pub fn add_rule(&self, rule: PluginRule) {
         let mut rules = self.rules.write().unwrap();
-        let pos = rules.iter()
+        let pos = rules
+            .iter()
             .position(|r| r.priority > rule.priority)
             .unwrap_or(rules.len());
         rules.insert(pos, rule);
@@ -205,7 +245,10 @@ impl RuleEngine {
     /// Remove a rule by id
     pub fn remove_rule(&self, id: u64) -> Option<PluginRule> {
         let mut rules = self.rules.write().unwrap();
-        rules.iter().position(|r| r.id == id).map(|pos| rules.remove(pos))
+        rules
+            .iter()
+            .position(|r| r.id == id)
+            .map(|pos| rules.remove(pos))
     }
 
     /// List all rules sorted by priority
@@ -219,7 +262,9 @@ impl RuleEngine {
         let file: RuleFile = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
         let mut rules = file.into_rules(0);
         rules.sort_by_key(|r| r.priority);
-        Ok(Self { rules: std::sync::RwLock::new(rules) })
+        Ok(Self {
+            rules: std::sync::RwLock::new(rules),
+        })
     }
 
     /// Reload rules from file
@@ -241,13 +286,16 @@ impl RuleEngine {
 
         let (tx, rx) = std::sync::mpsc::channel();
 
-        let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            if res.is_ok() {
-                let _ = tx.send(());
-            }
-        }).map_err(|e| format!("Watcher failed: {}", e))?;
+        let mut watcher =
+            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                if res.is_ok() {
+                    let _ = tx.send(());
+                }
+            })
+            .map_err(|e| format!("Watcher failed: {}", e))?;
 
-        watcher.watch(&path_owned, RecursiveMode::NonRecursive)
+        watcher
+            .watch(&path_owned, RecursiveMode::NonRecursive)
             .map_err(|e| e.to_string())?;
 
         // Fix 1: move watcher into the spawned thread so it stays alive
@@ -276,14 +324,22 @@ impl RuleEngine {
 }
 
 impl Default for RuleEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn make_request(host: &str, method: &str, scheme: &str, path: &str, headers: Vec<(String, String)>) -> InterceptedRequest {
+    fn make_request(
+        host: &str,
+        method: &str,
+        scheme: &str,
+        path: &str,
+        headers: Vec<(String, String)>,
+    ) -> InterceptedRequest {
         InterceptedRequest {
             host: host.into(),
             method: method.into(),
@@ -297,7 +353,13 @@ mod tests {
     #[test]
     fn test_domain_suffix_match() {
         let pattern = RulePattern::DomainSuffix("weixin.qq.com".into());
-        let request = make_request("api.weixin.qq.com", "GET", "https", "/cgi-bin/token", vec![]);
+        let request = make_request(
+            "api.weixin.qq.com",
+            "GET",
+            "https",
+            "/cgi-bin/token",
+            vec![],
+        );
         assert!(pattern.matches(&request));
     }
 
@@ -331,7 +393,13 @@ mod tests {
             host: Some("api.example.com".into()),
             path: Some("/upload/*".into()),
         };
-        let request = make_request("api.example.com", "POST", "https", "/upload/file.jpg", vec![]);
+        let request = make_request(
+            "api.example.com",
+            "POST",
+            "https",
+            "/upload/file.jpg",
+            vec![],
+        );
         assert!(pattern.matches(&request));
     }
 
@@ -382,22 +450,28 @@ mod tests {
     fn test_plugin_rule_priority_ordering() {
         let engine = RuleEngine::new();
         engine.add_rule(PluginRule {
-            id: 1, name: "A".into(),
+            id: 1,
+            name: "A".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
-            priority: 100, enabled: true,
+            priority: 100,
+            enabled: true,
         });
         engine.add_rule(PluginRule {
-            id: 2, name: "B".into(),
+            id: 2,
+            name: "B".into(),
             pattern: RulePattern::DomainSuffix("weixin.qq.com".into()),
             plugin_name: "plugin-b".into(),
-            priority: 50, enabled: true,
+            priority: 50,
+            enabled: true,
         });
         engine.add_rule(PluginRule {
-            id: 3, name: "C".into(),
+            id: 3,
+            name: "C".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-c".into(),
-            priority: 100, enabled: true,
+            priority: 100,
+            enabled: true,
         });
 
         let rules = engine.list_rules();
@@ -411,16 +485,20 @@ mod tests {
     fn test_rule_engine_match_first() {
         let engine = RuleEngine::new();
         engine.add_rule(PluginRule {
-            id: 1, name: "A".into(),
+            id: 1,
+            name: "A".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
-            priority: 100, enabled: true,
+            priority: 100,
+            enabled: true,
         });
         engine.add_rule(PluginRule {
-            id: 2, name: "B".into(),
+            id: 2,
+            name: "B".into(),
             pattern: RulePattern::DomainSuffix("weixin.qq.com".into()),
             plugin_name: "plugin-b".into(),
-            priority: 50, enabled: true,
+            priority: 50,
+            enabled: true,
         });
 
         let request = make_request("api.weixin.qq.com", "GET", "https", "/", vec![]);
@@ -433,16 +511,20 @@ mod tests {
     fn test_rule_engine_disabled_rule_skipped() {
         let engine = RuleEngine::new();
         engine.add_rule(PluginRule {
-            id: 1, name: "A".into(),
+            id: 1,
+            name: "A".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
-            priority: 50, enabled: false,
+            priority: 50,
+            enabled: false,
         });
         engine.add_rule(PluginRule {
-            id: 2, name: "B".into(),
+            id: 2,
+            name: "B".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-b".into(),
-            priority: 100, enabled: true,
+            priority: 100,
+            enabled: true,
         });
 
         let request = make_request("api.qq.com", "GET", "https", "/", vec![]);
@@ -455,10 +537,12 @@ mod tests {
     fn test_rule_engine_remove_rule() {
         let engine = RuleEngine::new();
         engine.add_rule(PluginRule {
-            id: 1, name: "A".into(),
+            id: 1,
+            name: "A".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
-            priority: 100, enabled: true,
+            priority: 100,
+            enabled: true,
         });
         assert_eq!(engine.list_rules().len(), 1);
         let removed = engine.remove_rule(1);
@@ -543,16 +627,20 @@ rules:
     fn test_rule_engine_match_all() {
         let engine = RuleEngine::new();
         engine.add_rule(PluginRule {
-            id: 1, name: "A".into(),
+            id: 1,
+            name: "A".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
-            priority: 100, enabled: true,
+            priority: 100,
+            enabled: true,
         });
         engine.add_rule(PluginRule {
-            id: 2, name: "B".into(),
+            id: 2,
+            name: "B".into(),
             pattern: RulePattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-b".into(),
-            priority: 50, enabled: true,
+            priority: 50,
+            enabled: true,
         });
 
         let request = make_request("api.qq.com", "GET", "https", "/", vec![]);

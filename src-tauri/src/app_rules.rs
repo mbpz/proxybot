@@ -102,16 +102,34 @@ mod tests {
 
     #[test]
     fn test_exact_match() {
-        assert_eq!(classify_host("qq.com"), Some(("WeChat".to_string(), "💬".to_string())));
-        assert_eq!(classify_host("douyin.com"), Some(("Douyin".to_string(), "🎵".to_string())));
-        assert_eq!(classify_host("alipay.com"), Some(("Alipay".to_string(), "💳".to_string())));
+        assert_eq!(
+            classify_host("qq.com"),
+            Some(("WeChat".to_string(), "💬".to_string()))
+        );
+        assert_eq!(
+            classify_host("douyin.com"),
+            Some(("Douyin".to_string(), "🎵".to_string()))
+        );
+        assert_eq!(
+            classify_host("alipay.com"),
+            Some(("Alipay".to_string(), "💳".to_string()))
+        );
     }
 
     #[test]
     fn test_subdomain_match() {
-        assert_eq!(classify_host("weixin.qq.com"), Some(("WeChat".to_string(), "💬".to_string())));
-        assert_eq!(classify_host("api.douyin.com"), Some(("Douyin".to_string(), "🎵".to_string())));
-        assert_eq!(classify_host("mobile.alipay.com"), Some(("Alipay".to_string(), "💳".to_string())));
+        assert_eq!(
+            classify_host("weixin.qq.com"),
+            Some(("WeChat".to_string(), "💬".to_string()))
+        );
+        assert_eq!(
+            classify_host("api.douyin.com"),
+            Some(("Douyin".to_string(), "🎵".to_string()))
+        );
+        assert_eq!(
+            classify_host("mobile.alipay.com"),
+            Some(("Alipay".to_string(), "💳".to_string()))
+        );
     }
 
     #[test]

@@ -23,18 +23,10 @@ impl Evaluator {
                 let field_value = Self::get_field_value(req, field);
                 Self::compare(&field_value, op, value)
             }
-            FilterExpr::And(a, b) => {
-                Self::evaluate(a, req) && Self::evaluate(b, req)
-            }
-            FilterExpr::Or(a, b) => {
-                Self::evaluate(a, req) || Self::evaluate(b, req)
-            }
-            FilterExpr::Not(e) => {
-                !Self::evaluate(e, req)
-            }
-            FilterExpr::Group(e) => {
-                Self::evaluate(e, req)
-            }
+            FilterExpr::And(a, b) => Self::evaluate(a, req) && Self::evaluate(b, req),
+            FilterExpr::Or(a, b) => Self::evaluate(a, req) || Self::evaluate(b, req),
+            FilterExpr::Not(e) => !Self::evaluate(e, req),
+            FilterExpr::Group(e) => Self::evaluate(e, req),
         }
     }
 
@@ -54,30 +46,22 @@ impl Evaluator {
             FilterOp::Eq => field_value == filter_value,
             FilterOp::Glob => glob_match(filter_value, field_value),
             FilterOp::Regex => regex_match(filter_value, field_value),
-            FilterOp::Gt => {
-                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
-                    (Ok(v), Ok(fv)) => v > fv,
-                    _ => false,
-                }
-            }
-            FilterOp::Lt => {
-                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
-                    (Ok(v), Ok(fv)) => v < fv,
-                    _ => false,
-                }
-            }
-            FilterOp::Gte => {
-                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
-                    (Ok(v), Ok(fv)) => v >= fv,
-                    _ => false,
-                }
-            }
-            FilterOp::Lte => {
-                match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
-                    (Ok(v), Ok(fv)) => v <= fv,
-                    _ => false,
-                }
-            }
+            FilterOp::Gt => match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                (Ok(v), Ok(fv)) => v > fv,
+                _ => false,
+            },
+            FilterOp::Lt => match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                (Ok(v), Ok(fv)) => v < fv,
+                _ => false,
+            },
+            FilterOp::Gte => match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                (Ok(v), Ok(fv)) => v >= fv,
+                _ => false,
+            },
+            FilterOp::Lte => match (field_value.parse::<u64>(), filter_value.parse::<u64>()) {
+                (Ok(v), Ok(fv)) => v <= fv,
+                _ => false,
+            },
         }
     }
 }

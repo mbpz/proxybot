@@ -15,13 +15,13 @@ pub enum FilterExpr {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FilterOp {
-    Eq,      // :
-    Glob,    // :*
-    Regex,   // :~
-    Gt,      // >
-    Lt,      // <
-    Gte,     // >=
-    Lte,     // <=
+    Eq,    // :
+    Glob,  // :*
+    Regex, // :~
+    Gt,    // >
+    Lt,    // <
+    Gte,   // >=
+    Lte,   // <=
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +75,11 @@ impl Lexer {
 
             if ch.is_alphabetic() || ch == '_' {
                 let start = self.pos;
-                while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_' || self.input[self.pos] == '.') {
+                while self.pos < self.input.len()
+                    && (self.input[self.pos].is_alphanumeric()
+                        || self.input[self.pos] == '_'
+                        || self.input[self.pos] == '.')
+                {
                     self.pos += 1;
                 }
                 let word: String = self.input[start..self.pos].iter().collect();
@@ -99,7 +103,13 @@ impl Lexer {
                     };
                     // Consume the value after the operator
                     let start = self.pos;
-                    while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_' || self.input[self.pos] == '.' || self.input[self.pos] == '-' || self.input[self.pos] == '*') {
+                    while self.pos < self.input.len()
+                        && (self.input[self.pos].is_alphanumeric()
+                            || self.input[self.pos] == '_'
+                            || self.input[self.pos] == '.'
+                            || self.input[self.pos] == '-'
+                            || self.input[self.pos] == '*')
+                    {
                         self.pos += 1;
                     }
                     let value: String = self.input[start..self.pos].iter().collect();
@@ -119,9 +129,17 @@ impl Lexer {
             if ch == '>' || ch == '<' {
                 let op = if self.pos + 1 < self.input.len() && self.input[self.pos + 1] == '=' {
                     self.pos += 1;
-                    if ch == '>' { FilterOp::Gte } else { FilterOp::Lte }
+                    if ch == '>' {
+                        FilterOp::Gte
+                    } else {
+                        FilterOp::Lte
+                    }
                 } else {
-                    if ch == '>' { FilterOp::Gt } else { FilterOp::Lt }
+                    if ch == '>' {
+                        FilterOp::Gt
+                    } else {
+                        FilterOp::Lt
+                    }
                 };
                 self.pos += 1;
                 let start = self.pos;

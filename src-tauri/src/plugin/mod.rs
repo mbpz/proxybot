@@ -1,17 +1,17 @@
-pub mod registry;
+pub mod executor;
 pub mod loader;
 pub mod plugin_trait;
-pub mod sandbox;
+pub mod registry;
 pub mod rule_engine;
-pub mod executor;
-pub use plugin_trait::{Plugin, PluginHooks, ConnectDecision, InterceptedResponse};
-pub use registry::PluginRegistry;
-pub use rule_engine::{RuleEngine, RulePattern, PluginRule};
+pub mod sandbox;
 pub use executor::HookExecutor;
+pub use plugin_trait::{ConnectDecision, InterceptedResponse, Plugin, PluginHooks};
+pub use registry::PluginRegistry;
+pub use rule_engine::{PluginRule, RuleEngine, RulePattern};
 
 #[cfg(test)]
 mod tests {
-    use super::plugin_trait::{Plugin, ConnectDecision, InterceptedResponse, PluginHooks};
+    use super::plugin_trait::{ConnectDecision, InterceptedResponse, Plugin, PluginHooks};
 
     #[test]
     fn test_plugin_trait_object_safe() {
@@ -30,14 +30,22 @@ mod tests {
     fn test_registry_register_and_list() {
         use super::registry::PluginRegistry;
 
-        struct TestPlugin { name: String }
+        struct TestPlugin {
+            name: String,
+        }
         impl Plugin for TestPlugin {
-            fn name(&self) -> &str { &self.name }
-            fn hooks(&self) -> PluginHooks { PluginHooks::default() }
+            fn name(&self) -> &str {
+                &self.name
+            }
+            fn hooks(&self) -> PluginHooks {
+                PluginHooks::default()
+            }
         }
 
         let registry = PluginRegistry::new();
-        registry.register(Box::new(TestPlugin { name: "test".into() }));
+        registry.register(Box::new(TestPlugin {
+            name: "test".into(),
+        }));
         let names = registry.list_plugins();
         assert!(names.contains(&"test".to_string()));
     }
@@ -46,14 +54,22 @@ mod tests {
     fn test_registry_get() {
         use super::registry::PluginRegistry;
 
-        struct MyPlugin { name: String }
+        struct MyPlugin {
+            name: String,
+        }
         impl Plugin for MyPlugin {
-            fn name(&self) -> &str { &self.name }
-            fn hooks(&self) -> PluginHooks { PluginHooks::default() }
+            fn name(&self) -> &str {
+                &self.name
+            }
+            fn hooks(&self) -> PluginHooks {
+                PluginHooks::default()
+            }
         }
 
         let registry = PluginRegistry::new();
-        registry.register(Box::new(MyPlugin { name: "myplugin".into() }));
+        registry.register(Box::new(MyPlugin {
+            name: "myplugin".into(),
+        }));
 
         let retrieved = registry.get("myplugin");
         assert!(retrieved.is_some());

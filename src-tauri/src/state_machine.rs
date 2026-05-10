@@ -127,7 +127,7 @@ impl AuthFlowExtractor {
     pub fn extract_auth_flow(
         &mut self,
         nodes: &[(i64, String, String, String, String)], // id, timestamp, method, host, path
-        edges: &[(i64, i64, String)],                   // from_node_id, to_node_id, token_value
+        edges: &[(i64, i64, String)],                    // from_node_id, to_node_id, token_value
     ) -> (Vec<AuthState>, Vec<AuthTransition>, Vec<Anomaly>) {
         let mut states: Vec<AuthState> = Vec::new();
         let mut transitions: Vec<AuthTransition> = Vec::new();
@@ -148,7 +148,7 @@ impl AuthFlowExtractor {
 
         // Sort nodes by timestamp
         let mut sorted_nodes: Vec<_> = nodes.iter().enumerate().collect();
-        sorted_nodes.sort_by(|a, b| a.1.1.cmp(&b.1.1));
+        sorted_nodes.sort_by(|a, b| a.1 .1.cmp(&b.1 .1));
 
         for (idx, (id, _timestamp, method, host, path)) in sorted_nodes {
             let full_path = format!("{}://{}{}", "https", host, path);
@@ -187,7 +187,10 @@ impl AuthFlowExtractor {
                             let as_id = format!("auth_{}_{}", id, edge.1);
                             let as_state = AuthState {
                                 id: as_id.clone(),
-                                label: format!("Auth ({}...)", &token_value[..token_value.len().min(8)]),
+                                label: format!(
+                                    "Auth ({}...)",
+                                    &token_value[..token_value.len().min(8)]
+                                ),
                                 state_type: AuthStateType::Authenticated,
                             };
                             authenticated_state = Some(as_state.clone());
@@ -232,7 +235,9 @@ impl AuthFlowExtractor {
                             };
                             states.push(rs.clone());
 
-                            let from_state = login_state.as_ref().map(|s| s.id.clone())
+                            let from_state = login_state
+                                .as_ref()
+                                .map(|s| s.id.clone())
                                 .unwrap_or_else(|| initial_state.id.clone());
                             transitions.push(AuthTransition {
                                 from_state,
@@ -242,7 +247,9 @@ impl AuthFlowExtractor {
                                 path: full_path.clone(),
                                 token_type: None,
                                 is_anomalous: true,
-                                anomaly_reason: Some("Resource accessed before authentication".to_string()),
+                                anomaly_reason: Some(
+                                    "Resource accessed before authentication".to_string(),
+                                ),
                             });
                         } else {
                             // Normal authenticated resource access
@@ -303,7 +310,8 @@ impl AuthFlowExtractor {
             || path_lower.contains("signin")
             || path_lower.contains("auth")
             || path_lower.contains("token")
-            || path_lower.contains("session") {
+            || path_lower.contains("session")
+        {
             return (AuthStateType::Login, Some("session token".to_string()));
         }
 
@@ -318,7 +326,8 @@ impl AuthFlowExtractor {
             || path_lower.contains("account")
             || path_lower.contains("me")
             || path_lower.contains("order")
-            || path_lower.contains("payment") {
+            || path_lower.contains("payment")
+        {
             return (AuthStateType::Resource, Some("access_token".to_string()));
         }
 
@@ -555,7 +564,9 @@ fn get_dag_data_for_device(
             .map_err(|e| e.to_string())?
     } else {
         let mut stmt = conn
-            .prepare("SELECT id, timestamp, method, host, path FROM http_requests ORDER BY timestamp")
+            .prepare(
+                "SELECT id, timestamp, method, host, path FROM http_requests ORDER BY timestamp",
+            )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| {
@@ -629,7 +640,12 @@ pub fn get_alerts_cmd(
     severity: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<Alert>, String> {
-    get_alerts(&db_state, device_id, severity.as_deref(), limit.unwrap_or(100))
+    get_alerts(
+        &db_state,
+        device_id,
+        severity.as_deref(),
+        limit.unwrap_or(100),
+    )
 }
 
 /// Acknowledge an alert.

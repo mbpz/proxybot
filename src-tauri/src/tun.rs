@@ -81,7 +81,9 @@ fn run_admin_command(script: &str) -> Result<String, String> {
 fn configure_tun_interface(iface_name: &str, ip: &str, netmask: &str) -> Result<(), String> {
     log::info!(
         "[tun] Configuring {} with ip={}, netmask={}",
-        iface_name, ip, netmask
+        iface_name,
+        ip,
+        netmask
     );
 
     // Bring up the interface and assign IP — requires admin privileges
@@ -161,7 +163,9 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
 
         log::info!(
             "[tun] Creating TUN device: name={}, ip={}, netmask={}",
-            iface_name, TUN_IP, TUN_NETMASK
+            iface_name,
+            TUN_IP,
+            TUN_NETMASK
         );
 
         // Use the tun crate's platform-specific Device

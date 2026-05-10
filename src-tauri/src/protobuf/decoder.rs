@@ -58,7 +58,7 @@ pub struct GrpcWebFrame {
 /// gRPC-Web uses 5-byte header: [version (0), type (1), flags (2-4), stream_id (5-8)].
 /// Note: Frame type byte has format: bit 7 = trailer indicator, bits 6-0 = type.
 pub fn decode_grpc_web_frame(encoded: &str) -> Result<GrpcWebFrame, String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
     let bytes = BASE64.decode(encoded).map_err(|e| e.to_string())?;
     if bytes.len() < 5 {
@@ -205,7 +205,9 @@ pub fn parse_protobuf_fields(data: &[u8]) -> Vec<ProtobufField> {
                             fields.push(ProtobufField {
                                 field_number,
                                 wire_type,
-                                value: ProtobufValue::LengthDelimited(data[offset..offset + len].to_vec()),
+                                value: ProtobufValue::LengthDelimited(
+                                    data[offset..offset + len].to_vec(),
+                                ),
                             });
                             offset += len;
                         } else {
@@ -303,7 +305,10 @@ pub fn decode_protobuf(body: &[u8]) -> Result<String, String> {
 
 /// Simple hex encoding for bytes.
 fn hex_encode(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join("")
+    data.iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 /// Minimal JSON string escaping.
@@ -357,8 +362,7 @@ mod tests {
         // Frame 1: length=3, data="abc"
         // Frame 2: length=3, data="def"
         let body = [
-            0, 0, 0, 0, 3, b'a', b'b', b'c',
-            0, 0, 0, 0, 3, b'd', b'e', b'f',
+            0, 0, 0, 0, 3, b'a', b'b', b'c', 0, 0, 0, 0, 3, b'd', b'e', b'f',
         ];
         let frames = decode_grpc_frames(&body);
         assert_eq!(frames.len(), 2);
@@ -437,7 +441,7 @@ mod tests {
         // Field 1: varint 150
         // Field 2: length-delimited "test"
         let data = [
-            0x08, 0x96, 0x01,                   // field 1, varint 150
+            0x08, 0x96, 0x01, // field 1, varint 150
             0x12, 0x04, b't', b'e', b's', b't', // field 2, string "test"
         ];
         let fields = parse_protobuf_fields(&data);
@@ -445,7 +449,10 @@ mod tests {
         assert_eq!(fields[0].field_number, 1);
         assert_eq!(fields[0].value, ProtobufValue::Varint(150));
         assert_eq!(fields[1].field_number, 2);
-        assert_eq!(fields[1].value, ProtobufValue::LengthDelimited(b"test".to_vec()));
+        assert_eq!(
+            fields[1].value,
+            ProtobufValue::LengthDelimited(b"test".to_vec())
+        );
     }
 
     #[test]
@@ -502,12 +509,10 @@ mod tests {
 
     #[test]
     fn test_extract_grpc_web_trailers_no_trailers() {
-        let frames = vec![
-            GrpcWebFrame {
-                frame_type: 0x00,
-                data: b"data".to_vec(),
-            },
-        ];
+        let frames = vec![GrpcWebFrame {
+            frame_type: 0x00,
+            data: b"data".to_vec(),
+        }];
         let trailers = extract_grpc_web_trailers(&frames);
         assert_eq!(trailers.len(), 0);
     }

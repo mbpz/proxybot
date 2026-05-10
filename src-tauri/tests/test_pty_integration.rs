@@ -10,8 +10,8 @@
 //!   cargo build --bin proxybot-tui
 //!   cargo test --test test_pty_integration -- --ignored
 
-use std::time::Duration;
 use rexpect::session::PtySession;
+use std::time::Duration;
 
 /// Run proxybot-tui and interact with it via PTY.
 mod integration {

@@ -120,8 +120,8 @@ async fn call_vision_api(image_base64: &str, api_key: &str) -> Result<String, St
         text: Option<String>,
     }
 
-    let api_resp: ApiResponse =
-        serde_json::from_str(&body).map_err(|e| format!("Failed to parse Vision response: {}", e))?;
+    let api_resp: ApiResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse Vision response: {}", e))?;
 
     for block in api_resp.content {
         if block.block_type == "text" {
@@ -146,10 +146,13 @@ fn parse_vision_response(raw: &str) -> Result<Vec<VisionComponent>, String> {
 
     // Handle case where AI returns raw object instead of array-wrapped
     // e.g. {"components": {"component_type": ...}} -> {"components": [{"component_type": ...}]}
-    let normalized = if json_str.starts_with("{\"components\":{") || json_str.starts_with("{\"components\": {") {
-        json_str.replace("{\"components\":{", "{\"components\":[{")
-              .replace("\"components\": {", "\"components\": [{")
-              .replacen("}}", "}]}", 1)
+    let normalized = if json_str.starts_with("{\"components\":{")
+        || json_str.starts_with("{\"components\": {")
+    {
+        json_str
+            .replace("{\"components\":{", "{\"components\":[{")
+            .replace("\"components\": {", "\"components\": [{")
+            .replacen("}}", "}]}", 1)
     } else {
         json_str.to_string()
     };
@@ -370,7 +373,9 @@ pub fn fuse_vision_with_api(
                 Ok(path)
             })
             .map_err(|e| e.to_string())?;
-        let result: Vec<String> = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        let result: Vec<String> = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
         result
     };
 

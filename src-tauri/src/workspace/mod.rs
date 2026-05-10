@@ -1,2 +1,2 @@
 pub mod manager;
-pub use manager::{WorkspaceManager, Workspace};
+pub use manager::{Workspace, WorkspaceManager};

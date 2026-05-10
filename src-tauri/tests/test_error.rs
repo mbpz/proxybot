@@ -1,6 +1,6 @@
 //! Integration tests for AppError types.
 
-use proxybot_lib::error::{AppError, DbError, CertError, ProxyError, DnsError, RulesError};
+use proxybot_lib::error::{AppError, CertError, DbError, DnsError, ProxyError, RulesError};
 
 #[test]
 fn test_app_error_db_variant() {
@@ -37,7 +37,10 @@ fn test_app_error_rules_variant() {
 
 #[test]
 fn test_app_error_io_variant() {
-    let err = AppError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
+    let err = AppError::Io(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "file not found",
+    ));
     assert!(err.to_string().contains("I/O error"));
 }
 

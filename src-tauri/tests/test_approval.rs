@@ -13,17 +13,42 @@
 
 mod common;
 
-use proxybot_lib::tui::TrafficState;
 use common::make_req;
 use insta::assert_snapshot;
+use proxybot_lib::tui::TrafficState;
 
 fn make_traffic() -> TrafficState {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/v1/users", Some(200)));
-    s.requests.push(make_req(2, "POST", "api.example.com", "/v1/login", Some(201)));
-    s.requests.push(make_req(3, "GET", "cdn.example.com", "/assets/logo.png", Some(404)));
-    s.requests.push(make_req(4, "DELETE", "api.example.com", "/v1/users/123", Some(204)));
-    s.requests.push(make_req(5, "GET", "api.example.com", "/health", Some(200)));
+    s.requests.push(make_req(
+        1,
+        "GET",
+        "api.example.com",
+        "/v1/users",
+        Some(200),
+    ));
+    s.requests.push(make_req(
+        2,
+        "POST",
+        "api.example.com",
+        "/v1/login",
+        Some(201),
+    ));
+    s.requests.push(make_req(
+        3,
+        "GET",
+        "cdn.example.com",
+        "/assets/logo.png",
+        Some(404),
+    ));
+    s.requests.push(make_req(
+        4,
+        "DELETE",
+        "api.example.com",
+        "/v1/users/123",
+        Some(204),
+    ));
+    s.requests
+        .push(make_req(5, "GET", "api.example.com", "/health", Some(200)));
     s
 }
 
@@ -113,9 +138,20 @@ fn snapshot_controls_bar_pf_on_dns_on() {
     traffic.pf_enabled = true;
     traffic.dns_running = true;
 
-    let pf_str = if traffic.pf_enabled { "[p]f: ON " } else { "[p]f: OFF " };
-    let dns_str = if traffic.dns_running { "[d]ns: ON " } else { "[d]ns: OFF " };
-    let controls = format!("{}{} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters", pf_str, dns_str);
+    let pf_str = if traffic.pf_enabled {
+        "[p]f: ON "
+    } else {
+        "[p]f: OFF "
+    };
+    let dns_str = if traffic.dns_running {
+        "[d]ns: ON "
+    } else {
+        "[d]ns: OFF "
+    };
+    let controls = format!(
+        "{}{} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters",
+        pf_str, dns_str
+    );
     assert_snapshot!("controls_pf_on_dns_on", controls);
 }
 
@@ -125,8 +161,19 @@ fn snapshot_controls_bar_pf_off_dns_off() {
     traffic.pf_enabled = false;
     traffic.dns_running = false;
 
-    let pf_str = if traffic.pf_enabled { "[p]f: ON " } else { "[p]f: OFF " };
-    let dns_str = if traffic.dns_running { "[d]ns: ON " } else { "[d]ns: OFF " };
-    let controls = format!("{}{} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters", pf_str, dns_str);
+    let pf_str = if traffic.pf_enabled {
+        "[p]f: ON "
+    } else {
+        "[p]f: OFF "
+    };
+    let dns_str = if traffic.dns_running {
+        "[d]ns: ON "
+    } else {
+        "[d]ns: OFF "
+    };
+    let controls = format!(
+        "{}{} | [Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters",
+        pf_str, dns_str
+    );
     assert_snapshot!("controls_pf_off_dns_off", controls);
 }

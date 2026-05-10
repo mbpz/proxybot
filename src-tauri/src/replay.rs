@@ -176,7 +176,9 @@ pub fn get_requests_for_replay(
             let req_headers: Vec<(String, String)> =
                 serde_json::from_str(&req_headers_json).unwrap_or_default();
             let req_body: Option<Vec<u8>> = row.get(5)?;
-            let req_body_str = req_body.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+            let req_body_str = req_body
+                .as_ref()
+                .map(|b| String::from_utf8_lossy(b).to_string());
 
             let path: String = row.get(3)?;
             let method: String = row.get(1)?;
@@ -223,7 +225,9 @@ pub fn get_recorded_responses(
             let resp_headers: Vec<(String, String)> =
                 serde_json::from_str(&resp_headers_json).unwrap_or_default();
             let resp_body: Option<Vec<u8>> = row.get(2)?;
-            let resp_body_str = resp_body.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+            let resp_body_str = resp_body
+                .as_ref()
+                .map(|b| String::from_utf8_lossy(b).to_string());
 
             Ok(RecordedResponse {
                 status: resp_status.unwrap_or(0),
@@ -339,23 +343,22 @@ pub async fn start_replay(
         let mock_url = format!("http://127.0.0.1:{}{}", mock_port, request.path);
         let mock_response = client
             .request(
-                reqwest::Method::from_bytes(request.method.as_bytes()).unwrap_or(reqwest::Method::GET),
+                reqwest::Method::from_bytes(request.method.as_bytes())
+                    .unwrap_or(reqwest::Method::GET),
                 &mock_url,
             )
-            .headers(
-                request
-                    .req_headers
-                    .iter()
-                    .fold(reqwest::header::HeaderMap::new(), |mut headers, (k, v)| {
-                        if let (Ok(name), Ok(value)) = (
-                            reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                            reqwest::header::HeaderValue::from_str(v),
-                        ) {
-                            headers.insert(name, value);
-                        }
-                        headers
-                    }),
-            )
+            .headers(request.req_headers.iter().fold(
+                reqwest::header::HeaderMap::new(),
+                |mut headers, (k, v)| {
+                    if let (Ok(name), Ok(value)) = (
+                        reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                        reqwest::header::HeaderValue::from_str(v),
+                    ) {
+                        headers.insert(name, value);
+                    }
+                    headers
+                },
+            ))
             .body(request.req_body.clone().unwrap_or_default())
             .send()
             .await;
@@ -452,8 +455,14 @@ pub fn compute_diff(
     }
 
     for header in all_headers {
-        let recorded_val = recorded_headers.iter().find(|(k, _)| k == &header).map(|(_, v)| v.clone());
-        let mock_val = mock_headers.iter().find(|(k, _)| k == &header).map(|(_, v)| v.clone());
+        let recorded_val = recorded_headers
+            .iter()
+            .find(|(k, _)| k == &header)
+            .map(|(_, v)| v.clone());
+        let mock_val = mock_headers
+            .iter()
+            .find(|(k, _)| k == &header)
+            .map(|(_, v)| v.clone());
 
         let diff_type = match (&recorded_val, &mock_val) {
             (Some(r), Some(m)) if r == m => DiffType::Unchanged,
@@ -474,8 +483,17 @@ pub fn compute_diff(
     // Body diff
     let body_diff = compute_body_diff(recorded_body, mock_body);
 
-    let has_changes = header_diffs.iter().any(|d| d.diff_type != DiffType::Unchanged)
-        || body_diff.as_ref().map(|b| b.line_diffs.iter().any(|l| l.diff_type != DiffType::Unchanged)).unwrap_or(false);
+    let has_changes = header_diffs
+        .iter()
+        .any(|d| d.diff_type != DiffType::Unchanged)
+        || body_diff
+            .as_ref()
+            .map(|b| {
+                b.line_diffs
+                    .iter()
+                    .any(|l| l.diff_type != DiffType::Unchanged)
+            })
+            .unwrap_or(false);
 
     DiffResult {
         header_diffs,

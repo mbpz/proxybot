@@ -7,80 +7,220 @@ use std::sync::Mutex;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum I18nKey {
     // Tabs
-    TabTraffic, TabRules, TabDevices, TabCerts, TabDns,
-    TabAlerts, TabReplay, TabGraph, TabGen,
+    TabTraffic,
+    TabRules,
+    TabDevices,
+    TabCerts,
+    TabDns,
+    TabAlerts,
+    TabReplay,
+    TabGraph,
+    TabGen,
     // Traffic
     TrafficTitle,
-    TrafficCapturing, TrafficWaiting, TrafficConfigurePort,
-    TrafficNoRequests, TrafficNoSelected,
-    TrafficRequestHeaders, TrafficResponseHeaders,
-    TrafficRequestBody, TrafficResponseBody,
-    TrafficEmptyBody, TrafficNoBody,
-    TrafficNotWs, TrafficNoFrames,
-    TrafficSubTabsHeaders, TrafficSubTabsBody, TrafficSubTabsWsFrames, TrafficSubTabsSwitchTab,
-    TrafficFilterMethod, TrafficFilterHost, TrafficFilterStatus, TrafficFilterAppTag,
+    TrafficCapturing,
+    TrafficWaiting,
+    TrafficConfigurePort,
+    TrafficNoRequests,
+    TrafficNoSelected,
+    TrafficRequestHeaders,
+    TrafficResponseHeaders,
+    TrafficRequestBody,
+    TrafficResponseBody,
+    TrafficEmptyBody,
+    TrafficNoBody,
+    TrafficNotWs,
+    TrafficNoFrames,
+    TrafficSubTabsHeaders,
+    TrafficSubTabsBody,
+    TrafficSubTabsWsFrames,
+    TrafficSubTabsSwitchTab,
+    TrafficFilterMethod,
+    TrafficFilterHost,
+    TrafficFilterStatus,
+    TrafficFilterAppTag,
     TrafficFilterHint,
-    TrafficBreakpointRequest, TrafficBreakpointResponse,
-    TrafficBreakpointEditHelp, TrafficBreakpointNavHelp,
-    TrafficControlsRunning, TrafficControlsStopped,
-    TrafficControlsCaInstalled, TrafficControlsCaNotInstalled,
+    TrafficBreakpointRequest,
+    TrafficBreakpointResponse,
+    TrafficBreakpointEditHelp,
+    TrafficBreakpointNavHelp,
+    TrafficControlsRunning,
+    TrafficControlsStopped,
+    TrafficControlsCaInstalled,
+    TrafficControlsCaNotInstalled,
     // Rules
-    RulesTitle, RulesHotReload, RulesHint,
-    RulesActionsDirect, RulesActionsProxy, RulesActionsReject,
-    RulesActionsMapremote, RulesActionsMaplocal, RulesActionsBreakpoint,
-    RulesPatternDomain, RulesPatternDomainSuffix, RulesPatternDomainKeyword,
-    RulesPatternIpCidr, RulesPatternGeoip, RulesPatternRuleSet,
-    RulesRuleList, RulesAddRule, RulesEditRule,
-    RulesPattern, RulesValue, RulesAction,
-    RulesPatternTypes, RulesUseTab, RulesPressSToSave, RulesEscToCancel,
-    RulesActive, RulesInactive,
+    RulesTitle,
+    RulesHotReload,
+    RulesHint,
+    RulesActionsDirect,
+    RulesActionsProxy,
+    RulesActionsReject,
+    RulesActionsMapremote,
+    RulesActionsMaplocal,
+    RulesActionsBreakpoint,
+    RulesPatternDomain,
+    RulesPatternDomainSuffix,
+    RulesPatternDomainKeyword,
+    RulesPatternIpCidr,
+    RulesPatternGeoip,
+    RulesPatternRuleSet,
+    RulesRuleList,
+    RulesAddRule,
+    RulesEditRule,
+    RulesPattern,
+    RulesValue,
+    RulesAction,
+    RulesPatternTypes,
+    RulesUseTab,
+    RulesPressSToSave,
+    RulesEscToCancel,
+    RulesActive,
+    RulesInactive,
     // Devices
-    DevicesTitle, DevicesHint, DevicesOverridePrompt,
-    DevicesProxyBot, DevicesThisPc, DevicesNoDevices,
-    DevicesDeviceList, DevicesNetworkTopology, DevicesConfigureGateway,
-    DevicesSetProxy, DevicesPort, DevicesInstallCa, DevicesOrUseUsb,
-    DevicesUsbAdbDevices, DevicesLegend, DevicesName, DevicesApp, DevicesMac,
-// Certs
-    CertsTitle, CertsCaInfo, CertsFingerprint, CertsExpiry,
-    CertsCreated, CertsStatus, CertsDaysLeft, CertsSerial,
-    CertsRegenerate, CertsExport, CertsKeyBinding,
-    CertsActions, CertsExportPath, CertsRegenerateStatus,
-    CertsUnknown, CertsExpired, CertsExpiringSoon, CertsValid,
-    CertsFingerprintLabel, CertsExpiryLabel, CertsCreatedLabel,
-    CertsStatusLabel, CertsDaysUntilExpiry, CertsSerialLabel,
-// DNS
-    DnsTitle, DnsServerStatus, DnsQueryLog, DnsUpstreamConfig, DnsHostsEntries,
-    DnsRunning, DnsStopped,
-    DnsToggle, DnsBlocklistToggle, DnsCycleUpstream,
-    DnsNoQueries, DnsConfiguration, DnsServer, DnsUpstream, DnsBlocklist,
-    DnsHosts, DnsBlocklistEnabled, DnsBlocklistDisabled, DnsHostsEntriesCount,
-    DnsUpstreamConfiguration, DnsCycleUpstreamHint,
-    DnsQueryLogRecent, DnsNoQueriesYet, DnsShowingEntries, DnsAndMore,
+    DevicesTitle,
+    DevicesHint,
+    DevicesOverridePrompt,
+    DevicesProxyBot,
+    DevicesThisPc,
+    DevicesNoDevices,
+    DevicesDeviceList,
+    DevicesNetworkTopology,
+    DevicesConfigureGateway,
+    DevicesSetProxy,
+    DevicesPort,
+    DevicesInstallCa,
+    DevicesOrUseUsb,
+    DevicesUsbAdbDevices,
+    DevicesLegend,
+    DevicesName,
+    DevicesApp,
+    DevicesMac,
+    // Certs
+    CertsTitle,
+    CertsCaInfo,
+    CertsFingerprint,
+    CertsExpiry,
+    CertsCreated,
+    CertsStatus,
+    CertsDaysLeft,
+    CertsSerial,
+    CertsRegenerate,
+    CertsExport,
+    CertsKeyBinding,
+    CertsActions,
+    CertsExportPath,
+    CertsRegenerateStatus,
+    CertsUnknown,
+    CertsExpired,
+    CertsExpiringSoon,
+    CertsValid,
+    CertsFingerprintLabel,
+    CertsExpiryLabel,
+    CertsCreatedLabel,
+    CertsStatusLabel,
+    CertsDaysUntilExpiry,
+    CertsSerialLabel,
+    // DNS
+    DnsTitle,
+    DnsServerStatus,
+    DnsQueryLog,
+    DnsUpstreamConfig,
+    DnsHostsEntries,
+    DnsRunning,
+    DnsStopped,
+    DnsToggle,
+    DnsBlocklistToggle,
+    DnsCycleUpstream,
+    DnsNoQueries,
+    DnsConfiguration,
+    DnsServer,
+    DnsUpstream,
+    DnsBlocklist,
+    DnsHosts,
+    DnsBlocklistEnabled,
+    DnsBlocklistDisabled,
+    DnsHostsEntriesCount,
+    DnsUpstreamConfiguration,
+    DnsCycleUpstreamHint,
+    DnsQueryLogRecent,
+    DnsNoQueriesYet,
+    DnsShowingEntries,
+    DnsAndMore,
     DnsKeyBindings,
-// Alerts
-    AlertsTitle, AlertsEmpty,
-    AlertsSev1, AlertsSev2, AlertsSev3,
-    AlertsSummary, AlertsActive, AlertsBaseline, AlertsNewDomainAlerts,
-    AlertsNavigateHint, AlertsAckHint, AlertsClearHint, AlertsEnterDetail,
-// Replay
-    ReplayTitle, ReplayEmpty, ReplayStatus,
-    ReplayTargets, ReplayDiffView, ReplayStatusIdle, ReplayRequests, ReplayPaths,
-    ReplaySelectTarget, ReplayStart, ReplayStop, ReplayExportHar,
-    ReplayNavigate, ReplayStartStop, ReplayExport, ReplayShowDiff,
-// Graph
-    GraphTitle, GraphEmpty, GraphAuthEmpty,
-    GraphTrafficDependencyGraph, GraphNoRequestPatterns, GraphTemporalEdges,
-    GraphDagView, GraphAuthView, GraphKeyDagAuthRefresh,
-    GraphAuthStateMachine, GraphNoExplicitAuth, GraphAuthMayBeEmbedded,
-    GraphStateDiagram, GraphEntryVerifyCreds, GraphApiCallsAfterAuth,
-    GraphInitial, GraphFinal,
-// Gen
-    GenTitle, GenPlaceholder, GenNote,
-    GenGenerator, GenMode, GenMockApi, GenFrontendScaffold, GenDockerBundle,
-    GenActions, GenGenerateMockApi, GenGenerateFrontend, GenGenerateDocker,
-    GenOpenOutputFolder, GenOutput, GenGenerating, GenPleaseWait,
-    GenNoGenerationYet, GenSelectModeAndPress, GenOutputLast,
-    GenNoteRequiresInferred, GenRunInference, GenMock, GenFrontend, GenDocker,
+    // Alerts
+    AlertsTitle,
+    AlertsEmpty,
+    AlertsSev1,
+    AlertsSev2,
+    AlertsSev3,
+    AlertsSummary,
+    AlertsActive,
+    AlertsBaseline,
+    AlertsNewDomainAlerts,
+    AlertsNavigateHint,
+    AlertsAckHint,
+    AlertsClearHint,
+    AlertsEnterDetail,
+    // Replay
+    ReplayTitle,
+    ReplayEmpty,
+    ReplayStatus,
+    ReplayTargets,
+    ReplayDiffView,
+    ReplayStatusIdle,
+    ReplayRequests,
+    ReplayPaths,
+    ReplaySelectTarget,
+    ReplayStart,
+    ReplayStop,
+    ReplayExportHar,
+    ReplayNavigate,
+    ReplayStartStop,
+    ReplayExport,
+    ReplayShowDiff,
+    // Graph
+    GraphTitle,
+    GraphEmpty,
+    GraphAuthEmpty,
+    GraphTrafficDependencyGraph,
+    GraphNoRequestPatterns,
+    GraphTemporalEdges,
+    GraphDagView,
+    GraphAuthView,
+    GraphKeyDagAuthRefresh,
+    GraphAuthStateMachine,
+    GraphNoExplicitAuth,
+    GraphAuthMayBeEmbedded,
+    GraphStateDiagram,
+    GraphEntryVerifyCreds,
+    GraphApiCallsAfterAuth,
+    GraphInitial,
+    GraphFinal,
+    // Gen
+    GenTitle,
+    GenPlaceholder,
+    GenNote,
+    GenGenerator,
+    GenMode,
+    GenMockApi,
+    GenFrontendScaffold,
+    GenDockerBundle,
+    GenActions,
+    GenGenerateMockApi,
+    GenGenerateFrontend,
+    GenGenerateDocker,
+    GenOpenOutputFolder,
+    GenOutput,
+    GenGenerating,
+    GenPleaseWait,
+    GenNoGenerationYet,
+    GenSelectModeAndPress,
+    GenOutputLast,
+    GenNoteRequiresInferred,
+    GenRunInference,
+    GenMock,
+    GenFrontend,
+    GenDocker,
 }
 
 impl I18nKey {
@@ -331,8 +471,14 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("traffic.title", "Intercepted Traffic");
     m.insert("traffic.capturing", "Capturing traffic...");
     m.insert("traffic.waiting", "Waiting for requests from device...");
-    m.insert("traffic.configure_port", "Configure your device to use proxy port 8088");
-    m.insert("traffic.no_requests", "No requests captured. Start proxy to begin.");
+    m.insert(
+        "traffic.configure_port",
+        "Configure your device to use proxy port 8088",
+    );
+    m.insert(
+        "traffic.no_requests",
+        "No requests captured. Start proxy to begin.",
+    );
     m.insert("traffic.no_selected", "No request selected.");
     m.insert("traffic.request_headers", "--- Request Headers ---");
     m.insert("traffic.response_headers", "--- Response Headers ---");
@@ -350,11 +496,17 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("traffic.filter.host", "Host");
     m.insert("traffic.filter.status", "Status");
     m.insert("traffic.filter.app_tag", "App");
-    m.insert("traffic.filter.hint", "[Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters");
+    m.insert(
+        "traffic.filter.hint",
+        "[Enter] select  [/] search  [1/2/3] detail tab  [Esc] clear filters",
+    );
     m.insert("traffic.breakpoint.request", "REQUEST BREAKPOINT");
     m.insert("traffic.breakpoint.response", "RESPONSE BREAKPOINT");
     m.insert("traffic.breakpoint.edit_help", "[e]dit [g] send [c] cancel");
-    m.insert("traffic.breakpoint.nav_help", "[↑/↓] field [Enter] edit [g] send [Esc] cancel");
+    m.insert(
+        "traffic.breakpoint.nav_help",
+        "[↑/↓] field [Enter] edit [g] send [Esc] cancel",
+    );
     m.insert("traffic.controls.running", "RUNNING");
     m.insert("traffic.controls.stopped", "STOPPED");
     m.insert("traffic.controls.ca_installed", "CA: INSTALLED");
@@ -381,15 +533,24 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("rules.pattern", "Pattern");
     m.insert("rules.value", "Value");
     m.insert("rules.action", "Action");
-    m.insert("rules.pattern_types", "DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR");
-    m.insert("rules.use_tab", "Use Tab to cycle: Pattern -> Value -> Action");
+    m.insert(
+        "rules.pattern_types",
+        "DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR",
+    );
+    m.insert(
+        "rules.use_tab",
+        "Use Tab to cycle: Pattern -> Value -> Action",
+    );
     m.insert("rules.press_s_to_save", "press s to save, Esc/q to cancel");
     m.insert("rules.esc_to_cancel", "Esc/q to cancel");
     m.insert("rules.active", "ACTIVE");
     m.insert("rules.inactive", "INACTIVE");
     // Devices
     m.insert("devices.title", "Devices");
-    m.insert("devices.hint", "[a] toggle ADB | j/k navigate [e] edit rule");
+    m.insert(
+        "devices.hint",
+        "[a] toggle ADB | j/k navigate [e] edit rule",
+    );
     m.insert("devices.proxy_bot", "ProxyBot Server");
     m.insert("devices.this_pc", "(This PC)");
     m.insert("devices.no_devices", "(no devices connected)");
@@ -444,10 +605,16 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("dns.no_queries_yet", "(no queries yet)");
     m.insert("dns.showing_entries", "showing {}/{})");
     m.insert("dns.and_more", "... and {} more");
-    m.insert("dns.key_bindings", "Key bindings: (s) toggle DNS, (b) toggle blocklist, (u) cycle upstream");
+    m.insert(
+        "dns.key_bindings",
+        "Key bindings: (s) toggle DNS, (b) toggle blocklist, (u) cycle upstream",
+    );
     // Alerts
     m.insert("alerts.title", "Alerts");
-    m.insert("alerts.empty", "No alerts. New domains/IPs will trigger alerts here.");
+    m.insert(
+        "alerts.empty",
+        "No alerts. New domains/IPs will trigger alerts here.",
+    );
     m.insert("alerts.severity.sev1", "SEV1");
     m.insert("alerts.severity.sev2", "SEV2");
     m.insert("alerts.severity.sev3", "SEV3");
@@ -461,14 +628,20 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("alerts.enter_detail", "[Enter] view detail");
     // Replay
     m.insert("replay.title", "Replay");
-    m.insert("replay.empty", "No replay targets. Targets appear after traffic is recorded.");
+    m.insert(
+        "replay.empty",
+        "No replay targets. Targets appear after traffic is recorded.",
+    );
     m.insert("replay.status", "HAR export:");
     m.insert("replay.targets", "Replay Targets");
     m.insert("replay.diff_view", "Diff View");
     m.insert("replay.status_idle", "idle");
     m.insert("replay.requests", "requests");
     m.insert("replay.paths", "paths");
-    m.insert("replay.select_target", "Select a target and press [s] to start replay, [x] to stop, [e] to export HAR");
+    m.insert(
+        "replay.select_target",
+        "Select a target and press [s] to start replay, [x] to stop, [e] to export HAR",
+    );
     m.insert("replay.start", "start");
     m.insert("replay.stop", "stop");
     m.insert("replay.export_har", "export HAR");
@@ -478,17 +651,29 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("replay.show_diff", "[d] show diff");
     // Graph
     m.insert("graph.title", "Graph");
-    m.insert("graph.empty", "No traffic captured yet. Start proxy to see DAG.");
-    m.insert("graph.auth_empty", "No traffic captured yet. Start proxy to see auth flow.");
+    m.insert(
+        "graph.empty",
+        "No traffic captured yet. Start proxy to see DAG.",
+    );
+    m.insert(
+        "graph.auth_empty",
+        "No traffic captured yet. Start proxy to see auth flow.",
+    );
     m.insert("graph.traffic_dependency_graph", "Traffic Dependency Graph");
     m.insert("graph.no_request_patterns", "No request patterns found.");
     m.insert("graph.temporal_edges", "Temporal edges:");
     m.insert("graph.dag_view", "DAG View");
     m.insert("graph.auth_view", "Auth View");
-    m.insert("graph.key_dag_auth_refresh", "[g] DAG  [a] Auth  [r] refresh");
+    m.insert(
+        "graph.key_dag_auth_refresh",
+        "[g] DAG  [a] Auth  [r] refresh",
+    );
     m.insert("graph.auth_state_machine", "Auth State Machine");
     m.insert("graph.no_explicit_auth", "No explicit auth flow detected.");
-    m.insert("graph.auth_may_be_embedded", "Auth may be embedded in headers or first-party SDK.");
+    m.insert(
+        "graph.auth_may_be_embedded",
+        "Auth may be embedded in headers or first-party SDK.",
+    );
     m.insert("graph.state_diagram", "stateDiagram-v2");
     m.insert("graph.entry_verify_creds", " : entry/verify creds");
     m.insert("graph.api_calls_after_auth", "--- API calls after auth ---");
@@ -496,7 +681,10 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("graph.final", "Final");
     // Gen
     m.insert("gen.title", "Gen");
-    m.insert("gen.placeholder", "No generation yet. Select a mode and press...");
+    m.insert(
+        "gen.placeholder",
+        "No generation yet. Select a mode and press...",
+    );
     m.insert("gen.note", "Requires inferred APIs from captured traffic.");
     m.insert("gen.generator", "Generator");
     m.insert("gen.mode", "Mode:");
@@ -504,17 +692,38 @@ fn en_map() -> HashMap<&'static str, &'static str> {
     m.insert("gen.frontend_scaffold", "Frontend Scaffold");
     m.insert("gen.docker_bundle", "Docker Bundle");
     m.insert("gen.actions", "Actions:");
-    m.insert("gen.generate_mock_api", "[m] Generate Mock API     - Create FastAPI mock");
-    m.insert("gen.generate_frontend", "[f] Generate Frontend     - React scaffold");
-    m.insert("gen.generate_docker", "[d] Generate Docker      - Full deployment bundle");
-    m.insert("gen.open_output_folder", "[o] Open Output Folder   - Open generated files");
+    m.insert(
+        "gen.generate_mock_api",
+        "[m] Generate Mock API     - Create FastAPI mock",
+    );
+    m.insert(
+        "gen.generate_frontend",
+        "[f] Generate Frontend     - React scaffold",
+    );
+    m.insert(
+        "gen.generate_docker",
+        "[d] Generate Docker      - Full deployment bundle",
+    );
+    m.insert(
+        "gen.open_output_folder",
+        "[o] Open Output Folder   - Open generated files",
+    );
     m.insert("gen.output", "Output:");
     m.insert("gen.generating", "Generating... please wait");
     m.insert("gen.please_wait", "please wait");
-    m.insert("gen.no_generation_yet", "No generation yet. Select a mode and press");
-    m.insert("gen.select_mode_and_press", "the corresponding key to generate.");
+    m.insert(
+        "gen.no_generation_yet",
+        "No generation yet. Select a mode and press",
+    );
+    m.insert(
+        "gen.select_mode_and_press",
+        "the corresponding key to generate.",
+    );
     m.insert("gen.output_last", "Last output:");
-    m.insert("gen.note_requires_inferred", "Note: Requires inferred APIs from captured traffic.");
+    m.insert(
+        "gen.note_requires_inferred",
+        "Note: Requires inferred APIs from captured traffic.",
+    );
     m.insert("gen.run_inference", "Run inference before generating.");
     m.insert("gen.mock", "Mock");
     m.insert("gen.frontend", "Frontend");
@@ -557,11 +766,17 @@ fn zh_map() -> HashMap<&'static str, &'static str> {
     m.insert("traffic.filter.host", "主机");
     m.insert("traffic.filter.status", "状态");
     m.insert("traffic.filter.app_tag", "应用");
-    m.insert("traffic.filter.hint", "[Enter]选择 [/]搜索 [1/2/3]详情标签 [Esc]清除筛选");
+    m.insert(
+        "traffic.filter.hint",
+        "[Enter]选择 [/]搜索 [1/2/3]详情标签 [Esc]清除筛选",
+    );
     m.insert("traffic.breakpoint.request", "请求断点");
     m.insert("traffic.breakpoint.response", "响应断点");
     m.insert("traffic.breakpoint.edit_help", "[e]编辑 [g]发送 [c]取消");
-    m.insert("traffic.breakpoint.nav_help", "[↑/↓]字段 [Enter]编辑 [g]发送 [Esc]取消");
+    m.insert(
+        "traffic.breakpoint.nav_help",
+        "[↑/↓]字段 [Enter]编辑 [g]发送 [Esc]取消",
+    );
     m.insert("traffic.controls.running", "运行中");
     m.insert("traffic.controls.stopped", "已停止");
     m.insert("traffic.controls.ca_installed", "CA: 已安装");
@@ -651,7 +866,10 @@ fn zh_map() -> HashMap<&'static str, &'static str> {
     m.insert("dns.no_queries_yet", "（尚无查询）");
     m.insert("dns.showing_entries", "显示 {}/{})");
     m.insert("dns.and_more", "... 还有 {} 条");
-    m.insert("dns.key_bindings", "快捷键：(s) 切换 DNS，(b) 切换黑名单，(u) 切换上游");
+    m.insert(
+        "dns.key_bindings",
+        "快捷键：(s) 切换 DNS，(b) 切换黑名单，(u) 切换上游",
+    );
     // Alerts
     m.insert("alerts.title", "告警");
     m.insert("alerts.empty", "无告警。新域名/IP 将触发告警。");
@@ -675,7 +893,10 @@ fn zh_map() -> HashMap<&'static str, &'static str> {
     m.insert("replay.status_idle", "空闲");
     m.insert("replay.requests", "请求");
     m.insert("replay.paths", "路径");
-    m.insert("replay.select_target", "选择目标后按 [s] 开始回放，[x] 停止，[e] 导出 HAR");
+    m.insert(
+        "replay.select_target",
+        "选择目标后按 [s] 开始回放，[x] 停止，[e] 导出 HAR",
+    );
     m.insert("replay.start", "开始");
     m.insert("replay.stop", "停止");
     m.insert("replay.export_har", "导出 HAR");
@@ -695,7 +916,10 @@ fn zh_map() -> HashMap<&'static str, &'static str> {
     m.insert("graph.key_dag_auth_refresh", "[g] DAG  [a] 认证  [r] 刷新");
     m.insert("graph.auth_state_machine", "认证状态机");
     m.insert("graph.no_explicit_auth", "未检测到明确的认证流程。");
-    m.insert("graph.auth_may_be_embedded", "认证可能嵌入在头或第一方 SDK 中。");
+    m.insert(
+        "graph.auth_may_be_embedded",
+        "认证可能嵌入在头或第一方 SDK 中。",
+    );
     m.insert("graph.state_diagram", "状态图-v2");
     m.insert("graph.entry_verify_creds", " : 进入/验证凭据");
     m.insert("graph.api_calls_after_auth", "--- 认证后的 API 调用 ---");
@@ -711,17 +935,26 @@ fn zh_map() -> HashMap<&'static str, &'static str> {
     m.insert("gen.frontend_scaffold", "前端脚手架");
     m.insert("gen.docker_bundle", "Docker 部署包");
     m.insert("gen.actions", "操作：");
-    m.insert("gen.generate_mock_api", "[m] 生成 Mock API     - 创建 FastAPI mock");
+    m.insert(
+        "gen.generate_mock_api",
+        "[m] 生成 Mock API     - 创建 FastAPI mock",
+    );
     m.insert("gen.generate_frontend", "[f] 生成前端     - React 脚手架");
     m.insert("gen.generate_docker", "[d] 生成 Docker      - 完整部署包");
-    m.insert("gen.open_output_folder", "[o] 打开输出文件夹   - 打开生成的文件");
+    m.insert(
+        "gen.open_output_folder",
+        "[o] 打开输出文件夹   - 打开生成的文件",
+    );
     m.insert("gen.output", "输出：");
     m.insert("gen.generating", "生成中... 请稍候");
     m.insert("gen.please_wait", "请稍候");
     m.insert("gen.no_generation_yet", "尚未生成。选择模式后按");
     m.insert("gen.select_mode_and_press", "对应键生成。");
     m.insert("gen.output_last", "最近输出：");
-    m.insert("gen.note_requires_inferred", "注意：需要从捕获流量中推断 API。");
+    m.insert(
+        "gen.note_requires_inferred",
+        "注意：需要从捕获流量中推断 API。",
+    );
     m.insert("gen.run_inference", "先生成推理。");
     m.insert("gen.mock", "Mock");
     m.insert("gen.frontend", "前端");
@@ -736,7 +969,9 @@ pub struct LocaleState {
 
 impl LocaleState {
     pub fn new(lang: Language) -> Self {
-        Self { lang: Mutex::new(lang) }
+        Self {
+            lang: Mutex::new(lang),
+        }
     }
 
     pub fn get(&self) -> Language {
@@ -759,10 +994,13 @@ impl LocaleState {
 
 /// Get a translated string by key — uses English by default.
 pub fn t(key: I18nKey) -> String {
-    static EN_MAP: std::sync::OnceLock<HashMap<&'static str, &'static str>> = std::sync::OnceLock::new();
+    static EN_MAP: std::sync::OnceLock<HashMap<&'static str, &'static str>> =
+        std::sync::OnceLock::new();
     let map = EN_MAP.get_or_init(en_map);
     let s = key.as_str();
-    map.get(s).map(|v| (*v).to_string()).unwrap_or_else(|| s.to_string())
+    map.get(s)
+        .map(|v| (*v).to_string())
+        .unwrap_or_else(|| s.to_string())
 }
 
 /// Get translated string with explicit language.
@@ -770,10 +1008,13 @@ pub fn t_lang(key: I18nKey, lang: Language) -> String {
     match lang {
         Language::En => t(key),
         Language::Zh => {
-            static ZH_MAP: std::sync::OnceLock<HashMap<&'static str, &'static str>> = std::sync::OnceLock::new();
+            static ZH_MAP: std::sync::OnceLock<HashMap<&'static str, &'static str>> =
+                std::sync::OnceLock::new();
             let map = ZH_MAP.get_or_init(zh_map);
             let s = key.as_str();
-            map.get(s).map(|v| (*v).to_string()).unwrap_or_else(|| s.to_string())
+            map.get(s)
+                .map(|v| (*v).to_string())
+                .unwrap_or_else(|| s.to_string())
         }
     }
 }

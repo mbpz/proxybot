@@ -2,11 +2,15 @@
 //!
 //! Shows traffic DAG / dependency graph visualization as ASCII art.
 
+use ratatui::{
+    layout::Rect,
+    widgets::{Block, Borders, Paragraph},
+    Frame,
+};
 use std::collections::HashMap;
-use ratatui::{Frame, layout::Rect, widgets::{Block, Borders, Paragraph}};
 
+use crate::tui::i18n::{t as tr, I18nKey as K};
 use crate::tui::{GraphViewType, TuiApp};
-use crate::tui::i18n::{I18nKey as K, t as tr};
 
 /// Build the DAG lines from recent requests in the DB.
 fn build_dag_lines(app: &TuiApp) -> Vec<String> {
@@ -56,9 +60,13 @@ fn build_dag_lines(app: &TuiApp) -> Vec<String> {
         let conn_info = if let Some(req) = groups.get(key) {
             let count = req.len();
             let status = if let Some(s) = req[0].status {
-                if s >= 200 && s < 300 { "OK".to_string() }
-                else if s >= 400 { format!("{}", s) }
-                else { format!("{}", s) }
+                if s >= 200 && s < 300 {
+                    "OK".to_string()
+                } else if s >= 400 {
+                    format!("{}", s)
+                } else {
+                    format!("{}", s)
+                }
             } else {
                 "..".to_string()
             };
@@ -67,10 +75,17 @@ fn build_dag_lines(app: &TuiApp) -> Vec<String> {
             String::new()
         };
 
-        let prefix = if i == nodes.len() - 1 { "└──" } else { "├──" };
+        let prefix = if i == nodes.len() - 1 {
+            "└──"
+        } else {
+            "├──"
+        };
         let connector = if i == nodes.len() - 1 { "  " } else { "│ " };
 
-        lines.push(format!("{} {} {} {}", prefix, display, conn_info, connector));
+        lines.push(format!(
+            "{} {} {} {}",
+            prefix, display, conn_info, connector
+        ));
     }
 
     lines.push("│                                                         │".to_string());
@@ -80,7 +95,8 @@ fn build_dag_lines(app: &TuiApp) -> Vec<String> {
         lines.push("│  Temporal edges:                                        │".to_string());
         lines.push("│                                                         │".to_string());
 
-        let transitions: Vec<_> = nodes.iter()
+        let transitions: Vec<_> = nodes
+            .iter()
             .zip(nodes.iter().skip(1))
             .take(5)
             .map(|((_, a), (_, b))| format!("{} → {}", a, b))
@@ -104,7 +120,8 @@ fn normalize_path_pattern(path: &str) -> String {
     if segments.len() <= 2 {
         path.to_string()
     } else {
-        segments.iter()
+        segments
+            .iter()
             .enumerate()
             .map(|(i, s)| {
                 if s.chars().all(|c| c.is_ascii_digit()) {
@@ -133,7 +150,9 @@ fn truncate_path(path: &str, max_len: usize) -> String {
 fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
     let mut lines = Vec::new();
 
-    let auth_indicators = ["login", "auth", "token", "oauth", "signin", "password", "session"];
+    let auth_indicators = [
+        "login", "auth", "token", "oauth", "signin", "password", "session",
+    ];
     let mut auth_states: Vec<String> = Vec::new();
     let mut transitions: Vec<(String, String)> = Vec::new();
 
@@ -155,14 +174,25 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
         let is_auth = auth_indicators.iter().any(|ind| combined.contains(ind));
 
         if is_auth {
-            let state = if path_lower.contains("login") || path_lower.contains("signin") || (path_lower.contains("auth") && path_lower.contains("password")) {
+            let state = if path_lower.contains("login")
+                || path_lower.contains("signin")
+                || (path_lower.contains("auth") && path_lower.contains("password"))
+            {
                 "LOGIN".to_string()
-            } else if path_lower.contains("token") || path_lower.contains("oauth") || path_lower.contains("access_token") {
+            } else if path_lower.contains("token")
+                || path_lower.contains("oauth")
+                || path_lower.contains("access_token")
+            {
                 "TOKEN".to_string()
             } else if path_lower.contains("logout") || path_lower.contains("signout") {
                 "LOGOUT".to_string()
             } else {
-                format!("AUTH_{}", truncate_path(&req.path, 8).replace("-", "_").replace("/", "_"))
+                format!(
+                    "AUTH_{}",
+                    truncate_path(&req.path, 8)
+                        .replace("-", "_")
+                        .replace("/", "_")
+                )
             };
 
             if auth_states.is_empty() || auth_states.last() != Some(&state) {
@@ -175,7 +205,12 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
             }
             prev_was_auth = true;
         } else if prev_was_auth && !auth_states.is_empty() {
-            let api_state = format!("API_{}", truncate_path(&req.path, 10).replace("-", "_").replace("/", "_"));
+            let api_state = format!(
+                "API_{}",
+                truncate_path(&req.path, 10)
+                    .replace("-", "_")
+                    .replace("/", "_")
+            );
             transitions.push((prev_state.clone(), api_state.clone()));
             prev_state = api_state;
             prev_was_auth = false;
@@ -207,7 +242,8 @@ fn build_auth_state_machine_lines(app: &TuiApp) -> Vec<String> {
 
         // API calls after auth
         if !transitions.is_empty() {
-            lines.push("│                                                            │".to_string());
+            lines
+                .push("│                                                            │".to_string());
             lines.push("│    --- API calls after auth ---                          │".to_string());
 
             for (from, to) in transitions.iter().take(10) {
@@ -235,15 +271,25 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     // Select view based on view_type
     let graph_title = tr(K::GraphTitle);
     let (title, content) = match app.graph.view_type {
-        GraphViewType::Dag => (format!("{} │ {}", graph_title, tr(K::GraphDagView)), dag_lines.join("\n")),
-        GraphViewType::AuthStateMachine => (format!("{} │ {}", graph_title, tr(K::GraphAuthView)), auth_lines.join("\n")),
+        GraphViewType::Dag => (
+            format!("{} │ {}", graph_title, tr(K::GraphDagView)),
+            dag_lines.join("\n"),
+        ),
+        GraphViewType::AuthStateMachine => (
+            format!("{} │ {}", graph_title, tr(K::GraphAuthView)),
+            auth_lines.join("\n"),
+        ),
     };
 
     let placeholder = "No data available. Start proxy to capture traffic.";
-    let final_content = if content.is_empty() { placeholder.to_string() } else { content };
+    let final_content = if content.is_empty() {
+        placeholder.to_string()
+    } else {
+        content
+    };
 
-    let para = Paragraph::new(final_content)
-        .block(Block::default().borders(Borders::ALL).title(title));
+    let para =
+        Paragraph::new(final_content).block(Block::default().borders(Borders::ALL).title(title));
 
     f.render_widget(para, area);
 }

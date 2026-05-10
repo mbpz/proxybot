@@ -41,7 +41,10 @@ pub enum TunnelStatus {
     /// Server is binding to the listen address.
     Starting,
     /// Server is running and accepting connections.
-    Running { addr: SocketAddr, connections: usize },
+    Running {
+        addr: SocketAddr,
+        connections: usize,
+    },
     /// Server encountered a fatal error.
     Error(String),
 }
@@ -60,10 +63,7 @@ impl TunnelServer {
     /// Create a new tunnel server that will listen on the given port.
     pub fn new(port: u16) -> Self {
         Self {
-            bind_addr: SocketAddr::new(
-                std::net::Ipv4Addr::UNSPECIFIED.into(),
-                port,
-            ),
+            bind_addr: SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), port),
             running: Arc::new(AtomicBool::new(false)),
             status_tx: watch::channel(TunnelStatus::Stopped).0,
         }
@@ -108,7 +108,9 @@ impl TunnelServer {
             .await
             .map_err(|e| format!("VPN tunnel bind failed: {}", e))?;
 
-        let addr = listener.local_addr().map_err(|e| format!("Failed to get local addr: {}", e))?;
+        let addr = listener
+            .local_addr()
+            .map_err(|e| format!("Failed to get local addr: {}", e))?;
         log::info!("VPN tunnel server listening on {}", addr);
 
         let running = self.running.clone();
@@ -117,10 +119,7 @@ impl TunnelServer {
         tokio::spawn(async move {
             let mut connections: usize = 0;
 
-            let _ = status_tx.send(TunnelStatus::Running {
-                addr,
-                connections,
-            });
+            let _ = status_tx.send(TunnelStatus::Running { addr, connections });
 
             loop {
                 if !running.load(Ordering::SeqCst) {
@@ -138,10 +137,7 @@ impl TunnelServer {
                             connections
                         );
 
-                        let _ = status_tx.send(TunnelStatus::Running {
-                            addr,
-                            connections,
-                        });
+                        let _ = status_tx.send(TunnelStatus::Running { addr, connections });
 
                         let _running = running.clone();
                         let _status_tx = status_tx.clone();

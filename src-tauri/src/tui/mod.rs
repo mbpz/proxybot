@@ -3,10 +3,10 @@
 //! Provides a multi-tab terminal interface for monitoring and controlling
 //! the proxy, viewing traffic, managing rules, devices, certificates, and DNS.
 
+pub mod i18n;
 pub mod input;
 pub mod render;
 pub mod wizard;
-pub mod i18n;
 
 use i18n::LocaleState;
 
@@ -16,17 +16,17 @@ use std::sync::{Arc, Mutex};
 use regex::Regex;
 
 // Import subsystem types from lib (same crate via proxybot_lib alias)
+use crate::adb::{AdbDevice, AdbState};
+use crate::anomaly::AnomalyDetector;
 use crate::cert::CertManager;
 use crate::db::{DbState, RecentRequest};
 use crate::dns::DnsState;
+use crate::proxy::BreakpointDecision;
 use crate::proxy::InterceptedRequest;
 use crate::proxy::ProxyState;
-use crate::proxy::BreakpointDecision;
-use crate::rules::RulesEngine;
-use crate::anomaly::AnomalyDetector;
-use crate::tun::TunState;
 use crate::replay::ReplayState;
-use crate::adb::{AdbState, AdbDevice};
+use crate::rules::RulesEngine;
+use crate::tun::TunState;
 
 // Wizard module
 use wizard::CertWizard;
@@ -34,10 +34,10 @@ use wizard::CertWizard;
 /// Filter configuration for traffic list.
 #[derive(Default)]
 pub struct TrafficFilters {
-    pub method: Option<String>,        // GET, POST, PUT, DELETE, etc.
-    pub host_pattern: Option<String>,  // substring match
-    pub status_class: Option<String>,  // "2xx", "3xx", "4xx", "5xx"
-    pub app_tag: Option<String>,       // app name filter
+    pub method: Option<String>,       // GET, POST, PUT, DELETE, etc.
+    pub host_pattern: Option<String>, // substring match
+    pub status_class: Option<String>, // "2xx", "3xx", "4xx", "5xx"
+    pub app_tag: Option<String>,      // app name filter
 }
 
 /// Which filter field is being edited in filter input mode.
@@ -124,22 +124,22 @@ pub enum BreakpointEditMode {
 /// 可编辑的字段类型
 #[derive(Clone, PartialEq, Eq)]
 pub enum BreakpointField {
-    Method,   // 索引 0
-    Url,      // 索引 1
-    Headers,  // 索引 2
-    Body,     // 索引 3
+    Method,  // 索引 0
+    Url,     // 索引 1
+    Headers, // 索引 2
+    Body,    // 索引 3
 }
 
 /// Breakpoint state for managing paused requests.
 pub struct BreakpointState {
     pub mode: BreakpointMode,
-    pub edit_mode: BreakpointEditMode,              // 新增
-    pub selected_field: BreakpointField,           // 新增
-    pub editing_header_index: Option<usize>,       // 新增：正在编辑的 header 行索引
-    pub header_input: String,                      // 新增
-    pub body_input: String,                         // 新增
-    pub url_input: String,                          // 新增
-    pub method_input: String,                       // 新增
+    pub edit_mode: BreakpointEditMode,       // 新增
+    pub selected_field: BreakpointField,     // 新增
+    pub editing_header_index: Option<usize>, // 新增：正在编辑的 header 行索引
+    pub header_input: String,                // 新增
+    pub body_input: String,                  // 新增
+    pub url_input: String,                   // 新增
+    pub method_input: String,                // 新增
     // 现有字段
     pub queue: Vec<crate::proxy::InterceptedRequest>,
     pub current_edit: Option<crate::proxy::InterceptedRequest>,
@@ -183,7 +183,8 @@ impl TrafficState {
 
     /// Returns filtered+searched requests.
     pub fn filtered_requests(&self) -> Vec<&RecentRequest> {
-        let mut results: Vec<&RecentRequest> = self.requests
+        let mut results: Vec<&RecentRequest> = self
+            .requests
             .iter()
             .filter(|req| {
                 // Method filter
@@ -540,9 +541,24 @@ mod tests {
     use super::*;
     use crate::db::RecentRequest;
 
-    fn make_req(id: i64, method: &str, host: &str, path: &str, status: Option<u16>) -> RecentRequest {
-        RecentRequest { id, timestamp: id.to_string(), method: method.into(), scheme: "https".into(),
-            host: host.into(), path: path.into(), status, duration_ms: Some(100), app_tag: None }
+    fn make_req(
+        id: i64,
+        method: &str,
+        host: &str,
+        path: &str,
+        status: Option<u16>,
+    ) -> RecentRequest {
+        RecentRequest {
+            id,
+            timestamp: id.to_string(),
+            method: method.into(),
+            scheme: "https".into(),
+            host: host.into(),
+            path: path.into(),
+            status,
+            duration_ms: Some(100),
+            app_tag: None,
+        }
     }
 
     #[test]
@@ -567,7 +583,8 @@ mod tests {
     fn test_filter_by_method() {
         let mut s = TrafficState::default();
         s.requests.push(make_req(1, "GET", "a.com", "/", Some(200)));
-        s.requests.push(make_req(2, "POST", "b.com", "/", Some(200)));
+        s.requests
+            .push(make_req(2, "POST", "b.com", "/", Some(200)));
         s.filters.method = Some("GET".into());
         assert_eq!(s.filtered_requests().len(), 1);
     }
@@ -575,8 +592,10 @@ mod tests {
     #[test]
     fn test_filter_by_host() {
         let mut s = TrafficState::default();
-        s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
-        s.requests.push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
+        s.requests
+            .push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+        s.requests
+            .push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
         s.filters.host_pattern = Some("api".into());
         assert_eq!(s.filtered_requests().len(), 1);
     }
@@ -603,9 +622,12 @@ mod tests {
     #[test]
     fn test_filter_combined() {
         let mut s = TrafficState::default();
-        s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
-        s.requests.push(make_req(2, "POST", "api.example.com", "/", Some(200)));
-        s.requests.push(make_req(3, "GET", "cdn.example.com", "/", Some(200)));
+        s.requests
+            .push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+        s.requests
+            .push(make_req(2, "POST", "api.example.com", "/", Some(200)));
+        s.requests
+            .push(make_req(3, "GET", "cdn.example.com", "/", Some(200)));
         s.filters.method = Some("GET".into());
         s.filters.host_pattern = Some("api".into());
         assert_eq!(s.filtered_requests().len(), 1);
@@ -623,7 +645,9 @@ mod tests {
     #[test]
     fn test_add_request_limit() {
         let mut s = TrafficState::default();
-        for i in 0..1005 { s.add_request(&make_req(i, "GET", "a.com", "/", Some(200))); }
+        for i in 0..1005 {
+            s.add_request(&make_req(i, "GET", "a.com", "/", Some(200)));
+        }
         assert_eq!(s.requests.len(), 1000);
     }
 
@@ -640,8 +664,20 @@ mod tests {
     #[test]
     fn test_regex_search() {
         let mut s = TrafficState::default();
-        s.requests.push(make_req(1, "GET", "api.example.com", "/v1/users", Some(200)));
-        s.requests.push(make_req(2, "GET", "cdn.example.com", "/static/app.js", Some(200)));
+        s.requests.push(make_req(
+            1,
+            "GET",
+            "api.example.com",
+            "/v1/users",
+            Some(200),
+        ));
+        s.requests.push(make_req(
+            2,
+            "GET",
+            "cdn.example.com",
+            "/static/app.js",
+            Some(200),
+        ));
         s.search_regex = Some(regex::Regex::new("users").unwrap());
         assert_eq!(s.filtered_requests().len(), 1);
     }

@@ -1,4 +1,6 @@
-use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, KeyUsagePurpose, SanType};
+use rcgen::{
+    BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, KeyUsagePurpose, SanType,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -64,8 +66,12 @@ impl CertManager {
     fn generate_and_save_ca(ca_dir: &Path) -> Result<(String, String), String> {
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        params.distinguished_name.push(DnType::CommonName, "ProxyBot MITM CA");
-        params.distinguished_name.push(DnType::OrganizationName, "ProxyBot");
+        params
+            .distinguished_name
+            .push(DnType::CommonName, "ProxyBot MITM CA");
+        params
+            .distinguished_name
+            .push(DnType::OrganizationName, "ProxyBot");
         params.key_usages = vec![
             KeyUsagePurpose::KeyCertSign,
             KeyUsagePurpose::CrlSign,
@@ -78,7 +84,8 @@ impl CertManager {
         params.not_after = not_after.into();
 
         let key_pair = KeyPair::generate().map_err(|e| format!("Failed to generate key: {}", e))?;
-        let cert = params.self_signed(&key_pair)
+        let cert = params
+            .self_signed(&key_pair)
             .map_err(|e| format!("Failed to sign CA: {}", e))?;
 
         let cert_pem = cert.pem();
@@ -126,11 +133,15 @@ impl CertManager {
     pub fn get_ca_fingerprint(&self) -> String {
         let cert_pem = self.ca_cert_pem.lock().unwrap();
         // Compute SHA1 hash of the PEM contents (not the PEM encoding, but the raw bytes)
-        use sha1::{Sha1, Digest};
+        use sha1::{Digest, Sha1};
         let mut hasher = Sha1::new();
         hasher.update(cert_pem.as_bytes());
         let result = hasher.finalize();
-        result.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(":")
+        result
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(":")
     }
 
     /// Get CA expiry datetime as (date_str, days_until_expiry).
@@ -162,7 +173,9 @@ impl CertManager {
         let dest = ca_cert_path();
         fs::write(&dest, cert_pem.as_bytes()).map_err(|e| format!("Failed to write CA: {}", e))?;
         log::info!("Exported CA certificate to {:?}", dest);
-        dest.to_str().map(|s| s.to_string()).ok_or_else(|| "Invalid path".to_string())
+        dest.to_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Invalid path".to_string())
     }
 
     /// Regenerate CA certificate. Existing in-memory host certs remain valid.
@@ -189,12 +202,16 @@ impl CertManager {
             return Ok(cert.clone());
         }
 
-        let key_pair = KeyPair::generate().map_err(|e| format!("Failed to generate host key: {}", e))?;
+        let key_pair =
+            KeyPair::generate().map_err(|e| format!("Failed to generate host key: {}", e))?;
 
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::NoCa;
         params.distinguished_name.push(DnType::CommonName, host);
-        params.subject_alt_names = vec![SanType::DnsName(host.try_into().map_err(|e: rcgen::Error| format!("Invalid hostname: {}", e))?)];
+        params.subject_alt_names = vec![SanType::DnsName(
+            host.try_into()
+                .map_err(|e: rcgen::Error| format!("Invalid hostname: {}", e))?,
+        )];
 
         let not_after = UNIX_EPOCH
             .checked_add(Duration::from_secs(86400))
@@ -207,8 +224,8 @@ impl CertManager {
         ];
 
         let ca_key_pem = self.ca_key_pem.lock().map_err(|e| e.to_string())?;
-        let ca_key_pair = KeyPair::from_pem(&ca_key_pem)
-            .map_err(|e| format!("Failed to parse CA key: {}", e))?;
+        let ca_key_pair =
+            KeyPair::from_pem(&ca_key_pem).map_err(|e| format!("Failed to parse CA key: {}", e))?;
 
         let issuer = Issuer::new(params.clone(), ca_key_pair);
         let cert = params
@@ -255,5 +272,8 @@ fn format_expiry_date(secs: u64) -> String {
     let hours = secs_in_day / 3600;
     let minutes = (secs_in_day % 3600) / 60;
 
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:00 UTC", year, month, day, hours, minutes)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:00 UTC",
+        year, month, day, hours, minutes
+    )
 }

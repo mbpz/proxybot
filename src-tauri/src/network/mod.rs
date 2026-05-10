@@ -1,19 +1,44 @@
 use serde::Serialize;
 use std::net::IpAddr;
 
-pub mod profile;
 pub mod engine;
+pub mod profile;
+pub use engine::{ConditionEffect, NetworkConditionEngine};
 pub use profile::NetworkProfile;
-pub use engine::{NetworkConditionEngine, ConditionEffect};
 
 /// Built-in presets
 pub fn builtin_presets() -> Vec<NetworkProfile> {
     vec![
-        NetworkProfile { name: "2G".into(), latency_ms: 800, bandwidth_kbps: 50, packet_loss_pct: 2 },
-        NetworkProfile { name: "3G".into(), latency_ms: 300, bandwidth_kbps: 750, packet_loss_pct: 1 },
-        NetworkProfile { name: "4G".into(), latency_ms: 100, bandwidth_kbps: 10000, packet_loss_pct: 0 },
-        NetworkProfile { name: "WiFi".into(), latency_ms: 5, bandwidth_kbps: 0, packet_loss_pct: 0 },
-        NetworkProfile { name: "Edge".into(), latency_ms: 1200, bandwidth_kbps: 30, packet_loss_pct: 5 },
+        NetworkProfile {
+            name: "2G".into(),
+            latency_ms: 800,
+            bandwidth_kbps: 50,
+            packet_loss_pct: 2,
+        },
+        NetworkProfile {
+            name: "3G".into(),
+            latency_ms: 300,
+            bandwidth_kbps: 750,
+            packet_loss_pct: 1,
+        },
+        NetworkProfile {
+            name: "4G".into(),
+            latency_ms: 100,
+            bandwidth_kbps: 10000,
+            packet_loss_pct: 0,
+        },
+        NetworkProfile {
+            name: "WiFi".into(),
+            latency_ms: 5,
+            bandwidth_kbps: 0,
+            packet_loss_pct: 0,
+        },
+        NetworkProfile {
+            name: "Edge".into(),
+            latency_ms: 1200,
+            bandwidth_kbps: 30,
+            packet_loss_pct: 5,
+        },
     ]
 }
 

@@ -215,21 +215,19 @@ fn load_rules_from_dir(dir: &PathBuf) -> Vec<Rule> {
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) == Some("yaml") {
             match fs::read_to_string(&path) {
-                Ok(content) => {
-                    match serde_yaml::from_str::<RuleFile>(&content) {
-                        Ok(rule_file) => {
-                            for entry in rule_file.rules {
-                                if let Some(rule) = entry.to_rule() {
-                                    all_rules.push(rule);
-                                }
+                Ok(content) => match serde_yaml::from_str::<RuleFile>(&content) {
+                    Ok(rule_file) => {
+                        for entry in rule_file.rules {
+                            if let Some(rule) = entry.to_rule() {
+                                all_rules.push(rule);
                             }
-                            log::info!("Loaded rules from {:?}", path);
                         }
-                        Err(e) => {
-                            log::warn!("Failed to parse {:?}: {}", path, e);
-                        }
+                        log::info!("Loaded rules from {:?}", path);
                     }
-                }
+                    Err(e) => {
+                        log::warn!("Failed to parse {:?}: {}", path, e);
+                    }
+                },
                 Err(e) => {
                     log::warn!("Failed to read {:?}: {}", path, e);
                 }
@@ -380,7 +378,12 @@ impl RulesEngine {
 
     /// Move a rule up or down and persist to disk.
     /// Returns true if the move was successful.
-    pub fn move_rule_internal(&self, index: usize, direction: MoveDirection, filename: &str) -> bool {
+    pub fn move_rule_internal(
+        &self,
+        index: usize,
+        direction: MoveDirection,
+        filename: &str,
+    ) -> bool {
         // First do the in-memory move
         if !self.move_rule(index, direction) {
             return false;
@@ -409,7 +412,9 @@ impl RulesEngine {
         let dir = get_rules_dir();
         let path = dir.join(filename);
 
-        let file = RuleFile { rules: rule_entries };
+        let file = RuleFile {
+            rules: rule_entries,
+        };
         if let Ok(yaml) = serde_yaml::to_string(&file) {
             let _ = fs::write(&path, yaml);
         }
@@ -487,12 +492,11 @@ impl RulesEngine {
         existing_rules.push(rule);
 
         // Serialize and save
-        let rule_entries: Vec<RuleEntry> = existing_rules
-            .iter()
-            .map(Self::rule_to_entry)
-            .collect();
+        let rule_entries: Vec<RuleEntry> = existing_rules.iter().map(Self::rule_to_entry).collect();
 
-        let file = RuleFile { rules: rule_entries };
+        let file = RuleFile {
+            rules: rule_entries,
+        };
         let yaml = serde_yaml::to_string(&file).map_err(|e| e.to_string())?;
 
         fs::write(&path, yaml).map_err(|e| e.to_string())?;
@@ -553,7 +557,11 @@ fn match_rule(rule: &Rule, host: &str, ip: Option<IpAddr>) -> Option<RuleAction>
         RulePattern::Geoip | RulePattern::RuleSet => {
             // GeoIP and RULE-SET require external data sources
             // For now, log and skip
-            log::debug!("GeoIP/RULE-SET not yet implemented: {} {}", rule.pattern, rule.value);
+            log::debug!(
+                "GeoIP/RULE-SET not yet implemented: {} {}",
+                rule.pattern,
+                rule.value
+            );
             None
         }
     }
@@ -604,7 +612,9 @@ pub fn save_rule(
         .map(RulesEngine::rule_to_entry)
         .collect();
 
-    let file = RuleFile { rules: rule_entries };
+    let file = RuleFile {
+        rules: rule_entries,
+    };
     let yaml = serde_yaml::to_string(&file).map_err(|e| e.to_string())?;
 
     fs::write(&path, yaml).map_err(|e| e.to_string())?;
@@ -658,12 +668,11 @@ pub fn reorder_rules(
 
     let path = get_rules_dir().join(&filename);
 
-    let rule_entries: Vec<RuleEntry> = rules
-        .iter()
-        .map(RulesEngine::rule_to_entry)
-        .collect();
+    let rule_entries: Vec<RuleEntry> = rules.iter().map(RulesEngine::rule_to_entry).collect();
 
-    let file = RuleFile { rules: rule_entries };
+    let file = RuleFile {
+        rules: rule_entries,
+    };
     let yaml = serde_yaml::to_string(&file).map_err(|e| e.to_string())?;
 
     fs::write(&path, yaml).map_err(|e| e.to_string())?;
@@ -724,8 +733,14 @@ mod tests {
             enabled: true,
             comment: "".to_string(),
         };
-        assert_eq!(match_rule(&rule, "example.com", None), Some(RuleAction::Direct));
-        assert_eq!(match_rule(&rule, "EXAMPLE.COM", None), Some(RuleAction::Direct));
+        assert_eq!(
+            match_rule(&rule, "example.com", None),
+            Some(RuleAction::Direct)
+        );
+        assert_eq!(
+            match_rule(&rule, "EXAMPLE.COM", None),
+            Some(RuleAction::Direct)
+        );
         assert_eq!(match_rule(&rule, "sub.example.com", None), None);
     }
 
@@ -740,8 +755,14 @@ mod tests {
             enabled: true,
             comment: "".to_string(),
         };
-        assert_eq!(match_rule(&rule, "example.com", None), Some(RuleAction::Proxy));
-        assert_eq!(match_rule(&rule, "sub.example.com", None), Some(RuleAction::Proxy));
+        assert_eq!(
+            match_rule(&rule, "example.com", None),
+            Some(RuleAction::Proxy)
+        );
+        assert_eq!(
+            match_rule(&rule, "sub.example.com", None),
+            Some(RuleAction::Proxy)
+        );
         assert_eq!(match_rule(&rule, "example.com.evil.com", None), None);
     }
 
@@ -756,8 +777,14 @@ mod tests {
             enabled: true,
             comment: "".to_string(),
         };
-        assert_eq!(match_rule(&rule, "api.wechat.com", None), Some(RuleAction::Direct));
-        assert_eq!(match_rule(&rule, "wechat-api.example.com", None), Some(RuleAction::Direct));
+        assert_eq!(
+            match_rule(&rule, "api.wechat.com", None),
+            Some(RuleAction::Direct)
+        );
+        assert_eq!(
+            match_rule(&rule, "wechat-api.example.com", None),
+            Some(RuleAction::Direct)
+        );
         assert_eq!(match_rule(&rule, "chat.example.com", None), None);
     }
 
@@ -777,7 +804,11 @@ mod tests {
             Some(RuleAction::Reject)
         );
         assert_eq!(
-            match_rule(&rule, "host.example.com", Some("192.168.1.1".parse().unwrap())),
+            match_rule(
+                &rule,
+                "host.example.com",
+                Some("192.168.1.1".parse().unwrap())
+            ),
             None
         );
     }

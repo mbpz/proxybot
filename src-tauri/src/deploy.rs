@@ -87,7 +87,8 @@ jobs:
       - name: Upload test results
         if: failure()
         run: echo "E2E tests failed. See artifact for details."
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ============================================================================
@@ -180,7 +181,8 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
 
 CMD ["nginx", "-g", "daemon off;"]
-"#.to_string()
+"#
+    .to_string()
 }
 
 fn generate_nginx_conf() -> String {
@@ -200,7 +202,8 @@ fn generate_nginx_conf() -> String {
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ============================================================================
@@ -219,14 +222,19 @@ CREATE TABLE IF NOT EXISTS app_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_stats_name ON app_stats(app_name);
-"#.to_string()
+"#
+    .to_string()
 }
 
 // ============================================================================
 // README
 // ============================================================================
 
-fn generate_readme(project_name: &str, mock_endpoints: &[(String, String)], frontend_routes: &[(String, String)]) -> String {
+fn generate_readme(
+    project_name: &str,
+    mock_endpoints: &[(String, String)],
+    frontend_routes: &[(String, String)],
+) -> String {
     let mut endpoints_md = String::new();
     for (method, path) in mock_endpoints {
         endpoints_md.push_str(&format!("- **{}** `{}`\n", method, path));
@@ -335,8 +343,16 @@ To regenerate this bundle from fresh traffic capture:
 MIT
 "#,
         project_name = project_name,
-        endpoints = if endpoints_md.is_empty() { "No endpoints recorded yet.".to_string() } else { endpoints_md },
-        routes = if routes_md.is_empty() { "No routes generated yet.".to_string() } else { routes_md }
+        endpoints = if endpoints_md.is_empty() {
+            "No endpoints recorded yet.".to_string()
+        } else {
+            endpoints_md
+        },
+        routes = if routes_md.is_empty() {
+            "No routes generated yet.".to_string()
+        } else {
+            routes_md
+        }
     )
 }
 
@@ -347,7 +363,8 @@ MIT
 fn init_git_repo(base_path: &PathBuf) -> Result<(), String> {
     // Create .github/workflows directory
     let workflows_dir = base_path.join(".github").join("workflows");
-    fs::create_dir_all(&workflows_dir).map_err(|e| format!("Failed to create .github/workflows: {}", e))?;
+    fs::create_dir_all(&workflows_dir)
+        .map_err(|e| format!("Failed to create .github/workflows: {}", e))?;
 
     // Create .gitignore
     let gitignore = r#"# Dependencies
@@ -381,7 +398,8 @@ test-results/
 # Docker
 .dockerignore
 "#;
-    fs::write(base_path.join(".gitignore"), gitignore).map_err(|e| format!("Failed to write .gitignore: {}", e))?;
+    fs::write(base_path.join(".gitignore"), gitignore)
+        .map_err(|e| format!("Failed to write .gitignore: {}", e))?;
 
     // Initialize git repo
     let output = std::process::Command::new("git")
@@ -391,7 +409,10 @@ test-results/
         .map_err(|e| format!("Failed to run git init: {}", e))?;
 
     if !output.status.success() {
-        return Err(format!("git init failed: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!(
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
 
     // Create initial commit
@@ -409,7 +430,10 @@ test-results/
 
     if !output.status.success() {
         // Non-fatal: just log
-        log::warn!("git commit failed (may be empty repo): {}", String::from_utf8_lossy(&output.stderr));
+        log::warn!(
+            "git commit failed (may be empty repo): {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     Ok(())
@@ -419,7 +443,10 @@ test-results/
 // Helper: Collect inferred APIs
 // ============================================================================
 
-fn get_inferred_apis(conn: &rusqlite::Connection, session_id: &str) -> Result<Vec<InferredApi>, String> {
+fn get_inferred_apis(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> Result<Vec<InferredApi>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
@@ -476,7 +503,10 @@ fn get_mock_endpoints_from_db(
 // Frontend Route Extraction
 // ============================================================================
 
-fn get_frontend_routes(conn: &rusqlite::Connection, session_id: &str) -> Result<Vec<(String, String)>, String> {
+fn get_frontend_routes(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> Result<Vec<(String, String)>, String> {
     let apis = get_inferred_apis(conn, session_id)?;
     let mut routes: Vec<(String, String)> = apis
         .iter()
@@ -516,11 +546,7 @@ pub fn generate_deployment_bundle(
     let docker_compose_content = generate_docker_compose(&name);
 
     // Generate README
-    let readme_content = generate_readme(
-        &name,
-        &mock_endpoints,
-        &frontend_routes,
-    );
+    let readme_content = generate_readme(&name, &mock_endpoints, &frontend_routes);
 
     // Generate CI template
     let ci_template_content = generate_github_actions_ci();
@@ -563,32 +589,32 @@ pub fn write_deployment_bundle(
     fs::write(
         base_path.join("docker-compose.yml"),
         generate_docker_compose(&name),
-    ).map_err(|e| format!("Failed to write docker-compose.yml: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write docker-compose.yml: {}", e))?;
 
     // Write init.sql
-    fs::write(
-        base_path.join("init.sql"),
-        generate_init_sql(),
-    ).map_err(|e| format!("Failed to write init.sql: {}", e))?;
+    fs::write(base_path.join("init.sql"), generate_init_sql())
+        .map_err(|e| format!("Failed to write init.sql: {}", e))?;
 
     // Write README.md
     fs::write(
         base_path.join("README.md"),
         generate_readme(&name, &mock_endpoints, &frontend_routes),
-    ).map_err(|e| format!("Failed to write README.md: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write README.md: {}", e))?;
 
     // Create .github/workflows and write CI
     let workflows_dir = base_path.join(".github").join("workflows");
-    fs::create_dir_all(&workflows_dir).map_err(|e| format!("Failed to create workflows dir: {}", e))?;
-    fs::write(
-        workflows_dir.join("e2e.yml"),
-        generate_github_actions_ci(),
-    ).map_err(|e| format!("Failed to write e2e.yml: {}", e))?;
+    fs::create_dir_all(&workflows_dir)
+        .map_err(|e| format!("Failed to create workflows dir: {}", e))?;
+    fs::write(workflows_dir.join("e2e.yml"), generate_github_actions_ci())
+        .map_err(|e| format!("Failed to write e2e.yml: {}", e))?;
 
     // Create mock-api directory
     let mock_api_dir = base_path.join("mock-api");
     let fixtures_dir = mock_api_dir.join("fixtures");
-    fs::create_dir_all(&fixtures_dir).map_err(|e| format!("Failed to create fixtures dir: {}", e))?;
+    fs::create_dir_all(&fixtures_dir)
+        .map_err(|e| format!("Failed to create fixtures dir: {}", e))?;
 
     // Write mock-api files (simplified FastAPI stub)
     let mock_main = generate_mock_main(&mock_endpoints);
@@ -598,7 +624,8 @@ pub fn write_deployment_bundle(
     fs::write(
         mock_api_dir.join("requirements.txt"),
         "fastapi>=0.104.0\nuvicorn>=0.24.0\npsycopg2-binary>=2.9.9\n",
-    ).map_err(|e| format!("Failed to write requirements.txt: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write requirements.txt: {}", e))?;
 
     fs::write(
         mock_api_dir.join("Dockerfile"),
@@ -615,7 +642,8 @@ EXPOSE 8000
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 "#,
-    ).map_err(|e| format!("Failed to write Dockerfile: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write Dockerfile: {}", e))?;
 
     // Write a placeholder fixture
     let placeholder_fixture = serde_json::json!([
@@ -624,12 +652,14 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     fs::write(
         fixtures_dir.join("placeholder.json"),
         serde_json::to_string_pretty(&placeholder_fixture).unwrap(),
-    ).map_err(|e| format!("Failed to write placeholder fixture: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write placeholder fixture: {}", e))?;
 
     // Create frontend directory
     let frontend_dir = base_path.join("frontend");
     let frontend_src = frontend_dir.join("src");
-    fs::create_dir_all(&frontend_src).map_err(|e| format!("Failed to create frontend src: {}", e))?;
+    fs::create_dir_all(&frontend_src)
+        .map_err(|e| format!("Failed to create frontend src: {}", e))?;
 
     // Write frontend files (simplified React scaffold)
     fs::write(
@@ -658,18 +688,19 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
                 "typescript": "^5.3.2",
                 "vite": "^5.0.8"
             }
-        })).unwrap(),
-    ).map_err(|e| format!("Failed to write package.json: {}", e))?;
+        }))
+        .unwrap(),
+    )
+    .map_err(|e| format!("Failed to write package.json: {}", e))?;
 
     fs::write(
         frontend_dir.join("Dockerfile"),
         generate_frontend_dockerfile(),
-    ).map_err(|e| format!("Failed to write frontend Dockerfile: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write frontend Dockerfile: {}", e))?;
 
-    fs::write(
-        frontend_dir.join("nginx.conf"),
-        generate_nginx_conf(),
-    ).map_err(|e| format!("Failed to write nginx.conf: {}", e))?;
+    fs::write(frontend_dir.join("nginx.conf"), generate_nginx_conf())
+        .map_err(|e| format!("Failed to write nginx.conf: {}", e))?;
 
     fs::write(
         frontend_dir.join("index.html"),
@@ -686,7 +717,8 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
   </body>
 </html>
 "#,
-    ).map_err(|e| format!("Failed to write index.html: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write index.html: {}", e))?;
 
     fs::write(
         frontend_src.join("main.tsx"),
@@ -700,7 +732,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 )
 "#,
-    ).map_err(|e| format!("Failed to write main.tsx: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write main.tsx: {}", e))?;
 
     // Generate App.tsx with routes from frontend_routes
     let app_content = generate_frontend_app(&frontend_routes);
@@ -735,8 +768,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
             },
             "include": ["src"],
             "references": [{ "path": "./tsconfig.node.json" }]
-        })).unwrap(),
-    ).map_err(|e| format!("Failed to write tsconfig.json: {}", e))?;
+        }))
+        .unwrap(),
+    )
+    .map_err(|e| format!("Failed to write tsconfig.json: {}", e))?;
 
     fs::write(
         frontend_dir.join("tsconfig.node.json"),
@@ -747,8 +782,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
                 "allowSyntheticDefaultImports": true
             },
             "include": ["vite.config.ts"]
-        })).unwrap(),
-    ).map_err(|e| format!("Failed to write tsconfig.node.json: {}", e))?;
+        }))
+        .unwrap(),
+    )
+    .map_err(|e| format!("Failed to write tsconfig.node.json: {}", e))?;
 
     fs::write(
         frontend_dir.join("vite.config.ts"),
@@ -768,7 +805,8 @@ export default defineConfig({
   }
 })
 "#,
-    ).map_err(|e| format!("Failed to write vite.config.ts: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write vite.config.ts: {}", e))?;
 
     fs::write(
         frontend_dir.join("playwright.config.ts"),
@@ -782,8 +820,10 @@ export default defineConfig({
             "projects": [
                 { "name": "chromium", "use": { "browserName": "chromium" } }
             ]
-        })).unwrap(),
-    ).map_err(|e| format!("Failed to write playwright.config.ts: {}", e))?;
+        }))
+        .unwrap(),
+    )
+    .map_err(|e| format!("Failed to write playwright.config.ts: {}", e))?;
 
     // Write a basic e2e test
     let e2e_dir = frontend_dir.join("e2e");
@@ -805,7 +845,8 @@ test('navigation works', async ({ page }) => {
   await expect(page.locator('.container')).toBeVisible()
 })
 "#,
-    ).map_err(|e| format!("Failed to write e2e test: {}", e))?;
+    )
+    .map_err(|e| format!("Failed to write e2e test: {}", e))?;
 
     // Initialize git repo
     if let Err(e) = init_git_repo(&base_path) {
@@ -840,7 +881,10 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
     for (method, path) in endpoints {
         let method_lower = method.to_lowercase();
-        let path_slug = path.trim_start_matches('/').replace('/', "_").replace('-', "_");
+        let path_slug = path
+            .trim_start_matches('/')
+            .replace('/', "_")
+            .replace('-', "_");
         let fixture_file = format!("fixture_{}.json", path_slug);
 
         code.push_str(&format!(
@@ -888,8 +932,14 @@ fn generate_frontend_app(routes: &[(String, String)]) -> String {
 
     for (component, route) in routes {
         let component_lower = component.replace("Page", "").to_lowercase();
-        imports.push_str(&format!("import {} from './pages/{}';\n", component, component_lower));
-        route_elements.push_str(&format!("      <Route path=\"{}\" element={{<{} />}} />\n", route, component));
+        imports.push_str(&format!(
+            "import {} from './pages/{}';\n",
+            component, component_lower
+        ));
+        route_elements.push_str(&format!(
+            "      <Route path=\"{}\" element={{<{} />}} />\n",
+            route, component
+        ));
     }
 
     // Add placeholder route if no routes

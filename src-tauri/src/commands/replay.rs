@@ -60,7 +60,9 @@ pub fn toggle_replay_target(_id: String, _enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn execute_replay(targets: Vec<ReplayTargetConfig>) -> Result<Vec<ReplayOutcome>, String> {
+pub async fn execute_replay(
+    targets: Vec<ReplayTargetConfig>,
+) -> Result<Vec<ReplayOutcome>, String> {
     let mut outcomes = Vec::new();
     let client = reqwest::Client::new();
     for target in targets {
@@ -93,8 +95,7 @@ pub async fn execute_replay(targets: Vec<ReplayTargetConfig>) -> Result<Vec<Repl
 }
 
 fn validate_url(url: &str) -> Result<(), String> {
-    let parsed =
-        reqwest::Url::parse(url).map_err(|e| format!("invalid URL: {}", e))?;
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid URL: {}", e))?;
     let host = parsed
         .host_str()
         .ok_or_else(|| "URL has no host".to_string())?;
@@ -108,9 +109,7 @@ fn validate_url(url: &str) -> Result<(), String> {
                 ipv4.is_loopback() || ipv4.is_private() || ipv4.is_link_local()
             }
             std::net::IpAddr::V6(ipv6) => {
-                ipv6.is_loopback()
-                    || ipv6.is_unique_local()
-                    || ipv6.is_unicast_link_local()
+                ipv6.is_loopback() || ipv6.is_unique_local() || ipv6.is_unicast_link_local()
             }
         };
         if blocked {
@@ -125,8 +124,8 @@ async fn execute_one(
     target: &ReplayTargetConfig,
 ) -> Result<reqwest::Response, String> {
     validate_url(&target.url)?;
-    let method = reqwest::Method::from_bytes(target.method.as_bytes())
-        .unwrap_or(reqwest::Method::GET);
+    let method =
+        reqwest::Method::from_bytes(target.method.as_bytes()).unwrap_or(reqwest::Method::GET);
     let mut req = client.request(method, &target.url);
     for (k, v) in &target.headers {
         req = req.header(k.as_str(), v.as_str());

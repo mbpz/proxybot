@@ -1,10 +1,10 @@
 // src-tauri/src/commands/cdp_server.rs
 
+use crate::cdp::{CdpMessage, CdpResponse};
+use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use futures_util::{SinkExt, StreamExt};
-use crate::cdp::{CdpMessage, CdpResponse};
 
 pub struct CdpServer {
     port: u16,
@@ -68,40 +68,53 @@ impl CdpServer {
     fn handle_text_message(text: &str) -> Option<String> {
         let msg: CdpMessage = serde_json::from_str(text).ok()?;
         let response = Self::dispatch(&msg)?;
-        Some(serde_json::to_string(&response).map_err(|e| {
-            eprintln!("CDP serialize error: {}", e);
-        }).ok()?)
+        Some(
+            serde_json::to_string(&response)
+                .map_err(|e| {
+                    eprintln!("CDP serialize error: {}", e);
+                })
+                .ok()?,
+        )
     }
 
     fn dispatch(msg: &CdpMessage) -> Option<CdpResponse> {
         let id = match msg.id {
             Some(id) => id,
             None => {
-                eprintln!("CDP dispatch error: missing message id for method {}", msg.method);
+                eprintln!(
+                    "CDP dispatch error: missing message id for method {}",
+                    msg.method
+                );
                 return None;
             }
         };
 
         // Handle basic CDP methods
         match msg.method.as_str() {
-            "Page.enable" | "Runtime.enable" | "Network.enable" => {
-                Some(CdpResponse { id, result: Some(serde_json::json!({})), error: None })
-            }
-            "Page.disable" | "Runtime.disable" | "Network.disable" => {
-                Some(CdpResponse { id, result: Some(serde_json::json!({})), error: None })
-            }
-            "Target.getTargets" => {
-                Some(CdpResponse {
-                    id,
-                    result: Some(serde_json::json!({
-                        "targetInfos": []
-                    })),
-                    error: None,
-                })
-            }
+            "Page.enable" | "Runtime.enable" | "Network.enable" => Some(CdpResponse {
+                id,
+                result: Some(serde_json::json!({})),
+                error: None,
+            }),
+            "Page.disable" | "Runtime.disable" | "Network.disable" => Some(CdpResponse {
+                id,
+                result: Some(serde_json::json!({})),
+                error: None,
+            }),
+            "Target.getTargets" => Some(CdpResponse {
+                id,
+                result: Some(serde_json::json!({
+                    "targetInfos": []
+                })),
+                error: None,
+            }),
             _ => {
                 // Return empty success for unknown methods
-                Some(CdpResponse { id, result: Some(serde_json::json!({})), error: None })
+                Some(CdpResponse {
+                    id,
+                    result: Some(serde_json::json!({})),
+                    error: None,
+                })
             }
         }
     }

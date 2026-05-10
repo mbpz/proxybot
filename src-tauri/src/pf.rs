@@ -9,7 +9,7 @@
 use std::fs;
 use std::process::Command;
 
-use crate::config::{pf_anchor_file, pf_anchor_name, proxy_port, dns_port};
+use crate::config::{dns_port, pf_anchor_file, pf_anchor_name, proxy_port};
 
 /// Set up pf rules for transparent proxying.
 /// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8088.
@@ -36,8 +36,7 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
         dns_port = dns_port(),
         ip = local_ip,
     );
-    fs::write(tmp_file, &rules)
-        .map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
+    fs::write(tmp_file, &rules).map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
 
     // Privileged shell: copy to /etc/pf.anchors, load rules, enable pf.
     let privileged_script = format!(
@@ -57,17 +56,14 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     if !output.status.success() {
-        return Err(format!(
-            "pf setup failed: {}{}",
-            stderr,
-            stdout
-        ));
+        return Err(format!("pf setup failed: {}{}", stderr, stdout));
     }
 
     log::info!("pf rules loaded successfully via osascript");
     Ok(format!(
         "Transparent proxy enabled. Redirecting {} traffic on ports 80/443 to port {}",
-        interface, proxy_port()
+        interface,
+        proxy_port()
     ))
 }
 
@@ -109,9 +105,7 @@ pub fn teardown_pf() -> Result<(), String> {
 
 /// Check if pf is currently enabled.
 pub fn is_pf_enabled() -> bool {
-    let output = Command::new("pfctl")
-        .args(["-s", "info"])
-        .output();
+    let output = Command::new("pfctl").args(["-s", "info"]).output();
 
     match output {
         Ok(out) => {

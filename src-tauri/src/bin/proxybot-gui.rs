@@ -6,13 +6,19 @@ use proxybot_lib::{
     db::DbState,
     deploy::{generate_deployment_bundle, write_deployment_bundle},
     dns::DnsState,
-    mockgen::{generate_mock_project, write_mock_project, get_mock_endpoints, start_mock_server},
+    mockgen::{generate_mock_project, get_mock_endpoints, start_mock_server, write_mock_project},
     proxy::ProxyState,
     replay::ReplayState,
     rules::RulesEngine,
-    scaffoldgen::{evaluate_scaffold_project, generate_scaffold_project, generate_scaffold_with_vision, write_scaffold_project, write_scaffold_project_with_vision},
+    scaffoldgen::{
+        evaluate_scaffold_project, generate_scaffold_project, generate_scaffold_with_vision,
+        write_scaffold_project, write_scaffold_project_with_vision,
+    },
     tun::TunState,
-    vision::{analyze_screenshot, analyze_screenshot_base64, get_vision_analyses, delete_vision_analysis, fuse_vision_with_api},
+    vision::{
+        analyze_screenshot, analyze_screenshot_base64, delete_vision_analysis,
+        fuse_vision_with_api, get_vision_analyses,
+    },
 };
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
@@ -25,9 +31,11 @@ pub fn run() {
     log::info!("Starting ProxyBot GUI");
 
     let db_state = Arc::new(DbState::new().expect("Failed to initialize database"));
-    let cert_manager = Arc::new(CertManager::new().expect("Failed to initialize certificate manager"));
+    let cert_manager =
+        Arc::new(CertManager::new().expect("Failed to initialize certificate manager"));
     let rules_engine = Arc::new(RulesEngine::new());
-    let dns_state = Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
+    let dns_state =
+        Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
     let proxy_state = Arc::new(ProxyState::new());
     let keep_running_state = Arc::new(proxybot_lib::proxy::KeepRunningState::new());
     let anomaly_detector = Arc::new(AnomalyDetector::new());
@@ -60,13 +68,17 @@ pub fn run() {
                 .build(app)?;
 
             let app_handle = app.handle().clone();
-            tray.on_menu_event(move |_app, event| {
-                match event.id.as_ref() {
-                    "start" => { let _ = app_handle.emit("tray-start-proxy", ()); }
-                    "stop" => { let _ = app_handle.emit("tray-stop-proxy", ()); }
-                    "quit" => { app_handle.exit(0); }
-                    _ => {}
+            tray.on_menu_event(move |_app, event| match event.id.as_ref() {
+                "start" => {
+                    let _ = app_handle.emit("tray-start-proxy", ());
                 }
+                "stop" => {
+                    let _ = app_handle.emit("tray-stop-proxy", ());
+                }
+                "quit" => {
+                    app_handle.exit(0);
+                }
+                _ => {}
             });
 
             Ok(())

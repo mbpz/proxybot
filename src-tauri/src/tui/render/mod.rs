@@ -2,21 +2,25 @@
 //!
 //! Dispatches to the appropriate tab renderer based on the current tab.
 
-pub mod traffic;
-pub mod rules;
-pub mod devices;
-pub mod certs;
-pub mod dns;
 pub mod alerts;
-pub mod replay;
-pub mod graph;
+pub mod certs;
+pub mod devices;
+pub mod dns;
 pub mod gen;
+pub mod graph;
+pub mod replay;
+pub mod rules;
+pub mod traffic;
 
-use ratatui::{Frame, layout::{Rect, Constraint, Direction, Layout}, widgets::Paragraph};
-use ratatui::style::{Stylize, Color};
+use ratatui::style::{Color, Stylize};
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    widgets::Paragraph,
+    Frame,
+};
 
-use crate::tui::{Tab, TuiApp, CertWizard, i18n::I18nKey as K, i18n::t};
 use super::wizard::render_wizard;
+use crate::tui::{i18n::t, i18n::I18nKey as K, CertWizard, Tab, TuiApp};
 
 /// Map Tab to its translated label key.
 fn tab_label(tab: Tab) -> String {
@@ -81,11 +85,19 @@ pub fn render_tab_bar(f: &mut Frame, area: Rect, current_tab: Tab) {
 /// Render the header bar with logo and status info.
 pub fn render_header(f: &mut Frame, area: Rect, app: &TuiApp) {
     let proxy_running = app.proxy_running.load(std::sync::atomic::Ordering::SeqCst);
-    let proxy_str = if proxy_running { t(K::TrafficControlsRunning) } else { t(K::TrafficControlsStopped) };
+    let proxy_str = if proxy_running {
+        t(K::TrafficControlsRunning)
+    } else {
+        t(K::TrafficControlsStopped)
+    };
 
     // Check CA status from cert_manager
     let ca_installed = app.cert_manager.get_ca_metadata().is_some();
-    let ca_status = if ca_installed { t(K::TrafficControlsCaInstalled) } else { t(K::TrafficControlsCaNotInstalled) };
+    let ca_status = if ca_installed {
+        t(K::TrafficControlsCaInstalled)
+    } else {
+        t(K::TrafficControlsCaNotInstalled)
+    };
 
     // Build header line
     let header_text = format!(
@@ -95,8 +107,7 @@ pub fn render_header(f: &mut Frame, area: Rect, app: &TuiApp) {
         app.traffic.requests.len()
     );
 
-    let para = Paragraph::new(header_text)
-        .style(ratatui::style::Style::new().fg(Color::White));
+    let para = Paragraph::new(header_text).style(ratatui::style::Style::new().fg(Color::White));
 
     f.render_widget(para, area);
 }
@@ -111,7 +122,9 @@ pub fn render_status_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let status_text = format!(
         "[q]uit [r]start [s]stop [c]lear | Tab: {:?} | Proxy: {} | Requests: {}",
-        app.current_tab, proxy_status, app.traffic.requests.len()
+        app.current_tab,
+        proxy_status,
+        app.traffic.requests.len()
     );
 
     let para = Paragraph::new(status_text);
@@ -123,9 +136,9 @@ pub fn render(app: &TuiApp, f: &mut Frame) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // tab bar (two rows)
-            Constraint::Length(1),  // header bar
-            Constraint::Min(10),    // content
+            Constraint::Length(3), // tab bar (two rows)
+            Constraint::Length(1), // header bar
+            Constraint::Min(10),   // content
             Constraint::Length(3), // status bar
         ])
         .split(f.size());

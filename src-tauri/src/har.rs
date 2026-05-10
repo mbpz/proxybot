@@ -133,7 +133,19 @@ pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Resul
             let resp_headers: String = row.get(8)?;
             let resp_body: Option<Vec<u8>> = row.get(9)?;
             let duration_ms: Option<i64> = row.get(10)?;
-            Ok((timestamp, method, scheme, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms))
+            Ok((
+                timestamp,
+                method,
+                scheme,
+                host,
+                path,
+                req_headers,
+                req_body,
+                resp_status,
+                resp_headers,
+                resp_body,
+                duration_ms,
+            ))
         })
         .map_err(|e| e.to_string())?;
 
@@ -155,8 +167,8 @@ pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Resul
         ) = row.map_err(|e| e.to_string())?;
 
         // Parse request headers
-        let req_headers: Vec<(String, String)> = serde_json::from_str(&req_headers_json)
-            .unwrap_or_default();
+        let req_headers: Vec<(String, String)> =
+            serde_json::from_str(&req_headers_json).unwrap_or_default();
         let request_url = format!("{}://{}{}", scheme, host, path);
 
         // Build request query string from path
@@ -176,7 +188,9 @@ pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Resul
         };
 
         // Parse request body
-        let req_body_text = req_body.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+        let req_body_text = req_body
+            .as_ref()
+            .map(|b| String::from_utf8_lossy(b).to_string());
         let req_content_type = req_headers
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
@@ -184,7 +198,8 @@ pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Resul
 
         let post_data = if req_body_text.is_some() {
             Some(HarPostData {
-                mime_type: req_content_type.unwrap_or_else(|| "application/octet-stream".to_string()),
+                mime_type: req_content_type
+                    .unwrap_or_else(|| "application/octet-stream".to_string()),
                 text: req_body_text,
             })
         } else {
@@ -198,15 +213,17 @@ pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Resul
         let req_body_size = req_body.map(|b| b.len() as i64).unwrap_or(-1);
 
         // Parse response headers
-        let resp_headers: Vec<(String, String)> = serde_json::from_str(&resp_headers_json)
-            .unwrap_or_default();
+        let resp_headers: Vec<(String, String)> =
+            serde_json::from_str(&resp_headers_json).unwrap_or_default();
         let resp_content_type = resp_headers
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
             .map(|(_, v)| v.clone());
 
         // Parse response body
-        let resp_body_text = resp_body.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+        let resp_body_text = resp_body
+            .as_ref()
+            .map(|b| String::from_utf8_lossy(b).to_string());
         let resp_body_size = resp_body.map(|b| b.len() as i64).unwrap_or(-1);
 
         let resp_status_text = match resp_status.unwrap_or(0) {
@@ -264,7 +281,8 @@ pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Resul
                     .collect(),
                 content: HarContent {
                     size: resp_body_size.max(0),
-                    mime_type: resp_content_type.unwrap_or_else(|| "application/octet-stream".to_string()),
+                    mime_type: resp_content_type
+                        .unwrap_or_else(|| "application/octet-stream".to_string()),
                     text: resp_body_text,
                 },
                 headers_size: resp_headers_size,
@@ -307,10 +325,7 @@ fn parse_timestamp_to_iso(timestamp: &str) -> String {
     // Format: "1234567890.123"
     let parts: Vec<&str> = timestamp.split('.').collect();
     let secs: i64 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let millis: u32 = parts
-        .get(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let millis: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     // Convert to ISO 8601
     let dt = chrono_lite_to_datetime(secs);
@@ -358,7 +373,14 @@ fn chrono_lite_to_datetime(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let minute = remaining / 60;
     let second = remaining % 60;
 
-    (year, month, day as u32, hour as u32, minute as u32, second as u32)
+    (
+        year,
+        month,
+        day as u32,
+        hour as u32,
+        minute as u32,
+        second as u32,
+    )
 }
 
 fn is_leap_year(year: u64) -> bool {

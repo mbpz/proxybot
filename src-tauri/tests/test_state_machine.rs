@@ -4,9 +4,12 @@
 //! in a given state always produces the same next state.
 //! Also tests tab navigation is circular.
 
-use std::collections::HashMap;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use proxybot_lib::tui::{Tab, input::{handle_key_event, InputAction}};
+use proxybot_lib::tui::{
+    input::{handle_key_event, InputAction},
+    Tab,
+};
+use std::collections::HashMap;
 
 /// Create a key press event.
 fn key_press(code: KeyCode) -> KeyEvent {
@@ -63,8 +66,15 @@ fn all_key_codes() -> Vec<KeyCode> {
 #[test]
 fn all_transitions_are_deterministic() {
     let tabs = [
-        Tab::Traffic, Tab::Rules, Tab::Devices, Tab::Certs,
-        Tab::Dns, Tab::Alerts, Tab::Replay, Tab::Graph, Tab::Gen,
+        Tab::Traffic,
+        Tab::Rules,
+        Tab::Devices,
+        Tab::Certs,
+        Tab::Dns,
+        Tab::Alerts,
+        Tab::Replay,
+        Tab::Graph,
+        Tab::Gen,
     ];
 
     // HashMap to detect duplicates: (tab, key_code) → action
@@ -85,7 +95,8 @@ fn all_transitions_are_deterministic() {
                 assert!(
                     std::mem::discriminant(&prev_action) == action_disc,
                     "Non-deterministic transition: {:?} + {:?}",
-                    tab, key_code
+                    tab,
+                    key_code
                 );
             }
         }
@@ -95,8 +106,15 @@ fn all_transitions_are_deterministic() {
 #[test]
 fn alt_up_down_rules_only_produces_move_action() {
     let tabs = [
-        Tab::Traffic, Tab::Rules, Tab::Devices, Tab::Certs,
-        Tab::Dns, Tab::Alerts, Tab::Replay, Tab::Graph, Tab::Gen,
+        Tab::Traffic,
+        Tab::Rules,
+        Tab::Devices,
+        Tab::Certs,
+        Tab::Dns,
+        Tab::Alerts,
+        Tab::Replay,
+        Tab::Graph,
+        Tab::Gen,
     ];
 
     for tab in tabs {
@@ -105,18 +123,32 @@ fn alt_up_down_rules_only_produces_move_action() {
 
         match tab {
             Tab::Rules => {
-                assert_eq!(up_action, InputAction::MoveRuleUp,
-                    "Alt+Up on Rules tab should be MoveRuleUp");
-                assert_eq!(down_action, InputAction::MoveRuleDown,
-                    "Alt+Down on Rules tab should be MoveRuleDown");
+                assert_eq!(
+                    up_action,
+                    InputAction::MoveRuleUp,
+                    "Alt+Up on Rules tab should be MoveRuleUp"
+                );
+                assert_eq!(
+                    down_action,
+                    InputAction::MoveRuleDown,
+                    "Alt+Down on Rules tab should be MoveRuleDown"
+                );
             }
             _ => {
                 // Alt+Up/Down on non-Rules tabs should NOT be MoveRuleUp/Down
                 // It should be either None (caught by general Up) or Up/Down navigation
-                assert!(!matches!(up_action, InputAction::MoveRuleUp),
-                    "Alt+Up on {:?} should NOT be MoveRuleUp (got {:?})", tab, up_action);
-                assert!(!matches!(down_action, InputAction::MoveRuleDown),
-                    "Alt+Down on {:?} should NOT be MoveRuleDown (got {:?})", tab, down_action);
+                assert!(
+                    !matches!(up_action, InputAction::MoveRuleUp),
+                    "Alt+Up on {:?} should NOT be MoveRuleUp (got {:?})",
+                    tab,
+                    up_action
+                );
+                assert!(
+                    !matches!(down_action, InputAction::MoveRuleDown),
+                    "Alt+Down on {:?} should NOT be MoveRuleDown (got {:?})",
+                    tab,
+                    down_action
+                );
             }
         }
     }
@@ -130,8 +162,17 @@ fn tab_navigation_wraps_around() {
     assert_eq!(Tab::Traffic.prev(), Tab::Gen);
 
     // Test all tabs have both next and prev
-    for tab in [Tab::Traffic, Tab::Rules, Tab::Devices, Tab::Certs,
-                Tab::Dns, Tab::Alerts, Tab::Replay, Tab::Graph, Tab::Gen] {
+    for tab in [
+        Tab::Traffic,
+        Tab::Rules,
+        Tab::Devices,
+        Tab::Certs,
+        Tab::Dns,
+        Tab::Alerts,
+        Tab::Replay,
+        Tab::Graph,
+        Tab::Gen,
+    ] {
         let _ = tab.next();
         let _ = tab.prev();
     }
@@ -139,17 +180,29 @@ fn tab_navigation_wraps_around() {
 
 #[test]
 fn quit_keys_produce_quit_on_all_tabs() {
-    let quit_keys = [
-        KeyCode::Char('q'),
-        KeyCode::Esc,
-    ];
+    let quit_keys = [KeyCode::Char('q'), KeyCode::Esc];
 
-    for tab in [Tab::Traffic, Tab::Rules, Tab::Devices, Tab::Certs,
-                Tab::Dns, Tab::Alerts, Tab::Replay, Tab::Graph, Tab::Gen] {
+    for tab in [
+        Tab::Traffic,
+        Tab::Rules,
+        Tab::Devices,
+        Tab::Certs,
+        Tab::Dns,
+        Tab::Alerts,
+        Tab::Replay,
+        Tab::Graph,
+        Tab::Gen,
+    ] {
         for key in quit_keys {
             let action = handle_key_event(&key_press(key), tab);
-            assert_eq!(action, InputAction::Quit,
-                "Quit key {:?} should produce Quit on {:?}, got {:?}", key, tab, action);
+            assert_eq!(
+                action,
+                InputAction::Quit,
+                "Quit key {:?} should produce Quit on {:?}, got {:?}",
+                key,
+                tab,
+                action
+            );
         }
     }
 }

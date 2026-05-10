@@ -12,14 +12,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use tauri::{AppHandle, Emitter, State};
 use tokio::net::UdpSocket;
 use tokio::sync::broadcast;
 use tokio::time::{timeout, Duration};
-use tauri::{AppHandle, Emitter, State};
 
+use crate::config::{
+    default_doh_url, default_upstream_dns, dns_port, dns_timeout_secs, max_dns_entries,
+};
 use crate::db::DbState;
 use crate::rules::RulesEngine;
-use crate::config::{dns_port, default_upstream_dns, default_doh_url, max_dns_entries, dns_timeout_secs};
 
 /// DNS upstream protocol type.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -33,7 +35,7 @@ pub enum DnsUpstreamType {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DnsUpstream {
     pub upstream_type: DnsUpstreamType,
-    pub address: String,  // "8.8.8.8:53" for UDP, URL for DoH
+    pub address: String, // "8.8.8.8:53" for UDP, URL for DoH
 }
 
 impl Default for DnsUpstream {
@@ -53,7 +55,7 @@ pub struct DnsEntry {
     pub timestamp_ms: u64,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
-    pub action: Option<String>,  // Routing action: DIRECT, PROXY, REJECT
+    pub action: Option<String>, // Routing action: DIRECT, PROXY, REJECT
     pub resolved_ips: Vec<String>,
 }
 
@@ -80,7 +82,7 @@ pub struct HostsEntry {
 /// A single blocklist entry (domain pattern).
 #[derive(Clone, Debug)]
 pub struct BlocklistEntry {
-    pub domain: String,  // Exact match or suffix with leading dot
+    pub domain: String, // Exact match or suffix with leading dot
 }
 
 impl DnsState {
@@ -275,12 +277,7 @@ fn timestamp_ms() -> u64 {
 }
 
 /// Record a DNS query entry and emit a Tauri event.
-fn record_query(
-    state: &DnsState,
-    domain: String,
-    response_ips: &[String],
-    app_handle: &AppHandle,
-) {
+fn record_query(state: &DnsState, domain: String, response_ips: &[String], app_handle: &AppHandle) {
     let timestamp_ms_val = timestamp_ms();
 
     // Classify the domain for app tagging
@@ -315,7 +312,8 @@ fn record_query(
         if let Ok(conn) = db.conn.lock() {
             let timestamp_str = chrono_lite_timestamp();
             let query_type = 1; // A record
-            let response_ips_json = serde_json::to_string(response_ips).unwrap_or_else(|_| "[]".to_string());
+            let response_ips_json =
+                serde_json::to_string(response_ips).unwrap_or_else(|_| "[]".to_string());
             let app_tag = app_name.unwrap_or_else(|| "unknown".to_string());
 
             let _ = conn.execute(
@@ -370,12 +368,7 @@ fn chrono_lite_timestamp() -> String {
 
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-        year,
-        month,
-        day,
-        hours,
-        minutes,
-        seconds
+        year, month, day, hours, minutes, seconds
     )
 }
 
@@ -534,10 +527,7 @@ fn parse_response_ips(response: &[u8]) -> Vec<String> {
 }
 
 /// Send DNS query via plain UDP.
-async fn query_upstream_udp(
-    query: &[u8],
-    upstream: &str,
-) -> Result<Vec<u8>, String> {
+async fn query_upstream_udp(query: &[u8], upstream: &str) -> Result<Vec<u8>, String> {
     let socket = UdpSocket::bind("0.0.0.0:0")
         .await
         .map_err(|e| format!("Failed to bind UDP socket: {}", e))?;
@@ -588,10 +578,7 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 /// Send DNS query via DoH (DNS over HTTPS) using reqwest.
-async fn query_upstream_doh(
-    query: &[u8],
-    doh_url: &str,
-) -> Result<Vec<u8>, String> {
+async fn query_upstream_doh(query: &[u8], doh_url: &str) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .use_rustls_tls()
         .timeout(Duration::from_secs(dns_timeout_secs()))
@@ -625,17 +612,10 @@ async fn query_upstream_doh(
 }
 
 /// Forward DNS query to upstream based on configuration.
-async fn forward_dns_query(
-    query: &[u8],
-    upstream: &DnsUpstream,
-) -> Result<Vec<u8>, String> {
+async fn forward_dns_query(query: &[u8], upstream: &DnsUpstream) -> Result<Vec<u8>, String> {
     match upstream.upstream_type {
-        DnsUpstreamType::PlainUdp => {
-            query_upstream_udp(query, &upstream.address).await
-        }
-        DnsUpstreamType::Doh => {
-            query_upstream_doh(query, &upstream.address).await
-        }
+        DnsUpstreamType::PlainUdp => query_upstream_udp(query, &upstream.address).await,
+        DnsUpstreamType::Doh => query_upstream_doh(query, &upstream.address).await,
     }
 }
 
@@ -657,8 +637,8 @@ fn build_blocked_response(query: &[u8]) -> Vec<u8> {
     // Flags: QR=1 (response), AA=1, RA=1, RCODE=0 (No error)
     // byte 2: QR(1) | AA(1) | reserved(1) | RD(1) | RA(1) | reserved(1) | RCODE(3) = 0x84 (or 0x85 for NXDOMAIN)
     // Actually let's use simpler: 0x81 for standard response
-    response.push(0x81);  // QR=1, AA=1, RD=1
-    response.push(0x80);  // RA=1, RCODE=0
+    response.push(0x81); // QR=1, AA=1, RD=1
+    response.push(0x80); // RA=1, RCODE=0
 
     // QDCOUNT: copy from query (usually 1)
     response.extend_from_slice(&query[4..6]);
@@ -817,10 +797,7 @@ async fn handle_dns_query(
 /// Build a DNS response with a hosts file IP.
 fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
     // Parse the IP
-    let ip_parts: Vec<u8> = ip
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    let ip_parts: Vec<u8> = ip.split('.').filter_map(|s| s.parse().ok()).collect();
 
     if ip_parts.len() != 4 {
         // Invalid IP, return empty response
@@ -837,8 +814,8 @@ fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
     response.extend_from_slice(&query[0..2]);
 
     // Flags: QR=1 (response), AA=1, RA=1, RCODE=0
-    response.push(0x81);  // QR=1, AA=1, RD=1
-    response.push(0x80);  // RA=1, RCODE=0
+    response.push(0x81); // QR=1, AA=1, RD=1
+    response.push(0x80); // RA=1, RCODE=0
 
     // QDCOUNT: copy from query (usually 1)
     response.extend_from_slice(&query[4..6]);
@@ -994,7 +971,10 @@ pub fn get_dns_upstream(state: State<'_, Arc<DnsState>>) -> DnsUpstream {
 
 /// Set DNS upstream configuration.
 #[tauri::command]
-pub fn set_dns_upstream(state: State<'_, Arc<DnsState>>, upstream: DnsUpstream) -> Result<(), String> {
+pub fn set_dns_upstream(
+    state: State<'_, Arc<DnsState>>,
+    upstream: DnsUpstream,
+) -> Result<(), String> {
     // Validate upstream
     match upstream.upstream_type {
         DnsUpstreamType::PlainUdp => {

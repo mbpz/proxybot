@@ -1,11 +1,17 @@
 //! Traffic tab renderer.
 
-use ratatui::{Frame, layout::{Rect, Constraint, Layout, Direction}, widgets::{Block, Borders, Paragraph}, style::{Stylize, Style}, text::Line};
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Style, Stylize},
+    text::Line,
+    widgets::{Block, Borders, Paragraph},
+    Frame,
+};
 
-use crate::tui::{TuiApp, input::format_ts, input::fmt_duration, FilterMode};
-use crate::tui::i18n::{I18nKey as K, t};
 use crate::db::RecentRequest;
 use crate::proxy::InterceptedRequest;
+use crate::tui::i18n::{t, I18nKey as K};
+use crate::tui::{input::fmt_duration, input::format_ts, FilterMode, TuiApp};
 
 /// Render the Traffic tab with filters, split pane, and controls.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
@@ -37,7 +43,10 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
             FilterMode::Status => t(K::TrafficFilterStatus),
             FilterMode::AppTag => t(K::TrafficFilterAppTag),
         };
-        let prompt = format!("{} {} [Enter=confirm, Esc=cancel]", label, traffic.filter_input);
+        let prompt = format!(
+            "{} {} [Enter=confirm, Esc=cancel]",
+            label, traffic.filter_input
+        );
         let para = Paragraph::new(prompt.yellow().to_string())
             .block(Block::default().borders(Borders::ALL).title("Filter Input"))
             .style(Color::Yellow);
@@ -57,12 +66,19 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let filter_line = format!(
         " {}:[{}] {}:[{:<15}] {}:[{}] {}:[{:<10}] {} [m]{} [f]{} [o]{} [a]{}",
-        t(K::TrafficFilterMethod), method_str.yellow(),
-        t(K::TrafficFilterHost), host_str.chars().take(15).collect::<String>().yellow(),
-        t(K::TrafficFilterStatus), status_str.green(),
-        t(K::TrafficFilterAppTag), app_tag_str.chars().take(10).collect::<String>().cyan(),
+        t(K::TrafficFilterMethod),
+        method_str.yellow(),
+        t(K::TrafficFilterHost),
+        host_str.chars().take(15).collect::<String>().yellow(),
+        t(K::TrafficFilterStatus),
+        status_str.green(),
+        t(K::TrafficFilterAppTag),
+        app_tag_str.chars().take(10).collect::<String>().cyan(),
         search_str,
-        t(K::TrafficFilterMethod), t(K::TrafficFilterHost), t(K::TrafficFilterStatus), t(K::TrafficFilterAppTag),
+        t(K::TrafficFilterMethod),
+        t(K::TrafficFilterHost),
+        t(K::TrafficFilterStatus),
+        t(K::TrafficFilterAppTag),
     );
 
     let title = t(K::TrafficTitle);
@@ -76,10 +92,7 @@ fn render_filter_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
 fn render_content(f: &mut Frame, area: Rect, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(60),
-            Constraint::Percentage(40),
-        ])
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(area);
 
     render_request_list(f, chunks[0], app);
@@ -132,36 +145,39 @@ fn render_request_list(f: &mut Frame, area: Rect, app: &TuiApp) {
             f.render_widget(empty, area);
         }
     } else {
-        let items: Vec<Line> = filtered.iter().map(|req| {
-            let method_color = match req.method.as_str() {
-                "GET" => Color::Green,
-                "POST" => Color::Cyan,
-                "PUT" => Color::Yellow,
-                "DELETE" => Color::Red,
-                "PATCH" => Color::Magenta,
-                _ => Color::White,
-            };
-            let status_str = match req.status {
-                Some(200..=299) => format!("{}", req.status.unwrap()).green(),
-                Some(300..=399) => format!("{}", req.status.unwrap()).cyan(),
-                Some(400..=499) => format!("{}", req.status.unwrap()).red(),
-                Some(500..=599) => format!("{}", req.status.unwrap()).red(),
-                Some(s) => format!("{}", s).red(),
-                None => "-".yellow(),
-            };
-            let app_tag = req.app_tag.as_deref().unwrap_or("");
-            let line = format!(
-                " {}  {:<6}  {:<25} {:<30} {:>5} {:>8} {}",
-                format_ts(&req.timestamp),
-                req.method,
-                req.host.chars().take(25).collect::<String>(),
-                req.path.chars().take(30).collect::<String>(),
-                status_str,
-                fmt_duration(req.duration_ms),
-                app_tag
-            );
-            Line::raw(line).style(method_color)
-        }).collect();
+        let items: Vec<Line> = filtered
+            .iter()
+            .map(|req| {
+                let method_color = match req.method.as_str() {
+                    "GET" => Color::Green,
+                    "POST" => Color::Cyan,
+                    "PUT" => Color::Yellow,
+                    "DELETE" => Color::Red,
+                    "PATCH" => Color::Magenta,
+                    _ => Color::White,
+                };
+                let status_str = match req.status {
+                    Some(200..=299) => format!("{}", req.status.unwrap()).green(),
+                    Some(300..=399) => format!("{}", req.status.unwrap()).cyan(),
+                    Some(400..=499) => format!("{}", req.status.unwrap()).red(),
+                    Some(500..=599) => format!("{}", req.status.unwrap()).red(),
+                    Some(s) => format!("{}", s).red(),
+                    None => "-".yellow(),
+                };
+                let app_tag = req.app_tag.as_deref().unwrap_or("");
+                let line = format!(
+                    " {}  {:<6}  {:<25} {:<30} {:>5} {:>8} {}",
+                    format_ts(&req.timestamp),
+                    req.method,
+                    req.host.chars().take(25).collect::<String>(),
+                    req.path.chars().take(30).collect::<String>(),
+                    status_str,
+                    fmt_duration(req.duration_ms),
+                    app_tag
+                );
+                Line::raw(line).style(method_color)
+            })
+            .collect();
 
         let mut list_state = ratatui::widgets::ListState::default().with_selected(Some(selected));
         f.render_stateful_widget(
@@ -179,8 +195,11 @@ fn render_detail_panel(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     if filtered.is_empty() || app.traffic.detail_request.is_none() {
         let hint = format!(" {}", t(K::TrafficNoSelected));
-        let para = Paragraph::new(hint.dim())
-            .block(Block::default().borders(Borders::ALL).title("Request Detail"));
+        let para = Paragraph::new(hint.dim()).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Request Detail"),
+        );
         f.render_widget(para, area);
         return;
     }
@@ -189,15 +208,25 @@ fn render_detail_panel(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-        ])
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
 
-    let tabs = [t(K::TrafficSubTabsHeaders), t(K::TrafficSubTabsBody), t(K::TrafficSubTabsWsFrames)];
-    let ws_available = detail.is_websocket && detail.ws_frames.as_ref().map(|f| !f.is_empty()).unwrap_or(false);
-    let active_tab = if app.traffic.detail_tab >= tabs.len() { 0 } else { app.traffic.detail_tab };
+    let tabs = [
+        t(K::TrafficSubTabsHeaders),
+        t(K::TrafficSubTabsBody),
+        t(K::TrafficSubTabsWsFrames),
+    ];
+    let ws_available = detail.is_websocket
+        && detail
+            .ws_frames
+            .as_ref()
+            .map(|f| !f.is_empty())
+            .unwrap_or(false);
+    let active_tab = if app.traffic.detail_tab >= tabs.len() {
+        0
+    } else {
+        app.traffic.detail_tab
+    };
     let ws_frames_label = t(K::TrafficSubTabsWsFrames);
 
     let mut tab_line = String::new();
@@ -211,7 +240,11 @@ fn render_detail_panel(f: &mut Frame, area: Rect, app: &TuiApp) {
             tab_line.push_str(&format!(" {} ", tab).dim().to_string());
         }
     }
-    tab_line.push_str(&format!(" {}", t(K::TrafficSubTabsSwitchTab)).dim().to_string());
+    tab_line.push_str(
+        &format!(" {}", t(K::TrafficSubTabsSwitchTab))
+            .dim()
+            .to_string(),
+    );
     let tab_para = Paragraph::new(tab_line);
     f.render_widget(tab_para, chunks[0]);
 
@@ -228,11 +261,21 @@ fn render_headers_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
 
     let mut lines: Vec<Line> = Vec::new();
 
-    lines.push(Line::raw(format!(
-        " {} {} {} -> {} ({})",
-        detail.method, detail.scheme, detail.host, detail.path,
-        detail.status.map(|s| s.to_string()).unwrap_or_else(|| "-".to_string())
-    )).fg(Color::White).underlined());
+    lines.push(
+        Line::raw(format!(
+            " {} {} {} -> {} ({})",
+            detail.method,
+            detail.scheme,
+            detail.host,
+            detail.path,
+            detail
+                .status
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        ))
+        .fg(Color::White)
+        .underlined(),
+    );
 
     lines.push(Line::raw(t(K::TrafficRequestHeaders).to_string()).style(Color::Yellow));
     if detail.req_headers.is_empty() {
@@ -253,11 +296,12 @@ fn render_headers_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
     }
 
     if let (Some(ref app_name), Some(ref device_name)) = (&detail.app_name, &detail.device_name) {
-        lines.push(Line::raw(format!("App: {} | Device: {}", app_name, device_name)).style(Color::Magenta));
+        lines.push(
+            Line::raw(format!("App: {} | Device: {}", app_name, device_name)).style(Color::Magenta),
+        );
     }
 
-    let para = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("Headers"));
+    let para = Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Headers"));
     f.render_widget(para, area);
 }
 
@@ -271,7 +315,11 @@ fn render_body_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
         if body.is_empty() {
             lines.push(Line::raw(t(K::TrafficEmptyBody).to_string()).fg(Color::DarkGray));
         } else {
-            let display = if body.len() > 1000 { format!("{}...", &body[..1000]) } else { body.clone() };
+            let display = if body.len() > 1000 {
+                format!("{}...", &body[..1000])
+            } else {
+                body.clone()
+            };
             lines.push(Line::raw(format_json(&display)).style(Color::Cyan));
         }
     } else {
@@ -285,7 +333,11 @@ fn render_body_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) {
         if body.is_empty() {
             lines.push(Line::raw(t(K::TrafficEmptyBody).to_string()).fg(Color::DarkGray));
         } else {
-            let display = if body.len() > 1000 { format!("{}...", &body[..1000]) } else { body.clone() };
+            let display = if body.len() > 1000 {
+                format!("{}...", &body[..1000])
+            } else {
+                body.clone()
+            };
             lines.push(Line::raw(format_json(&display)).style(Color::Cyan));
         }
     } else {
@@ -309,11 +361,21 @@ fn render_ws_frames_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) 
         if frames.is_empty() {
             lines.push(Line::raw(t(K::TrafficNoFrames).to_string()).fg(Color::DarkGray));
         } else {
-            lines.push(Line::raw(format!("{} WebSocket frames captured", frames.len())).style(Color::Cyan));
+            lines.push(
+                Line::raw(format!("{} WebSocket frames captured", frames.len())).style(Color::Cyan),
+            );
             lines.push(Line::raw("".to_string()));
             for frame in frames.iter().take(50) {
-                let direction_color = if frame.direction == "in" { Color::Green } else { Color::Yellow };
-                let dir_marker = if frame.direction == "in" { "◄" } else { "►" };
+                let direction_color = if frame.direction == "in" {
+                    Color::Green
+                } else {
+                    Color::Yellow
+                };
+                let dir_marker = if frame.direction == "in" {
+                    "◄"
+                } else {
+                    "►"
+                };
                 let line_text = format!(
                     "{} [{}] {} ({} bytes)",
                     dir_marker,
@@ -324,23 +386,26 @@ fn render_ws_frames_tab(f: &mut Frame, area: Rect, detail: &InterceptedRequest) 
                 lines.push(Line::raw(line_text).style(direction_color));
             }
             if frames.len() > 50 {
-                lines.push(Line::raw(format!("... and {} more frames", frames.len() - 50)).fg(Color::DarkGray));
+                lines.push(
+                    Line::raw(format!("... and {} more frames", frames.len() - 50))
+                        .fg(Color::DarkGray),
+                );
             }
         }
     } else {
         lines.push(Line::raw(t(K::TrafficNoFrames).to_string()).fg(Color::DarkGray));
     }
 
-    let para = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("WS Frames"));
+    let para =
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("WS Frames"));
     f.render_widget(para, area);
 }
 
 fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
+    use crate::tui::{BreakpointEditMode, BreakpointField, BreakpointMode};
     use ratatui::layout::Alignment;
-    use ratatui::widgets::{Block, Borders, Paragraph};
     use ratatui::style::Color;
-    use crate::tui::{BreakpointMode, BreakpointEditMode, BreakpointField};
+    use ratatui::widgets::{Block, Borders, Paragraph};
 
     let bp = &app.traffic.breakpoint;
     let req = match &bp.current_edit {
@@ -363,7 +428,11 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
     };
 
     let edit_indicator = if is_editing { "[EDIT]" } else { "" };
-    let help_text = if is_editing { t(K::TrafficBreakpointNavHelp) } else { t(K::TrafficBreakpointEditHelp) };
+    let help_text = if is_editing {
+        t(K::TrafficBreakpointNavHelp)
+    } else {
+        t(K::TrafficBreakpointEditHelp)
+    };
 
     let mut lines: Vec<String> = vec![
         format!("  {} {} — {}", mode_label, edit_indicator, help_text),
@@ -399,11 +468,16 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
     }
 
     lines.push(String::new());
-    let body_preview = req.req_body.as_ref()
+    let body_preview = req
+        .req_body
+        .as_ref()
         .map(|s| s.chars().take(60).collect::<String>())
         .unwrap_or_else(|| t(K::TrafficEmptyBody));
     let body_str = if is_editing && matches!(bp.selected_field, BreakpointField::Body) {
-        format!("> Body:   [{}...]", bp.body_input.chars().take(30).collect::<String>())
+        format!(
+            "> Body:   [{}...]",
+            bp.body_input.chars().take(30).collect::<String>()
+        )
     } else {
         format!("  Body:   {}", body_preview)
     };
@@ -411,15 +485,20 @@ fn render_breakpoint_editor(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     if let Some(idx) = bp.editing_header_index {
         let header_input_display = bp.header_input.chars().take(40).collect::<String>();
-        let header_line = format!("\n  [Editing header {}: {}]  [Enter] confirm  [Esc] cancel", idx, header_input_display);
+        let header_line = format!(
+            "\n  [Editing header {}: {}]  [Enter] confirm  [Esc] cancel",
+            idx, header_input_display
+        );
         lines.push(header_line);
     }
 
     let content = Paragraph::new(lines.join("\n"))
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" {} ", mode_label))
-            .border_style(Style::new().fg(Color::Cyan)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" {} ", mode_label))
+                .border_style(Style::new().fg(Color::Cyan)),
+        )
         .alignment(Alignment::Left);
 
     f.render_widget(content, modal_area);
@@ -456,8 +535,8 @@ fn format_json(s: &str) -> String {
 
 /// Render the bottom controls bar.
 fn render_controls_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
-    use ratatui::widgets::Paragraph;
     use ratatui::style::Stylize;
+    use ratatui::widgets::Paragraph;
 
     let pf_status = if app.traffic.pf_enabled {
         format!("[p]f: ON ").green()
@@ -472,14 +551,19 @@ fn render_controls_bar(f: &mut Frame, area: Rect, app: &TuiApp) {
     };
 
     let update_hint = if let Some(ref ver) = *app.update_available.lock().unwrap() {
-        format!(" [Update: {} available] [u] download", ver).yellow().to_string()
+        format!(" [Update: {} available] [u] download", ver)
+            .yellow()
+            .to_string()
     } else {
         String::new()
     };
 
     let controls = Paragraph::new(format!(
         "{} {}{} | {}",
-        pf_status, dns_status, update_hint, t(K::TrafficFilterHint)
+        pf_status,
+        dns_status,
+        update_hint,
+        t(K::TrafficFilterHint)
     ));
 
     f.render_widget(controls, area);

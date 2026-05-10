@@ -112,7 +112,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
 | **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
 | **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
-| **v1.1.0 (NEXT)** | Phase 3 Start | GraphQL decoder, Prometheus metrics, LLM token tracking, Web dashboard, HTTP/3 research |
+| **v1.1.0 (NOW)** | Phase 3 Start | GraphQL decoder ✅, Prometheus metrics ✅, LLM token tracking, Web dashboard, HTTP/3 research |
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
@@ -142,7 +142,9 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | Diff tool | — | — | ✅ | — | — | — |
 | DNS spoofing | — | — | ✅ | — | — | ✅ |
 | Network throttling | ✅ v1.0 | — | ✅ | ✅ | — | — |
-| Protobuf/gRPC | — | ✅ | ✅ | — | — | — |
+| Protobuf/gRPC | ✅ v1.0 | ✅ | ✅ | — | — | — |
+| GraphQL decoder | ✅ v1.1 | — | ✅ | — | — | — |
+| Prometheus metrics | ✅ v1.1 | — | — | — | — | — |
 | Team workspace | ✅ v1.0 | — | ✅ | — | — | — |
 | gRPC-web/WebSocket frame | ✅ WS | ✅ | ✅ | ✅ | ✅ | — |
 | HAR export | ✅ | ✅ | ✅ | ✅ | ✅ | — |

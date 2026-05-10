@@ -68,10 +68,7 @@ pub fn parse_query_params(query: &str) -> Value {
     let mut obj = serde_json::Map::new();
     for pair in query.split('&') {
         if let Some((key, value)) = pair.split_once('=') {
-            obj.insert(
-                url_decode(key),
-                url_decode_value(value),
-            );
+            obj.insert(url_decode(key), url_decode_value(value));
         } else if !pair.is_empty() {
             obj.insert(pair.to_string(), Value::Null);
         }
@@ -123,7 +120,9 @@ pub fn parse_body(body: &[u8], content_type: Option<&str>) -> ParsedBody {
                     raw: None,
                 };
             }
-        } else if ct_lower.contains("application/x-protobuf") || ct_lower.contains("application/protobuf") {
+        } else if ct_lower.contains("application/x-protobuf")
+            || ct_lower.contains("application/protobuf")
+        {
             return ParsedBody {
                 format: BodyFormat::Protobuf,
                 parsed: Value::String(base64_encode(body)),
@@ -182,7 +181,9 @@ pub fn parse_body(body: &[u8], content_type: Option<&str>) -> ParsedBody {
 /// Check if parsed JSON represents a GraphQL query.
 fn is_graphql(parsed: &Value) -> bool {
     if let Some(obj) = parsed.as_object() {
-        return obj.contains_key("query") || obj.contains_key("variables") || obj.contains_key("operationName");
+        return obj.contains_key("query")
+            || obj.contains_key("variables")
+            || obj.contains_key("operationName");
     }
     false
 }
@@ -274,13 +275,17 @@ pub fn normalize_http_record(
     let query_str = path.split('?').nth(1).unwrap_or("");
     let query = parse_query_params(query_str);
 
-    let req_headers_parsed: Value = serde_json::from_str(req_headers).unwrap_or(Value::Object(serde_json::Map::new()));
-    let resp_headers_parsed: Value = serde_json::from_str(resp_headers).unwrap_or(Value::Object(serde_json::Map::new()));
+    let req_headers_parsed: Value =
+        serde_json::from_str(req_headers).unwrap_or(Value::Object(serde_json::Map::new()));
+    let resp_headers_parsed: Value =
+        serde_json::from_str(resp_headers).unwrap_or(Value::Object(serde_json::Map::new()));
 
-    let req_ct = req_headers_parsed.get("Content-Type")
+    let req_ct = req_headers_parsed
+        .get("Content-Type")
         .or_else(|| req_headers_parsed.get("content-type"))
         .and_then(|v| v.as_str());
-    let resp_ct = resp_headers_parsed.get("Content-Type")
+    let resp_ct = resp_headers_parsed
+        .get("Content-Type")
         .or_else(|| resp_headers_parsed.get("content-type"))
         .and_then(|v| v.as_str());
 
@@ -334,35 +339,37 @@ pub fn get_normalized_traffic(
          FROM http_requests ORDER BY id DESC LIMIT ?1"
     ).map_err(|e| e.to_string())?;
 
-    let records = stmt.query_map(params![limit], |row| {
-        let id: i64 = row.get(0)?;
-        let timestamp: String = row.get(1)?;
-        let method: String = row.get(2)?;
-        let path: String = row.get(3)?;
-        let req_headers: String = row.get(4)?;
-        let req_body: Option<Vec<u8>> = row.get(5)?;
-        let resp_status: Option<i64> = row.get(6)?;
-        let resp_headers: String = row.get(7)?;
-        let resp_body: Option<Vec<u8>> = row.get(8)?;
-        let duration_ms: Option<i64> = row.get(9)?;
-        let device_id: Option<i64> = row.get(10)?;
+    let records = stmt
+        .query_map(params![limit], |row| {
+            let id: i64 = row.get(0)?;
+            let timestamp: String = row.get(1)?;
+            let method: String = row.get(2)?;
+            let path: String = row.get(3)?;
+            let req_headers: String = row.get(4)?;
+            let req_body: Option<Vec<u8>> = row.get(5)?;
+            let resp_status: Option<i64> = row.get(6)?;
+            let resp_headers: String = row.get(7)?;
+            let resp_body: Option<Vec<u8>> = row.get(8)?;
+            let duration_ms: Option<i64> = row.get(9)?;
+            let device_id: Option<i64> = row.get(10)?;
 
-        Ok(normalize_http_record(
-            id,
-            &timestamp,
-            &method,
-            &path,
-            &req_headers,
-            req_body.as_deref(),
-            resp_status,
-            &resp_headers,
-            resp_body.as_deref(),
-            duration_ms,
-            device_id,
-        ))
-    }).map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+            Ok(normalize_http_record(
+                id,
+                &timestamp,
+                &method,
+                &path,
+                &req_headers,
+                req_body.as_deref(),
+                resp_status,
+                &resp_headers,
+                resp_body.as_deref(),
+                duration_ms,
+                device_id,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(records)
 }
@@ -387,35 +394,37 @@ pub fn get_traffic_page(
          FROM http_requests ORDER BY id DESC LIMIT ?1 OFFSET ?2"
     ).map_err(|e| e.to_string())?;
 
-    let records = stmt.query_map(params![page_size, offset], |row| {
-        let id: i64 = row.get(0)?;
-        let timestamp: String = row.get(1)?;
-        let method: String = row.get(2)?;
-        let path: String = row.get(3)?;
-        let req_headers: String = row.get(4)?;
-        let req_body: Option<Vec<u8>> = row.get(5)?;
-        let resp_status: Option<i64> = row.get(6)?;
-        let resp_headers: String = row.get(7)?;
-        let resp_body: Option<Vec<u8>> = row.get(8)?;
-        let duration_ms: Option<i64> = row.get(9)?;
-        let device_id: Option<i64> = row.get(10)?;
+    let records = stmt
+        .query_map(params![page_size, offset], |row| {
+            let id: i64 = row.get(0)?;
+            let timestamp: String = row.get(1)?;
+            let method: String = row.get(2)?;
+            let path: String = row.get(3)?;
+            let req_headers: String = row.get(4)?;
+            let req_body: Option<Vec<u8>> = row.get(5)?;
+            let resp_status: Option<i64> = row.get(6)?;
+            let resp_headers: String = row.get(7)?;
+            let resp_body: Option<Vec<u8>> = row.get(8)?;
+            let duration_ms: Option<i64> = row.get(9)?;
+            let device_id: Option<i64> = row.get(10)?;
 
-        Ok(normalize_http_record(
-            id,
-            &timestamp,
-            &method,
-            &path,
-            &req_headers,
-            req_body.as_deref(),
-            resp_status,
-            &resp_headers,
-            resp_body.as_deref(),
-            duration_ms,
-            device_id,
-        ))
-    }).map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+            Ok(normalize_http_record(
+                id,
+                &timestamp,
+                &method,
+                &path,
+                &req_headers,
+                req_body.as_deref(),
+                resp_status,
+                &resp_headers,
+                resp_body.as_deref(),
+                duration_ms,
+                device_id,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     let has_more = (page + 1) * page_size < total;
 

@@ -1,7 +1,7 @@
-use std::sync::RwLock;
-use std::collections::HashMap;
-use crate::network::profile::NetworkProfile;
 use crate::network::builtin_presets;
+use crate::network::profile::NetworkProfile;
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 pub struct ConditionEffect {
     pub delay_ms: u64,
@@ -27,7 +27,8 @@ impl NetworkConditionEngine {
 
     pub fn set_active(&self, name: &str) -> Result<(), String> {
         let profiles = self.profiles.read().unwrap();
-        let profile = profiles.get(name)
+        let profile = profiles
+            .get(name)
             .ok_or_else(|| format!("Profile not found: {}", name))?;
         *self.active_profile.write().unwrap() = Some(profile.clone());
         Ok(())
@@ -46,14 +47,22 @@ impl NetworkConditionEngine {
     }
 
     pub fn add_profile(&self, profile: NetworkProfile) {
-        self.profiles.write().unwrap().insert(profile.name.clone(), profile);
+        self.profiles
+            .write()
+            .unwrap()
+            .insert(profile.name.clone(), profile);
     }
 
     /// Compute condition effect for a read of N bytes
     pub fn apply(&self, read_size: usize) -> ConditionEffect {
         let profile = match self.active_profile.read().unwrap().as_ref() {
             Some(p) => p.clone(),
-            None => return ConditionEffect { delay_ms: 0, drop: false },
+            None => {
+                return ConditionEffect {
+                    delay_ms: 0,
+                    drop: false,
+                }
+            }
         };
 
         // Packet loss: randomly drop
@@ -81,7 +90,9 @@ impl NetworkConditionEngine {
 }
 
 impl Default for NetworkConditionEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

@@ -2,14 +2,15 @@
 
 mod common;
 
-use proxybot_lib::tui::TrafficState;
 use common::make_req;
+use proxybot_lib::tui::TrafficState;
 
 #[test]
 fn test_filter_by_method() {
     let mut s = TrafficState::default();
     s.requests.push(make_req(1, "GET", "a.com", "/", Some(200)));
-    s.requests.push(make_req(2, "POST", "b.com", "/", Some(200)));
+    s.requests
+        .push(make_req(2, "POST", "b.com", "/", Some(200)));
     s.filters.method = Some("GET".into());
     assert_eq!(s.filtered_requests().len(), 1);
 }
@@ -17,8 +18,10 @@ fn test_filter_by_method() {
 #[test]
 fn test_filter_by_host_substring() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
-    s.requests.push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
     s.filters.host_pattern = Some("api".into());
     assert_eq!(s.filtered_requests().len(), 1);
 }
@@ -45,9 +48,12 @@ fn test_filter_by_status_4xx() {
 #[test]
 fn test_filter_combined_method_and_host() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
-    s.requests.push(make_req(2, "POST", "api.example.com", "/", Some(200)));
-    s.requests.push(make_req(3, "GET", "cdn.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(2, "POST", "api.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(3, "GET", "cdn.example.com", "/", Some(200)));
     s.filters.method = Some("GET".into());
     s.filters.host_pattern = Some("api".into());
     assert_eq!(s.filtered_requests().len(), 1);
@@ -56,8 +62,20 @@ fn test_filter_combined_method_and_host() {
 #[test]
 fn test_regex_search_matches_host() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/v1/users", Some(200)));
-    s.requests.push(make_req(2, "GET", "cdn.example.com", "/static/app.js", Some(200)));
+    s.requests.push(make_req(
+        1,
+        "GET",
+        "api.example.com",
+        "/v1/users",
+        Some(200),
+    ));
+    s.requests.push(make_req(
+        2,
+        "GET",
+        "cdn.example.com",
+        "/static/app.js",
+        Some(200),
+    ));
     s.search_regex = Some(regex::Regex::new("users").unwrap());
     assert_eq!(s.filtered_requests().len(), 1);
 }
@@ -65,8 +83,20 @@ fn test_regex_search_matches_host() {
 #[test]
 fn test_regex_search_matches_path() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/v1/users", Some(200)));
-    s.requests.push(make_req(2, "GET", "cdn.example.com", "/static/app.js", Some(200)));
+    s.requests.push(make_req(
+        1,
+        "GET",
+        "api.example.com",
+        "/v1/users",
+        Some(200),
+    ));
+    s.requests.push(make_req(
+        2,
+        "GET",
+        "cdn.example.com",
+        "/static/app.js",
+        Some(200),
+    ));
     s.search_regex = Some(regex::Regex::new("static").unwrap());
     assert_eq!(s.filtered_requests().len(), 1);
 }

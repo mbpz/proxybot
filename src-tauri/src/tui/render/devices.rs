@@ -2,16 +2,17 @@
 //!
 //! Shows connected devices and their stats.
 
-use ratatui::{
-    Frame, layout::{Rect, Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph, Table, Row, Cell},
-    style::{Style, Color},
-    text::Line,
-};
-use crate::tui::TuiApp;
-use crate::tui::i18n::{I18nKey as K, t as tr};
-use crate::db::get_devices_internal;
 use crate::adb::AdbDevice;
+use crate::db::get_devices_internal;
+use crate::tui::i18n::{t as tr, I18nKey as K};
+use crate::tui::TuiApp;
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    text::Line,
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    Frame,
+};
 
 /// Render the Devices tab.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
@@ -37,10 +38,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
 
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(65),
-            Constraint::Percentage(35),
-        ])
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
         .split(area);
 
     // Left: stats header + device table
@@ -56,7 +54,15 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     let devices_title = tr(K::DevicesTitle);
     let stats_text = if app.devices.editing_override {
         let current = app.devices.override_input.as_str();
-        format!("{}: [{}] | Enter=confirm Esc=cancel", tr(K::DevicesOverridePrompt), if current.is_empty() { "(none)" } else { current })
+        format!(
+            "{}: [{}] | Enter=confirm Esc=cancel",
+            tr(K::DevicesOverridePrompt),
+            if current.is_empty() {
+                "(none)"
+            } else {
+                current
+            }
+        )
     } else if app.devices.adb_enabled {
         format!(
             " {}: {} | Total Up: {} | Total Down: {} | {}",
@@ -78,7 +84,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
     };
     let stats = Paragraph::new(stats_text)
         .style(Style::new().fg(Color::Yellow))
-        .block(Block::default().borders(Borders::ALL).title(devices_title.as_str()));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(devices_title.as_str()),
+        );
     f.render_widget(stats, left_chunks[0]);
 
     // Device table
@@ -118,7 +128,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
             Constraint::Percentage(14),
         ],
     )
-    .block(Block::default().borders(Borders::ALL).title(device_list_title.as_str()))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(device_list_title.as_str()),
+    )
     .column_spacing(1);
 
     f.render_widget(table, left_chunks[1]);
@@ -128,7 +142,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
 }
 
 /// Render ASCII topology diagram showing device connections.
-fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo], adb_devices: &[AdbDevice]) {
+fn render_topology(
+    f: &mut Frame,
+    area: Rect,
+    devices: &[crate::db::DeviceInfo],
+    adb_devices: &[AdbDevice],
+) {
     use ratatui::widgets::Paragraph;
 
     let mut lines: Vec<Line> = Vec::new();
@@ -143,7 +162,8 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
     lines.push(Line::raw("                  │").style(Color::Cyan));
 
     if devices.is_empty() && adb_devices.is_empty() {
-        lines.push(Line::raw(format!("        {}", tr(K::DevicesNoDevices))).style(Color::DarkGray));
+        lines
+            .push(Line::raw(format!("        {}", tr(K::DevicesNoDevices))).style(Color::DarkGray));
         lines.push(Line::raw("".to_string()));
         lines.push(Line::raw(format!(" {}", tr(K::DevicesConfigureGateway))).style(Color::Yellow));
         lines.push(Line::raw(format!("  • {}", tr(K::DevicesSetProxy))));
@@ -157,17 +177,29 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
 
             if i == 0 {
                 lines.push(Line::raw("       └───┬───────────────┘".to_string()));
-                lines.push(Line::raw(format!("           │ {}", dev.mac_address.chars().take(12).collect::<String>())));
+                lines.push(Line::raw(format!(
+                    "           │ {}",
+                    dev.mac_address.chars().take(12).collect::<String>()
+                )));
                 lines.push(Line::raw(format!("           └──[{}]", name)).style(Color::Green));
             } else {
                 lines.push(Line::raw("           ┌─┴───────────────┐".to_string()));
-                lines.push(Line::raw(format!("           │ {}", dev.mac_address.chars().take(12).collect::<String>())));
+                lines.push(Line::raw(format!(
+                    "           │ {}",
+                    dev.mac_address.chars().take(12).collect::<String>()
+                )));
                 lines.push(Line::raw(format!("           └──[{}]", name)).style(Color::Green));
             }
         }
 
         if devices.len() > max_display {
-            lines.push(Line::raw(format!("           ... and {} more", devices.len() - max_display)).style(Color::DarkGray));
+            lines.push(
+                Line::raw(format!(
+                    "           ... and {} more",
+                    devices.len() - max_display
+                ))
+                .style(Color::DarkGray),
+            );
         }
     }
 
@@ -177,7 +209,14 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
         lines.push(Line::raw(tr(K::DevicesUsbAdbDevices)).style(Color::Cyan));
         for dev in adb_devices.iter().take(3) {
             let model = dev.model.as_deref().unwrap_or("unknown");
-            lines.push(Line::raw(format!("  • {} ({})", dev.serial.chars().take(12).collect::<String>(), model)).style(Color::Cyan));
+            lines.push(
+                Line::raw(format!(
+                    "  • {} ({})",
+                    dev.serial.chars().take(12).collect::<String>(),
+                    model
+                ))
+                .style(Color::Cyan),
+            );
         }
     }
 
@@ -189,7 +228,11 @@ fn render_topology(f: &mut Frame, area: Rect, devices: &[crate::db::DeviceInfo],
 
     let network_topology_title = tr(K::DevicesNetworkTopology);
     let content = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title(network_topology_title.as_str()))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(network_topology_title.as_str()),
+        )
         .style(Style::new().fg(Color::White));
 
     f.render_widget(content, area);

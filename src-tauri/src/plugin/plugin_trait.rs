@@ -14,8 +14,10 @@ pub struct PluginHooks {
     pub on_connect: Option<Box<dyn Fn(&str) -> ConnectDecision + Send + Sync>>,
     pub on_error: Option<Box<dyn Fn(&AppError) + Send + Sync>>,
     // Async variants
-    pub on_request_async: Option<Box<dyn Fn(&mut InterceptedRequest) -> BoxFuture<'static, ()> + Send + Sync>>,
-    pub on_response_async: Option<Box<dyn Fn(&mut InterceptedResponse) -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub on_request_async:
+        Option<Box<dyn Fn(&mut InterceptedRequest) -> BoxFuture<'static, ()> + Send + Sync>>,
+    pub on_response_async:
+        Option<Box<dyn Fn(&mut InterceptedResponse) -> BoxFuture<'static, ()> + Send + Sync>>,
 }
 
 impl Default for PluginHooks {
@@ -41,7 +43,9 @@ pub enum ConnectDecision {
 pub trait Plugin: Send + Sync {
     fn name(&self) -> &str;
     fn hooks(&self) -> PluginHooks;
-    fn config_schema(&self) -> Option<&'static str> { None }
+    fn config_schema(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 // InterceptedResponse for on_response plugin hooks

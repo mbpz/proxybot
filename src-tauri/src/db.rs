@@ -61,7 +61,11 @@ impl DbState {
     }
 
     /// Internal method to register a device.
-    pub(crate) fn register_device_internal(&self, ip: &str, name: &str) -> Result<DeviceInfo, String> {
+    pub(crate) fn register_device_internal(
+        &self,
+        ip: &str,
+        name: &str,
+    ) -> Result<DeviceInfo, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let now = chrono_lite_timestamp();
 
@@ -372,7 +376,10 @@ pub fn register_device(
 
 /// Update device last seen timestamp.
 #[tauri::command]
-pub fn update_device_last_seen(state: State<'_, Arc<DbState>>, mac_address: String) -> Result<(), String> {
+pub fn update_device_last_seen(
+    state: State<'_, Arc<DbState>>,
+    mac_address: String,
+) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let now = chrono_lite_timestamp();
     conn.execute(
@@ -532,13 +539,10 @@ pub fn record_http_request(
     device_id: Option<i64>,
     app_tag: Option<&str>,
 ) -> Result<i64, String> {
-    let req_headers_json =
-        serde_json::to_string(req_headers).map_err(|e| e.to_string())?;
-    let resp_headers_json =
-        serde_json::to_string(resp_headers).map_err(|e| e.to_string())?;
+    let req_headers_json = serde_json::to_string(req_headers).map_err(|e| e.to_string())?;
+    let resp_headers_json = serde_json::to_string(resp_headers).map_err(|e| e.to_string())?;
     let req_body_bytes: Option<Vec<u8>> = req_body.map(|s| s.as_bytes().to_vec());
-    let resp_body_bytes: Option<Vec<u8>> =
-        resp_body.map(|s| s.as_bytes().to_vec());
+    let resp_body_bytes: Option<Vec<u8>> = resp_body.map(|s| s.as_bytes().to_vec());
 
     conn.execute(
         r#"INSERT INTO http_requests
@@ -567,10 +571,7 @@ pub fn record_http_request(
 }
 
 /// Get recent HTTP requests for TUI display.
-pub fn get_recent_requests(
-    conn: &Connection,
-    limit: i64,
-) -> Result<Vec<RecentRequest>, String> {
+pub fn get_recent_requests(conn: &Connection, limit: i64) -> Result<Vec<RecentRequest>, String> {
     let mut stmt = conn
         .prepare(
             r#"SELECT id, timestamp, method, scheme, host, path,

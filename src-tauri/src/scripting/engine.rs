@@ -1,9 +1,9 @@
-use rhai::{Engine, Scope, AST, Dynamic};
-use std::sync::RwLock;
+use crate::plugin::InterceptedResponse;
+use crate::proxy::InterceptedRequest;
+use rhai::{Dynamic, Engine, Scope, AST};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::proxy::InterceptedRequest;
-use crate::plugin::InterceptedResponse;
+use std::sync::RwLock;
 
 /// A sandboxed Rhai scripting engine for intercepting and modifying
 /// HTTP requests and responses at runtime.
@@ -64,9 +64,13 @@ impl ScriptEngine {
     pub fn load(&self, name: &str, path: &Path) -> Result<(), String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
-        let ast = self.engine.compile(&content)
+        let ast = self
+            .engine
+            .compile(&content)
             .map_err(|e| format!("Compile error in {}: {}", name, e))?;
-        self.scripts.write().unwrap()
+        self.scripts
+            .write()
+            .unwrap()
             .insert(name.to_string(), (path.to_path_buf(), ast));
         log::info!("Script '{}' loaded from {}", name, path.display());
         Ok(())
@@ -74,9 +78,13 @@ impl ScriptEngine {
 
     /// Load a Rhai script from a string (for inline loading or defaults).
     pub fn load_from_string(&self, name: &str, source: &str) -> Result<(), String> {
-        let ast = self.engine.compile(source)
+        let ast = self
+            .engine
+            .compile(source)
             .map_err(|e| format!("Compile error in {}: {}", name, e))?;
-        self.scripts.write().unwrap()
+        self.scripts
+            .write()
+            .unwrap()
             .insert(name.to_string(), (PathBuf::new(), ast));
         Ok(())
     }
@@ -92,7 +100,8 @@ impl ScriptEngine {
         request: &InterceptedRequest,
     ) -> Result<ScriptResult, String> {
         let scripts = self.scripts.read().unwrap();
-        let (_path, ast) = scripts.get(script_name)
+        let (_path, ast) = scripts
+            .get(script_name)
             .ok_or_else(|| format!("Script not found: {}", script_name))?;
 
         let mut scope = Scope::new();
@@ -102,7 +111,10 @@ impl ScriptEngine {
         scope.push("scheme", request.scheme.clone());
         scope.push("host", request.host.clone());
         scope.push("path", request.path.clone());
-        scope.push("query_params", request.query_params.clone().unwrap_or_default());
+        scope.push(
+            "query_params",
+            request.query_params.clone().unwrap_or_default(),
+        );
 
         // Evaluate the script body. Rhai returns the last expression value.
         // Script convention: return true to continue, false to block.
@@ -138,7 +150,8 @@ impl ScriptEngine {
         request: &InterceptedRequest,
     ) -> Result<ScriptResult, String> {
         let scripts = self.scripts.read().unwrap();
-        let (_path, ast) = scripts.get(script_name)
+        let (_path, ast) = scripts
+            .get(script_name)
             .ok_or_else(|| format!("Script not found: {}", script_name))?;
 
         let mut scope = Scope::new();
@@ -183,13 +196,15 @@ impl ScriptEngine {
         args: &[Dynamic],
     ) -> Result<Dynamic, String> {
         let scripts = self.scripts.read().unwrap();
-        let (_path, ast) = scripts.get(script_name)
+        let (_path, ast) = scripts
+            .get(script_name)
             .ok_or_else(|| format!("Script not found: {}", script_name))?;
 
         let mut scope = Scope::new();
 
         // Evaluate the script first to define functions in scope
-        self.engine.eval_ast_with_scope::<()>(&mut scope, ast)
+        self.engine
+            .eval_ast_with_scope::<()>(&mut scope, ast)
             .map_err(|e| format!("Script '{}' eval error: {}", script_name, e))?;
 
         // Call the function by name with arguments
@@ -268,7 +283,8 @@ impl ScriptEngine {
             let entry = entry.map_err(|e| format!("Dir entry error: {}", e))?;
             let path = entry.path();
             if path.extension().map(|e| e == "rhai").unwrap_or(false) {
-                let name = path.file_stem()
+                let name = path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("unnamed")
                     .to_string();
@@ -284,7 +300,11 @@ impl ScriptEngine {
 
     /// Get the path of a loaded script.
     pub fn script_path(&self, name: &str) -> Option<PathBuf> {
-        self.scripts.read().unwrap().get(name).map(|(p, _)| p.clone())
+        self.scripts
+            .read()
+            .unwrap()
+            .get(name)
+            .map(|(p, _)| p.clone())
     }
 }
 
@@ -359,10 +379,14 @@ mod tests {
     fn test_load_valid_rhai_syntax() {
         let dir = tempdir().unwrap();
         let script_path = dir.path().join("valid.rhai");
-        std::fs::write(&script_path, r#"
+        std::fs::write(
+            &script_path,
+            r#"
             // Simple script that returns true
             true
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let engine = ScriptEngine::new();
         assert!(engine.load("valid", &script_path).is_ok());
@@ -381,7 +405,9 @@ mod tests {
     #[test]
     fn test_load_nonexistent_file() {
         let engine = ScriptEngine::new();
-        assert!(engine.load("missing", Path::new("/nonexistent/path.rhai")).is_err());
+        assert!(engine
+            .load("missing", Path::new("/nonexistent/path.rhai"))
+            .is_err());
     }
 
     #[test]
@@ -408,41 +434,63 @@ mod tests {
     fn test_run_on_request_with_fields() {
         let engine = ScriptEngine::new();
         // Script that only allows GET requests
-        engine.load_from_string("get_only", r#"
+        engine
+            .load_from_string(
+                "get_only",
+                r#"
             method == "GET"
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         let get_req = InterceptedRequest {
             method: "GET".into(),
             ..Default::default()
         };
-        assert_eq!(engine.run_on_request("get_only", &get_req).unwrap(), ScriptResult::Continue);
+        assert_eq!(
+            engine.run_on_request("get_only", &get_req).unwrap(),
+            ScriptResult::Continue
+        );
 
         let post_req = InterceptedRequest {
             method: "POST".into(),
             ..Default::default()
         };
-        assert_eq!(engine.run_on_request("get_only", &post_req).unwrap(), ScriptResult::Block);
+        assert_eq!(
+            engine.run_on_request("get_only", &post_req).unwrap(),
+            ScriptResult::Block
+        );
     }
 
     #[test]
     fn test_run_on_request_host_filter() {
         let engine = ScriptEngine::new();
-        engine.load_from_string("block_tiktok", r#"
+        engine
+            .load_from_string(
+                "block_tiktok",
+                r#"
             !host.contains("tiktok")
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         let tiktok_req = InterceptedRequest {
             host: "api.tiktokv.com".into(),
             ..Default::default()
         };
-        assert_eq!(engine.run_on_request("block_tiktok", &tiktok_req).unwrap(), ScriptResult::Block);
+        assert_eq!(
+            engine.run_on_request("block_tiktok", &tiktok_req).unwrap(),
+            ScriptResult::Block
+        );
 
         let github_req = InterceptedRequest {
             host: "api.github.com".into(),
             ..Default::default()
         };
-        assert_eq!(engine.run_on_request("block_tiktok", &github_req).unwrap(), ScriptResult::Continue);
+        assert_eq!(
+            engine.run_on_request("block_tiktok", &github_req).unwrap(),
+            ScriptResult::Continue
+        );
     }
 
     #[test]
@@ -461,9 +509,14 @@ mod tests {
     fn test_run_on_response_with_status() {
         let engine = ScriptEngine::new();
         // Only allow 2xx responses
-        engine.load_from_string("success_only", r#"
+        engine
+            .load_from_string(
+                "success_only",
+                r#"
             status >= 200 && status < 300
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         let req = InterceptedRequest::default();
 
@@ -472,7 +525,9 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            engine.run_on_response("success_only", &ok_resp, &req).unwrap(),
+            engine
+                .run_on_response("success_only", &ok_resp, &req)
+                .unwrap(),
             ScriptResult::Continue
         );
 
@@ -481,7 +536,9 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            engine.run_on_response("success_only", &err_resp, &req).unwrap(),
+            engine
+                .run_on_response("success_only", &err_resp, &req)
+                .unwrap(),
             ScriptResult::Block
         );
     }
@@ -490,22 +547,30 @@ mod tests {
     fn test_script_with_log_calls() {
         let engine = ScriptEngine::new();
         // Script that uses the registered log functions
-        let result = engine.load_from_string("logger", r#"
+        let result = engine.load_from_string(
+            "logger",
+            r#"
             log("hello from rhai");
             warn("this is a warning");
             true
-        "#);
+        "#,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_base64_functions() {
         let engine = ScriptEngine::new();
-        engine.load_from_string("b64", r#"
+        engine
+            .load_from_string(
+                "b64",
+                r#"
             let encoded = base64_encode("hello");
             let decoded = base64_decode(encoded);
             decoded == "hello"
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         let req = InterceptedRequest::default();
         let result = engine.run_on_request("b64", &req).unwrap();

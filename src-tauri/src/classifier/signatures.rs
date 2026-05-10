@@ -103,10 +103,7 @@ pub fn builtin_signatures() -> Vec<AppSignature> {
         AppSignature {
             app_id: "anthropic".to_string(),
             app_name: "Anthropic".to_string(),
-            sni_patterns: vec![
-                "api.anthropic.com".to_string(),
-                "anthropic.com".to_string(),
-            ],
+            sni_patterns: vec!["api.anthropic.com".to_string(), "anthropic.com".to_string()],
             fingerprints: vec![],
             cipher_suites: vec![],
             elliptic_curves: vec![],

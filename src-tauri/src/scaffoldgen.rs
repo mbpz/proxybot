@@ -3,7 +3,8 @@
 use crate::db::DbState;
 use crate::infer::{ApiInterface, InferredApi};
 use crate::replay::compute_diff;
-use crate::vision::{VisionComponent, ComponentTree};
+use crate::vision::{ComponentTree, VisionComponent};
+use reqwest::Client;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,9 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
-use tokio::process::{Command, Child};
+use tokio::process::{Child, Command};
 use tokio::time::{sleep, Duration};
-use reqwest::Client;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScaffoldComponent {
@@ -111,7 +111,12 @@ fn infer_route(path: &str) -> String {
 fn group_by_prefix(apis: &[InferredApi]) -> HashMap<String, Vec<usize>> {
     let mut map: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, api) in apis.iter().enumerate() {
-        let part = api.path.split('/').filter(|s| !s.is_empty()).nth(0).unwrap_or("api");
+        let part = api
+            .path
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .nth(0)
+            .unwrap_or("api");
         map.entry(part.to_string()).or_default().push(i);
     }
     map
@@ -119,7 +124,9 @@ fn group_by_prefix(apis: &[InferredApi]) -> HashMap<String, Vec<usize>> {
 
 fn hook_name(n: &str) -> String {
     let c = n.replace("/", "").replace("_", "").replace("-", "");
-    if c.is_empty() { return "useHook".to_string(); }
+    if c.is_empty() {
+        return "useHook".to_string();
+    }
     format!("use{}{}", c.chars().next().unwrap().to_uppercase(), &c[1..])
 }
 
@@ -181,16 +188,22 @@ fn app_tsx(routes: &[(String, String)]) -> String {
     for (cn, rp) in routes {
         let p = format!("./pages/{}", cn.replace("Page", "").to_lowercase());
         imp.push_str(&format!("import {} from '{}';\n", cn, p));
-        els.push_str(&format!("      <Route path=\"{}\" element={{<{} />}} />\n", rp, cn));
+        els.push_str(&format!(
+            "      <Route path=\"{}\" element={{<{} />}} />\n",
+            rp, cn
+        ));
     }
-    format!(r#"import {{BrowserRouter,Routes,Route}} from'react-router-dom'
+    format!(
+        r#"import {{BrowserRouter,Routes,Route}} from'react-router-dom'
 import'./index.css'
 {}
 function App(){{return(<BrowserRouter><div className="container"><header className="header"><h1>ProxyBot Scaffold</h1></header><Routes>
 {}
 </Routes></div></BrowserRouter>)}}
 export default App
-"#, imp, els)
+"#,
+        imp, els
+    )
 }
 
 fn hook_get(hn: &str, rr: &str, path: &str, auth_dep: &str) -> String {
@@ -210,7 +223,9 @@ fn hook_mutation(hn: &str, path: &str, method: &str, auth_header: &str) -> Strin
     s.push_str("export function ");
     s.push_str(hn);
     s.push_str("(o?)");
-    s.push_str("{const[l,sL]=React.useState(false);const[e,sE]=React.useState(null);async function m(b)");
+    s.push_str(
+        "{const[l,sL]=React.useState(false);const[e,sE]=React.useState(null);async function m(b)",
+    );
     s.push_str("{sL(true);try");
     s.push_str("{const r=await fetch('/api");
     s.push_str(path);
@@ -219,7 +234,9 @@ fn hook_mutation(hn: &str, path: &str, method: &str, auth_header: &str) -> Strin
     s.push_str("',headers:{");
     s.push_str(&extra_headers);
     s.push_str("}})}");
-    s.push_str("catch(e){const m=e instanceof Error?e.message:'err';sE(m);o?.onError?.(m);throw e}");
+    s.push_str(
+        "catch(e){const m=e instanceof Error?e.message:'err';sE(m);o?.onError?.(m);throw e}",
+    );
     s.push_str("finally{sL(false)}}");
     s.push_str("return{mutate:m,loading:l,error:e}}");
     s.push('\n');
@@ -230,10 +247,18 @@ fn hook(iface: &ApiInterface, module: &str) -> String {
     let hn = hook_name(&iface.name);
     let rr = format!("{}Api.{}Response", module, iface.name);
     if iface.method.to_uppercase() == "GET" {
-        let auth_dep = if iface.auth_required { "localStorage.getItem('authToken')" } else { "null" };
+        let auth_dep = if iface.auth_required {
+            "localStorage.getItem('authToken')"
+        } else {
+            "null"
+        };
         hook_get(&hn, &rr, &iface.path, auth_dep)
     } else {
-        let auth_header: String = if iface.auth_required { "Authorization:`Bearer ${localStorage.getItem('authToken')}`,".to_string() } else { String::new() };
+        let auth_header: String = if iface.auth_required {
+            "Authorization:`Bearer ${localStorage.getItem('authToken')}`,".to_string()
+        } else {
+            String::new()
+        };
         hook_mutation(&hn, &iface.path, &iface.method.to_uppercase(), &auth_header)
     }
 }
@@ -278,13 +303,19 @@ fn vision_style(pos: &crate::vision::VisionPosition) -> String {
 }
 
 /// Render a VisionComponent as a React TSX string.
-fn vision_element(vc: &VisionComponent, api_method: &str, _api_name: &str, hook_name_str: &str) -> String {
+fn vision_element(
+    vc: &VisionComponent,
+    api_method: &str,
+    _api_name: &str,
+    hook_name_str: &str,
+) -> String {
     let ctype = vc.component_type.to_lowercase();
     let text = vc.text.as_deref().unwrap_or("");
     let style = vision_style(&vc.position);
 
     // Render children first
-    let children_rendering: Vec<String> = vc.children
+    let children_rendering: Vec<String> = vc
+        .children
         .iter()
         .map(|child| vision_element(child, api_method, _api_name, hook_name_str))
         .collect();
@@ -343,14 +374,18 @@ fn vision_element(vc: &VisionComponent, api_method: &str, _api_name: &str, hook_
             } else {
                 format!(
                     "<div className=\"{}\" style={{{}}}>\n{}\n</div>",
-                    cls, style,
+                    cls,
+                    style,
                     children_rendering.join("\n")
                 )
             }
         }
         "listitem" | "row" => {
             if children_rendering.is_empty() {
-                format!("<div className=\"vision-list-item\" style={{{}}}>{}</div>", style, text)
+                format!(
+                    "<div className=\"vision-list-item\" style={{{}}}>{}</div>",
+                    style, text
+                )
             } else {
                 format!(
                     "<div className=\"vision-list-item\" style={{{}}}>\n{}\n</div>",
@@ -363,13 +398,15 @@ fn vision_element(vc: &VisionComponent, api_method: &str, _api_name: &str, hook_
             if children_rendering.is_empty() {
                 format!(
                     "<div className=\"vision-{}\" style={{{}}}>{}</div>",
-                    ctype, style,
+                    ctype,
+                    style,
                     text.replace('\'', "\\'")
                 )
             } else {
                 format!(
                     "<div className=\"vision-{}\" style={{{}}}>\n{}\n</div>",
-                    ctype, style,
+                    ctype,
+                    style,
                     children_rendering.join("\n")
                 )
             }
@@ -401,9 +438,14 @@ fn render_vision_page(
     let mut result = String::new();
     result.push_str("import React from 'react';\n");
     result.push_str("import {useParams} from 'react-router-dom';\n");
-    result.push_str(&format!("import {{use{}}} from '../hooks/hooks';\n\n", hook_name_str));
+    result.push_str(&format!(
+        "import {{use{}}} from '../hooks/hooks';\n\n",
+        hook_name_str
+    ));
     result.push_str("interface Props {}\n\n");
-    result.push_str(&format!("export default function {page_name_str}Page() {{\n"));
+    result.push_str(&format!(
+        "export default function {page_name_str}Page() {{\n"
+    ));
     result.push_str(&format!("  {}\n", hook_call));
     result.push_str("  if (loading) return <div className=\"loading\">Loading...</div>;\n");
     result.push_str("  if (error) return <div className=\"error\">Error: {String(error)}</div>;\n");
@@ -422,7 +464,11 @@ fn render_vision_page(
 // ============================================================================
 
 fn store(module: &str, apis: &[&InferredApi]) -> String {
-    let sn = format!("use{}{}Store", module.chars().next().unwrap().to_uppercase(), &module[1..]);
+    let sn = format!(
+        "use{}{}Store",
+        module.chars().next().unwrap().to_uppercase(),
+        &module[1..]
+    );
     let mut sf = String::new();
     let mut act = String::new();
     for a in apis {
@@ -442,29 +488,53 @@ fn pw_config() -> String {
         "testDir": "./e2e", "timeout": 30000,
         "use": {"baseURL": "http://localhost:3000", "trace": "on-first-retry"},
         "projects": [{"name": "chromium", "use": {"browserName": "chromium"}}]
-    })).unwrap()
+    }))
+    .unwrap()
 }
 
 fn pw_test(rp: &str, cn: &str) -> String {
-    format!(r#"import{{test,expect}}from'@playwright/test'
+    format!(
+        r#"import{{test,expect}}from'@playwright/test'
 test('{} loads',async{{page}})=>{{await page.goto('{}');await page.waitForLoadState('networkidle');await expect(page.locator('.error')).not.toBeVisible()}})
 test('{} shows content',async{{page}})=>{{await page.goto('{}');await page.waitForLoadState('networkidle');await expect(page.locator('.page')).toBeVisible()}})
-"#, cn, rp, cn, rp)
+"#,
+        cn, rp, cn, rp
+    )
 }
 
 fn get_apis(conn: &rusqlite::Connection, sid: &str) -> Result<Vec<InferredApi>, String> {
     let mut s = conn.prepare("SELECT id,session_id,name,method,path,params,auth_required,request_ids,score,created_at FROM inferred_apis WHERE session_id=?1 ORDER BY id").map_err(|e| e.to_string())?;
-    let rows = s.query_map(params![sid], |row| {
-        Ok(InferredApi { id: row.get(0)?, session_id: row.get(1)?, name: row.get(2)?, method: row.get(3)?, path: row.get(4)?, params: row.get(5)?, auth_required: row.get::<_, i32>(6)? != 0, request_ids: row.get(7)?, score: row.get(8)?, created_at: row.get(9)? })
-    }).map_err(|e| e.to_string())?;
-    rows.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())
+    let rows = s
+        .query_map(params![sid], |row| {
+            Ok(InferredApi {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                name: row.get(2)?,
+                method: row.get(3)?,
+                path: row.get(4)?,
+                params: row.get(5)?,
+                auth_required: row.get::<_, i32>(6)? != 0,
+                request_ids: row.get(7)?,
+                score: row.get(8)?,
+                created_at: row.get(9)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn generate_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String, name: Option<String>) -> Result<ScaffoldProject, String> {
+pub fn generate_scaffold_project(
+    db: State<'_, Arc<DbState>>,
+    session_id: String,
+    name: Option<String>,
+) -> Result<ScaffoldProject, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let apis = get_apis(&conn, &session_id)?;
-    if apis.is_empty() { return Err("No inferred APIs. Run inference first.".to_string()); }
+    if apis.is_empty() {
+        return Err("No inferred APIs. Run inference first.".to_string());
+    }
     let n = name.unwrap_or_else(|| "proxybot_frontend".to_string());
     let map = group_by_prefix(&apis);
     let mut comps = Vec::new();
@@ -474,19 +544,35 @@ pub fn generate_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String
     for (mn, idx) in &map {
         let mas: Vec<&InferredApi> = idx.iter().filter_map(|&i| apis.get(i)).collect();
         for a in &mas {
-            let ir = ApiInterface { name: a.name.clone(), method: a.method.clone(), path: a.path.clone(), params: a.params.clone(), auth_required: a.auth_required };
+            let ir = ApiInterface {
+                name: a.name.clone(),
+                method: a.method.clone(),
+                path: a.path.clone(),
+                params: a.params.clone(),
+                auth_required: a.auth_required,
+            };
             let h = hook(&ir, mn);
             files.insert(format!("src/hooks/{}Hooks.tsx", mn), h);
             let pc = page(&ir, mn);
             let cn = page_name(&a.name);
             let pf = format!("src/pages/{}.tsx", cn);
             files.insert(pf.clone(), pc.clone());
-            comps.push(ScaffoldComponent { name: cn.clone(), route_path: infer_route(&a.path), file_path: pf, content: pc, vision_tree: None });
+            comps.push(ScaffoldComponent {
+                name: cn.clone(),
+                route_path: infer_route(&a.path),
+                file_path: pf,
+                content: pc,
+                vision_tree: None,
+            });
             routes.push((cn, infer_route(&a.path)));
         }
         let mirs: Vec<&InferredApi> = mas.iter().map(|&a| a).collect();
         let sc = store(mn, &mirs);
-        stores.push(ScaffoldStore { module_name: mn.clone(), file_path: format!("src/stores/{}Store.ts", mn), content: sc.clone() });
+        stores.push(ScaffoldStore {
+            module_name: mn.clone(),
+            file_path: format!("src/stores/{}Store.ts", mn),
+            content: sc.clone(),
+        });
         files.insert(format!("src/stores/{}Store.ts", mn), sc);
     }
     files.insert("package.json".to_string(), pkg_json(&n));
@@ -503,9 +589,21 @@ pub fn generate_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String
         let tc = pw_test(&c.route_path, &c.name);
         let tf = format!("e2e/{}.spec.ts", c.name.replace("Page", "").to_lowercase());
         files.insert(tf.clone(), tc.clone());
-        tests.push(ScaffoldTest { name: c.name.clone(), route_path: c.route_path.clone(), file_path: tf, content: tc });
+        tests.push(ScaffoldTest {
+            name: c.name.clone(),
+            route_path: c.route_path.clone(),
+            file_path: tf,
+            content: tc,
+        });
     }
-    Ok(ScaffoldProject { name: n, base_path: String::new(), components: comps, stores, tests, files })
+    Ok(ScaffoldProject {
+        name: n,
+        base_path: String::new(),
+        components: comps,
+        stores,
+        tests,
+        files,
+    })
 }
 
 /// Generate scaffold with vision-enhanced pages.
@@ -626,12 +724,25 @@ pub fn generate_scaffold_with_vision(
 }
 
 #[tauri::command]
-pub fn write_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String, name: Option<String>, dir: Option<String>) -> Result<String, String> {
+pub fn write_scaffold_project(
+    db: State<'_, Arc<DbState>>,
+    session_id: String,
+    name: Option<String>,
+    dir: Option<String>,
+) -> Result<String, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let apis = get_apis(&conn, &session_id)?;
-    if apis.is_empty() { return Err("No inferred APIs. Run inference first.".to_string()); }
+    if apis.is_empty() {
+        return Err("No inferred APIs. Run inference first.".to_string());
+    }
     let n = name.unwrap_or_else(|| "proxybot_frontend".to_string());
-    let base = dir.unwrap_or_else(|| format!("{}/.proxybot/scaffold_projects/{}", std::env::var("HOME").unwrap_or_else(|_| ".".to_string()), n));
+    let base = dir.unwrap_or_else(|| {
+        format!(
+            "{}/.proxybot/scaffold_projects/{}",
+            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()),
+            n
+        )
+    });
     let bp = PathBuf::from(&base);
     let src = bp.join("src");
     let pages = src.join("pages");
@@ -647,15 +758,23 @@ pub fn write_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String, n
     for (mn, idx) in &map {
         let mas: Vec<&InferredApi> = idx.iter().filter_map(|&i| apis.get(i)).collect();
         for a in &mas {
-            let ir = ApiInterface { name: a.name.clone(), method: a.method.clone(), path: a.path.clone(), params: a.params.clone(), auth_required: a.auth_required };
-            fs::write(hooks.join(format!("{}Hooks.tsx", mn)), hook(&ir, mn)).map_err(|e| e.to_string())?;
+            let ir = ApiInterface {
+                name: a.name.clone(),
+                method: a.method.clone(),
+                path: a.path.clone(),
+                params: a.params.clone(),
+                auth_required: a.auth_required,
+            };
+            fs::write(hooks.join(format!("{}Hooks.tsx", mn)), hook(&ir, mn))
+                .map_err(|e| e.to_string())?;
             let pc = page(&ir, mn);
             let cn = page_name(&a.name);
             fs::write(pages.join(format!("{}.tsx", cn)), &pc).map_err(|e| e.to_string())?;
             routes.push((cn, infer_route(&a.path)));
         }
         let mirs: Vec<&InferredApi> = mas.iter().map(|&a| a).collect();
-        fs::write(stores.join(format!("{}Store.ts", mn)), store(mn, &mirs)).map_err(|e| e.to_string())?;
+        fs::write(stores.join(format!("{}Store.ts", mn)), store(mn, &mirs))
+            .map_err(|e| e.to_string())?;
     }
     fs::write(bp.join("package.json"), pkg_json(&n)).map_err(|e| e.to_string())?;
     fs::write(bp.join("vite.config.ts"), vite_config()).map_err(|e| e.to_string())?;
@@ -667,7 +786,11 @@ pub fn write_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String, n
     fs::write(src.join("App.tsx"), app_tsx(&routes)).map_err(|e| e.to_string())?;
     fs::write(bp.join("playwright.config.ts"), pw_config()).map_err(|e| e.to_string())?;
     for (cn, rp) in &routes {
-        fs::write(e2e.join(format!("{}.spec.ts", cn.replace("Page", "").to_lowercase())), pw_test(rp, cn)).map_err(|e| e.to_string())?;
+        fs::write(
+            e2e.join(format!("{}.spec.ts", cn.replace("Page", "").to_lowercase())),
+            pw_test(rp, cn),
+        )
+        .map_err(|e| e.to_string())?;
     }
     log::info!("Scaffold written to {}", base);
     Ok(base)
@@ -718,7 +841,11 @@ struct RecordedExchange {
 }
 
 /// Start a background process and return its handle.
-async fn start_background_process(program: &str, args: &[&str], cwd: &str) -> Result<Child, String> {
+async fn start_background_process(
+    program: &str,
+    args: &[&str],
+    cwd: &str,
+) -> Result<Child, String> {
     let child = Command::new(program)
         .args(args)
         .current_dir(cwd)
@@ -740,7 +867,10 @@ async fn wait_for_server(url: &str, max_wait_secs: u64) -> Result<(), String> {
         }
         sleep(Duration::from_millis(500)).await;
     }
-    Err(format!("Server {} did not become ready in {}s", url, max_wait_secs))
+    Err(format!(
+        "Server {} did not become ready in {}s",
+        url, max_wait_secs
+    ))
 }
 
 // ============================================================================
@@ -801,11 +931,22 @@ async fn replay_and_diff(
                         .header_diffs
                         .iter()
                         .filter(|d| d.diff_type != crate::replay::DiffType::Unchanged)
-                        .map(|d| format!("header {}: recorded={:?} mock={:?}", d.header, d.recorded, d.mock))
+                        .map(|d| {
+                            format!(
+                                "header {}: recorded={:?} mock={:?}",
+                                d.header, d.recorded, d.mock
+                            )
+                        })
                         .collect();
-                    let err_msg = format!("{} {} → {} (status {})",
-                        ex.method, ex.path,
-                        if header_errs.is_empty() { "OK".to_string() } else { header_errs.join(", ") },
+                    let err_msg = format!(
+                        "{} {} → {} (status {})",
+                        ex.method,
+                        ex.path,
+                        if header_errs.is_empty() {
+                            "OK".to_string()
+                        } else {
+                            header_errs.join(", ")
+                        },
                         mock_status
                     );
                     errors.push(err_msg);
@@ -850,7 +991,12 @@ async fn run_playwright_tests(scaffold_path: &str) -> (usize, usize, Vec<String>
                     let errors: Vec<String> = results
                         .iter()
                         .filter(|r| r.status != "passed")
-                        .flat_map(|r| r.errors.iter().cloned().map(|e| format!("{}: {}", r.title, e)))
+                        .flat_map(|r| {
+                            r.errors
+                                .iter()
+                                .cloned()
+                                .map(|e| format!("{}: {}", r.title, e))
+                        })
                         .collect();
                     (passed, failed, errors)
                 }
@@ -871,7 +1017,10 @@ async fn run_playwright_tests(scaffold_path: &str) -> (usize, usize, Vec<String>
 // ============================================================================
 
 /// Evaluate scaffold by starting servers and running real tests.
-async fn eval_scaffold(scaffold_path: &str, exchanges: Vec<RecordedExchange>) -> Result<(bool, f64, Vec<String>), String> {
+async fn eval_scaffold(
+    scaffold_path: &str,
+    exchanges: Vec<RecordedExchange>,
+) -> Result<(bool, f64, Vec<String>), String> {
     let scaffold_pathbuf = PathBuf::from(scaffold_path);
     let mock_api_path = scaffold_pathbuf.join("mock-api");
     let has_mock_api = mock_api_path.join("main.py").exists();
@@ -885,9 +1034,19 @@ async fn eval_scaffold(scaffold_path: &str, exchanges: Vec<RecordedExchange>) ->
             .current_dir(&mock_api_path)
             .output()
             .await;
-        match start_background_process("uvicorn", &["main:app", "--host", "0.0.0.0", "--port", "8000"], mock_api_path.to_str().unwrap_or(".")).await {
-            Ok(child) => { mock_child = Some(child); }
-            Err(e) => { log::warn!("Could not start mock API: {}", e); }
+        match start_background_process(
+            "uvicorn",
+            &["main:app", "--host", "0.0.0.0", "--port", "8000"],
+            mock_api_path.to_str().unwrap_or("."),
+        )
+        .await
+        {
+            Ok(child) => {
+                mock_child = Some(child);
+            }
+            Err(e) => {
+                log::warn!("Could not start mock API: {}", e);
+            }
         }
     }
 
@@ -901,9 +1060,19 @@ async fn eval_scaffold(scaffold_path: &str, exchanges: Vec<RecordedExchange>) ->
             .current_dir(&scaffold_pathbuf)
             .output()
             .await;
-        match start_background_process("npm", &["run", "dev", "--", "--port", "3000", "--host"], scaffold_path).await {
-            Ok(child) => { frontend_child = Some(child); }
-            Err(e) => { log::warn!("Could not start frontend: {}", e); }
+        match start_background_process(
+            "npm",
+            &["run", "dev", "--", "--port", "3000", "--host"],
+            scaffold_path,
+        )
+        .await
+        {
+            Ok(child) => {
+                frontend_child = Some(child);
+            }
+            Err(e) => {
+                log::warn!("Could not start frontend: {}", e);
+            }
         }
     }
 
@@ -914,7 +1083,8 @@ async fn eval_scaffold(scaffold_path: &str, exchanges: Vec<RecordedExchange>) ->
     // 3. If mock API is running, replay and diff
     if mock_child.is_some() && !exchanges.is_empty() {
         if wait_for_server("http://localhost:8000", 15).await.is_ok() {
-            let (passed, failed, diff_errors) = replay_and_diff("http://localhost:8000", &exchanges).await;
+            let (passed, failed, diff_errors) =
+                replay_and_diff("http://localhost:8000", &exchanges).await;
             total_passed += passed;
             total_failed += failed;
             all_errors.extend(diff_errors);
@@ -956,33 +1126,44 @@ async fn eval_scaffold(scaffold_path: &str, exchanges: Vec<RecordedExchange>) ->
 }
 
 #[tauri::command]
-pub async fn evaluate_scaffold_project(db: State<'_, Arc<DbState>>, session_id: String, path: String) -> Result<(bool, f64, Vec<String>), String> {
+pub async fn evaluate_scaffold_project(
+    db: State<'_, Arc<DbState>>,
+    session_id: String,
+    path: String,
+) -> Result<(bool, f64, Vec<String>), String> {
     // Query full exchange data for evaluation
     let exchanges: Vec<RecordedExchange> = {
         let conn = db.conn.lock().map_err(|e| e.to_string())?;
-        let mut s = conn.prepare(
-            "SELECT method, path, req_body, resp_status, resp_headers, resp_body \
-             FROM http_requests WHERE session_id=?1 LIMIT 30"
-        ).map_err(|e| e.to_string())?;
-        let rows: Vec<RecordedExchange> = s.query_map(params![session_id], |row| {
-            let method: String = row.get(0)?;
-            let path: String = row.get(1)?;
-            let req_body_opt: Option<Vec<u8>> = row.get(2)?;
-            let resp_status: Option<u16> = row.get(3)?;
-            let resp_headers_json: String = row.get(4)?;
-            let resp_body_opt: Option<Vec<u8>> = row.get(5)?;
-            let req_body = req_body_opt.map(|b| String::from_utf8_lossy(&b).to_string());
-            let resp_headers: Vec<(String, String)> = serde_json::from_str(&resp_headers_json).unwrap_or_default();
-            let resp_body = resp_body_opt.map(|b| String::from_utf8_lossy(&b).to_string());
-            Ok(RecordedExchange {
-                method,
-                path,
-                req_body,
-                resp_status: resp_status.unwrap_or(200),
-                resp_headers,
-                resp_body,
+        let mut s = conn
+            .prepare(
+                "SELECT method, path, req_body, resp_status, resp_headers, resp_body \
+             FROM http_requests WHERE session_id=?1 LIMIT 30",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows: Vec<RecordedExchange> = s
+            .query_map(params![session_id], |row| {
+                let method: String = row.get(0)?;
+                let path: String = row.get(1)?;
+                let req_body_opt: Option<Vec<u8>> = row.get(2)?;
+                let resp_status: Option<u16> = row.get(3)?;
+                let resp_headers_json: String = row.get(4)?;
+                let resp_body_opt: Option<Vec<u8>> = row.get(5)?;
+                let req_body = req_body_opt.map(|b| String::from_utf8_lossy(&b).to_string());
+                let resp_headers: Vec<(String, String)> =
+                    serde_json::from_str(&resp_headers_json).unwrap_or_default();
+                let resp_body = resp_body_opt.map(|b| String::from_utf8_lossy(&b).to_string());
+                Ok(RecordedExchange {
+                    method,
+                    path,
+                    req_body,
+                    resp_status: resp_status.unwrap_or(200),
+                    resp_headers,
+                    resp_body,
+                })
             })
-        }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>,_>>().map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
         rows
     };
 

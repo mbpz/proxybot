@@ -96,7 +96,9 @@ fn get_endpoint_fixtures(
 
         let headers: HashMap<String, String> =
             serde_json::from_str(&headers_json).unwrap_or_default();
-        let body_str = body.as_ref().map(|b| String::from_utf8_lossy(b).to_string());
+        let body_str = body
+            .as_ref()
+            .map(|b| String::from_utf8_lossy(b).to_string());
         let body_type = body_str
             .as_ref()
             .and_then(|s| {
@@ -233,12 +235,7 @@ fn generate_fastapi_main(endpoints: &[MockEndpoint]) -> String {
 async def endpoint_{}(request: Request) -> Response:
     """{} - {} {}"""
     "#,
-            method_lower,
-            endpoint.path,
-            path_slug,
-            endpoint.name,
-            endpoint.method,
-            endpoint.path
+            method_lower, endpoint.path, path_slug, endpoint.name, endpoint.method, endpoint.path
         ));
 
         // Build response logic based on conditional or ordered
@@ -273,8 +270,7 @@ async def endpoint_{}(request: Request) -> Response:
 
     return JSONResponse({{"error": "No fixture found"}}, status_code=404)
 "#,
-                fixture_file_name,
-                path_slug
+                fixture_file_name, path_slug
             ));
         } else {
             // Conditional: match request body field → response variant
@@ -522,7 +518,9 @@ pub fn generate_mock_project(
     let apis = get_inferred_apis(&conn, &session_id)?;
 
     if apis.is_empty() {
-        return Err("No inferred APIs found for this session. Run API inference first.".to_string());
+        return Err(
+            "No inferred APIs found for this session. Run API inference first.".to_string(),
+        );
     }
 
     // Get fixtures and conditionals
@@ -546,7 +544,11 @@ pub fn generate_mock_project(
     }
 
     // Generate OpenAPI spec
-    let spec = generate_openapi_spec(&apis, &[], &format!("{} Mock API", project_name.as_deref().unwrap_or("ProxyBot")));
+    let spec = generate_openapi_spec(
+        &apis,
+        &[],
+        &format!("{} Mock API", project_name.as_deref().unwrap_or("ProxyBot")),
+    );
     let spec_str = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
 
     Ok(MockProject {
@@ -602,15 +604,21 @@ pub fn write_mock_project(
             .replace('/', "_")
             .replace('-', "_");
         let fixture_path = fixtures_dir.join(format!("fixture_{}.json", path_slug));
-        let fixture_json = generate_fixture_json(&MockEndpoint {
-            method: api.method.clone(),
-            path: api.path.clone(),
-            name: api.name.clone(),
-            fixtures: fixtures.clone(),
-            conditionals: conditionals.clone(),
-        }, &conditionals);
-        fs::write(&fixture_path, serde_json::to_string_pretty(&fixture_json).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        let fixture_json = generate_fixture_json(
+            &MockEndpoint {
+                method: api.method.clone(),
+                path: api.path.clone(),
+                name: api.name.clone(),
+                fixtures: fixtures.clone(),
+                conditionals: conditionals.clone(),
+            },
+            &conditionals,
+        );
+        fs::write(
+            &fixture_path,
+            serde_json::to_string_pretty(&fixture_json).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
 
         endpoints.push(MockEndpoint {
             method: api.method.clone(),
@@ -627,8 +635,13 @@ pub fn write_mock_project(
 
     // Write supporting files
     fs::write(base_path.join("Dockerfile"), generate_dockerfile()).map_err(|e| e.to_string())?;
-    fs::write(base_path.join("requirements.txt"), generate_requirements()).map_err(|e| e.to_string())?;
-    fs::write(base_path.join("docker-compose.yml"), generate_docker_compose()).map_err(|e| e.to_string())?;
+    fs::write(base_path.join("requirements.txt"), generate_requirements())
+        .map_err(|e| e.to_string())?;
+    fs::write(
+        base_path.join("docker-compose.yml"),
+        generate_docker_compose(),
+    )
+    .map_err(|e| e.to_string())?;
     fs::write(
         base_path.join("README.md"),
         generate_readme(&name, &endpoints),
@@ -688,7 +701,10 @@ pub async fn start_mock_server(project_path: String, port: Option<u16>) -> Resul
     let main_path = PathBuf::from(&project_path).join("main.py");
 
     if !main_path.exists() {
-        return Err(format!("main.py not found at {}. Run write_mock_project first.", project_path));
+        return Err(format!(
+            "main.py not found at {}. Run write_mock_project first.",
+            project_path
+        ));
     }
 
     // Spawn uvicorn in background
@@ -707,24 +723,20 @@ mod tests {
 
     #[test]
     fn test_generate_fastapi_main() {
-        let endpoints = vec![
-            MockEndpoint {
-                method: "GET".to_string(),
-                path: "/api/user".to_string(),
-                name: "getUser".to_string(),
-                fixtures: vec![
-                    ResponseFixture {
-                        variant_id: "variant_0".to_string(),
-                        status: 200,
-                        headers: [("Content-Type".to_string(), "application/json".to_string())].into(),
-                        body: Some(r#"{"id": 1, "name": "test"}"#.to_string()),
-                        body_type: "json".to_string(),
-                        order_index: 0,
-                    },
-                ],
-                conditionals: vec![],
-            },
-        ];
+        let endpoints = vec![MockEndpoint {
+            method: "GET".to_string(),
+            path: "/api/user".to_string(),
+            name: "getUser".to_string(),
+            fixtures: vec![ResponseFixture {
+                variant_id: "variant_0".to_string(),
+                status: 200,
+                headers: [("Content-Type".to_string(), "application/json".to_string())].into(),
+                body: Some(r#"{"id": 1, "name": "test"}"#.to_string()),
+                body_type: "json".to_string(),
+                order_index: 0,
+            }],
+            conditionals: vec![],
+        }];
 
         let code = generate_fastapi_main(&endpoints);
         assert!(code.contains("endpoint_api_user"));
@@ -737,16 +749,14 @@ mod tests {
             method: "GET".to_string(),
             path: "/api/test".to_string(),
             name: "test".to_string(),
-            fixtures: vec![
-                ResponseFixture {
-                    variant_id: "variant_0".to_string(),
-                    status: 200,
-                    headers: HashMap::new(),
-                    body: Some("{}".to_string()),
-                    body_type: "json".to_string(),
-                    order_index: 0,
-                },
-            ],
+            fixtures: vec![ResponseFixture {
+                variant_id: "variant_0".to_string(),
+                status: 200,
+                headers: HashMap::new(),
+                body: Some("{}".to_string()),
+                body_type: "json".to_string(),
+                order_index: 0,
+            }],
             conditionals: vec![],
         };
 
@@ -761,23 +771,19 @@ mod tests {
             method: "POST".to_string(),
             path: "/api/test".to_string(),
             name: "testConditional".to_string(),
-            fixtures: vec![
-                ResponseFixture {
-                    variant_id: "variant_0".to_string(),
-                    status: 200,
-                    headers: HashMap::new(),
-                    body: Some("{}".to_string()),
-                    body_type: "json".to_string(),
-                    order_index: 0,
-                },
-            ],
-            conditionals: vec![
-                ConditionalResponse {
-                    condition_field: "type".to_string(),
-                    condition_value: "admin".to_string(),
-                    response_variant_id: "variant_0".to_string(),
-                },
-            ],
+            fixtures: vec![ResponseFixture {
+                variant_id: "variant_0".to_string(),
+                status: 200,
+                headers: HashMap::new(),
+                body: Some("{}".to_string()),
+                body_type: "json".to_string(),
+                order_index: 0,
+            }],
+            conditionals: vec![ConditionalResponse {
+                condition_field: "type".to_string(),
+                condition_value: "admin".to_string(),
+                response_variant_id: "variant_0".to_string(),
+            }],
         };
 
         let json = generate_fixture_json(&endpoint, &endpoint.conditionals);

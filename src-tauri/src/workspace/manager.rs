@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
-use std::fs;
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Workspace {
@@ -23,10 +23,15 @@ impl WorkspaceManager {
             .join(".proxybot")
             .join("workspaces");
         fs::create_dir_all(&base_dir).ok();
-        Self { base_dir, active: RwLock::new(None) }
+        Self {
+            base_dir,
+            active: RwLock::new(None),
+        }
     }
 
-    pub fn base_dir(&self) -> &Path { &self.base_dir }
+    pub fn base_dir(&self) -> &Path {
+        &self.base_dir
+    }
 
     /// Init a workspace from current config files
     pub fn init(&self, name: &str, description: &str) -> Result<Workspace, String> {
@@ -70,7 +75,8 @@ impl WorkspaceManager {
         let gz = flate2::write::GzEncoder::new(output_file, flate2::Compression::default());
         let mut tar = tar::Builder::new(gz);
 
-        tar.append_dir_all(name, &ws_dir).map_err(|e| e.to_string())?;
+        tar.append_dir_all(name, &ws_dir)
+            .map_err(|e| e.to_string())?;
         let gz = tar.into_inner().map_err(|e| e.to_string())?;
         gz.finish().map_err(|e| e.to_string())?;
 
@@ -87,7 +93,8 @@ impl WorkspaceManager {
         tar.unpack(&self.base_dir).map_err(|e| e.to_string())?;
 
         // Derive name from archive filename
-        let name = archive.file_stem()
+        let name = archive
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("imported")
             .replace(".tar", "");
@@ -161,7 +168,9 @@ impl WorkspaceManager {
 }
 
 impl Default for WorkspaceManager {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

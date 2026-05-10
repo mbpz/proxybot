@@ -1,5 +1,5 @@
-use std::path::Path;
 use super::registry::PluginRegistry;
+use std::path::Path;
 
 pub struct PluginLoader;
 

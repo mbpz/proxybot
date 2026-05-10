@@ -8,7 +8,7 @@ use crate::normalize::{normalize_http_record, NormalizedRecord};
 use reqwest::Client;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::State;
 
@@ -72,11 +72,7 @@ pub struct InferredApi {
 // ============================================================================
 
 /// Generate OpenAPI 3.1 spec from inferred APIs.
-pub fn generate_openapi_spec(
-    apis: &[InferredApi],
-    modules: &[ApiModule],
-    title: &str,
-) -> Value {
+pub fn generate_openapi_spec(apis: &[InferredApi], modules: &[ApiModule], title: &str) -> Value {
     let mut paths = serde_json::Map::new();
 
     for api in apis {
@@ -111,16 +107,20 @@ pub fn generate_openapi_spec(
     let components = if modules.is_empty() {
         json!({})
     } else {
-        let schemas = modules.iter().enumerate().map(|(i, _m)| {
-            let schema = json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string" },
-                    "description": { "type": "string" }
-                }
-            });
-            (format!("Module{}", i + 1), schema)
-        }).collect::<serde_json::Map<String, Value>>();
+        let schemas = modules
+            .iter()
+            .enumerate()
+            .map(|(i, _m)| {
+                let schema = json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "description": { "type": "string" }
+                    }
+                });
+                (format!("Module{}", i + 1), schema)
+            })
+            .collect::<serde_json::Map<String, Value>>();
 
         json!({ "schemas": schemas })
     };
@@ -276,13 +276,19 @@ fn validate_inference_result(result: &mut InferenceResult) {
             errors.push(format!("Interface '{}' has empty method", interface.name));
         }
         if !interface.path.starts_with('/') {
-            errors.push(format!("Interface '{}' path must start with /", interface.name));
+            errors.push(format!(
+                "Interface '{}' path must start with /",
+                interface.name
+            ));
         }
         if interface.name.is_empty() {
             errors.push("Interface has empty name".to_string());
         }
         // Check for duplicate names
-        let count = interface_names.iter().filter(|n| **n == interface.name).count();
+        let count = interface_names
+            .iter()
+            .filter(|n| **n == interface.name)
+            .count();
         if count > 1 {
             errors.push(format!("Duplicate interface name '{}'", interface.name));
         }
@@ -326,8 +332,7 @@ pub async fn infer_api_semantics(
     session_id: Option<String>,
     device_id: Option<i64>,
 ) -> Result<InferenceResult, String> {
-    let api_key = get_anthropic_api_key()
-        .ok_or("ANTHROPIC_API_KEY not set")?;
+    let api_key = get_anthropic_api_key().ok_or("ANTHROPIC_API_KEY not set")?;
 
     // Get traffic records from database
     let records = {
@@ -398,8 +403,12 @@ pub async fn infer_api_semantics(
     let llm_output = call_claude_api(&prompt, &api_key).await?;
 
     // Parse LLM output as JSON
-    let mut result: InferenceResult = serde_json::from_str(&llm_output)
-        .map_err(|e| format!("Failed to parse LLM output as JSON: {}. Output was: {}", e, &llm_output))?;
+    let mut result: InferenceResult = serde_json::from_str(&llm_output).map_err(|e| {
+        format!(
+            "Failed to parse LLM output as JSON: {}. Output was: {}",
+            e, &llm_output
+        )
+    })?;
 
     // Validate result
     validate_inference_result(&mut result);
@@ -523,8 +532,7 @@ pub async fn evaluate_inference(
     db_state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<EvaluationResult, String> {
-    let api_key = get_anthropic_api_key()
-        .ok_or("ANTHROPIC_API_KEY not set")?;
+    let api_key = get_anthropic_api_key().ok_or("ANTHROPIC_API_KEY not set")?;
 
     // Get stored inferences for the session directly
     let apis = {
@@ -534,22 +542,23 @@ pub async fn evaluate_inference(
 
         let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
 
-        let result: Result<Vec<InferredApi>, _> = stmt.query_map(params![session_id], |row| {
-            Ok(InferredApi {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                name: row.get(2)?,
-                method: row.get(3)?,
-                path: row.get(4)?,
-                params: row.get(5)?,
-                auth_required: row.get::<_, i32>(6)? != 0,
-                request_ids: row.get(7)?,
-                score: row.get(8)?,
-                created_at: row.get(9)?,
+        let result: Result<Vec<InferredApi>, _> = stmt
+            .query_map(params![session_id], |row| {
+                Ok(InferredApi {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    name: row.get(2)?,
+                    method: row.get(3)?,
+                    path: row.get(4)?,
+                    params: row.get(5)?,
+                    auth_required: row.get::<_, i32>(6)? != 0,
+                    request_ids: row.get(7)?,
+                    score: row.get(8)?,
+                    created_at: row.get(9)?,
+                })
             })
-        })
-        .map_err(|e| e.to_string())?
-        .collect();
+            .map_err(|e| e.to_string())?
+            .collect();
 
         result.map_err(|e| e.to_string())?
     };
@@ -559,13 +568,16 @@ pub async fn evaluate_inference(
     }
 
     // Build interfaces list for evaluation
-    let interfaces: Vec<ApiInterface> = apis.iter().map(|a| ApiInterface {
-        name: a.name.clone(),
-        method: a.method.clone(),
-        path: a.path.clone(),
-        params: a.params.clone(),
-        auth_required: a.auth_required,
-    }).collect();
+    let interfaces: Vec<ApiInterface> = apis
+        .iter()
+        .map(|a| ApiInterface {
+            name: a.name.clone(),
+            method: a.method.clone(),
+            path: a.path.clone(),
+            params: a.params.clone(),
+            auth_required: a.auth_required,
+        })
+        .collect();
 
     // Build inference result for evaluation
     let inference = InferenceResult {
@@ -581,8 +593,12 @@ pub async fn evaluate_inference(
     let eval_output = call_claude_api(&eval_prompt, &api_key).await?;
 
     // Parse evaluation result
-    let mut eval_result: EvaluationResult = serde_json::from_str(&eval_output)
-        .map_err(|e| format!("Failed to parse evaluation result as JSON: {}. Output was: {}", e, &eval_output))?;
+    let mut eval_result: EvaluationResult = serde_json::from_str(&eval_output).map_err(|e| {
+        format!(
+            "Failed to parse evaluation result as JSON: {}. Output was: {}",
+            e, &eval_output
+        )
+    })?;
 
     // Store evaluation result in database
     {
@@ -611,9 +627,7 @@ pub async fn evaluate_inference(
         let feedback_prompt = format!(
             "{}\n\nPrevious evaluation score was {:.1}. Errors found: {:?}. \
              Please re-evaluate with these corrections in mind.",
-            eval_prompt,
-            eval_result.score,
-            eval_result.errors
+            eval_prompt, eval_result.score, eval_result.errors
         );
 
         let retry_output = call_claude_api(&feedback_prompt, &api_key).await?;

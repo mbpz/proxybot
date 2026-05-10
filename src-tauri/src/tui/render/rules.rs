@@ -3,15 +3,16 @@
 //! Shows the active rule set and allows navigation.
 //! Supports add/edit/delete via modal overlay.
 
-use ratatui::{
-    Frame, layout::{Rect, Constraint, Direction, Layout, Alignment},
-    widgets::{Block, Borders, Paragraph, Table, Row, Cell, BorderType},
-    style::{Style, Color},
-    text::{Line, Span},
-};
-use crate::tui::TuiApp;
-use crate::tui::i18n::{I18nKey as K, t as tr};
 use crate::rules::{RuleAction, RulePattern};
+use crate::tui::i18n::{t as tr, I18nKey as K};
+use crate::tui::TuiApp;
+use ratatui::{
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Cell, Paragraph, Row, Table},
+    Frame,
+};
 
 /// Render the Rules tab with a table of rules and optional modal editor.
 pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
@@ -28,18 +29,36 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
         .split(area);
 
     // Header with hot-reload status
-    let watcher_str = if watcher_active { tr(K::RulesActive) } else { tr(K::RulesInactive) };
-    let watcher_color = if watcher_active { Color::Green } else { Color::Red };
+    let watcher_str = if watcher_active {
+        tr(K::RulesActive)
+    } else {
+        tr(K::RulesInactive)
+    };
+    let watcher_color = if watcher_active {
+        Color::Green
+    } else {
+        Color::Red
+    };
 
     let rules_title = tr(K::RulesTitle);
     let header_text = Line::from(vec![
-        Span::raw(format!(" {} ({} {}) | {}: ", rules_title, rules_list.len(), rules_title, tr(K::RulesHotReload))),
+        Span::raw(format!(
+            " {} ({} {}) | {}: ",
+            rules_title,
+            rules_list.len(),
+            rules_title,
+            tr(K::RulesHotReload)
+        )),
         Span::styled(watcher_str, Style::new().fg(watcher_color)),
         Span::raw(format!(" | {}", tr(K::RulesHint))),
     ]);
     let header = Paragraph::new(header_text)
         .style(Style::new().fg(Color::Yellow))
-        .block(Block::default().borders(Borders::ALL).title(rules_title.as_str()));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(rules_title.as_str()),
+        );
     f.render_widget(header, chunks[0]);
 
     // Build table rows
@@ -96,7 +115,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &TuiApp) {
             Constraint::Percentage(25),
         ],
     )
-    .block(Block::default().borders(Borders::ALL).title(rule_list_title.as_str()))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(rule_list_title.as_str()),
+    )
     .column_spacing(1);
 
     f.render_widget(table, chunks[1]);
@@ -122,24 +145,39 @@ fn render_rule_modal(f: &mut Frame, area: Rect, app: &TuiApp) {
         .border_type(BorderType::Double)
         .borders(Borders::ALL)
         .border_style(border_style)
-        .title(if app.rules.modal_mode == "add" { format!(" {} ", tr(K::RulesAddRule)) } else { format!(" {} ", tr(K::RulesEditRule)) });
+        .title(if app.rules.modal_mode == "add" {
+            format!(" {} ", tr(K::RulesAddRule))
+        } else {
+            format!(" {} ", tr(K::RulesEditRule))
+        });
 
     // Build modal content lines
-    let mode_label = if app.rules.modal_mode == "add" { tr(K::RulesAddRule).to_uppercase() } else { tr(K::RulesEditRule).to_uppercase() };
+    let mode_label = if app.rules.modal_mode == "add" {
+        tr(K::RulesAddRule).to_uppercase()
+    } else {
+        tr(K::RulesEditRule).to_uppercase()
+    };
     let lines = vec![
         format!("  {}  ({})", mode_label, tr(K::RulesPressSToSave)),
         format!(""),
-        format!("  {}: {}  ({})", tr(K::RulesPattern), pattern, tr(K::RulesPatternTypes)),
+        format!(
+            "  {}: {}  ({})",
+            tr(K::RulesPattern),
+            pattern,
+            tr(K::RulesPatternTypes)
+        ),
         format!("  {}:   {}", tr(K::RulesValue), name),
-        format!("  {}:  {}  (DIRECT, PROXY, REJECT)", tr(K::RulesAction), action),
+        format!(
+            "  {}:  {}  (DIRECT, PROXY, REJECT)",
+            tr(K::RulesAction),
+            action
+        ),
         format!(""),
         format!("  {}", tr(K::RulesUseTab)),
     ];
 
     let text = lines.join("\n");
-    let para = Paragraph::new(text)
-        .block(block)
-        .alignment(Alignment::Left);
+    let para = Paragraph::new(text).block(block).alignment(Alignment::Left);
 
     f.render_widget(para, modal_area);
 }

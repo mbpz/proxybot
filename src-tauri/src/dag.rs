@@ -124,7 +124,10 @@ fn extract_tokens_from_json(value: &serde_json::Value, source: TokenSource) -> V
             for (key, val) in obj {
                 // Skip keys that are clearly not tokens
                 let key_lower = key.to_lowercase();
-                if key_lower.contains("password") || key_lower.contains("secret") || key_lower.contains("key") && !key_lower.contains("token") {
+                if key_lower.contains("password")
+                    || key_lower.contains("secret")
+                    || key_lower.contains("key") && !key_lower.contains("token")
+                {
                     continue;
                 }
 
@@ -155,7 +158,14 @@ fn extract_tokens_from_json(value: &serde_json::Value, source: TokenSource) -> V
 /// Check if a key is a token name and extract the value if so.
 fn extract_token_from_key_value(key: &str, value: &serde_json::Value) -> Option<String> {
     let key_lower = key.to_lowercase();
-    let token_names = ["access_token", "sessionid", "auth_token", "id", "uid", "refresh_token"];
+    let token_names = [
+        "access_token",
+        "sessionid",
+        "auth_token",
+        "id",
+        "uid",
+        "refresh_token",
+    ];
 
     if token_names.iter().any(|t| key_lower.contains(t)) {
         if let serde_json::Value::String(s) = value {
@@ -182,7 +192,11 @@ pub fn extract_tokens(
             if let Some(s) = value.as_str() {
                 // Common auth headers
                 let name_lower = name.to_lowercase();
-                if name_lower.contains("authorization") || name_lower.contains("cookie") || name_lower.contains("x-token") || name_lower.contains("x-session") {
+                if name_lower.contains("authorization")
+                    || name_lower.contains("cookie")
+                    || name_lower.contains("x-token")
+                    || name_lower.contains("x-session")
+                {
                     request_tokens.extend(extract_tokens_from_text(s, TokenSource::RequestHeader));
                 }
             }
@@ -203,7 +217,8 @@ pub fn extract_tokens(
                 if let Some(s) = value.as_str() {
                     let name_lower = name.to_lowercase();
                     if name_lower.contains("set-cookie") || name_lower.contains("authorization") {
-                        response_tokens.extend(extract_tokens_from_text(s, TokenSource::ResponseHeader));
+                        response_tokens
+                            .extend(extract_tokens_from_text(s, TokenSource::ResponseHeader));
                     }
                 }
             }
@@ -233,7 +248,17 @@ pub fn extract_tokens(
 
 /// Build DAG from all HTTP requests in the database.
 pub fn build_dag_from_requests(
-    requests: &[(i64, String, String, String, String, Option<String>, Option<String>, i64, Option<i64>)],
+    requests: &[(
+        i64,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        i64,
+        Option<i64>,
+    )],
 ) -> TrafficDag {
     let mut nodes: Vec<DagNode> = Vec::new();
     let mut node_by_id: HashMap<i64, usize> = HashMap::new();
@@ -242,7 +267,9 @@ pub fn build_dag_from_requests(
     let mut node_request_data: HashMap<i64, (String, Option<String>, u16)> = HashMap::new();
 
     // First pass: create nodes and collect request data
-    for (id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id) in requests {
+    for (id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id) in
+        requests
+    {
         let node = DagNode {
             id: *id,
             timestamp: timestamp.clone(),
@@ -255,11 +282,14 @@ pub fn build_dag_from_requests(
         node_by_id.insert(*id, nodes.len());
         nodes.push(node);
 
-        node_request_data.insert(*id, (
-            req_headers.clone().unwrap_or_default(),
-            req_body.clone(),
-            *resp_status as u16,
-        ));
+        node_request_data.insert(
+            *id,
+            (
+                req_headers.clone().unwrap_or_default(),
+                req_body.clone(),
+                *resp_status as u16,
+            ),
+        );
     }
 
     // Second pass: build edges based on token passing
@@ -280,10 +310,16 @@ pub fn build_dag_from_requests(
     // First pass: identify token producers (responses that return tokens)
     for &idx in &node_indices {
         let node = &nodes[idx];
-        if let Some((req_headers_str, req_body_str, resp_status)) = node_request_data.get(&node.id) {
-            let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str).ok().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            let req_body_json: Option<serde_json::Value> = req_body_str.as_ref().and_then(|s| serde_json::from_str(s).ok());
-            let resp_headers_json: serde_json::Value = serde_json::Value::Object(serde_json::Map::new());
+        if let Some((req_headers_str, req_body_str, resp_status)) = node_request_data.get(&node.id)
+        {
+            let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
+                .ok()
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            let req_body_json: Option<serde_json::Value> = req_body_str
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
+            let resp_headers_json: serde_json::Value =
+                serde_json::Value::Object(serde_json::Map::new());
             let resp_body_json: Option<serde_json::Value> = None;
 
             let (_, resp_tokens) = extract_tokens(
@@ -305,8 +341,12 @@ pub fn build_dag_from_requests(
     for &idx in &node_indices {
         let node = &nodes[idx];
         if let Some((req_headers_str, req_body_str, _)) = node_request_data.get(&node.id) {
-            let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str).ok().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            let req_body_json: Option<serde_json::Value> = req_body_str.as_ref().and_then(|s| serde_json::from_str(s).ok());
+            let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
+                .ok()
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            let req_body_json: Option<serde_json::Value> = req_body_str
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
 
             let (req_tokens, _) = extract_tokens(
                 &req_headers_json,
@@ -352,8 +392,10 @@ pub fn store_dag(db_state: &DbState, dag: &TrafficDag) -> Result<(), String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
 
     // Clear existing DAG data
-    conn.execute("DELETE FROM dag_edges", []).map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM dag_nodes", []).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM dag_edges", [])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM dag_nodes", [])
+        .map_err(|e| e.to_string())?;
 
     // Insert nodes
     for node in &dag.nodes {
@@ -368,7 +410,8 @@ pub fn store_dag(db_state: &DbState, dag: &TrafficDag) -> Result<(), String> {
         conn.execute(
             "INSERT INTO dag_edges (from_node_id, to_node_id, token_value) VALUES (?1, ?2, ?3)",
             params![edge.from_node_id, edge.to_node_id, edge.token_value],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -380,7 +423,9 @@ pub fn get_stored_dag(db_state: &DbState) -> Result<TrafficDag, String> {
 
     // Get nodes
     let mut stmt = conn
-        .prepare("SELECT id, timestamp, method, path, host, device_id FROM dag_nodes ORDER BY timestamp")
+        .prepare(
+            "SELECT id, timestamp, method, path, host, device_id FROM dag_nodes ORDER BY timestamp",
+        )
         .map_err(|e| e.to_string())?;
 
     let nodes: Vec<DagNode> = stmt
@@ -436,10 +481,25 @@ pub fn get_stored_dag(db_state: &DbState) -> Result<TrafficDag, String> {
 // ============================================================================
 
 /// Get all HTTP requests for DAG building.
-fn get_all_requests(conn: &rusqlite::Connection) -> Result<Vec<(i64, String, String, String, String, Option<String>, Option<String>, i64, Option<i64>)>, rusqlite::Error> {
+fn get_all_requests(
+    conn: &rusqlite::Connection,
+) -> Result<
+    Vec<(
+        i64,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        i64,
+        Option<i64>,
+    )>,
+    rusqlite::Error,
+> {
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id
-         FROM http_requests ORDER BY timestamp"
+         FROM http_requests ORDER BY timestamp",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -481,30 +541,48 @@ pub fn get_traffic_dag(db_state: State<'_, Arc<DbState>>) -> Result<TrafficDag, 
 
 /// Get DAG for a specific device.
 #[tauri::command]
-pub fn get_device_dag(db_state: State<'_, Arc<DbState>>, device_id: i64) -> Result<TrafficDag, String> {
-    let requests: Vec<(i64, String, String, String, String, Option<String>, Option<String>, i64, Option<i64>)> = {
+pub fn get_device_dag(
+    db_state: State<'_, Arc<DbState>>,
+    device_id: i64,
+) -> Result<TrafficDag, String> {
+    let requests: Vec<(
+        i64,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        i64,
+        Option<i64>,
+    )> = {
         let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id
              FROM http_requests WHERE device_id = ?1 ORDER BY timestamp"
         ).map_err(|e| e.to_string())?;
 
-        let rows = stmt.query_map(params![device_id], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
-            ))
-        }).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![device_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
 
         let result: Vec<_> = rows.collect();
-        result.into_iter().map(|r| r.map_err(|e| e.to_string())).collect::<Result<Vec<_>, String>>()?
+        result
+            .into_iter()
+            .map(|r| r.map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, String>>()?
     };
 
     let dag = build_dag_from_requests(&requests);
@@ -546,10 +624,28 @@ mod tests {
     fn test_build_dag_simple() {
         // Two requests: first returns a token, second uses it
         let requests = vec![
-            (1, "2024-01-01T00:00:00".to_string(), "POST".to_string(), "api.example.com".to_string(), "/login".to_string(),
-             Some(r#"{" Content-Type":"application/json"}"#.to_string()), Some(r#"{"username":"test"}"#.to_string()), 200, None),
-            (2, "2024-01-01T00:00:01".to_string(), "GET".to_string(), "api.example.com".to_string(), "/profile".to_string(),
-             Some(r#"{"Authorization":"Bearer token123"}"#.to_string()), None, 200, None),
+            (
+                1,
+                "2024-01-01T00:00:00".to_string(),
+                "POST".to_string(),
+                "api.example.com".to_string(),
+                "/login".to_string(),
+                Some(r#"{" Content-Type":"application/json"}"#.to_string()),
+                Some(r#"{"username":"test"}"#.to_string()),
+                200,
+                None,
+            ),
+            (
+                2,
+                "2024-01-01T00:00:01".to_string(),
+                "GET".to_string(),
+                "api.example.com".to_string(),
+                "/profile".to_string(),
+                Some(r#"{"Authorization":"Bearer token123"}"#.to_string()),
+                None,
+                200,
+                None,
+            ),
         ];
 
         let dag = build_dag_from_requests(&requests);

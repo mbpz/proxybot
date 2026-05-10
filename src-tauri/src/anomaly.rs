@@ -174,7 +174,8 @@ impl AlertStore {
 
     pub fn get_alerts(&self, severity_filter: Option<&str>, limit: usize) -> Vec<Alert> {
         let alerts = self.alerts.lock().unwrap();
-        let mut filtered: Vec<_> = alerts.iter()
+        let mut filtered: Vec<_> = alerts
+            .iter()
             .filter(|a| {
                 if let Some(sev) = severity_filter {
                     a.severity.as_str() == sev
@@ -263,8 +264,7 @@ impl BaselineStore {
             Err(_) => return BaselineData::default(),
         };
         let reader = BufReader::new(file);
-        serde_json::from_reader::<_, BaselineData>(reader)
-            .unwrap_or_default()
+        serde_json::from_reader::<_, BaselineData>(reader).unwrap_or_default()
     }
 
     fn save_to_file(&self) {
@@ -286,21 +286,19 @@ impl BaselineStore {
     pub fn is_new_domain(&self, device_id: Option<i64>, domain: &str) -> bool {
         let baselines = self.baselines.lock().unwrap();
         let seven_days_ago = get_seven_days_ago();
-        !baselines.domains.iter().any(|e| {
-            e.device_id == device_id &&
-            e.domain == domain &&
-            e.last_seen > seven_days_ago
-        })
+        !baselines
+            .domains
+            .iter()
+            .any(|e| e.device_id == device_id && e.domain == domain && e.last_seen > seven_days_ago)
     }
 
     pub fn is_new_ip(&self, device_id: Option<i64>, ip: &str) -> bool {
         let baselines = self.baselines.lock().unwrap();
         let seven_days_ago = get_seven_days_ago();
-        !baselines.ips.iter().any(|e| {
-            e.device_id == device_id &&
-            e.ip_address == ip &&
-            e.last_seen > seven_days_ago
-        })
+        !baselines
+            .ips
+            .iter()
+            .any(|e| e.device_id == device_id && e.ip_address == ip && e.last_seen > seven_days_ago)
     }
 
     pub fn add_domain(&self, device_id: Option<i64>, domain: &str) {
@@ -308,7 +306,11 @@ impl BaselineStore {
         let now = chrono_lite_timestamp();
         let seven_days_ago = get_seven_days_ago();
 
-        if let Some(entry) = baselines.domains.iter_mut().find(|e| e.device_id == device_id && e.domain == domain) {
+        if let Some(entry) = baselines
+            .domains
+            .iter_mut()
+            .find(|e| e.device_id == device_id && e.domain == domain)
+        {
             entry.count += 1;
             entry.last_seen = now.clone();
         } else {
@@ -333,7 +335,11 @@ impl BaselineStore {
         let mut baselines = self.baselines.lock().unwrap();
         let now = chrono_lite_timestamp();
 
-        if let Some(entry) = baselines.ips.iter_mut().find(|e| e.device_id == device_id && e.ip_address == ip) {
+        if let Some(entry) = baselines
+            .ips
+            .iter_mut()
+            .find(|e| e.device_id == device_id && e.ip_address == ip)
+        {
             entry.count += 1;
             entry.last_seen = now.clone();
         } else {
@@ -354,7 +360,9 @@ impl BaselineStore {
         let baselines = self.baselines.lock().unwrap();
         let seven_days_ago = get_seven_days_ago();
 
-        let domains: Vec<BaselineEntry> = baselines.domains.iter()
+        let domains: Vec<BaselineEntry> = baselines
+            .domains
+            .iter()
             .filter(|e| e.device_id == device_id && e.last_seen > seven_days_ago.clone())
             .map(|e| BaselineEntry {
                 value: e.domain.clone(),
@@ -364,7 +372,9 @@ impl BaselineStore {
             })
             .collect();
 
-        let ips: Vec<BaselineEntry> = baselines.ips.iter()
+        let ips: Vec<BaselineEntry> = baselines
+            .ips
+            .iter()
             .filter(|e| e.device_id == device_id && e.last_seen > seven_days_ago.clone())
             .map(|e| BaselineEntry {
                 value: e.ip_address.clone(),
@@ -392,8 +402,9 @@ pub struct PrivacyScanner {
 impl PrivacyScanner {
     pub fn new() -> Self {
         let idfa_regex = Regex::new(
-            r"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b"
-        ).unwrap();
+            r"\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\b",
+        )
+        .unwrap();
 
         let phone_regex = Regex::new(r"\+\d{7,15}").unwrap();
 
@@ -405,7 +416,8 @@ impl PrivacyScanner {
             (?:["']?\s*[,;]\s*)
             (-?\d{1,3}\.\d{4,10})
             "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         Self {
             idfa_regex,
@@ -454,7 +466,9 @@ impl PrivacyScanner {
         if s.len() != 36 {
             return false;
         }
-        s.chars().filter(|c| *c != '-').all(|c| c.is_ascii_hexdigit())
+        s.chars()
+            .filter(|c| *c != '-')
+            .all(|c| c.is_ascii_hexdigit())
     }
 
     fn looks_like_phone(s: &str) -> bool {
@@ -557,9 +571,7 @@ impl AnomalyDetector {
                 };
                 let details = format!(
                     "Privacy data detected: {} in request body. Matched: '{}'. Context: {}",
-                    pattern_name,
-                    finding.matched_text,
-                    finding.context
+                    pattern_name, finding.matched_text, finding.context
                 );
                 let _alert_id = self.alert_store.add_alert(Alert {
                     id: 0,
@@ -586,9 +598,7 @@ impl AnomalyDetector {
                 };
                 let details = format!(
                     "Privacy data detected: {} in response body. Matched: '{}'. Context: {}",
-                    pattern_name,
-                    finding.matched_text,
-                    finding.context
+                    pattern_name, finding.matched_text, finding.context
                 );
                 let _alert_id = self.alert_store.add_alert(Alert {
                     id: 0,

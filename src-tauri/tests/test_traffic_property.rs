@@ -5,9 +5,9 @@
 mod common;
 
 use common::make_req;
+use proptest::prelude::*;
 use proxybot_lib::tui::TrafficState;
 use regex;
-use proptest::prelude::*;
 
 // ═══════════════════════════════════════════════════════════
 // Helper: build a TrafficState from generated components
@@ -106,7 +106,8 @@ fn property_filter_count_decreases() {
 fn property_method_filter_exact_match() {
     let mut s = TrafficState::default();
     s.requests.push(make_req(1, "GET", "a.com", "/", Some(200)));
-    s.requests.push(make_req(2, "POST", "a.com", "/", Some(200)));
+    s.requests
+        .push(make_req(2, "POST", "a.com", "/", Some(200)));
     s.requests.push(make_req(3, "GET", "a.com", "/", Some(200)));
 
     s.filters.method = Some("GET".into());
@@ -120,9 +121,12 @@ fn property_method_filter_exact_match() {
 #[test]
 fn property_host_filter_substring_match() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
-    s.requests.push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
-    s.requests.push(make_req(3, "GET", "static.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(2, "GET", "cdn.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(3, "GET", "static.example.com", "/", Some(200)));
 
     s.filters.host_pattern = Some("api".into());
     let filtered = s.filtered_requests();
@@ -175,10 +179,14 @@ fn property_status_filter_handles_missing_status() {
 #[test]
 fn property_multiple_filters_combine() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/", Some(200)));
-    s.requests.push(make_req(2, "GET", "api.example.com", "/", Some(404)));
-    s.requests.push(make_req(3, "POST", "api.example.com", "/", Some(200)));
-    s.requests.push(make_req(4, "GET", "cdn.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(1, "GET", "api.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(2, "GET", "api.example.com", "/", Some(404)));
+    s.requests
+        .push(make_req(3, "POST", "api.example.com", "/", Some(200)));
+    s.requests
+        .push(make_req(4, "GET", "cdn.example.com", "/", Some(200)));
 
     s.filters.method = Some("GET".into());
     s.filters.status_class = Some("2xx".into());
@@ -194,9 +202,22 @@ fn property_multiple_filters_combine() {
 #[test]
 fn property_search_filters_by_host_and_path() {
     let mut s = TrafficState::default();
-    s.requests.push(make_req(1, "GET", "api.example.com", "/v1/users", Some(200)));
-    s.requests.push(make_req(2, "GET", "api.example.com", "/v1/login", Some(200)));
-    s.requests.push(make_req(3, "GET", "other.com", "/v1/users", Some(200)));
+    s.requests.push(make_req(
+        1,
+        "GET",
+        "api.example.com",
+        "/v1/users",
+        Some(200),
+    ));
+    s.requests.push(make_req(
+        2,
+        "GET",
+        "api.example.com",
+        "/v1/login",
+        Some(200),
+    ));
+    s.requests
+        .push(make_req(3, "GET", "other.com", "/v1/users", Some(200)));
 
     // Set search_input AND search_regex (as the UI would)
     s.search_input = "users".to_string();

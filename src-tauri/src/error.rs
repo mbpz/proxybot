@@ -107,4 +107,3 @@ pub enum RulesError {
     #[error("save failed: {0}")]
     Save(String),
 }
-
