@@ -7,10 +7,19 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
 dist-ssr
 *.local
+target/
+proxybot-core/target/
+
+# Generated documentation sites
+site/
+public/
 
 # Editor directories and files
 .vscode/*
@@ -24,14 +33,22 @@ dist-ssr
 *.sw?
 .vscode
 package-lock.json
-# Added by code-review-graph
+
+# Claude Code / MCP
+.claude/
+.mcp.json
 .code-review-graph/
 
-# Rust build artifacts
-src-tauri/target/
-
-# Claude Code local session state
-.claude/
-
-# Worktrees
+# Git worktrees
 .worktrees/
+
+# Local configuration (may contain secrets)
+*.local
+.env
+.env.*
+
+# Generated Rust files
+# (handled by src-tauri/target/ above)
+
+# macOS
+*.dSYM/
