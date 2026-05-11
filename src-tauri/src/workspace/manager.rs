@@ -33,6 +33,15 @@ impl WorkspaceManager {
         }
     }
 
+    /// Create a WorkspaceManager with a custom base directory (for testing).
+    pub fn with_base_dir(base_dir: PathBuf) -> Self {
+        fs::create_dir_all(&base_dir).ok();
+        Self {
+            base_dir,
+            active: RwLock::new(None),
+        }
+    }
+
     pub fn base_dir(&self) -> &Path {
         &self.base_dir
     }
@@ -372,5 +381,134 @@ mod tests {
     fn test_workspace_default() {
         let mgr = WorkspaceManager::default();
         assert!(mgr.base_dir().exists());
+    }
+
+    // =============================================================================
+    // Unit tests for WorkspaceManager methods using temp directory
+    // =============================================================================
+
+    #[test]
+    fn test_init_creates_workspace_json() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        let workspace = manager.init("test-workspace", "Test description").unwrap();
+
+        assert_eq!(workspace.name, "test-workspace");
+
+        // Verify workspace.json was created
+        let ws_json_path = tmp.path().join("workspaces").join("test-workspace").join("workspace.json");
+        assert!(ws_json_path.exists(), "workspace.json should be created by init");
+
+        // Verify its contents can be parsed
+        let json_content = fs::read_to_string(&ws_json_path).unwrap();
+        let parsed: Workspace = serde_json::from_str(&json_content).unwrap();
+        assert_eq!(parsed.name, "test-workspace");
+    }
+
+    #[test]
+    fn test_list_returns_empty_initially() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        let workspaces = manager.list();
+        assert!(workspaces.is_empty(), "list() should return empty when no workspaces exist");
+    }
+
+    #[test]
+    fn test_export_creates_proxybot_file() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir.clone());
+
+        // First create a workspace
+        let workspace = manager.init("export-test", "Testing export").unwrap();
+
+        // Export to a .proxybot file
+        let export_path = tmp.path().join("exported.proxybot");
+        manager.export(&workspace, &export_path).unwrap();
+
+        assert!(export_path.exists(), "export() should create the .proxybot file");
+        assert!(export_path.extension().unwrap() == "proxybot", "file should have .proxybot extension");
+    }
+
+    #[test]
+    fn test_import_loads_from_proxybot_file() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir.clone());
+
+        // Create and export a workspace
+        let original = manager.init("import-test", "Testing import").unwrap();
+        let export_path = tmp.path().join("imported.proxybot");
+        manager.export(&original, &export_path).unwrap();
+
+        // Import it back
+        let imported = manager.import(&export_path).unwrap();
+
+        assert_eq!(imported.name, "import-test");
+        assert_eq!(imported.rules.len(), original.rules.len());
+    }
+
+    #[test]
+    fn test_switch_updates_active_state() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        // Initially no active workspace
+        assert!(manager.active().is_none(), "should have no active workspace initially");
+        assert_eq!(manager.status(), "No active workspace");
+
+        // Create a workspace
+        manager.init("switch-test", "Testing switch").unwrap();
+
+        // Switch to it
+        manager.switch("switch-test").unwrap();
+
+        assert_eq!(manager.active(), Some("switch-test".to_string()));
+        assert_eq!(manager.status(), "Active workspace: switch-test");
+    }
+
+    #[test]
+    fn test_switch_returns_error_for_nonexistent_workspace() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        let result = manager.switch("nonexistent-workspace");
+        assert!(result.is_err(), "switch() should return error for nonexistent workspace");
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_status_returns_correct_info() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        // No active workspace
+        assert_eq!(manager.status(), "No active workspace");
+
+        // Create and switch to a workspace
+        manager.init("status-test", "Testing status").unwrap();
+        manager.switch("status-test").unwrap();
+
+        assert_eq!(manager.status(), "Active workspace: status-test");
+    }
+
+    #[test]
+    fn test_set_active_manually() {
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        manager.set_active(Some("manual-workspace".to_string()));
+        assert_eq!(manager.active(), Some("manual-workspace".to_string()));
+
+        manager.set_active(None);
+        assert!(manager.active().is_none());
     }
 }
