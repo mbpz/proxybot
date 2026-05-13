@@ -6,6 +6,7 @@ use proxybot_lib::{
     db::DbState,
     deploy::{generate_deployment_bundle, write_deployment_bundle},
     dns::DnsState,
+    mcp::transport,
     mockgen::{generate_mock_project, get_mock_endpoints, start_mock_server, write_mock_project},
     proxy::ProxyState,
     replay::ReplayState,
@@ -25,8 +26,14 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+fn main() {
+    // Check for MCP stdio mode (headless CLI usage)
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--mcp-stdio") {
+        transport::start_stdio_mode();
+        return;
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("Starting ProxyBot GUI");
 
@@ -99,8 +106,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn main() {
-    run();
 }

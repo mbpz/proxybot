@@ -69,11 +69,7 @@ cucumber = "0.23.0"
 uuid = "1"
 
 [[bin]]
-name = "proxybot-tui"
-path = "src/bin/proxybot-tui.rs"
-
-[[bin]]
-name = "proxybot-gui"
+name = "proxybot"
 path = "src/bin/proxybot-gui.rs"
 
 [profile.release]
