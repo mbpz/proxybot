@@ -123,15 +123,18 @@ jobs:
 
       - name: Get SHA256 from release
         run: |
-          SHA=$(curl -sL "https://api.github.com/repos/mbpz/proxybot/releases/tags/${{ env.VERSION }}" | jq -r '.assets[] | select(.name | contains("mac-arm64")) | .browser_download_url' | xargs curl -sL | shasum -a 256 | awk '{print $1}')
+          TAG="v${{ env.VERSION }}"
+          ASSET_URL=$(curl -sL "https://api.github.com/repos/mbpz/proxybot/releases/tags/$TAG" | jq -r '.assets[] | select(.name | contains("mac-arm64")) | .browser_download_url')
+          echo "Downloading from: $ASSET_URL"
+          SHA=$(curl -sL "$ASSET_URL" | shasum -a 256 | awk '{print $1}')
           echo "sha256=$SHA" >> $GITHUB_OUTPUT
 
       - name: Update Cask
         run: |
           cd homebrew-tap
-          sed -i '' "s/sha256 arm:.*/sha256 arm:   \"${{ steps.sha.outputs.sha256 }}\",/" Casks/proxybot.rb
-          sed -i '' "s/version \"[^\"]*\"/version \"${{ env.VERSION }}\"/" Casks/proxybot.rb
-          sed -i '' "s|url \"https://github.com/mbpz/proxybot/releases/download/v[^\"]*/| url \"https://github.com/mbpz/proxybot/releases/download/v${{ env.VERSION }}/|" Casks/proxybot.rb
+          sed -i "s/sha256 arm:.*/sha256 arm:   \"${{ steps.sha.outputs.sha256 }}\",/" Casks/proxybot.rb
+          sed -i "s/version \"[^\"]*\"/version \"${{ env.VERSION }}\"/" Casks/proxybot.rb
+          sed -i "s|url \"https://github.com/mbpz/proxybot/releases/download/v[^\"]*| url \"https://github.com/mbpz/proxybot/releases/download/v${{ env.VERSION }}\"|" Casks/proxybot.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "418-98282+github-actions[bot]@users.noreply.github.com"

@@ -7,7 +7,6 @@
 //! External consumers can use this struct as a handle for starting/stopping
 //! a proxy instance managed by their own async runtime.
 
-use crate::types::InterceptedRequest;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// MITM proxy engine — controls proxy lifecycle and exposes runtime state.

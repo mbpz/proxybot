@@ -9,7 +9,7 @@
 //! The actual DNS server loop lives in `src-tauri/src/dns.rs`
 //! because it depends on Tauri's async runtime and event system.
 
-use crate::types::{DnsEntry, HostsEntry, DnsUpstream, DnsUpstreamType};
+use crate::types::{DnsEntry, HostsEntry, DnsUpstream};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -188,6 +188,7 @@ impl Default for DnsState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::DnsUpstreamType;
 
     #[test]
     fn test_dns_state_new() {

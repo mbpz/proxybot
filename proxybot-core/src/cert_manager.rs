@@ -12,7 +12,7 @@
 //! The Tauri layer (`src-tauri/src/cert.rs`) wraps it with
 //! `AppConfig` path resolution and `#[tauri::command]` annotations.
 
-use crate::config::{ca_cert_path, ca_dir};
+use crate::config::ca_cert_path;
 use crate::types::CaMetadata;
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, KeyUsagePurpose, SanType,
@@ -41,7 +41,7 @@ impl CertManager {
     /// CA files are stored in `ca_dir`. If an existing CA is found,
     /// it is loaded; otherwise a new one is generated.
     pub fn new(ca_dir: Option<PathBuf>) -> Result<Self, String> {
-        let dir = ca_dir.unwrap_or_else(ca_dir);
+        let dir = ca_dir.unwrap_or_else(|| crate::config::ca_dir());
         fs::create_dir_all(&dir).map_err(|e| format!("Failed to create ca dir: {}", e))?;
 
         let (cert_pem, key_pem) = Self::load_or_generate_ca(&dir)?;
@@ -336,7 +336,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
         let export_path = dir.path().join("exported_ca.crt");
-        let result = mgr.export_ca_pem(Some(export_path.clone())).unwrap();
+        let _result = mgr.export_ca_pem(Some(export_path.clone())).unwrap();
         assert!(export_path.exists());
         let content = fs::read_to_string(&export_path).unwrap();
         assert!(content.contains("BEGIN CERTIFICATE"));

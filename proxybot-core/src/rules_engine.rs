@@ -129,22 +129,20 @@ impl Default for RulesEngine {
 ///
 /// Supports:
 /// - Exact match: `host == domain`
+/// - Subdomain match: `api.example.com` matches `example.com`
 /// - Wildcard suffix: `*.example.com` matches `api.example.com`
 /// - Case-insensitive comparison
 ///
 /// # False-positive protection
 ///
 /// `domain = "qq.com"` does NOT match `"qq.com.evil.com"`.
-/// Only the exact domain or direct subdomains (one dot + domain) match.
+/// Only the exact domain or direct subdomains match.
 pub fn host_matches_domain(host: &str, domain: &str) -> bool {
     let host = host.to_lowercase();
     let domain = domain.to_lowercase();
 
     if domain.starts_with("*.") {
         let suffix = &domain[2..];
-        // Match: host ends with suffix AND the preceding char is a dot
-        // "api.weixin.qq.com" matches "*.weixin.qq.com"
-        // "weixin.qq.com" also matches "*.weixin.qq.com"
         if host == suffix {
             return true;
         }
@@ -156,6 +154,11 @@ pub fn host_matches_domain(host: &str, domain: &str) -> bool {
 
     // Exact match
     if host == domain {
+        return true;
+    }
+
+    // Subdomain match: "api.example.com" matches "example.com"
+    if host.ends_with(&format!(".{}", domain)) {
         return true;
     }
 
