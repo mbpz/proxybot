@@ -16,16 +16,14 @@ permissions:
 
 jobs:
   build:
-    name: Build + Release
-    runs-on: ${{ matrix.runner }}
+    name: Build macOS App
+    runs-on: macos-latest
     strategy:
       matrix:
         include:
           - runner: macos-latest
             arch: arm64
           - runner: macos-latest
-            arch: x64
-          - runner: ubuntu-latest
             arch: x64
 
     steps:
@@ -46,7 +44,6 @@ jobs:
           targets: ${{ matrix.runner == 'macos-latest' && matrix.arch == 'arm64' && 'aarch64-apple-darwin' || matrix.runner == 'macos-latest' && matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'x86_64-unknown-linux-gnu' }}
 
       - name: Build macOS app bundle
-        if: matrix.runner == 'macos-latest'
         run: |
           cd src-tauri
           cargo build --release --bin proxybot
@@ -83,17 +80,7 @@ jobs:
           zip -r "ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" ProxyBot.app
           shasum -a 256 "ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" | awk '{print $1}'
 
-      - name: Build Linux binary
-        if: matrix.runner == 'ubuntu-latest'
-        run: |
-          cd src-tauri
-          cargo build --release --bin proxybot
-          strip target/release/proxybot
-          mv target/release/proxybot ../proxybot-${{ env.VERSION }}-linux-${{ matrix.arch }}
-          shasum -a 256 ../proxybot-${{ env.VERSION }}-linux-${{ matrix.arch }} | awk '{print $1}'
-
       - name: Upload release asset
-        if: matrix.runner == 'macos-latest'
         uses: softprops/action-gh-release@v2
         with:
           files: ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip
