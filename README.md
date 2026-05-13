@@ -4,99 +4,16 @@
 
 Phone and PC on the same LAN — set your phone's gateway and DNS to your Mac's IP, install the CA certificate once, and watch every request flow through — classified by app (WeChat, Douyin, Alipay, AI providers) and domain.
 
-> **Unique in the market**: ProxyBot is the only MITM proxy combining **pf transparent proxy** (zero-config on phone) + **built-in DNS server** (app correlation) + **app classification** (WeChat/Douyin/Alipay/AI) + **Rust TUI+GUI dual interface** + **Tauri native desktop** (15MB vs 200MB Electron). After analyzing 25+ competitors, no other tool has this combination.
-
-## Two Interfaces
-
-| Interface | Use case | Install |
-|-----------|----------|---------|
-| **Desktop GUI** (React/Tauri) | Daily driver, visual traffic inspection | `brew install --cask mbpz/tap/proxybot` |
-| **Terminal UI** (ratatui) | Keyboard-driven, SSH-friendly, low footprint | `brew install mbpz/tap/proxybot-tui` |
-
-Both share the same Rust proxy core — same behavior, different frontends.
+> **Unique in the market**: ProxyBot is the only MITM proxy combining **pf transparent proxy** (zero-config on phone) + **built-in DNS server** (app correlation) + **app classification** (WeChat/Douyin/Alipay/AI) + **Native Tauri desktop** (15MB vs 200MB Electron). After analyzing 25+ competitors, no other tool has this combination.
 
 ## Features
 
+- **Native macOS GUI** — React/shadcn desktop app, ~15MB memory footprint
 - **Transparent HTTPS/WSS interception** with MITM SSL
 - **App classification** by DNS correlation + domain rules (WeChat, Douyin, Alipay)
 - **Built-in DNS server** to log phone's DNS queries
 - **macOS pf integration** for transparent proxy routing
-- **9-tab full-featured TUI** for terminal-based monitoring and control
-
-## TUI Tabs
-
-The Terminal UI provides 9 functional tabs:
-
-| Tab | Features |
-|-----|----------|
-| **Traffic** | Filter by method/host/status/app_tag, regex search, split pane with request detail, pf/DNS controls |
-| **Rules** | Rule table with action badges (DIRECT/PROXY/REJECT), inline modal editor, hot-reload status |
-| **Devices** | Device table with MAC/last_seen/bytes up-down, per-device rule override |
-| **Certs** | CA fingerprint/expiry/serial, regenerate CA, export PEM to `~/.proxybot/ca.crt` |
-| **DNS** | Upstream selector (Plain/DoH), blocklist toggle, hosts entries, live query log |
-| **Alerts** | Anomaly alerts with severity badges (SEV1/2/3), ACK/clear controls, baseline stats |
-| **Replay** | Replay targets table, start/stop replay, HAR export, diff view |
-| **Graph** | ASCII DAG visualization, auth state machine detection |
-| **Gen** | Mock API / frontend scaffold / Docker bundle generation |
-
-### TUI Keyboard Shortcuts
-
-```
-Navigation: Tab / h,l / ←,→  (switch tabs)
-             j,k / ↑,↓        (navigate lists)
-General:     q / Esc           (quit)
-             r                  (start proxy)
-             S                  (stop proxy)
-             c                  (clear)
-
-Traffic Tab: p  (toggle pf transparent proxy)
-             n  (toggle DNS server)
-             /  (focus search)
-             x  (clear filters)
-             Enter (load request detail)
-             1/2/3  (switch detail sub-tab: Headers/Body/WS Frames)
-             m  (filter by method)
-             f  (filter by host)
-             o  (filter by status)
-             a  (filter by app_tag)
-
-Rules Tab:   a  (add rule)
-             e  (edit rule)
-             d  (delete rule)
-             s  (save rule)
-             Alt+↑/↓  (reorder rule)
-
-Devices Tab: j/k / ↑,↓  (navigate devices)
-             e  (edit rule override)
-             Enter  (confirm rule override)
-             Esc  (cancel edit)
-
-Certs Tab:   r  (regenerate CA)
-             e  (export PEM)
-
-DNS Tab:     s  (toggle DNS server)
-             b  (toggle blocklist)
-             u  (cycle upstream)
-
-Alerts Tab:  a  (acknowledge selected alert)
-             c  (clear all acknowledged alerts)
-
-Replay Tab:  s  (start replay)
-             x  (stop replay)
-             e  (export HAR)
-             d  (show diff)
-
-Graph Tab:   g / a  (toggle DAG/Auth state machine view)
-             r  (refresh graph)
-             ↑/↓/←/→  (pan view)
-             Enter  (node detail)
-             Esc  (reset view)
-
-Gen Tab:     m  (generate mock API)
-             f  (generate frontend scaffold)
-             d  (generate Docker bundle)
-             o  (open output folder)
-```
+- **MCP Server** — stdio transport for Claude Desktop integration
 
 ## Installation
 
@@ -105,9 +22,6 @@ One-command install via Homebrew — no manual download, no gatekeeper dialog:
 ```bash
 # Desktop GUI (Tauri React app) — goes straight to /Applications
 brew install --cask mbpz/tap/proxybot
-
-# Terminal UI (ratatui) — standalone binary
-brew install mbpz/tap/proxybot-tui
 ```
 
 > **No gatekeeper popup**: The Cask installs the `.app` directly to `/Applications` without triggering "software was blocked" dialogs. Quarantine xattr is cleared automatically.
@@ -115,13 +29,13 @@ brew install mbpz/tap/proxybot-tui
 ```bash
 git clone https://github.com/mbpz/proxybot.git
 cd proxybot/src-tauri
-cargo build --bin proxybot-tui --release
-./target/release/proxybot-tui
+cargo build --release --bin proxybot
+./target/release/proxybot
 ```
 
 ## Architecture
 
-The proxy core and both interfaces share the same Rust codebase:
+The proxy core and GUI share the same Rust codebase:
 
 ```
 proxy.rs         # MITM proxy — hyper + rustls + tokio
@@ -129,13 +43,13 @@ dns.rs           # DNS server — logging, forwarding, blocklist
 db.rs            # SQLite — request history, device registry
 rules.rs         # YAML rules — hot-reload, action dispatch
 classifier/      # App classification — domain + TLS fingerprint
-tui/             # Terminal UI — ratatui (9 tabs)
+gui/             # React/shadcn desktop UI
 plugin/          # Plugin system — hook dispatch, rule engine
 ai_pipeline/     # AI analysis — NoiseFilter + ApiAnalyzer
 mcp/             # MCP Server — stdio transport for Claude Desktop
 ```
 
-**Key design**: The proxy is the hub. `ProxyContext` carries all subsystems (cert_manager, dns_state, db_state, rules_engine, plugins). Both TUI and GUI are consumers of the same broadcast channel for real-time updates.
+**Key design**: The proxy is the hub. `ProxyContext` carries all subsystems (cert_manager, dns_state, db_state, rules_engine, plugins). The GUI consumes a broadcast channel for real-time updates.
 
 ## FAQ
 
@@ -163,29 +77,23 @@ Not yet. Windows support is planned for Phase 2.
 
 ### How do I uninstall?
 
-**GUI App:**
 1. Stop the proxy in ProxyBot
 2. Remove the app: `rm -rf /Applications/ProxyBot.app`
 3. Optionally remove the CA from your iPhone: Settings > General > About > Certificate Trust Settings
 4. Optionally remove config data: `rm -rf ~/Library/Application\ Support/com.proxybot.app/`
 
-**TUI:**
-```bash
-brew uninstall proxybot-tui
-```
-
 ## Competitive Positioning
 
-ProxyBot is the **only** open-source proxy that combines pf transparent proxy + built-in DNS server + app classification + Rust TUI+GUI. After 4 rounds of competitive research covering ~25 projects, the moat is clear:
+ProxyBot is the **only** open-source proxy that combines pf transparent proxy + built-in DNS server + app classification + native Tauri GUI. After 4 rounds of competitive research covering ~25 projects, the moat is clear:
 
 | Capability | ProxyBot | mitmproxy | Proxyman | proxelar | anything-analyzer |
 |------------|:--------:|:---------:|:--------:|:--------:|:-----------------:|
 | pf transparent proxy | ✅ | — | — | — | — |
 | Built-in DNS + DoH | ✅ | — | — | — | — |
 | App classification | ✅ | — | — | — | — |
-| TUI + GUI dual | ✅ | TUI only | GUI only | TUI+Web | GUI only |
+| Native Tauri GUI | ✅ | — | — | — | — |
 | Rust core | ✅ | — | — | ✅ | — |
-| MCP Server | — | — | — | — | ✅ |
+| MCP Server | ✅ | — | — | — | ✅ |
 | AI analysis | Gen tab | — | — | — | ✅★★★★★ |
 
 **Closest competitor**: [proxelar](https://github.com/emanuele-em/proxelar) (Rust + ratatui + Lua) — shares the Rust+TUI stack but lacks transparent proxy and app classification.
@@ -249,23 +157,22 @@ See [full competitive analysis](docs/sdd/competitors-analysis.md) for details.
 
 ```bash
 cd src-tauri
-cargo test                 # 153+ unit + integration tests
-cargo build --bin proxybot-tui --release
+cargo test                 # 220+ unit + integration tests
+cargo build --release --bin proxybot
 ```
 
-### TUI Architecture
+### GUI Architecture
 
-The TUI is built with a state-driven architecture:
+The Tauri GUI uses a state-driven architecture:
 
-- `TuiApp` holds all subsystem handles (`db_state`, `cert_manager`, `rules_engine`, etc.) as `Arc`
-- Each tab has its own state struct (`TrafficState`, `RulesState`, etc.)
-- Input handling is centralized in `input.rs` via `handle_key_event()`
-- Rendering is dispatched per-tab in `render/mod.rs`
-- The main loop in `proxybot-tui.rs` handles input + rendering
+- `proxybot-gui.rs` holds all subsystem handles (`db_state`, `cert_manager`, `rules_engine`, etc.) as `Arc`
+- React components consume state via Tauri IPC invoke calls
+- Real-time updates via Tauri event system
+- The main loop handles Tauri app lifecycle
 
 ### Key Design Patterns
 
-- **Context-sensitive keys**: Same key does different things on different tabs (e.g., `r` = StartProxy on Traffic, RegenerateCert on Certs)
 - **Split pane**: Traffic tab uses 60/40 split between request list and detail panel
 - **Hot reload**: Rules engine watches rule files and reloads automatically
-- **Async event channel**: `broadcast::Receiver<InterceptedRequest>` for real-time request updates
+- **Async event channel**: Broadcast channel for real-time request updates
+- **MCP stdio mode**: `proxybot --mcp-stdio` for headless Claude Desktop integration

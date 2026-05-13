@@ -9,7 +9,7 @@ ProxyBot is a **native macOS desktop application** that captures and decrypts al
 Unlike browser-based or Electron tools, ProxyBot runs as a **native Tauri desktop app** with a Rust-powered proxy core, giving you:
 - **pf transparent proxy** — zero-config on phone, no per-app proxy settings
 - **App classification** — automatic traffic grouping by app identity (not just hostname)
-- **Dual interface** — TUI (ratatui) + GUI (React/shadcn) from the same binary
+- **Native macOS GUI** — React/shadcn desktop experience, ~15MB memory footprint
 - **Rust performance** — tokio async I/O, ~10x lower memory than Electron equivalents
 
 **Target user**: Mobile developers debugging API traffic, security researchers analyzing app behavior, API consumers auditing AI provider calls.
@@ -97,7 +97,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | | ProxyBot | mitmproxy | Proxyman | HTTP Toolkit |
 |--|--|--|--|--|
 | **Platform** | macOS native Tauri | Cross-platform Python | macOS native Swift | Electron (memory heavy) |
-| **UI** | Rust TUI + React GUI | Web/TUI | macOS AppKit | Electron Web |
+| **UI** | React GUI | Web/TUI | macOS AppKit | Electron Web |
 | **Transparent proxy** | ✅ pf | CLI config | — | — |
 | **App classification** | ✅ DNS+SNI | — | — | — |
 | **Memory footprint** | ~15MB | ~80MB | ~30MB | ~200MB |
@@ -112,11 +112,11 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 
 | Version | Focus | Features |
 |---------|-------|----------|
-| **v0.4.x (DONE)** | TUI complete | All 9 tabs shipped, pf + DNS, basic breakpoint intercept |
+| **v0.4.x (DONE)** | GUI foundation | All tabs shipped, pf + DNS, basic breakpoint intercept |
 | **v0.5.0 (DONE)** | Breakpoint Editing | Full TUI breakpoint UI — pause, edit request/response, continue. Android adb reverse support via USB |
-| **v0.6.0 (DONE)** | Tauri GUI Alpha | React UI traffic panel, proxybot-gui binary, CA wizard, system tray with notifications |
+| **v0.6.0 (DONE)** | Tauri GUI Alpha | React UI traffic panel, CA wizard, system tray with notifications |
 | **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
-| **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI, complete parity with TUI |
+| **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI |
 | **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
 | **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
 | **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
@@ -152,7 +152,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | `get_devices` | List all connected devices | ✅ |
 | `get_alerts` | Get security/anomaly alerts | ✅ |
 
-**Usage:** `cargo run --bin proxybot-tui -- mcp-stdio` (once binary entry point added)
+**Usage:** `proxybot --mcp-stdio`
 
 ## 3.1 Competitive Deep-Dive (May 2026)
 
@@ -236,7 +236,7 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | Database | SQLite | SQLite | better-sqlite3 | SQLite |
 | Certificate | rcgen | Security framework | node-forge | rcgen |
 
-**Implementation Insight**: ProxyBot is the only MITM tool with dual interfaces (TUI + Tauri GUI). Tauri provides native desktop experience without Electron overhead.
+**Implementation Insight**: ProxyBot is the only MITM tool with Tauri GUI. Tauri provides native desktop experience without Electron overhead.
 
 #### 4. 交互 (UX/Interaction)
 
@@ -247,7 +247,7 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | **One-click CA install** | Proxyman, HTTP Toolkit | Basic wizard — needs improvement |
 | **QR code CA distribution** | proxelar, hyperfox | Not implemented |
 | **Column-scoped filter** | proxelar (`method:POST`) | RegEx search — proxelar wins |
-| **Keyboard-driven TUI** | ProxyBot (ratatui) | Best-in-class |
+| **Keyboard-driven TUI** | ProxyBot (ratatui) | Removed — GUI only |
 | **Virtual scroll large lists** | HTTP Toolkit, Proxyman | TanStack Virtual — implemented |
 
 **UX Gap**: proxelar's `column:value` filter syntax is more intuitive than ProxyBot's regex. HTTP Toolkit's three-panel layout is the reference design.
@@ -323,7 +323,7 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | CDP browser capture | ❌ | — | — | — | ✅ | P3 |
 | HTTP/3 QUIC | ❌ | ❌ | ❌ | ❌ | ❌ | P3 |
 
-**ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, Rust TUI+GUI dual interface. These are unique to ProxyBot.
+**ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, native Tauri GUI. These are unique to ProxyBot.
 
 ---
 
