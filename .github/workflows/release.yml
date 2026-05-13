@@ -46,11 +46,12 @@ jobs:
       - name: Build macOS app bundle
         run: |
           cd src-tauri
-          cargo build --release --bin proxybot
+          TARGET="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
+          cargo build --release --bin proxybot --target "$TARGET"
           # Create app bundle directory structure
           mkdir -p "ProxyBot.app/Contents/MacOS"
           mkdir -p "ProxyBot.app/Contents/Resources"
-          cp target/release/proxybot "ProxyBot.app/Contents/MacOS/ProxyBot"
+          cp "target/$TARGET/release/proxybot" "ProxyBot.app/Contents/MacOS/ProxyBot"
 
           # Copy icon if exists
           if [ -f icons/128x128.png ]; then
