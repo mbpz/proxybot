@@ -48,15 +48,27 @@ jobs:
           echo "Building for ${{ matrix.arch }} on macOS"
           rustc --version
           cargo --version
-          # Build without --target (native compilation)
+          # Build from workspace root - binary goes to target/release/
           cargo build --release --bin proxybot -p proxybot
-          # Verify binary exists
-          ls -la src-tauri/target/release/proxybot || echo "Binary not at expected path"
+          # Find the binary - it's at target/release/proxybot from workspace root
+          echo "=== Checking for binary ==="
+          ls -la target/release/proxybot || echo "Not at target/release/proxybot"
+          ls -la src-tauri/target/release/proxybot || echo "Not at src-tauri/target/release/proxybot"
+          find . -name "proxybot" -type f 2>/dev/null | head -5
+          # Determine correct binary path
+          if [ -f "target/release/proxybot" ]; then
+            BIN_PATH="target/release/proxybot"
+          elif [ -f "src-tauri/target/release/proxybot" ]; then
+            BIN_PATH="src-tauri/target/release/proxybot"
+          else
+            echo "ERROR: proxybot binary not found"
+            exit 1
+          fi
+          echo "Using binary at: $BIN_PATH"
           # Create app bundle
-          cd src-tauri
           mkdir -p "ProxyBot.app/Contents/MacOS"
           mkdir -p "ProxyBot.app/Contents/Resources"
-          cp target/release/proxybot "ProxyBot.app/Contents/MacOS/ProxyBot"
+          cp "$BIN_PATH" "ProxyBot.app/Contents/MacOS/ProxyBot"
 
           # Copy icon if exists
           if [ -f icons/128x128.png ]; then

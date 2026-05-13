@@ -1,9 +1,49 @@
-pub mod proxy_engine;
-pub mod cert_manager;
-pub mod rules_engine;
-pub mod dns_state;
+//! ProxyBot Core — MITM proxy engine library for Rust.
+//!
+//! This crate provides the pure-logic core of ProxyBot without any
+//! Tauri, GUI, or desktop dependencies. It can be embedded in other
+//! Rust projects that need MITM proxy capabilities.
+//!
+//! # Modules
+//!
+//! - [`types`] — Shared data types (InterceptedRequest, Rule, DnsEntry, etc.)
+//! - [`config`] — Centralized configuration with env-var overrides
+//! - [`app_classifier`] — Domain-based app identification (WeChat, Douyin, etc.)
+//! - [`cert_manager`] — Root CA and per-host leaf certificate management
+//! - [`rules_engine`] — Domain matching and priority-based rule evaluation
+//! - [`proxy_engine`] — HTTP/HTTPS proxy engine (core logic)
+//! - [`dns_state`] — DNS query tracking and correlation
+//!
+//! # Usage
+//!
+//! ```rust,no_run
+//! use proxybot_core::{CertManager, RulesEngine, classify_host};
+//!
+//! let cert_mgr = CertManager::new(None).unwrap();
+//! let engine = RulesEngine::new();
+//!
+//! if let Some((app, icon)) = classify_host("api.weixin.qq.com") {
+//!     println!("Traffic from {} {}", icon, app);
+//! }
+//! ```
 
-pub use proxy_engine::ProxyEngine;
+pub mod app_classifier;
+pub mod cert_manager;
+pub mod config;
+pub mod dns_state;
+pub mod proxy_engine;
+pub mod rules_engine;
+pub mod types;
+
+// Re-export key types for convenience
+pub use app_classifier::{classify_host, classify_host_name, get_default_rules, load_app_rules};
 pub use cert_manager::CertManager;
-pub use rules_engine::RulesEngine;
+pub use config::{proxy_port, dns_port, AppConfig};
 pub use dns_state::DnsState;
+pub use proxy_engine::ProxyEngine;
+pub use rules_engine::{match_rule, host_matches_domain, RuleMatch, RulesEngine};
+pub use types::{
+    AppRule, BreakpointDecision, BreakpointRequest, BreakpointTarget, CaMetadata, DnsEntry,
+    DnsUpstream, DnsUpstreamType, HostsEntry, InterceptedRequest, Rule, RuleAction, RuleEntry,
+    RuleFile, RulePattern, WsFrame,
+};
