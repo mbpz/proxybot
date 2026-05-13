@@ -49,7 +49,7 @@ jobs:
         if: matrix.runner == 'macos-latest'
         run: |
           cd src-tauri
-          cargo build --release --bin proxybot --features bundle
+          cargo build --release --bin proxybot
           # Create app bundle directory structure
           mkdir -p "ProxyBot.app/Contents/MacOS"
           mkdir -p "ProxyBot.app/Contents/Resources"
