@@ -41,7 +41,7 @@ jobs:
           echo "ASSET_NAME=ProxyBot-$VERSION-mac-${{ matrix.arch }}" >> $GITHUB_ENV
 
       - name: Install Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.runner == 'macos-latest' && matrix.arch == 'arm64' && 'aarch64-apple-darwin' || matrix.runner == 'macos-latest' && matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'x86_64-unknown-linux-gnu' }}
 
