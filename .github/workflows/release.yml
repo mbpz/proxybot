@@ -47,11 +47,29 @@ jobs:
         run: |
           cd src-tauri
           TARGET="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
+          # Build for specified target
           cargo build --release --bin proxybot --target "$TARGET"
+          # Debug: find where the binary actually is
+          echo "=== Looking for proxybot binary ==="
+          find target -name "proxybot" -type f 2>/dev/null | head -10
+          echo "=== Contents of target/$TARGET/release/ ==="
+          ls -la "target/$TARGET/release/" 2>/dev/null || echo "Directory does not exist"
+          # Use native target path as fallback
+          NATIVE_PATH="target/release/proxybot"
+          TARGET_PATH="target/$TARGET/release/proxybot"
+          if [ -f "$TARGET_PATH" ]; then
+            BIN_PATH="$TARGET_PATH"
+          elif [ -f "$NATIVE_PATH" ]; then
+            BIN_PATH="$NATIVE_PATH"
+          else
+            echo "ERROR: proxybot binary not found"
+            exit 1
+          fi
+          echo "Using binary at: $BIN_PATH"
           # Create app bundle directory structure
           mkdir -p "ProxyBot.app/Contents/MacOS"
           mkdir -p "ProxyBot.app/Contents/Resources"
-          cp "target/$TARGET/release/proxybot" "ProxyBot.app/Contents/MacOS/ProxyBot"
+          cp "$BIN_PATH" "ProxyBot.app/Contents/MacOS/ProxyBot"
 
           # Copy icon if exists
           if [ -f icons/128x128.png ]; then
