@@ -47,14 +47,22 @@ jobs:
         run: |
           cd src-tauri
           TARGET="${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}"
-          # Build for specified target
-          cargo build --release --bin proxybot --target "$TARGET"
+          echo "Building for target: $TARGET"
+          echo "Current architecture check:"
+          uname -m
+          # Build
+          cargo build --release --bin proxybot --target "$TARGET" 2>&1
+          echo "=== Build complete, checking output ==="
           # Debug: find where the binary actually is
+          echo "Checking target directory structure:"
+          ls -la target/ || echo "No target dir"
+          echo "Checking target/$TARGET:"
+          ls -la "target/$TARGET/" 2>/dev/null || echo "No target/$TARGET"
+          echo "Checking target/release:"
+          ls -la target/release/ 2>/dev/null | grep proxybot || echo "No proxybot in target/release"
           echo "=== Looking for proxybot binary ==="
-          find target -name "proxybot" -type f 2>/dev/null | head -10
-          echo "=== Contents of target/$TARGET/release/ ==="
-          ls -la "target/$TARGET/release/" 2>/dev/null || echo "Directory does not exist"
-          # Use native target path as fallback
+          find . -name "proxybot" -type f 2>/dev/null | head -20
+          # Determine correct binary path
           NATIVE_PATH="target/release/proxybot"
           TARGET_PATH="target/$TARGET/release/proxybot"
           if [ -f "$TARGET_PATH" ]; then
