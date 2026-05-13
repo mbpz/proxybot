@@ -515,15 +515,15 @@ if sys_ips.is_disjoint(doh_ips) {
 ## 5. Installation
 
 ```bash
-brew install mbpz/proxybot/proxybot-tui
+brew install --cask mbpz/tap/proxybot
 ```
 
 Then connect your phone to the same WiFi network as your Mac:
 
 1. **Set gateway:** WiFi settings > Configure Proxy > Manual — set Server to your Mac IP, Port to `8088`
 2. **Set DNS:** WiFi settings > Configure DNS — set to your Mac IP
-3. **Install CA:** Export cert from Certs tab, AirDrop to phone, enable full trust in Settings > General > About > Certificate Trust Settings
-4. **Start capturing:** Run `proxybot-tui`, press `r` to start the proxy
+3. **Install CA:** Launch ProxyBot, export CA from the Certs tab, AirDrop to phone, enable full trust in Settings > General > About > Certificate Trust Settings
+4. **Start capturing:** Launch ProxyBot and click **Start Proxy**
 
 Find your Mac IP with: `ipconfig getifaddr en0`
 

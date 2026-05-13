@@ -5,7 +5,7 @@
 <div class="badges" style="text-align: center; margin: 30px 0;">
 [![macOS](https://img.shields.io/badge/macOS-✓-blue?style=for-the-badge)](https://github.com/mbpz/proxybot)
 [![Rust](https://img.shields.io/badge/Rust-✓-orange?style=for-the-badge)](https://github.com/mbpz/proxybot)
-[![TUI + GUI](https://img.shields.io/badge/TUI+GUI-✓-green?style=for-the-badge)](https://github.com/mbpz/proxybot)
+[![Native GUI](https://img.shields.io/badge/Native GUI-✓-green?style=for-the-badge)](https://github.com/mbpz/proxybot)
 </div>
 
 ## Features
@@ -18,9 +18,7 @@
 
 - **Full HTTPS Decryption** — MITM with dynamically generated certificates. See encrypted traffic in plain text.
 
-- **Keyboard-Driven TUI** — Developer-friendly terminal UI. All 9 tabs accessible without a mouse.
-
-- **Yew GUI (Beta)** — New desktop GUI built with Rust + WebAssembly. No Node.js dependency.
+- **Native Desktop GUI** — Rust + Tauri desktop app. No Node.js dependency.
 
 - **Rule Engine** — Direct, Proxy, Reject, MapRemote, MapLocal — full control over traffic.
 
@@ -29,7 +27,7 @@
 ## Installation
 
 ```bash
-brew install mbpz/proxybot/proxybot-tui
+brew install --cask mbpz/tap/proxybot
 ```
 
 ### Setup Steps
@@ -38,7 +36,7 @@ brew install mbpz/proxybot/proxybot-tui
 2. Set your phone's gateway and DNS to your Mac's IP address
 3. Export CA certificate from the **Certs** tab → AirDrop to your phone
 4. Trust the CA in **Settings → General → About → Certificate Trust Settings**
-5. Run `proxybot-tui` and press `r` to start proxying
+4. Launch ProxyBot and press **Start Proxy** to begin
 
 Find your Mac's IP address:
 

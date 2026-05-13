@@ -100,7 +100,7 @@ ProxyBot's Rust + Tauri dual-interface is unique:
 | **gRPC** | prost (v1.0) | grpcio | — | — |
 | **Metrics** | Prometheus (v1.1) | — | — | — |
 
-**Implementation advantage**: ProxyBot ships two binaries — `proxybot-tui` (terminal) and `proxybot-gui` (Tauri). No other MITM tool offers this dual-interface.
+**Implementation advantage**: ProxyBot ships a single `proxybot` binary (Tauri GUI + `--mcp-stdio` headless mode). No other MITM tool offers this native desktop + MCP integration.
 
 ### 4. 交互 (UX/Interaction)
 

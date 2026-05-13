@@ -11,7 +11,7 @@
 ### Homebrew（推荐）
 
 ```bash
-brew install mbpz/proxybot/proxybot-tui
+brew install --cask mbpz/tap/proxybot
 ```
 
 ### 从源码构建
@@ -19,8 +19,8 @@ brew install mbpz/proxybot/proxybot-tui
 ```bash
 git clone https://github.com/mbpz/proxybot.git
 cd proxybot/src-tauri
-cargo build --release --bin proxybot-tui
-./target/release/proxybot-tui
+cargo build --release --bin proxybot
+./target/release/proxybot
 ```
 
 ## 设备设置
@@ -42,14 +42,15 @@ ipconfig getifaddr en0
 
 ### 第三步：安装 CA 证书
 
-1. 运行 `proxybot-tui`，导航到 **证书** 标签页
-2. 导出 CA 证书
+1. 启动 ProxyBot
+2. 导航到 **证书** 标签页
+3. 导出 CA 证书
 3. 通过 AirDrop 将证书发送到手机
 4. 在 iOS 上：**设置 → 通用 → 关于 → 证书信任设置** → 启用对 ProxyBot CA 的完全信任
 
 ### 第四步：开始代理
 
-1. 在 TUI 中按 `r` 启动代理
+1. 在 ProxyBot 中点击 **启动代理**
 2. 实时观察手机流量
 
 ## 下一步
