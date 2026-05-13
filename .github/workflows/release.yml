@@ -76,9 +76,8 @@ jobs:
           EOF
 
           # Create zip
-          cd ..
-          zip -r "ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" ProxyBot.app
-          shasum -a 256 "ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" | awk '{print $1}'
+          zip -r "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" ProxyBot.app
+          shasum -a 256 "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" | awk '{print $1}'
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
