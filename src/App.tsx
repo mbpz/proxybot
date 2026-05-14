@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AiTokenGauge } from "./components/ai/AiTokenGauge";
 import { AiUsageTable } from "./components/ai/AiUsageTable";
+import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import "./index.css";
 
 interface InterceptedRequest {
@@ -224,6 +225,8 @@ function App() {
   const [activeTopTab, setActiveTopTab] = useState<"traffic" | "dns" | "rules" | "devices" | "ai">("traffic");
   const [detailTab, setDetailTab] = useState<"headers" | "params" | "body" | "ws">("headers");
 
+  const { checkForUpdates } = useUpdateCheck();
+
   interface VisionAnalysis {
     id: number;
     session_id: string;
@@ -287,9 +290,15 @@ function App() {
       .then(setDevices)
       .catch((e) => console.error("Failed to get devices:", e));
 
+    // Check for updates on startup (delayed to avoid blocking)
+    const updateTimer = setTimeout(() => {
+      checkForUpdates();
+    }, 3000);
+
     return () => {
       unlisten.then((fn) => fn());
       unlistenDns.then((fn) => fn());
+      clearTimeout(updateTimer);
     };
   }, []);
 
