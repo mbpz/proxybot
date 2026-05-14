@@ -113,8 +113,8 @@ jobs:
       - name: Checkout tap
         uses: actions/checkout@v4
         with:
-          repository: mbpz/homebrew-tap
-          path: homebrew-tap
+          repository: mbpz/homebrew-proxybot
+          path: homebrew-proxybot
 
       - name: Get version
         run: |
@@ -122,6 +122,7 @@ jobs:
           echo "VERSION=${TAG#v}" >> $GITHUB_ENV
 
       - name: Get SHA256 from release
+        id: sha
         run: |
           TAG="v${{ env.VERSION }}"
           ASSET_URL=$(curl -sL "https://api.github.com/repos/mbpz/proxybot/releases/tags/$TAG" | jq -r '.assets[] | select(.name | contains("mac-arm64")) | .browser_download_url')
@@ -131,13 +132,14 @@ jobs:
 
       - name: Update Cask
         run: |
-          cd homebrew-tap
+          cd homebrew-proxybot
           sed -i "s/sha256 arm:.*/sha256 arm:   \"${{ steps.sha.outputs.sha256 }}\",/" Casks/proxybot.rb
           sed -i "s/version \"[^\"]*\"/version \"${{ env.VERSION }}\"/" Casks/proxybot.rb
           sed -i "s|url \"https://github.com/mbpz/proxybot/releases/download/v[^\"]*| url \"https://github.com/mbpz/proxybot/releases/download/v${{ env.VERSION }}\"|" Casks/proxybot.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "418-98282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/mbpz/homebrew-proxybot.git
           git add Casks/proxybot.rb
           git commit -m "Update proxybot to ${{ env.VERSION }}"
           git push
