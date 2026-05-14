@@ -93,6 +93,9 @@ jobs:
           </plist>
           EOF
 
+          # Ad-hoc code sign for development/testing
+          codesign --force --deep --sign - "$GITHUB_WORKSPACE/ProxyBot.app"
+
           # Create zip
           zip -r "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" ProxyBot.app
           shasum -a 256 "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" | awk '{print $1}'
