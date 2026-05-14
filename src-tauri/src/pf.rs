@@ -115,3 +115,70 @@ pub fn is_pf_enabled() -> bool {
         Err(_) => false,
     }
 }
+
+// ─── Transport-layer pf mode (all TCP ports) ──────────────────────────────
+
+/// Set up pf rules for transport-layer proxying.
+///
+/// Unlike [`setup_pf`] which only redirects :80/:443, this mode redirects
+/// ALL TCP traffic to the transport proxy (default port 8089).
+/// The transport proxy detects the protocol, extracts metadata, and either
+/// passes through or forwards to the HTTP MITM proxy.
+///
+/// DNS (UDP 53) is also redirected as in standard mode.
+pub fn setup_pf_transport(interface: String, local_ip: String, transport_port: u16) -> Result<String, String> {
+    if !interface.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("Invalid interface name".to_string());
+    }
+    if interface.is_empty() || interface.len() > 10 {
+        return Err("Invalid interface name".to_string());
+    }
+    if !local_ip.chars().all(|c| c.is_ascii_digit() || c == '.') || local_ip.is_empty() {
+        return Err("Invalid local IP address".to_string());
+    }
+
+    let tmp_file = "/tmp/proxybot.pf.transport.conf";
+    let rules = format!(
+        "rdr on {iface} proto tcp from any to any port 1:65535 -> {ip} port {tport}\nrdr on {iface} proto udp from any to any port 53 -> {ip} port {dns_port}\npass on {iface} proto tcp from any to any port 1:65535\n",
+        iface = interface,
+        tport = transport_port,
+        dns_port = dns_port(),
+        ip = local_ip,
+    );
+    fs::write(tmp_file, &rules).map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
+
+    let privileged_script = format!(
+        r#"do shell script "mkdir -p /etc/pf.anchors && cp {tmp} {anchor_file} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {anchor} -f {anchor_file} && pfctl -e; echo done" with administrator privileges"#,
+        tmp = tmp_file,
+        anchor_file = pf_anchor_file().display(),
+        anchor = pf_anchor_name(),
+    );
+
+    let output = Command::new("osascript")
+        .args(["-e", &privileged_script])
+        .output()
+        .map_err(|e| format!("Failed to execute osascript: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !output.status.success() {
+        return Err(format!("pf transport setup failed: {}{}", stderr, stdout));
+    }
+
+    log::info!("pf transport rules loaded: all TCP → port {}", transport_port);
+    Ok(format!(
+        "Transport proxy enabled. Redirecting {} all TCP traffic to port {}",
+        interface, transport_port
+    ))
+}
+
+/// Tear down transport-mode pf rules.
+pub fn teardown_pf_transport() -> Result<(), String> {
+    teardown_pf()
+}
+
+/// Check if transport-mode pf rules are loaded.
+pub fn is_pf_transport_enabled() -> bool {
+    is_pf_enabled()
+}

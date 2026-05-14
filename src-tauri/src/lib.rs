@@ -40,6 +40,7 @@ pub mod rules;
 pub mod scaffoldgen;
 pub mod scripting;
 pub mod state_machine;
+pub mod transport;
 pub mod tui;
 pub mod tun;
 pub mod update_check;

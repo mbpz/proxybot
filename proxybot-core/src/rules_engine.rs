@@ -98,9 +98,6 @@ impl RulesEngine {
     /// `client_ip` is optional and used for IP-CIDR rules.
     pub fn match_host(&self, host: &str, client_ip: Option<IpAddr>) -> Option<RuleAction> {
         for rule in &self.routing_rules {
-            if !rule.enabled {
-                continue;
-            }
             if match_rule(rule, host, client_ip) {
                 return Some(rule.action.clone());
             }
@@ -168,8 +165,12 @@ pub fn host_matches_domain(host: &str, domain: &str) -> bool {
 /// Match a host against a routing rule.
 ///
 /// Evaluates the rule's pattern and value against the host.
-/// Returns true if the rule matches.
+/// Returns false if the rule is disabled.
 pub fn match_rule(rule: &Rule, host: &str, client_ip: Option<IpAddr>) -> bool {
+    if !rule.enabled {
+        return false;
+    }
+
     let host_lower = host.to_lowercase();
 
     match rule.pattern {
