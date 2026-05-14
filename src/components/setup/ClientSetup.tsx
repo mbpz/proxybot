@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { UpdateSettings } from "./UpdateSettings";
 
 interface ClientInfo {
   id: string;
@@ -111,6 +112,11 @@ export function ClientSetup() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Update Settings */}
+      <div className="mt-8">
+        <UpdateSettings />
       </div>
     </div>
   );
