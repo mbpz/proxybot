@@ -38,6 +38,7 @@ package-lock.json
 .claude/
 .mcp.json
 .code-review-graph/
+.superpowers/
 
 # Git worktrees
 .worktrees/
