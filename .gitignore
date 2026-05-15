@@ -43,6 +43,9 @@ package-lock.json
 # Git worktrees
 .worktrees/
 
+# Homebrew tap (separate repo, managed via CI)
+homebrew-proxybot/
+
 # Local configuration (may contain secrets)
 *.local
 .env
