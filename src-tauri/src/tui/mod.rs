@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use regex::Regex;
 
 // Import subsystem types from lib (same crate via proxybot_lib alias)
-use crate::adb::{AdbDevice, AdbState};
+use crate::adb::AdbState;
 use crate::anomaly::AnomalyDetector;
 use crate::cert::CertManager;
 use crate::db::{DbState, RecentRequest};

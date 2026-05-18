@@ -6,7 +6,6 @@
 use crate::transport::types::DetectedProtocol;
 
 /// Buffer size for protocol detection (enough for TLS ClientHello + SNI).
-const DETECT_BUF_SIZE: usize = 4096;
 
 /// Detect protocol from initial stream bytes.
 ///
@@ -155,7 +154,7 @@ fn extract_tls_sni(data: &[u8]) -> Option<String> {
                 return None;
             }
             // server_name_list_length: u16
-            let list_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+            let _list_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
             pos += 2;
             if pos + 3 > data.len() {
                 return None;

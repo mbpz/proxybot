@@ -24,7 +24,7 @@ pub fn evaluate_filter(expr: &str, request_json: &str) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn save_filter_preset(preset: FilterPreset) -> Result<(), String> {
+pub fn save_filter_preset(_preset: FilterPreset) -> Result<(), String> {
     // Save to config file
     Ok(())
 }

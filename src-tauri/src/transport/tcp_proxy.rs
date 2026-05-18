@@ -220,7 +220,7 @@ async fn pass_through(
     initial_data: &[u8],
     initial_len: u64,
     client_stream: &mut TcpStream,
-    peer_addr: &std::net::SocketAddr,
+    _peer_addr: &std::net::SocketAddr,
 ) {
     // For pass-through, we need to connect to the original destination.
     // Since pf redirects the connection, the original destination is lost.

@@ -1768,7 +1768,7 @@ async fn handle_http(
             let latency = start.elapsed().as_millis() as u64;
             let request_id = generate_request_id();
 
-            let (status, resp_headers, resp_body) =
+            let (_status, _resp_headers, _resp_body) =
                 parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
             let resp_size = response_buf.len();
 
@@ -1900,7 +1900,7 @@ async fn handle_http(
 
             // Record the request
             let latency = start.elapsed().as_millis() as u64;
-            let (status, resp_headers, resp_body) =
+            let (_status, _resp_headers, _resp_body) =
                 parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
 
             let app_info = app_rules::classify_host(host).or_else(|| {

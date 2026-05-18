@@ -3,7 +3,7 @@
 //! Exposes the NoiseFilter, ApiAnalyzer, and AiPipeline as Tauri commands
 //! for the Gen tab and MCP server integration.
 
-use crate::ai_pipeline::{AiPipeline, NoiseFilter, PipelineResult};
+use crate::ai_pipeline::{AiPipeline, NoiseFilter};
 use serde::Serialize;
 
 /// Run the complete two-phase AI analysis pipeline

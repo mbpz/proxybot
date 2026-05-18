@@ -11,7 +11,7 @@ where
     F: Fn(JsonRpcRequest) -> JsonRpcResponse + Send + Sync + 'static,
 {
     let stdin = io::stdin();
-    let mut reader = BufRead::lines(stdin.lock());
+    let reader = BufRead::lines(stdin.lock());
     let mut stdout = io::stdout().lock();
 
     for line in reader {

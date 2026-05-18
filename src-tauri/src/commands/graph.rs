@@ -27,7 +27,7 @@ pub struct GraphData {
 }
 
 #[tauri::command]
-pub fn get_graph_data(max_requests: usize) -> Result<GraphData, String> {
+pub fn get_graph_data(_max_requests: usize) -> Result<GraphData, String> {
     // 从 traffic state 获取请求
     // 构建节点和边
     // 返回 GraphData

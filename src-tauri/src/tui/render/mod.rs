@@ -20,7 +20,7 @@ use ratatui::{
 };
 
 use super::wizard::render_wizard;
-use crate::tui::{i18n::t, i18n::I18nKey as K, CertWizard, Tab, TuiApp};
+use crate::tui::{i18n::t, i18n::I18nKey as K, Tab, TuiApp};
 
 /// Map Tab to its translated label key.
 fn tab_label(tab: Tab) -> String {

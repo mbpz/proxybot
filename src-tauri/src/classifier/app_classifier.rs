@@ -155,7 +155,7 @@ impl AppRule {
     }
 }
 
-struct ClientHello {
+pub(crate) struct ClientHello {
     client_version: String,
     sni: Option<String>,
     cipher_suites: Vec<String>,

@@ -1,7 +1,6 @@
 //! Shared types for transport-layer proxy.
 
 use serde::Serialize;
-use std::net::SocketAddr;
 
 /// Detected protocol from initial connection bytes.
 #[derive(Debug, Clone, PartialEq, Serialize)]

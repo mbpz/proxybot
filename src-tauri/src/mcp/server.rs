@@ -175,11 +175,9 @@ impl McpServer {
             "SELECT id, method, host, path, status, timestamp, app_tag \
              FROM http_requests WHERE 1=1"
         );
-        let mut param_count = 0;
 
         if let Some(since_ts) = since {
             query.push_str(&format!(" AND timestamp > '{}'", since_ts));
-            param_count += 1;
         }
 
         query.push_str(" ORDER BY timestamp DESC LIMIT ");
