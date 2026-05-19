@@ -46,7 +46,7 @@ export function TrafficPage() {
 
   async function loadRequests() {
     try {
-      const result = await invoke<InterceptedRequest[]>("get_requests", {
+      const result = await invoke<InterceptedRequest[]>("load_history", {
         filter: {},
         limit: 1000,
       });
