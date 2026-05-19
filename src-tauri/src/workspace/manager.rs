@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use tar::{Archive, Builder, Header};
 
-use crate::workspace::serialize::{Device, Rule, RuleAction, Workspace, WorkspaceInfo};
+use crate::workspace::serialize::{Workspace, WorkspaceInfo};
 
 /// Workspace manager handles saving/loading workspace sessions.
 pub struct WorkspaceManager {

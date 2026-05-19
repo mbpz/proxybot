@@ -4,22 +4,12 @@ use proxybot_lib::{
     anomaly::AnomalyDetector,
     cert::CertManager,
     db::DbState,
-    deploy::{generate_deployment_bundle, write_deployment_bundle},
     dns::DnsState,
     mcp::transport,
-    mockgen::{generate_mock_project, get_mock_endpoints, start_mock_server, write_mock_project},
     proxy::ProxyState,
     replay::ReplayState,
     rules::RulesEngine,
-    scaffoldgen::{
-        evaluate_scaffold_project, generate_scaffold_project, generate_scaffold_with_vision,
-        write_scaffold_project, write_scaffold_project_with_vision,
-    },
     tun::TunState,
-    vision::{
-        analyze_screenshot, analyze_screenshot_base64, delete_vision_analysis,
-        fuse_vision_with_api, get_vision_analyses,
-    },
 };
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};

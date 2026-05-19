@@ -45,7 +45,7 @@ use proxybot_lib::network::{get_network_info, NetworkConditionEngine};
 use proxybot_lib::plugin::registry::PluginRegistry;
 use proxybot_lib::plugin::RuleEngine as PluginRuleEngine;
 use proxybot_lib::proxy::{
-    start_proxy_core, BreakpointDecision, BreakpointRequest, BreakpointTarget, InterceptedRequest,
+    start_proxy_core, BreakpointRequest, BreakpointTarget, InterceptedRequest,
 };
 use proxybot_lib::replay::ReplayState as LibReplayState;
 use proxybot_lib::rules::{MoveDirection, Rule, RuleAction, RulePattern, RulesEngine};
@@ -694,7 +694,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut bp_rx = bp_receiver;
                 while let Some(bp_req) = bp_rx.recv().await {
                     // Store decision sender in app's breakpoint_decision_tx
-                    let mut app_lock = app2.lock().unwrap();
+                    let app_lock = app2.lock().unwrap();
                     *app_lock.breakpoint_decision_tx.lock().unwrap() = Some(bp_req.decision_tx);
                     drop(app_lock);
 
@@ -858,7 +858,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     match start_proxy(&app) {
                                         Ok((rx, bp)) => {
                                             event_rx = Some(rx);
-                                            bp_rx = Some(bp);
+                                            let _ = bp;
                                         }
                                         Err(e) => {
                                             log::error!("Failed to start proxy: {}", e);
