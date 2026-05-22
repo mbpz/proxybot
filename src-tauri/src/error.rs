@@ -1,7 +1,4 @@
 //! Centralized error types for ProxyBot.
-//!
-//! All library errors use the `AppError` enum instead of `Result<T, String>`.
-//! The binary layer (proxybot-tui.rs) continues to use `Result<T, String>`.
 
 use thiserror::Error;
 

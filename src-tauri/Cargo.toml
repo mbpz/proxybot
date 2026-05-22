@@ -53,8 +53,6 @@ dashmap = "5"
 regex = "1"
 tiny_http = "0.12"
 tun = "0.5"
-ratatui = "0.26"
-crossterm = "0.26"
 dirs = "5"
 chrono = { version = "0.4", features = ["serde"] }
 tar = "0.4"
