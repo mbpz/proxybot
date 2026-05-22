@@ -92,7 +92,7 @@ ProxyBot's Rust + Tauri dual-interface is unique:
 |-----------|----------|-----------|----------|--------------|
 | **Proxy core** | tokio + hyper + rustls | asyncio + custom TLS | SwiftNIO | Node.js mockttp |
 | **GUI** | Tauri v2 + React 19 | mitmweb (React) | AppKit | Electron |
-| **TUI** | ratatui | mitmweb | — | — |
+| **TUI** | — | mitmweb | — | — |
 | **Script** | Rhai (Rust-native) | Python | Scripting | — |
 | **Database** | SQLite (rusqlite) | SQLite | SQLite | better-sqlite3 |
 | **Certificate** | rcgen | OpenSSL | Security.framework | node-forge |

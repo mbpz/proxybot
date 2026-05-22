@@ -52,26 +52,15 @@ ipconfig getifaddr en0
                                                              +--> DNS 服务器（记录查询，关联应用）
 ```
 
-## 对比
+## 功能对比
 
 | 功能 | ProxyBot | mitmproxy | Proxyman |
 |------|:--------:|:---------:|:--------:|
-| TUI | ratatui | mitmweb | - |
+| GUI | Tauri + React | mitmweb | macOS 原生 |
 | pf 透明代理 | macOS pf | - | - |
 | 应用分类 | DNS 关联 | - | - |
-| Tauri GUI (Rust) | Yew WASM | - | - |
+| MCP Server | ✅ | - | - |
 | ADB 反向隧道 | Android USB | - | - |
-
-## 键盘快捷键
-
-| 快捷键 | 操作 |
-|--------|------|
-| `r` | 启动/停止代理 |
-| `p` | 切换 pf |
-| `n` | 切换 DNS |
-| `/` | 搜索 |
-| `x` | 清除筛选 |
-| `q` | 退出 |
 
 ## 下载
 

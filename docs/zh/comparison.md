@@ -6,7 +6,7 @@ ProxyBot 与其他流行的 MITM 代理工具对比。
 
 | 功能 | ProxyBot | mitmproxy | Proxyman | proxelar | anything-analyzer |
 |--------|:--------:|:---------:|:--------:|:--------:|:-----------------:|
-| TUI | ratatui | mitmweb | - | ratatui | - |
+| TUI | - | mitmweb | - | ratatui | - |
 | GUI | Tauri+React | mitmweb | macOS 原生 | Web (axum) | Electron |
 | pf 透明代理 | macOS pf | - | - | - | - |
 | 应用分类 | DNS 关联 | - | - | - | - |
@@ -30,13 +30,13 @@ ProxyBot 与其他流行的 MITM 代理工具对比。
 
 2. **应用分类** — 通过将 DNS 查询与观察到的流量进行关联，按应用（微信、抖音、支付宝等）对请求进行分组。
 
-3. **Rust TUI + GUI 双界面** — 终端效率 + 桌面体验，竞品中独一无二。
+3. **Rust + Tauri GUI 双界面** — 终端效率 + 桌面体验，竞品中独一无二。
 
 4. **内置 DNS 服务器** — DoH + UDP，支持 hosts、阻止列表和查询日志用于 App 关联。
 
 ## proxelar (966 ⭐) — 最接近的 Rust 竞品
 
-proxelar 是架构最相似的开源项目（Rust + ratatui + MITM + 脚本）。
+proxelar 是架构最相似的开源项目（Rust + MITM + 脚本）。
 
 **proxelar 优势:**
 1. **Lua 脚本** — 更成熟的生态，更多可用脚本
@@ -70,7 +70,7 @@ anything-analyzer 是首个将 AI 分析作为一等公民的抓包工具。
 1. **Rust 性能** — Electron 内存/CPU 开销大
 2. **pf 透明代理** — 零配置移动端抓包
 3. **应用分类** — 自动 App 识别
-4. **TUI** — 终端优先，键盘驱动效率
+4. **原生桌面 GUI** — Tauri 更轻量
 5. **断点编辑** — 请求/响应修改（anything-analyzer 只读）
 6. **Rhai 脚本** — 服务端流量转换
 7. **Gen tab** — Mock 生成 + Docker 打包

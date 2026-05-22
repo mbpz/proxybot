@@ -14,79 +14,58 @@ Unlike browser-based or Electron tools, ProxyBot runs as a **native Tauri deskto
 
 **Target user**: Mobile developers debugging API traffic, security researchers analyzing app behavior, API consumers auditing AI provider calls.
 
-**Demo concept:** Phone on the left, Mac running the ProxyBot TUI on the right. Traffic appears in real-time as you use apps on the phone — classified by app with WeChat/Douyin/Alipay badges.
+**Demo concept:** Phone on the left, Mac running the ProxyBot GUI on the right. Traffic appears in real-time as you use apps on the phone — classified by app with WeChat/Douyin/Alipay badges.
 
 ---
 
 ---
 
-## 2. What's Shipped (v0.10.x)
+## 2. What's Shipped (v1.3.x)
 
-### TUI (v0.4.x+): Nine keyboard-driven tabs
+### Traffic Page
+Real-time request list with virtual scroll (TanStack Virtual), 60/40 split between request list and detail panel. Filter bar with method/host/search. App classification badges (WeChat/Douyin/Alipay).
 
-### Traffic
-Real-time request list with method/host/status/app filter. Regex search. 60/40 split between request list and detail panel. pf/DNS toggle controls.
-**Shortcut:** `p` toggle pf, `n` toggle DNS, `/` focus search, `x` clear filters, `Enter` load detail
+### Rules Editor
+Five action types: **Direct** (bypass proxy), **Proxy** (forward to upstream), **Reject** (drop connection), **MapRemote** (forward to custom remote), **MapLocal** (serve from local file/mock). Hot-reload on file change. YAML-based rule engine.
 
-### Rules
+### Devices Management
+Per-device table showing MAC address, last seen, and bytes up/down. Per-device rule override. WeChat/Douyin/Alipay classification badge per device.
 
-Five action types: **Direct** (bypass proxy), **Proxy** (forward to upstream), **Reject** (drop connection), **MapRemote** (forward to custom remote), **MapLocal** (serve from local file/mock). Hot-reload on file change. Rule table with inline modal editor.
+### Certificate Management
+CA certificate generation and export. Shows fingerprint, expiry, and serial number. QR code CA distribution for mobile install. Regenerate CA with fresh key pair.
 
-**Shortcut:** `a` add, `e` edit, `d` delete, `s` save
+### DNS Server
+Upstream resolver selector: plain UDP or DoH (DNS-over-HTTPS). Blocklist toggle. Hosts file entries. Live query log showing recent lookups with response latency.
 
-### Devices
+### Alerts & Anomaly Detection
+SEV1 (critical), SEV2 (warning), SEV3 (info) anomaly detection with baseline profiling. Alert table with source, description, severity badge. ACK/clear controls.
 
-Per-device table showing MAC address, last seen, and bytes up/down. Per-device rule override — enter edit mode on any device to assign a custom rule action. WeChat/Douyin/Alipay classification badge per device.
+### Replay Engine
+Replay targets table with start/stop controls. HAR export of captured traffic. Diff view comparing replayed response against original.
 
-**Shortcut:** `e` edit rule override, `Enter` confirm, `Esc` cancel
+### Graph & Visualization
+Request dependency graph (DAG), Auth state machine visualization, WaterfallChart. Token extraction for access_token, sessionId, auth_token detection.
 
-### Certs
+### AI & Generation
+Mock API generation from captured traffic. Frontend scaffold generator (React + TypeScript). Docker bundle generator. AI-powered API inference with Claude.
 
-One-click CA certificate export to `~/.proxybot/ca.crt`. Shows fingerprint, expiry, and serial number. Regenerate CA with fresh key pair. AirDrop or email the certificate to your phone.
+### Filter DSL
+Column-scoped filter syntax: `method:GET AND status:2* OR host:*example.com`. Supports AND/OR/NOT operators with glob patterns.
 
-**Shortcut:** `r` regenerate CA, `e` export PEM
+### Code Export
+Export requests as cURL, fetch(), Python requests, or Go http client code.
 
-### DNS
+### Client Setup
+Detect installed browsers/Node.js/Python, copy proxy configuration commands to clipboard.
 
-Upstream resolver selector: plain UDP or DoH (DNS-over-HTTPS). Blocklist toggle. Hosts file entries with lock. Live query log showing recent lookups with response latency.
+### App Classification
+TLS fingerprint + SNI pattern matching for app identification: TikTok, WeChat, Douyin, Alipay, Amazon, Apple, and AI providers.
 
-**Shortcut:** `s` toggle DNS server, `b` toggle blocklist, `u` cycle upstream
+### MCP Server
+stdio transport for Claude Desktop integration. 5 tools: capture_traffic, classify_request, apply_rule, get_devices, get_alerts.
 
-### Alerts
-
-SEV1 (critical), SEV2 (warning), SEV3 (info) anomaly detection with baseline profiling. Alert table with source, description, severity badge. ACK/clear controls. Baseline stats show normal traffic patterns.
-
-**Shortcut:** `a` acknowledge, `c` clear acknowledged
-
-### Replay
-
-Replay targets table with start/stop controls. HAR export of captured traffic. Diff view comparing replayed response against original — highlights header and body differences.
-
-**Shortcut:** `s` start replay, `x` stop replay, `e` export HAR, `d` show diff
-
-### Graph
-
-ASCII DAG visualization of request dependency graph (domains, timing, status codes). Auth state machine detection — identifies login sequences and session token flows. Toggle between DAG and auth views.
-
-**Shortcut:** `g` DAG view, `a` auth state machine, `r` refresh
-
-### Gen
-
-Mock API generation from captured traffic. Frontend scaffold generator (React + TypeScript boilerplate). Docker bundle generator — packages mock backend with Dockerfile and docker-compose. Open output folder directly.
-
-**Shortcut:** `m` generate mock API, `f` generate frontend scaffold, `d` generate Docker, `o` open output
-
-### Tauri GUI (v0.6.0+): React + shadcn/ui desktop app
-
-**Traffic Page** — Virtual-scrolled request table (TanStack Virtual), 60/40 split with detail panel. Filter bar (method/host/search). App classification badges.
-**Composer** — 40/60 split edit-and-send view. Method/URL/Headers/Body form with live response preview.
-**Replay** — Targets table with enable/disable, ReplayModal editor, batch execution with reqwest engine.
-**WS Frame Viewer** — WebSocket frame list with direction arrows, opcode names, Text/Hex toggle, HexDump view.
-**Graph** — WaterfallChart (recharts), DependencyGraph (vis-network), AuthStateMachine (mermaid).
-**Filter DSL** — Lexer+Parser+Evaluator. Syntax: `method:GET AND status:2* OR host:*example.com`.
-**Code Export** — Copy as cURL, fetch(), Python requests, Go http.
-**Client Setup** — Detect installed browsers/Node.js/Python, copy proxy config commands.
-**App Classification** — TLS fingerprint + SNI pattern matching (TikTok, WeChat, Douyin, Alipay, Amazon, Apple).
+### Mobile Web Dashboard
+Lightweight HTTP dashboard for viewing traffic from mobile devices. Accessible at localhost:port.
 
 ---
 
@@ -243,11 +222,11 @@ Researched 6 comparable projects for architecture, interaction, and product insi
 | UX Pattern | Leader | ProxyBot Status |
 |-------------|--------|-----------------|
 | **Three-panel layout** (list/overview/detail) | HTTP Toolkit | v1.0 has 60/40 split — needs three-panel upgrade |
-| **Color-coded methods** (GET=green, POST=blue) | HTTP Toolkit | Implemented in TUI |
+| **Color-coded methods** (GET=green, POST=blue) | HTTP Toolkit | Implemented in GUI |
 | **One-click CA install** | Proxyman, HTTP Toolkit | Basic wizard — needs improvement |
-| **QR code CA distribution** | proxelar, hyperfox | Not implemented |
-| **Column-scoped filter** | proxelar (`method:POST`) | RegEx search — proxelar wins |
-| **Keyboard-driven TUI** | ProxyBot (ratatui) | Removed — GUI only |
+| **QR code CA distribution** | proxelar, hyperfox | ✅ Implemented |
+| **Column-scoped filter** | proxelar (`method:POST`) | ✅ Implemented |
+| **Keyboard-driven TUI** | ProxyBot (ratatui) | Removed — Tauri GUI only |
 | **Virtual scroll large lists** | HTTP Toolkit, Proxyman | TanStack Virtual — implemented |
 
 **UX Gap**: proxelar's `column:value` filter syntax is more intuitive than ProxyBot's regex. HTTP Toolkit's three-panel layout is the reference design.
