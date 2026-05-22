@@ -122,7 +122,7 @@ Mock API generation from captured traffic. Frontend scaffold generator (React + 
 | **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
 | **v1.1.0 (DONE)** | Phase 3 Start | GraphQL decoder ✅, Prometheus metrics ✅, LLM token tracking ✅, Web dashboard ✅, HTTP/3 research ✅ |
 | **v1.2.0 (DONE)** | AI + MCP | MCP Server (P0 ✅ stdio transport + 5 tools), AI two-phase analysis (P1 ✅ NoiseFilter+ApiAnalyzer+Cost), Column-scoped filter DSL (P1 ✅ `method:POST host:api` + text search), QR code CA distribution (P2 ✅ QR code SVG generation) |
-| **v1.3.0** | Architecture | proxybot-core standalone crate (✅ library-first), Project file management (✅ .proxybot workspace), Mobile web dashboard (lightweight mitmweb-style) |
+| **v1.3.0 ✅** | Architecture | proxybot-core standalone crate (✅ library-first), Project file management (✅ .proxybot workspace), Mobile web dashboard (✅ lightweight mitmweb-style) |
 | **v2.0.0** | Platform | Windows support (WFP transparent proxy), HTTP/3 & QUIC research/prototype, Transport-layer TCP/UDP proxy |
 
 ### v1.2.0 Implementation Plans

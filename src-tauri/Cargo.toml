@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "HTTPS MITM Proxy"
 authors = ["you"]
 edition = "2021"
+default-run = "proxybot"
 
 [lib]
 name = "proxybot_lib"
