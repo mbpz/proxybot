@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
+import { ErrorBoundary } from "../ui/error-boundary";
+import { SkeletonTable } from "../ui/skeleton";
 
 interface InterceptedRequest {
   id: string;
@@ -16,6 +18,7 @@ interface InterceptedRequest {
   app_tag?: string;
   headers: Record<string, string>;
   body?: string;
+  size?: number;
 }
 
 interface FilterState {
@@ -30,6 +33,8 @@ export function TrafficPage() {
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadRequests();
@@ -46,6 +51,8 @@ export function TrafficPage() {
 
   async function loadRequests() {
     try {
+      setLoading(true);
+      setError(null);
       const result = await invoke<InterceptedRequest[]>("load_history", {
         filter: {},
         limit: 1000,
@@ -53,6 +60,9 @@ export function TrafficPage() {
       setRequests(result);
     } catch (err) {
       console.error("Failed to load requests:", err);
+      setError(err instanceof Error ? err.message : "Failed to load requests");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -90,22 +100,50 @@ export function TrafficPage() {
     <div className="flex flex-col h-screen">
       <FilterBar filters={filters} onChange={setFilters} />
 
+      {/* Error banner */}
+      {error && (
+        <div className="error-banner mx-4 mt-2">
+          <span className="error-banner-message">{error}</span>
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={loadRequests}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-3/5 border-r overflow-hidden">
-          <RequestTable
-            requests={filteredRequests}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
+        <div
+          className="w-3/5"
+          style={{ borderRight: "1px solid var(--border)" }}
+        >
+          <ErrorBoundary>
+            {loading ? (
+              <SkeletonTable rows={10} />
+            ) : (
+              <RequestTable
+                requests={filteredRequests}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
+            )}
+          </ErrorBoundary>
         </div>
         <div className="w-2/5 overflow-hidden">
-          {selectedRequest ? (
-            <RequestDetail request={selectedRequest} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Select a request to view details
-            </div>
-          )}
+          <ErrorBoundary>
+            {selectedRequest ? (
+              <RequestDetail request={selectedRequest} />
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-icon">🔍</div>
+                <div className="empty-state-title">No request selected</div>
+                <div className="empty-state-description">
+                  Click on a request in the list to view its details
+                </div>
+              </div>
+            )}
+          </ErrorBoundary>
         </div>
       </div>
     </div>

@@ -141,15 +141,15 @@ See [full competitive analysis](docs/sdd/competitors-analysis.md) for details.
 - **Column-scoped filter DSL** — `method:POST host:api` + text search
 - **QR code CA** — SVG QR code generation for mobile CA install
 
-### v1.3.0
-- **proxybot-core** standalone crate — Library-first packaging
-- **Project file management** — Save/restore capture sessions
-- **Mobile web dashboard** — Lightweight mitmweb-style remote access
+### v1.3.0 ✅ (部分完成)
+- ✅ **proxybot-core** standalone crate — Library-first packaging
+- ✅ **Project file management** — Save/restore capture sessions (workspace module)
+- ❌ **Mobile web dashboard** — Lightweight mitmweb-style remote access
 
-### v2.0.0
-- Windows support (WFP transparent proxy)
-- HTTP/3 & QUIC research/prototype
-- Transport-layer TCP/UDP proxy
+### v2.0.0 (部分完成)
+- ❌ Windows support (WFP transparent proxy)
+- ❌ HTTP/3 & QUIC research/prototype
+- ✅ **Transport-layer TCP/UDP proxy** — Protocol detection, SNI extraction, pass-through
 
 ## Development
 

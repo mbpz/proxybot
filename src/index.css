@@ -1,5 +1,6 @@
 /* ProxyBot Design System — Proxyman/Charles Dark Theme */
 
+@import "tailwindcss";
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
 
 /* ============================================
@@ -642,3 +643,70 @@ input::placeholder {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+/* ============================================
+   Layout Utilities (from Tailwind)
+   ============================================ */
+.h-screen { height: 100vh; }
+.w-16 { width: 4rem; }
+.w-52 { width: 13rem; }
+.w-3\/5 { width: 60%; }
+.w-2\/5 { width: 40%; }
+.flex-1 { flex: 1; }
+.flex-col { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.overflow-hidden { overflow: hidden; }
+.overflow-auto { overflow: auto; }
+
+/* ============================================
+   Colors (Tailwind dark theme)
+   ============================================ */
+.bg-gray-100 { background-color: #f3f4f6; }
+.bg-gray-900 { background-color: #111827; }
+.bg-gray-800 { background-color: #1f2937; }
+.bg-gray-700 { background-color: #374151; }
+.text-white { color: #fff; }
+.text-gray-500 { color: #6b7280; }
+.text-gray-400 { color: #9ca3af; }
+.text-blue-500 { color: #3b82f6; }
+.border-gray-700 { border-color: #374151; }
+.border-blue-500 { border-color: #3b82f6; }
+.border-b { border-bottom-width: 1px; }
+.border-l-2 { border-left-width: 2px; }
+
+/* ============================================
+   Spacing
+   ============================================ */
+.p-1 { padding: 0.25rem; }
+.p-4 { padding: 1rem; }
+.p-8 { padding: 2rem; }
+.py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+.px-4 { padding-left: 1rem; padding-right: 1rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-4 { margin-bottom: 1rem; }
+
+/* ============================================
+   Typography
+   ============================================ */
+.font-bold { font-weight: 700; }
+.text-2xl { font-size: 1.5rem; }
+.text-lg { font-size: 1.125rem; }
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+
+/* ============================================
+   Effects
+   ============================================ */
+.transition-all { transition: all 0.2s; }
+.transition-colors { transition: color 0.2s, background-color 0.2s; }
+.duration-200 { transition-duration: 0.2s; }
+.rounded { border-radius: 0.25rem; }
+
+/* ============================================
+   Hover states
+   ============================================ */
+.hover\:bg-gray-700:hover { background-color: #374151; }
+.hover\:bg-gray-800:hover { background-color: #1f2937; }

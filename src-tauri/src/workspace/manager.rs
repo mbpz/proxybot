@@ -272,6 +272,7 @@ impl Default for WorkspaceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workspace::serialize::{Device, Rule, RuleAction};
     use tempfile::{tempdir, TempDir};
 
     fn create_test_workspace(tmp: &TempDir) -> Workspace {

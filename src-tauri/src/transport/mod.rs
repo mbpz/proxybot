@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! ```
+//! ```text
 //! pf redirects all TCP → transport proxy (port 8089) → detect protocol
 //!     ├── TLS (any port) → extract SNI, log, pass-through
 //!     ├── HTTP (any port) → forward to MITM proxy (8088)

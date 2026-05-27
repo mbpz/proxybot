@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { HeadersView } from "./HeadersView";
+import { BodyView } from "./BodyView";
 import { WsFramesView } from "./WsFramesView";
 import { CodeExport } from "../shared/CodeExport";
-import { CodeViewer } from "../shared/CodeViewer";
+import { MethodBadge, Badge } from "../ui/Badge";
+import { Tabs } from "../ui/Tabs";
 
 interface InterceptedRequest {
   id: string;
@@ -13,6 +15,7 @@ interface InterceptedRequest {
   duration_ms: number;
   headers: Record<string, string>;
   body?: string;
+  app_tag?: string;
 }
 
 interface RequestDetailProps {
@@ -24,27 +27,53 @@ type TabType = "headers" | "body" | "ws";
 export function RequestDetail({ request }: RequestDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>("headers");
 
-  const tabs: { key: TabType; label: string }[] = [
-    { key: "headers", label: "Headers" },
-    { key: "body", label: "Body" },
-    { key: "ws", label: "WS Frames" },
+  const tabs = [
+    { id: "headers", label: "Headers" },
+    { id: "body", label: "Body" },
+    { id: "ws", label: "WS Frames" },
   ];
 
+  const statusColor = request.status
+    ? request.status >= 400
+      ? "var(--accent-red)"
+      : "var(--accent-green)"
+    : "var(--text-muted)";
+
   return (
-    <div className="h-full flex flex-col">
+    <div
+      className="h-full flex flex-col"
+      style={{ background: "var(--bg-secondary)" }}
+    >
       {/* Header */}
-      <div className="p-4 border-b bg-gray-50">
-        <div className="text-sm text-gray-500">
-          {request.method} {request.host}{request.path}
-        </div>
-        <div className="text-sm mt-1">
-          Status: <span className={request.status && request.status >= 400 ? "text-red-600" : "text-green-600"}>
-            {request.status || ".."}
+      <div
+        className="px-4 py-3"
+        style={{
+          background: "var(--bg-tertiary)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <MethodBadge method={request.method} />
+          <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
+            {request.host}
+            <span style={{ color: "var(--text-secondary)" }}>{request.path}</span>
           </span>
-          {" | "}
-          Duration: {request.duration_ms}ms
         </div>
-        <div className="mt-2">
+
+        <div className="flex items-center gap-4 text-xs">
+          <span>
+            Status:{" "}
+            <span className="font-mono" style={{ color: statusColor }}>
+              {request.status || ".."}
+            </span>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Duration: {request.duration_ms}ms
+          </span>
+          {request.app_tag && <Badge variant="info">{request.app_tag}</Badge>}
+        </div>
+
+        <div className="mt-3">
           <CodeExport
             method={request.method}
             url={`${request.host}${request.path}`}
@@ -55,31 +84,16 @@ export function RequestDetail({ request }: RequestDetailProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm ${
-              activeTab === tab.key
-                ? "border-b-2 border-blue-500 text-blue-600"
-                : "text-gray-600"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(id) => setActiveTab(id as TabType)}
+      />
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {activeTab === "headers" && <HeadersView headers={request.headers} />}
-        {activeTab === "body" && (
-          <CodeViewer
-            content={request.body || ""}
-            contentType={request.headers?.["content-type"]}
-          />
-        )}
+        {activeTab === "body" && <BodyView body={request.body} />}
         {activeTab === "ws" && <WsFramesView requestId={request.id} />}
       </div>
     </div>

@@ -2,6 +2,10 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ReplayModal } from "./ReplayModal";
 import { ReplayResults } from "./ReplayResults";
+import { MethodBadge } from "../ui/Badge";
+import { Button } from "../ui/Button";
+import { ErrorBoundary } from "../ui/error-boundary";
+import { SkeletonTable } from "../ui/skeleton";
 
 interface ReplayTarget {
   id: string;
@@ -24,9 +28,13 @@ interface ReplayResult {
 
 export function ReplayPage() {
   const [targets, setTargets] = useState<ReplayTarget[]>([]);
-  const [selectedTarget, setSelectedTarget] = useState<ReplayTarget | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<ReplayTarget | null>(
+    null
+  );
   const [results, setResults] = useState<ReplayResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadTargets();
@@ -34,10 +42,17 @@ export function ReplayPage() {
 
   async function loadTargets() {
     try {
+      setLoading(true);
+      setError(null);
       const result = await invoke<ReplayTarget[]>("get_replay_targets");
       setTargets(result);
     } catch (err) {
       console.error("Failed to load replay targets:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to load replay targets"
+      );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -66,86 +81,122 @@ export function ReplayPage() {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Replay</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setSelectedTarget(null)}
-            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-          >
-            New Target
-          </button>
-          <button
-            onClick={handleStartReplay}
-            disabled={isRunning || targets.length === 0}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isRunning ? "Running..." : "Start Replay"}
-          </button>
+    <div>
+      <div className="panel">
+        {/* Header */}
+        <div className="panel-header">
+          <div className="flex items-center gap-3">
+            <span className="panel-title">Replay</span>
+            <span className="text-sm text-muted">
+              {targets.length} targets
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setSelectedTarget(null)}
+            >
+              New Target
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleStartReplay}
+              disabled={isRunning || targets.length === 0}
+            >
+              {isRunning ? "Running..." : "Start Replay"}
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {/* Targets Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Enabled</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Name</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Method</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">URL</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Expected</th>
-              <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {targets.map((target) => (
-              <tr key={target.id} className="border-t">
-                <td className="px-4 py-3">
-                  <input
-                    type="checkbox"
-                    checked={target.enabled}
-                    onChange={async () => {
-                      await invoke("toggle_replay_target", { id: target.id, enabled: !target.enabled });
-                      loadTargets();
-                    }}
-                    className="w-4 h-4"
-                  />
-                </td>
-                <td className="px-4 py-3 text-sm">{target.name}</td>
-                <td className="px-4 py-3">
-                  <span className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">
-                    {target.method}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-sm truncate max-w-xs">{target.url}</td>
-                <td className="px-4 py-3 text-sm">{target.expected_status || "-"}</td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => setSelectedTarget(target)}
-                    className="px-2 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteTarget(target.id)}
-                    className="px-2 py-1 text-sm text-red-600 hover:bg-red-50 rounded ml-2"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {targets.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                  No replay targets. Click "New Target" to create one.
-                </td>
-              </tr>
+        {/* Error banner */}
+        {error && (
+          <div className="error-banner mx-4 mt-2">
+            <span className="error-banner-message">{error}</span>
+            <Button variant="secondary" size="sm" onClick={loadTargets}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {/* Content */}
+        <div style={{ maxHeight: 500, overflowY: "auto" }}>
+          <ErrorBoundary>
+            {loading ? (
+              <SkeletonTable rows={5} />
+            ) : targets.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">🔄</div>
+                <div className="empty-state-title">No replay targets</div>
+                <div className="empty-state-description">
+                  Click "New Target" to create a replay target.
+                </div>
+              </div>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 50 }}>On</th>
+                    <th>Name</th>
+                    <th style={{ width: 80 }}>Method</th>
+                    <th>URL</th>
+                    <th style={{ width: 80 }}>Expected</th>
+                    <th style={{ width: 100 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {targets.map((target) => (
+                    <tr key={target.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={target.enabled}
+                          onChange={async () => {
+                            await invoke("toggle_replay_target", {
+                              id: target.id,
+                              enabled: !target.enabled,
+                            });
+                            loadTargets();
+                          }}
+                        />
+                      </td>
+                      <td className="text-sm">{target.name}</td>
+                      <td>
+                        <MethodBadge method={target.method} />
+                      </td>
+                      <td
+                        className="mono text-xs truncate"
+                        style={{ color: "var(--text-muted)", maxWidth: 300 }}
+                      >
+                        {target.url}
+                      </td>
+                      <td className="text-sm">
+                        {target.expected_status || "-"}
+                      </td>
+                      <td>
+                        <div className="flex gap-1">
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => setSelectedTarget(target)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => handleDeleteTarget(target.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
-          </tbody>
-        </table>
+          </ErrorBoundary>
+        </div>
       </div>
 
       {/* Results */}

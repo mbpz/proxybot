@@ -81,7 +81,7 @@ fn detect_http(data: &[u8]) -> Option<DetectedProtocol> {
 /// Extract SNI from TLS ClientHello message.
 ///
 /// TLS 1.2/1.3 ClientHello structure:
-/// ```
+/// ```text
 /// [content_type: 0x16] [version: u16] [length: u16]
 ///   [handshake_type: 0x01] [handshake_length: u24]
 ///     [client_version: u16] [random: 32]
