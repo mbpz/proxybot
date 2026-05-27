@@ -5,9 +5,17 @@ import { formatTimestamp, formatSize, formatBody, appBadgeClass } from "../utils
 
 interface TrafficPageProps {
   requests: InterceptedRequest[];
+  onError: (msg: string) => void;
 }
 
-export function TrafficPage({ requests }: TrafficPageProps) {
+interface HarExport {
+  log: {
+    version: string;
+    entries: unknown[];
+  };
+}
+
+export function TrafficPage({ requests, onError }: TrafficPageProps) {
   const [selectedTab, setSelectedTab] = useState<AppTab>("all");
   const [selectedHost, setSelectedHost] = useState("all");
   const [keywordFilter, setKeywordFilter] = useState("");
@@ -34,21 +42,21 @@ export function TrafficPage({ requests }: TrafficPageProps) {
     try {
       setExporting(true);
       const name = sessionName.trim() || `session-${Date.now()}`;
-      const har = await invoke<any>("export_har", { sessionName: name });
+      const har = await invoke<HarExport>("export_har", { sessionName: name });
       const harJson = JSON.stringify(har, null, 2);
       const path = await invoke<string>("save_har_file", { harJson, sessionName: name });
-      alert(`HAR file saved to:\n${path}`);
+      onError(`HAR file saved to: ${path}`);
       setShowExportDialog(false);
       setSessionName("");
     } catch (e) {
-      alert(String(e));
+      onError(String(e));
     } finally {
       setExporting(false);
     }
   };
 
   const startReplay = async () => {
-    if (!selectedReplayHost) { alert("Please select a host to replay"); return; }
+    if (!selectedReplayHost) { onError("Please select a host to replay"); return; }
     try {
       setReplaying(true);
       setReplayResults([]);
@@ -57,7 +65,7 @@ export function TrafficPage({ requests }: TrafficPageProps) {
       });
       setReplayResults(results);
     } catch (e) {
-      alert(String(e));
+      onError(String(e));
     } finally {
       setReplaying(false);
     }

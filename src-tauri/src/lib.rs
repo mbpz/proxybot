@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Manager;
+use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 pub mod adb;
@@ -94,6 +94,7 @@ pub fn run() {
     let anomaly_detector = Arc::new(AnomalyDetector::new());
     let tun_state = Arc::new(TunState::new());
     let replay_state = Arc::new(ReplayState::default());
+    let dashboard_server = Arc::new(dashboard::DashboardServer::new(9980));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -107,6 +108,7 @@ pub fn run() {
         .manage(tun_state.clone())
         .manage(rules_engine.clone())
         .manage(replay_state.clone())
+        .manage(dashboard_server.clone())
         .setup(move |app| {
             // Start file watcher in a dedicated thread with its own Tokio runtime
             // (notify's internal thread outlives the app's runtime)
@@ -317,7 +319,35 @@ pub fn run() {
             write_deployment_bundle,
             commands::ai_stats::get_ai_stats,
             commands::ai_stats::get_ai_context_windows,
+            start_dashboard,
+            stop_dashboard,
+            is_dashboard_running,
+            get_dashboard_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+async fn start_dashboard(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> Result<String, String> {
+    let lan_ip = crate::network::get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string());
+    dashboard.start().await?;
+    Ok(format!("http://{}:{}?token={}", lan_ip, dashboard.port(), dashboard.token()))
+}
+
+#[tauri::command]
+fn stop_dashboard(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> Result<String, String> {
+    dashboard.stop();
+    Ok("Dashboard stopped".into())
+}
+
+#[tauri::command]
+fn is_dashboard_running(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> bool {
+    dashboard.is_running()
+}
+
+#[tauri::command]
+fn get_dashboard_url(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> Result<String, String> {
+    let lan_ip = crate::network::get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string());
+    Ok(format!("http://{}:{}?token={}", lan_ip, dashboard.port(), dashboard.token()))
 }

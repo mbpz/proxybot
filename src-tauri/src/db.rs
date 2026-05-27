@@ -126,6 +126,17 @@ impl DbState {
     }
 
     pub(crate) fn init_schema(conn: &Connection) -> SqlResult<()> {
+        // Create schema_version table first for migration tracking
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version     INTEGER PRIMARY KEY,
+                applied_at  TEXT NOT NULL,
+                description TEXT NOT NULL
+            );
+            "#,
+        )?;
+
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS http_requests (
@@ -273,6 +284,62 @@ impl DbState {
             CREATE INDEX IF NOT EXISTS idx_ai_token_usage_timestamp ON ai_token_usage(timestamp);
             "#,
         )?;
+
+        // Record baseline as version 0 if not already recorded
+        let current_version = Self::get_schema_version(conn)?;
+        if current_version < 0 {
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version, applied_at, description) VALUES (0, ?1, 'Baseline schema')",
+                rusqlite::params![chrono_lite_timestamp()],
+            )?;
+        }
+
+        // Run pending migrations
+        Self::run_migrations(conn)?;
+
+        Ok(())
+    }
+
+    /// Get the current schema version, or -1 if no version recorded.
+    fn get_schema_version(conn: &Connection) -> SqlResult<i64> {
+        let version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), -1) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(-1);
+        Ok(version)
+    }
+
+    /// Run pending migrations. Each migration is a (version, description, sql) tuple.
+    fn run_migrations(conn: &Connection) -> SqlResult<()> {
+        let current = Self::get_schema_version(conn)?;
+
+        let migrations: Vec<(i64, &str, &str)> = vec![
+            (
+                1,
+                "Add response_size column to http_requests",
+                "ALTER TABLE http_requests ADD COLUMN response_size INTEGER;",
+            ),
+            (
+                2,
+                "Add query_name index for DNS lookups",
+                "CREATE INDEX IF NOT EXISTS idx_dns_queries_query_name ON dns_queries(query_name);",
+            ),
+        ];
+
+        for (version, description, sql) in migrations {
+            if version > current {
+                log::info!("Running migration {}: {}", version, description);
+                conn.execute_batch(sql)?;
+                conn.execute(
+                    "INSERT INTO schema_version (version, applied_at, description) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![version, chrono_lite_timestamp(), description],
+                )?;
+            }
+        }
+
         Ok(())
     }
 }
@@ -760,5 +827,53 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM devices", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_schema_version_tracking() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        // schema_version table should exist and have baseline
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert!(version >= 0, "Schema version should be >= 0 after init");
+    }
+
+    #[test]
+    fn test_migrations_are_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+
+        // Run init_schema twice — should not error
+        DbState::init_schema(&conn).unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert!(version >= 0);
+    }
+
+    #[test]
+    fn test_migration_adds_response_size_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        // Migration 1 should have added response_size column
+        conn.execute(
+            "INSERT INTO http_requests (timestamp, method, scheme, host, path, response_size)
+             VALUES ('2024-01-01', 'GET', 'https', 'example.com', '/', 1024)",
+            [],
+        )
+        .unwrap();
+
+        let size: i64 = conn
+            .query_row("SELECT response_size FROM http_requests LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(size, 1024);
     }
 }

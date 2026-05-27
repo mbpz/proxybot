@@ -2,8 +2,10 @@ export function formatTimestamp(ts: string): string {
   try {
     const parts = ts.split(".");
     const secs = parseInt(parts[0]);
+    if (isNaN(secs)) return ts;
     const ms = parts[1] || "000";
     const date = new Date(secs * 1000);
+    if (isNaN(date.getTime())) return ts;
     return date.toLocaleTimeString() + "." + ms.slice(0, 3);
   } catch {
     return ts;

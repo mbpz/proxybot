@@ -1,174 +1,230 @@
 use crate::metrics::counters::METRICS;
 use crate::proxy::InterceptedRequest;
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::watch;
 
-/// Maximum number of requests to keep in the ring buffer.
 const MAX_REQUESTS: usize = 1000;
 
-/// A lightweight embedded HTTP server that serves:
-/// - `GET /` — the live dashboard HTML page
-/// - `GET /api/requests` — JSON array of recent intercepted requests (last 100)
-/// - `GET /api/stats` — JSON summary: total_requests, active_connections, bytes_total
+/// Lightweight HTTP server for mobile dashboard access.
 ///
-/// Uses the same hand-rolled HTTP pattern as `MetricsServer` — no heavyweight
-/// framework dependency.
+/// Binds to 0.0.0.0:<port> with token-based auth.
+/// Phones on the same LAN access via http://<LAN_IP>:<port>?token=<TOKEN>
 pub struct DashboardServer {
-    addr: SocketAddr,
-    /// Ring buffer of recent intercepted requests, shared with request-pushing caller.
-    requests: Arc<RwLock<Vec<InterceptedRequest>>>,
+    port: u16,
+    token: String,
+    pub(crate) requests: Arc<Mutex<Vec<InterceptedRequest>>>,
+    running: Arc<AtomicBool>,
+    shutdown_tx: Arc<Mutex<Option<watch::Sender<()>>>>,
 }
 
 impl DashboardServer {
     pub fn new(port: u16) -> Self {
+        let token = generate_token();
         Self {
-            addr: SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), port),
-            requests: Arc::new(RwLock::new(Vec::with_capacity(MAX_REQUESTS))),
+            port,
+            token,
+            requests: Arc::new(Mutex::new(Vec::with_capacity(MAX_REQUESTS))),
+            running: Arc::new(AtomicBool::new(false)),
+            shutdown_tx: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Push a newly intercepted request into the ring buffer.
-    ///
-    /// Thread-safe — can be called from any task. Drops the oldest request when
-    /// the buffer exceeds `MAX_REQUESTS`.
     pub fn push_request(&self, req: InterceptedRequest) {
-        let mut guard = self.requests.write().unwrap();
+        let mut guard = self.requests.lock().unwrap();
         if guard.len() >= MAX_REQUESTS {
             guard.remove(0);
         }
         guard.push(req);
     }
 
-    /// Return a clone of the shared request buffer for use in async contexts.
-    pub fn requests_handle(&self) -> Arc<RwLock<Vec<InterceptedRequest>>> {
-        Arc::clone(&self.requests)
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
     }
 
-    /// Start the dashboard HTTP server.
-    ///
-    /// Binds to `localhost:<port>` and serves dashboard endpoints. Runs
-    /// forever until the Tokio runtime is dropped or the process is terminated.
-    pub async fn start(&self) -> Result<(), String> {
-        let listener = TcpListener::bind(self.addr)
-            .await
-            .map_err(|e| format!("Dashboard server bind failed on {}: {}", self.addr, e))?;
+    pub fn port(&self) -> u16 {
+        self.port
+    }
 
-        log::info!(
-            "Dashboard server listening on http://{}",
-            self.addr
-        );
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub async fn start(&self) -> Result<(), String> {
+        if self.running.load(Ordering::Relaxed) {
+            return Err("Dashboard already running".into());
+        }
+
+        let addr = SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), self.port);
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| format!("Dashboard bind failed on {}: {}", addr, e))?;
+
+        self.running.store(true, Ordering::Relaxed);
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(());
+        *self.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
 
         let requests = Arc::clone(&self.requests);
+        let running = Arc::clone(&self.running);
+        let token = self.token.clone();
 
-        loop {
-            let (mut stream, peer) = match listener.accept().await {
-                Ok(conn) => conn,
-                Err(e) => {
-                    log::error!("Dashboard accept error: {}", e);
-                    continue;
-                }
-            };
+        log::info!("Dashboard server listening on http://0.0.0.0:{}", self.port);
 
-            log::debug!("Dashboard request from {}", peer);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    result = listener.accept() => {
+                        let (mut stream, peer) = match result {
+                            Ok(conn) => conn,
+                            Err(e) => {
+                                log::error!("Dashboard accept error: {}", e);
+                                continue;
+                            }
+                        };
 
-            let requests = Arc::clone(&requests);
+                        let requests = Arc::clone(&requests);
+                        let token = token.clone();
 
-            tokio::spawn(async move {
-                let mut buf = [0u8; 8192];
-                let n = stream.read(&mut buf).await.unwrap_or(0);
-                if n == 0 {
-                    return;
-                }
+                        tokio::spawn(async move {
+                            let mut buf = [0u8; 8192];
+                            let n = stream.read(&mut buf).await.unwrap_or(0);
+                            if n == 0 { return; }
 
-                let request_str = String::from_utf8_lossy(&buf[..n]);
-                let first_line = request_str.lines().next().unwrap_or("");
-                let parts: Vec<&str> = first_line.split_whitespace().collect();
+                            let request_str = String::from_utf8_lossy(&buf[..n]);
+                            let first_line = request_str.lines().next().unwrap_or("");
+                            let parts: Vec<&str> = first_line.split_whitespace().collect();
 
-                let (method, path) = if parts.len() >= 2 {
-                    (parts[0], parts[1])
-                } else {
-                    return;
-                };
+                            let (method, path) = if parts.len() >= 2 {
+                                (parts[0], parts[1])
+                            } else {
+                                return;
+                            };
 
-                log::trace!("Dashboard: {} {}", method, path);
+                            // Handle CORS preflight
+                            if method == "OPTIONS" {
+                                let response = "HTTP/1.1 204 No Content\r\n\
+                                    Access-Control-Allow-Origin: *\r\n\
+                                    Access-Control-Allow-Methods: GET, OPTIONS\r\n\
+                                    Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
+                                    Access-Control-Max-Age: 86400\r\n\
+                                    Connection: close\r\n\r\n";
+                                let _ = stream.write_all(response.as_bytes()).await;
+                                return;
+                            }
 
-                let (status, content_type, body) = match (method, path) {
-                    ("GET", "/") => {
-                        let html = include_str!("dashboard.html");
-                        (
-                            "200 OK",
-                            "text/html; charset=utf-8",
-                            html.to_string(),
-                        )
-                    }
-                    ("GET", "/api/requests") => {
-                        let guard = requests.read().unwrap();
-                        // Return last 100 requests, newest first
-                        let recent: Vec<&InterceptedRequest> =
-                            guard.iter().rev().take(100).collect();
-                        match serde_json::to_string(&recent) {
-                            Ok(json) => ("200 OK", "application/json", json),
-                            Err(e) => (
-                                "500 Internal Server Error",
-                                "application/json",
-                                format!(r#"{{"error":"{}"}}"#, e),
-                            ),
-                        }
-                    }
-                    ("GET", "/api/stats") => {
-                        let metrics = &*METRICS;
-                        let total_requests = metrics.http_requests_total.load(Ordering::Relaxed)
-                            + metrics.https_requests_total.load(Ordering::Relaxed);
-                        let active_connections =
-                            metrics.connections_active.load(Ordering::Relaxed);
-                        let bytes_total = metrics.bytes_received.load(Ordering::Relaxed)
-                            + metrics.bytes_sent.load(Ordering::Relaxed);
-                        let json = serde_json::json!({
-                            "total_requests": total_requests,
-                            "active_connections": active_connections,
-                            "bytes_total": bytes_total,
+                            // Extract path without query string for routing
+                            let (clean_path, query) = match path.split_once('?') {
+                                Some((p, q)) => (p, q),
+                                None => (path, ""),
+                            };
+
+                            // Parse token from query string
+                            let req_token = query.split('&')
+                                .find(|p| p.starts_with("token="))
+                                .and_then(|p| p.strip_prefix("token="))
+                                .unwrap_or("");
+
+                            // Auth check — reject if token missing/wrong (except for root page which shows instructions)
+                            if clean_path != "/" && req_token != token {
+                                let json = serde_json::json!({"error": "Unauthorized", "message": "Add ?token=<TOKEN> to the URL"});
+                                let body = json.to_string();
+                                let response = format!(
+                                    "HTTP/1.1 401 Unauthorized\r\n\
+                                     Content-Type: application/json\r\n\
+                                     Content-Length: {}\r\n\
+                                     Access-Control-Allow-Origin: *\r\n\
+                                     Connection: close\r\n\r\n{}",
+                                    body.len(), body
+                                );
+                                let _ = stream.write_all(response.as_bytes()).await;
+                                return;
+                            }
+
+                            let (status, content_type, body) = match (method, clean_path) {
+                                ("GET", "/") => {
+                                    let html = include_str!("dashboard.html");
+                                    ("200 OK", "text/html; charset=utf-8", html.to_string())
+                                }
+                                ("GET", "/api/requests") => {
+                                    let guard = requests.lock().unwrap();
+                                    let recent: Vec<&InterceptedRequest> = guard.iter().rev().take(100).collect();
+                                    match serde_json::to_string(&recent) {
+                                        Ok(json) => ("200 OK", "application/json", json),
+                                        Err(e) => ("500 Internal Server Error", "application/json",
+                                            format!(r#"{{"error":"{}"}}"#, e)),
+                                    }
+                                }
+                                ("GET", "/api/stats") => {
+                                    let m = &*METRICS;
+                                    let total = m.http_requests_total.load(Ordering::Relaxed)
+                                        + m.https_requests_total.load(Ordering::Relaxed);
+                                    let active = m.connections_active.load(Ordering::Relaxed);
+                                    let bytes = m.bytes_received.load(Ordering::Relaxed)
+                                        + m.bytes_sent.load(Ordering::Relaxed);
+                                    let json = serde_json::json!({
+                                        "total_requests": total,
+                                        "active_connections": active,
+                                        "bytes_total": bytes,
+                                    });
+                                    ("200 OK", "application/json", json.to_string())
+                                }
+                                ("GET", "/api/connections") => {
+                                    let count = METRICS.connections_active.load(Ordering::Relaxed);
+                                    let json = serde_json::json!({ "active_connections": count });
+                                    ("200 OK", "application/json", json.to_string())
+                                }
+                                _ => {
+                                    let json = serde_json::json!({ "error": "Not Found", "path": clean_path });
+                                    ("404 Not Found", "application/json", json.to_string())
+                                }
+                            };
+
+                            let response = format!(
+                                "HTTP/1.1 {}\r\n\
+                                 Content-Type: {}\r\n\
+                                 Content-Length: {}\r\n\
+                                 Access-Control-Allow-Origin: *\r\n\
+                                 Access-Control-Allow-Methods: GET, OPTIONS\r\n\
+                                 Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
+                                 Connection: close\r\n\r\n{}",
+                                status, content_type, body.len(), body,
+                            );
+
+                            if let Err(e) = stream.write_all(response.as_bytes()).await {
+                                log::error!("Dashboard write error for {}: {}", peer, e);
+                            }
                         });
-                        ("200 OK", "application/json", json.to_string())
                     }
-                    ("GET", "/api/connections") => {
-                        let count = METRICS.connections_active.load(Ordering::Relaxed);
-                        let json = serde_json::json!({
-                            "active_connections": count,
-                        });
-                        ("200 OK", "application/json", json.to_string())
+                    _ = shutdown_rx.changed() => {
+                        log::info!("Dashboard server shutting down");
+                        break;
                     }
-                    _ => {
-                        let json = serde_json::json!({
-                            "error": "Not Found",
-                            "path": path,
-                        });
-                        ("404 Not Found", "application/json", json.to_string())
-                    }
-                };
-
-                let http_response = format!(
-                    "HTTP/1.1 {}\r\n\
-                     Content-Type: {}\r\n\
-                     Content-Length: {}\r\n\
-                     Access-Control-Allow-Origin: *\r\n\
-                     Access-Control-Allow-Methods: GET, OPTIONS\r\n\
-                     Access-Control-Allow-Headers: Content-Type\r\n\
-                     Connection: close\r\n\
-                     \r\n\
-                     {}",
-                    status,
-                    content_type,
-                    body.len(),
-                    body,
-                );
-
-                if let Err(e) = stream.write_all(http_response.as_bytes()).await {
-                    log::error!("Dashboard write error for {}: {}", peer, e);
                 }
-            });
-        }
+            }
+            running.store(false, Ordering::Relaxed);
+        });
+
+        Ok(())
     }
+
+    pub fn stop(&self) {
+        if let Some(tx) = self.shutdown_tx.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
+        // Don't set running=false here — the spawned task does it on exit.
+        // This avoids the race where stop() returns before the port is released.
+    }
+}
+
+/// Generate a random 16-char hex token for dashboard auth.
+fn generate_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:016x}", nanos)
 }

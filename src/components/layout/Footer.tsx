@@ -6,14 +6,18 @@ interface FooterProps {
   pfLoading: boolean;
   tunEnabled: boolean;
   tunLoading: boolean;
+  dashboardRunning: boolean;
+  dashboardUrl: string;
   onEnablePf: () => void;
   onDisablePf: () => void;
   onEnableTun: () => void;
+  onToggleDashboard: () => void;
 }
 
 export function Footer({
   networkInfo, pfEnabled, pfLoading, tunEnabled, tunLoading,
-  onEnablePf, onDisablePf, onEnableTun,
+  dashboardRunning, dashboardUrl,
+  onEnablePf, onDisablePf, onEnableTun, onToggleDashboard,
 }: FooterProps) {
   return (
     <div style={{
@@ -40,6 +44,14 @@ export function Footer({
             {tunEnabled ? "Enabled" : "Disabled"}
           </span>
         </div>
+        {dashboardRunning && (
+          <div>
+            <span className="text-muted">Dashboard: </span>
+            <span className="font-mono" style={{ color: "var(--accent-green)", fontSize: "var(--text-xs)" }}>
+              {dashboardUrl}
+            </span>
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
         {!pfEnabled ? (
@@ -56,6 +68,13 @@ export function Footer({
             {tunLoading ? "..." : "TUN Mode"}
           </button>
         )}
+        <button
+          className={`btn btn-sm ${dashboardRunning ? "btn-danger" : "btn-primary"}`}
+          onClick={onToggleDashboard}
+          title={dashboardRunning ? "Stop mobile dashboard" : "Start mobile dashboard for phone access"}
+        >
+          {dashboardRunning ? "Stop Dashboard" : "📱 Mobile Dashboard"}
+        </button>
       </div>
     </div>
   );

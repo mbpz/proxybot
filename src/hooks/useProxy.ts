@@ -39,7 +39,5 @@ export function useProxy() {
     }
   }, []);
 
-  const clearError = useCallback(() => setError(""), []);
-
-  return { running, requests, dnsQueries, error, startProxy, clearError, setError };
+  return { running, requests, dnsQueries, error, startProxy, setError };
 }

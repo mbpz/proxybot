@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
 import { useProxy } from "./hooks/useProxy";
 import { useNetwork } from "./hooks/useNetwork";
@@ -21,11 +22,33 @@ function App() {
   const { checkForUpdates } = useUpdateCheck();
 
   const [activeTopTab, setActiveTopTab] = useState<TopTab>("traffic");
+  const [dashboardRunning, setDashboardRunning] = useState(false);
+  const [dashboardUrl, setDashboardUrl] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => checkForUpdates(), 3000);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    invoke<boolean>("is_dashboard_running").then(setDashboardRunning).catch(() => {});
+    invoke<string>("get_dashboard_url").then(setDashboardUrl).catch(() => {});
+  }, []);
+
+  const toggleDashboard = useCallback(async () => {
+    try {
+      if (dashboardRunning) {
+        await invoke("stop_dashboard");
+        setDashboardRunning(false);
+      } else {
+        const url = await invoke<string>("start_dashboard");
+        setDashboardRunning(true);
+        setDashboardUrl(url);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [dashboardRunning, setError]);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -54,20 +77,22 @@ function App() {
 
       {/* Main content */}
       <div style={{ padding: "var(--space-4)", display: "flex", gap: "var(--space-4)", flexDirection: "column", paddingBottom: 80 }}>
-        {activeTopTab === "traffic" && <TrafficPage requests={requests} />}
+        {activeTopTab === "traffic" && <TrafficPage requests={requests} onError={setError} />}
         {activeTopTab === "dns" && <DnsPage dnsQueries={dnsQueries} />}
         {activeTopTab === "rules" && <RulesPage />}
         {activeTopTab === "devices" && <DevicesPage networkInfo={networkInfo} />}
-        {activeTopTab === "ai" && <AiPage />}
+        {activeTopTab === "ai" && <AiPage onError={setError} />}
       </div>
 
       <Footer
         networkInfo={networkInfo}
         pfEnabled={pfEnabled} pfLoading={pfLoading}
         tunEnabled={tunEnabled} tunLoading={tunLoading}
+        dashboardRunning={dashboardRunning} dashboardUrl={dashboardUrl}
         onEnablePf={() => enablePf(setError)}
         onDisablePf={() => disablePf(setError)}
         onEnableTun={() => enableTun(setError)}
+        onToggleDashboard={toggleDashboard}
       />
     </div>
   );

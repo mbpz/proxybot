@@ -11,17 +11,20 @@ pub use rule_engine::{PluginRule, RuleEngine, RulePattern};
 
 #[cfg(test)]
 mod tests {
-    use super::plugin_trait::{ConnectDecision, InterceptedResponse, Plugin, PluginHooks};
+    use super::plugin_trait::{Plugin, PluginHooks};
 
     #[test]
     fn test_plugin_trait_object_safe() {
         // Plugin must be Send + Sync for multi-threaded use
+        #[allow(dead_code)]
         fn assert_plugin<T: Plugin>() {}
+        #[allow(dead_code)]
         fn assert_static(_: &'static dyn Plugin) {}
     }
 
     #[test]
     fn test_plugin_hooks_present() {
+        #[allow(dead_code)]
         fn assert_impl_plugin<P: Plugin>() {}
         // All hooks should be optional (default noop)
     }

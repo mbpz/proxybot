@@ -68,6 +68,12 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
     })
 }
 
+/// Get the local LAN IP address.
+/// Returns None if the IP cannot be determined.
+pub fn get_local_ip() -> Option<String> {
+    get_lan_ip()
+}
+
 /// Get the local LAN IP address by connecting to an external address.
 /// This reliably determines which local IP is used for outbound routing.
 fn get_lan_ip() -> Option<String> {

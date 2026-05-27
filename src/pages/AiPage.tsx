@@ -4,7 +4,11 @@ import { AiTokenGauge } from "../components/ai/AiTokenGauge";
 import { AiUsageTable } from "../components/ai/AiUsageTable";
 import type { Alert, AuthStateMachine, VisionAnalysis, ComponentTree } from "../types";
 
-export function AiPage() {
+interface AiPageProps {
+  onError: (msg: string) => void;
+}
+
+export function AiPage({ onError }: AiPageProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertCount, setAlertCount] = useState(0);
   const [authStateMachine, setAuthStateMachine] = useState<AuthStateMachine | null>(null);
@@ -69,57 +73,57 @@ export function AiPage() {
         sessionId: visionSessionId, imageDataBase64: base64, filename: file.name,
       });
       setVisionAnalyses(prev => [result, ...prev]);
-    } catch (e) { alert(String(e)); } finally { setVisionAnalyzing(false); }
+    } catch (e) { onError(String(e)); } finally { setVisionAnalyzing(false); }
   };
 
   const fuseVisionWithApi = async () => {
     try {
       setFusedComponentTree(await invoke<ComponentTree>("fuse_vision_with_api", { sessionId: visionSessionId }));
-    } catch (e) { alert(String(e)); }
+    } catch (e) { onError(String(e)); }
   };
 
   const deleteVisionAnalysis = async (id: number) => {
     try {
       await invoke("delete_vision_analysis", { id });
       setVisionAnalyses(prev => prev.filter(a => a.id !== id));
-    } catch (e) { alert(String(e)); }
+    } catch (e) { onError(String(e)); }
   };
 
   const generateScaffold = async () => {
     try {
       setScaffoldGenerating(true); setScaffoldResult(null);
       setScaffoldResult(await invoke<any>("generate_scaffold_project", { sessionId: scaffoldSessionId, projectName: scaffoldProjectName }));
-    } catch (e) { alert(String(e)); } finally { setScaffoldGenerating(false); }
+    } catch (e) { onError(String(e)); } finally { setScaffoldGenerating(false); }
   };
 
   const writeScaffold = async () => {
     try {
       setScaffoldGenerating(true);
       const path = await invoke<string>("write_scaffold_project", { sessionId: scaffoldSessionId, projectName: scaffoldProjectName, outputDir: null });
-      alert(`Scaffold project written to:\n${path}`);
-    } catch (e) { alert(String(e)); } finally { setScaffoldGenerating(false); }
+      onError(`Scaffold project written to: ${path}`);
+    } catch (e) { onError(String(e)); } finally { setScaffoldGenerating(false); }
   };
 
   const evaluateScaffold = async () => {
-    if (!scaffoldResult?.base_path) { alert("Generate a scaffold first."); return; }
+    if (!scaffoldResult?.base_path) { onError("Generate a scaffold first."); return; }
     try {
       setScaffoldGenerating(true);
       await invoke<any>("evaluate_scaffold_project", { projectPath: scaffoldResult.base_path, sessionId: scaffoldSessionId });
-    } catch (e) { alert(String(e)); } finally { setScaffoldGenerating(false); }
+    } catch (e) { onError(String(e)); } finally { setScaffoldGenerating(false); }
   };
 
   const generateScaffoldWithVision = async () => {
-    if (!fusedComponentTree) { alert("Run 'Fuse with Traffic' first."); return; }
+    if (!fusedComponentTree) { onError("Run 'Fuse with Traffic' first."); return; }
     try {
       setScaffoldGenerating(true);
       setScaffoldResult(await invoke<any>("generate_scaffold_with_vision", {
         sessionId: scaffoldSessionId, name: scaffoldProjectName, visionJson: JSON.stringify(fusedComponentTree),
       }));
-    } catch (e) { alert(String(e)); } finally { setScaffoldGenerating(false); }
+    } catch (e) { onError(String(e)); } finally { setScaffoldGenerating(false); }
   };
 
   const writeScaffoldWithVision = async () => {
-    if (!fusedComponentTree) { alert("Run 'Fuse with Traffic' first."); return; }
+    if (!fusedComponentTree) { onError("Run 'Fuse with Traffic' first."); return; }
     try {
       setScaffoldGenerating(true);
       const result = await invoke<any>("generate_scaffold_with_vision", {
@@ -127,15 +131,15 @@ export function AiPage() {
       });
       setScaffoldResult(result);
       const path = await invoke<string>("write_scaffold_project_with_vision", { project: result, outputDir: null });
-      alert(`Vision-enhanced scaffold written to:\n${path}`);
-    } catch (e) { alert(String(e)); } finally { setScaffoldGenerating(false); }
+      onError(`Vision-enhanced scaffold written to: ${path}`);
+    } catch (e) { onError(String(e)); } finally { setScaffoldGenerating(false); }
   };
 
   const generateDeployment = async () => {
     try {
       setDeployGenerating(true);
       setDeployResult(await invoke<any>("generate_deployment_bundle", { sessionId: deploySessionId, projectName: deployProjectName }));
-    } catch (e) { alert(String(e)); } finally { setDeployGenerating(false); }
+    } catch (e) { onError(String(e)); } finally { setDeployGenerating(false); }
   };
 
   const writeDeployment = async () => {
@@ -143,8 +147,8 @@ export function AiPage() {
       setDeployGenerating(true);
       const result = await invoke<any>("write_deployment_bundle", { sessionId: deploySessionId, projectName: deployProjectName, outputDir: null });
       setDeployResult(result);
-      alert(`Deployment bundle written to:\n${result.bundle_path}\n\nTo run:\n  cd ${result.bundle_path}\n  docker compose up --build`);
-    } catch (e) { alert(String(e)); } finally { setDeployGenerating(false); }
+      onError(`Deployment bundle written to: ${result.bundle_path}`);
+    } catch (e) { onError(String(e)); } finally { setDeployGenerating(false); }
   };
 
   return (
