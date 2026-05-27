@@ -18,6 +18,11 @@ export function useProxy() {
       setDnsQueries((prev) => [event.payload, ...prev].slice(0, 50));
     });
 
+    // Load historical data
+    invoke<InterceptedRequest[]>("load_history")
+      .then(setRequests)
+      .catch((e) => console.error("Failed to load history:", e));
+
     invoke<DnsEntry[]>("get_dns_log")
       .then(setDnsQueries)
       .catch((e) => console.error("Failed to get DNS log:", e));
