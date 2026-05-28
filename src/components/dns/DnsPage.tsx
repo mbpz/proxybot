@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AppBadge } from "../ui/Badge";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
+import { safeInvokeOr } from "../../utils/safeInvoke";
 
 interface DnsEntry {
   domain: string;
@@ -38,23 +38,18 @@ export function DnsPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<DnsEntry[]>("get_dns_log");
+      const result = await safeInvokeOr<DnsEntry[]>("get_dns_log", []);
       setQueries(result);
     } catch (err) {
       console.error("Failed to load DNS log:", err);
-      setError(err instanceof Error ? err.message : "Failed to load DNS log");
     } finally {
       setLoading(false);
     }
   }
 
   async function loadDnsUpstream() {
-    try {
-      const upstream = await invoke<string>("get_dns_upstream");
-      setDnsUpstream(upstream);
-    } catch (err) {
-      console.error("Failed to load DNS upstream:", err);
-    }
+    const upstream = await safeInvokeOr<string>("get_dns_upstream", "");
+    setDnsUpstream(upstream);
   }
 
   function formatTime(timestamp_ms: number): string {

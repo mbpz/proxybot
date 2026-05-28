@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonCard } from "../ui/skeleton";
+import { safeInvokeOr } from "../../utils/safeInvoke";
 
 interface Alert {
   id: number;
@@ -37,11 +37,10 @@ export function AiPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<Alert[]>("get_alerts");
+      const result = await safeInvokeOr<Alert[]>("get_alerts_cmd", []);
       setAlerts(result);
     } catch (err) {
       console.error("Failed to load alerts:", err);
-      setError(err instanceof Error ? err.message : "Failed to load alerts");
     } finally {
       setLoading(false);
     }
@@ -50,9 +49,11 @@ export function AiPage() {
   async function loadAuthStateMachine() {
     try {
       setLoading(true);
-      const result = await invoke<AuthState>("get_auth_state_machine");
-      setAuthState(result);
-      setActiveTab("state-machine");
+      const result = await safeInvokeOr<AuthState | null>("get_auth_state_machine", null);
+      if (result) {
+        setAuthState(result);
+        setActiveTab("state-machine");
+      }
     } catch (err) {
       console.error("Failed to load state machine:", err);
     } finally {
@@ -62,7 +63,7 @@ export function AiPage() {
 
   async function acknowledgeAlert(id: number) {
     try {
-      await invoke("acknowledge_alert", { id });
+      await safeInvokeOr("acknowledge_alert_cmd", null, { alertId: id });
       await loadAlerts();
     } catch (err) {
       console.error("Failed to acknowledge alert:", err);

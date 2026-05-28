@@ -5,6 +5,7 @@ import { RuleModal } from "./RuleModal";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonCard } from "../ui/skeleton";
+import { safeInvokeOr } from "../../utils/safeInvoke";
 
 interface Rule {
   pattern: string;
@@ -31,11 +32,9 @@ export function RulesPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<Rule[]>("get_rules");
+      const result = await safeInvokeOr<Rule[]>("get_rules", []);
       setRules(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
       console.error("Failed to load rules:", err);
     } finally {
       setLoading(false);

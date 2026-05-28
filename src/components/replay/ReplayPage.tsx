@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { ReplayModal } from "./ReplayModal";
 import { ReplayResults } from "./ReplayResults";
 import { MethodBadge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
+import { safeInvokeOr } from "../../utils/safeInvoke";
 
 interface ReplayTarget {
   id: string;
@@ -44,13 +44,10 @@ export function ReplayPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<ReplayTarget[]>("get_replay_targets");
+      const result = await safeInvokeOr<ReplayTarget[]>("get_replay_targets", []);
       setTargets(result);
     } catch (err) {
       console.error("Failed to load replay targets:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load replay targets"
-      );
     } finally {
       setLoading(false);
     }
@@ -60,7 +57,7 @@ export function ReplayPage() {
     setIsRunning(true);
     setResults([]);
     try {
-      const result = await invoke<ReplayResult[]>("execute_replay", {
+      const result = await safeInvokeOr<ReplayResult[]>("execute_replay", [], {
         targets: targets.filter((t) => t.enabled),
       });
       setResults(result);
@@ -73,7 +70,7 @@ export function ReplayPage() {
 
   async function handleDeleteTarget(id: string) {
     try {
-      await invoke("delete_replay_target", { id });
+      await safeInvokeOr("delete_replay_target", null, { id });
       loadTargets();
     } catch (err) {
       console.error("Failed to delete target:", err);
@@ -153,7 +150,7 @@ export function ReplayPage() {
                           type="checkbox"
                           checked={target.enabled}
                           onChange={async () => {
-                            await invoke("toggle_replay_target", {
+                            await safeInvokeOr("toggle_replay_target", null, {
                               id: target.id,
                               enabled: !target.enabled,
                             });
@@ -207,7 +204,7 @@ export function ReplayPage() {
         <ReplayModal
           target={selectedTarget}
           onSave={async (updated) => {
-            await invoke("save_replay_target", { target: updated });
+            await safeInvokeOr("save_replay_target", null, { target: updated });
             loadTargets();
             setSelectedTarget(null);
           }}
