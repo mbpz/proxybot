@@ -11,20 +11,26 @@ export function useProxy() {
 
   useEffect(() => {
     const unlisten = listen<InterceptedRequest>("intercepted-request", (event) => {
-      setRequests((prev) => [event.payload, ...prev].slice(0, 100));
+      const req = event.payload;
+      if (req && typeof req === "object" && req.id && req.host) {
+        setRequests((prev) => [req, ...prev].slice(0, 100));
+      }
     });
 
     const unlistenDns = listen<DnsEntry>("dns-query", (event) => {
-      setDnsQueries((prev) => [event.payload, ...prev].slice(0, 50));
+      const entry = event.payload;
+      if (entry && typeof entry === "object" && entry.domain) {
+        setDnsQueries((prev) => [entry, ...prev].slice(0, 50));
+      }
     });
 
-    // Load historical data
-    invoke<InterceptedRequest[]>("load_history")
-      .then(setRequests)
-      .catch((e) => console.error("Failed to load history:", e));
-
+    // Load historical data - requests will populate via real-time events
     invoke<DnsEntry[]>("get_dns_log")
-      .then(setDnsQueries)
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setDnsQueries(data.filter((q) => q && typeof q === "object" && q.domain));
+        }
+      })
       .catch((e) => console.error("Failed to get DNS log:", e));
 
     return () => {

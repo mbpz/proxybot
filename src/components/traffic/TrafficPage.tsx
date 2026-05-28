@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
@@ -34,37 +33,22 @@ export function TrafficPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadRequests();
+    // Start with empty list - requests will come via events
+    setLoading(false);
 
-    // Subscribe to real-time updates
-    const unlisten = listen<InterceptedRequest>("traffic-update", (event) => {
-      setRequests((prev) => [event.payload, ...prev.slice(0, 999)]);
+    const unlistenPromise = listen<InterceptedRequest>("intercepted-request", (event) => {
+      const req = event.payload;
+      if (req && typeof req === "object" && req.id && req.host) {
+        setRequests((prev) => [req, ...prev].slice(0, 999));
+      }
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenPromise.then((fn) => fn());
     };
   }, []);
-
-  async function loadRequests() {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await invoke<InterceptedRequest[]>("load_history", {
-        filter: {},
-        limit: 1000,
-      });
-      setRequests(result);
-    } catch (err) {
-      console.error("Failed to load requests:", err);
-      setError(err instanceof Error ? err.message : "Failed to load requests");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const filteredRequests = useMemo(() => {
     let result = requests;
@@ -99,19 +83,6 @@ export function TrafficPage() {
   return (
     <div className="flex flex-col h-screen">
       <FilterBar filters={filters} onChange={setFilters} />
-
-      {/* Error banner */}
-      {error && (
-        <div className="error-banner mx-4 mt-2">
-          <span className="error-banner-message">{error}</span>
-          <button
-            className="btn btn-sm btn-secondary"
-            onClick={loadRequests}
-          >
-            Retry
-          </button>
-        </div>
-      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div
