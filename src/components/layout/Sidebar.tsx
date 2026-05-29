@@ -12,6 +12,8 @@ import {
   PlayCircle,
   GitBranch,
   Wand2,
+  Send,
+  Settings,
 } from "lucide-react";
 
 interface NavItem {
@@ -29,6 +31,7 @@ const navItems: NavItem[] = [
   { path: "/alerts", label: "Alerts", icon: <AlertTriangle size={20} /> },
   { path: "/replay", label: "Replay", icon: <PlayCircle size={20} /> },
   { path: "/graph", label: "Graph", icon: <GitBranch size={20} /> },
+  { path: "/composer", label: "Composer", icon: <Send size={20} /> },
   { path: "/gen", label: "Gen", icon: <Wand2 size={20} /> },
 ];
 
@@ -38,16 +41,16 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`flex flex-col bg-gray-900 text-white h-screen transition-all duration-200 ${
+      className={`flex flex-col bg-surface-primary text-text-primary h-screen border-r border-border transition-all duration-200 ${
         collapsed ? "w-16" : "w-52"
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+      <div className="flex items-center justify-between p-4 border-b border-border">
         {!collapsed && <span className="font-bold">ProxyBot</span>}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="p-1 hover:bg-gray-700 rounded"
+          className="p-1 hover:bg-surface-tertiary rounded"
         >
           {collapsed ? <Menu size={20} /> : <X size={20} />}
         </button>
@@ -61,16 +64,37 @@ export function Sidebar() {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-800 transition-colors ${
-                isActive ? "bg-gray-800 border-l-2 border-blue-500" : ""
+              title={collapsed ? item.label : undefined}
+              className={`flex items-center gap-3 mx-2 px-4 py-2.5 rounded-lg hover:bg-surface-secondary transition-colors ${
+                isActive
+                  ? "bg-surface-secondary border-l-4 border-accent-blue"
+                  : "border-l-4 border-transparent"
               }`}
             >
-              {item.icon}
+              <span className={isActive ? "text-accent-blue" : ""}>{item.icon}</span>
               {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
+
+      {/* Footer */}
+      <div className="p-3 border-t border-border">
+        <Link
+          to="/settings"
+          title={collapsed ? "Settings" : undefined}
+          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-surface-secondary transition-colors ${
+            location.pathname === "/settings"
+              ? "bg-surface-secondary border-l-4 border-accent-blue"
+              : "border-l-4 border-transparent"
+          }`}
+        >
+          <span className={location.pathname === "/settings" ? "text-accent-blue" : ""}>
+            <Settings size={20} />
+          </span>
+          {!collapsed && <span>Settings</span>}
+        </Link>
+      </div>
     </aside>
   );
 }

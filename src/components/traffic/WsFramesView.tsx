@@ -51,15 +51,15 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
     <div className="flex h-full">
       <div className="w-1/2 border-r overflow-auto">
         {frames.length === 0 ? (
-          <div className="p-4 text-gray-500">No WebSocket frames</div>
+          <div className="p-4 text-text-muted">No WebSocket frames</div>
         ) : (
           frames.map((frame) => (
             <div
               key={frame.id}
               onClick={() => setSelectedFrame(frame)}
-              className={`flex items-center px-3 py-2 border-b cursor-pointer ${
-                frame.direction === "incoming" ? "text-green-600" : "text-blue-600"
-              } ${selectedFrame?.id === frame.id ? "bg-gray-100" : ""}`}
+              className={`flex items-center px-3 py-2 border-b border-border cursor-pointer ${
+                frame.direction === "incoming" ? "text-accent-green" : "text-accent-blue"
+              } ${selectedFrame?.id === frame.id ? "bg-surface-elevated" : ""}`}
             >
               <span className="w-4">{frame.direction === "incoming" ? "←" : "→"}</span>
               <span className="w-12 font-mono text-xs">{getOpcodeName(frame.opcode)}</span>
@@ -72,7 +72,7 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
         {selectedFrame ? (
           <pre className="text-sm font-mono whitespace-pre-wrap">{selectedFrame.payload}</pre>
         ) : (
-          <div className="text-gray-500">Select a frame to view</div>
+          <div className="text-text-muted">Select a frame to view</div>
         )}
       </div>
     </div>

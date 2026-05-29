@@ -5,7 +5,7 @@ import json from "highlight.js/lib/languages/json";
 import xml from "highlight.js/lib/languages/xml";
 import javascript from "highlight.js/lib/languages/javascript";
 import css from "highlight.js/lib/languages/css";
-import "highlight.js/styles/github.css";
+import "highlight.js/styles/github-dark.css";
 
 hljs.registerLanguage("json", json);
 hljs.registerLanguage("xml", xml);
@@ -26,7 +26,6 @@ function detectLanguage(contentType?: string, content?: string): string {
     if (ct.includes("javascript")) return "javascript";
     if (ct.includes("css")) return "css";
   }
-  // Try to detect from content
   const trimmed = content?.trim() || "";
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json";
   if (trimmed.startsWith("<")) return "xml";
@@ -77,7 +76,7 @@ export function CodeViewer({
   }, [highlighted]);
 
   if (!content) {
-    return <div className="p-4 text-gray-500">No content</div>;
+    return <div className="p-4 text-text-muted">No content</div>;
   }
 
   const lines = formatted.split("\n");
@@ -86,7 +85,7 @@ export function CodeViewer({
     <div className="relative overflow-auto" style={{ maxHeight }}>
       <div className="flex">
         {/* Line numbers */}
-        <div className="select-none text-right pr-3 py-3 bg-gray-50 text-gray-400 text-xs font-mono border-r sticky left-0">
+        <div className="select-none text-right pr-3 py-3 bg-surface-tertiary text-text-muted text-xs font-mono border-r border-border sticky left-0">
           {lines.map((_, i) => (
             <div key={i} className="leading-6" style={{ minWidth: "3ch" }}>
               {i + 1}
@@ -111,7 +110,7 @@ export function CodeViewer({
       </div>
       {/* Language badge */}
       <div className="absolute top-2 right-2">
-        <span className="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-600">
+        <span className="badge badge-unknown">
           {lang}
         </span>
       </div>

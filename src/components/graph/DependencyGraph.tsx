@@ -93,7 +93,7 @@ export function DependencyGraph({ data }: DependencyGraphProps) {
 
   if (!data?.requests?.length) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
+      <div className="flex items-center justify-center h-full text-text-muted">
         No dependency data available
       </div>
     );

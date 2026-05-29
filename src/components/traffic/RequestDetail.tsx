@@ -5,6 +5,7 @@ import { WsFramesView } from "./WsFramesView";
 import { CodeExport } from "../shared/CodeExport";
 import { MethodBadge, Badge } from "../ui/Badge";
 import { Tabs } from "../ui/Tabs";
+import { getStatusTailwindClass } from "../../utils";
 
 interface InterceptedRequest {
   id: string;
@@ -33,41 +34,28 @@ export function RequestDetail({ request }: RequestDetailProps) {
     { id: "ws", label: "WS Frames" },
   ];
 
-  const statusColor = request.status
-    ? request.status >= 400
-      ? "var(--accent-red)"
-      : "var(--accent-green)"
-    : "var(--text-muted)";
+  const statusClass = getStatusTailwindClass(request.status);
 
   return (
-    <div
-      className="h-full flex flex-col"
-      style={{ background: "var(--bg-secondary)" }}
-    >
+    <div className="h-full flex flex-col bg-surface-secondary">
       {/* Header */}
-      <div
-        className="px-4 py-3"
-        style={{
-          background: "var(--bg-tertiary)",
-          borderBottom: "1px solid var(--border)",
-        }}
-      >
+      <div className="px-4 py-3 bg-surface-tertiary border-b border-border">
         <div className="flex items-center gap-2 mb-2">
           <MethodBadge method={request.method} />
-          <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
+          <span className="font-mono text-sm text-text-primary">
             {request.host}
-            <span style={{ color: "var(--text-secondary)" }}>{request.path}</span>
+            <span className="text-text-secondary">{request.path}</span>
           </span>
         </div>
 
         <div className="flex items-center gap-4 text-xs">
           <span>
             Status:{" "}
-            <span className="font-mono" style={{ color: statusColor }}>
+            <span className={`font-mono ${statusClass}`}>
               {request.status || ".."}
             </span>
           </span>
-          <span style={{ color: "var(--text-muted)" }}>
+          <span className="text-text-muted">
             Duration: {request.duration_ms}ms
           </span>
           {request.app_tag && <Badge variant="info">{request.app_tag}</Badge>}

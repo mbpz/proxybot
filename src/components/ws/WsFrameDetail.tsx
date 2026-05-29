@@ -36,24 +36,24 @@ export function WsFrameDetail({ frame }: WsFrameDetailProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Metadata */}
-      <div className="p-4 border-b bg-gray-50">
+      <div className="p-4 border-b border-border bg-surface-tertiary">
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
-            <span className="text-gray-500">Direction:</span>{" "}
-            <span className={frame.direction === "incoming" ? "text-green-600" : "text-blue-600"}>
+            <span className="text-text-muted">Direction:</span>{" "}
+            <span className={frame.direction === "incoming" ? "text-accent-green" : "text-accent-blue"}>
               {frame.direction === "incoming" ? "Incoming ←" : "Outgoing →"}
             </span>
           </div>
           <div>
-            <span className="text-gray-500">Opcode:</span>{" "}
+            <span className="text-text-muted">Opcode:</span>{" "}
             <span className="font-mono">{frame.opcode} ({getOpcodeName(frame.opcode)})</span>
           </div>
           <div>
-            <span className="text-gray-500">Size:</span>{" "}
+            <span className="text-text-muted">Size:</span>{" "}
             <span>{frame.payload.length} bytes</span>
           </div>
           <div>
-            <span className="text-gray-500">Time:</span>{" "}
+            <span className="text-text-muted">Time:</span>{" "}
             <span>{new Date(frame.timestamp * 1000).toLocaleString()}</span>
           </div>
         </div>
@@ -64,7 +64,7 @@ export function WsFrameDetail({ frame }: WsFrameDetailProps) {
         <button
           onClick={() => setViewMode("text")}
           className={`px-3 py-1 rounded text-sm ${
-            viewMode === "text" ? "bg-blue-500 text-white" : "bg-gray-200"
+            viewMode === "text" ? "bg-accent-blue text-white" : "bg-surface-tertiary"
           }`}
         >
           Text
@@ -72,7 +72,7 @@ export function WsFrameDetail({ frame }: WsFrameDetailProps) {
         <button
           onClick={() => setViewMode("hex")}
           className={`px-3 py-1 rounded text-sm ${
-            viewMode === "hex" ? "bg-blue-500 text-white" : "bg-gray-200"
+            viewMode === "hex" ? "bg-accent-blue text-white" : "bg-surface-tertiary"
           }`}
         >
           Hex
@@ -80,7 +80,7 @@ export function WsFrameDetail({ frame }: WsFrameDetailProps) {
       </div>
 
       {/* Payload */}
-      <div className="flex-1 overflow-auto p-4 bg-gray-100">
+      <div className="flex-1 overflow-auto p-4 bg-surface-primary">
         {viewMode === "text" ? (
           <pre className="text-sm font-mono whitespace-pre-wrap break-all">
             {frame.payload}

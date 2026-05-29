@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { RulesPage } from "../pages/RulesPage";
+import { RulesPage } from "../components/rules/RulesPage";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string) => {
@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 describe("RulesPage", () => {
   it("shows empty state when no rules", async () => {
     render(<RulesPage />);
-    expect(await screen.findByText("No rules defined")).toBeInTheDocument();
+    expect(await screen.findByText("No rules configured")).toBeInTheDocument();
   });
 
   it("shows add rule button", async () => {

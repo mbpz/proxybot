@@ -46,3 +46,21 @@ export function appBadgeClass(appName: string | undefined): string {
   if (lower.includes("alipay")) return "badge-alipay";
   return "badge-unknown";
 }
+
+export function getStatusColor(status?: number): string {
+  if (!status) return "var(--text-muted)";
+  if (status >= 200 && status < 300) return "var(--accent-green)";
+  if (status >= 300 && status < 400) return "var(--accent-blue)";
+  if (status >= 400 && status < 500) return "var(--accent-yellow)";
+  if (status >= 500) return "var(--accent-red)";
+  return "var(--text-secondary)";
+}
+
+export function getStatusTailwindClass(status?: number): string {
+  if (!status) return "text-text-muted";
+  if (status >= 200 && status < 300) return "text-accent-green";
+  if (status >= 300 && status < 400) return "text-accent-blue";
+  if (status >= 400 && status < 500) return "text-accent-yellow";
+  if (status >= 500) return "text-accent-red";
+  return "text-text-secondary";
+}

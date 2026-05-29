@@ -1,3 +1,5 @@
+import { FileText } from "lucide-react";
+
 interface HeadersViewProps {
   headers: Record<string, string>;
 }
@@ -13,7 +15,7 @@ export function HeadersView({ headers }: HeadersViewProps) {
   if (headerEntries.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">📋</div>
+        <FileText size={48} className="empty-state-icon" />
         <div className="empty-state-title">No headers</div>
       </div>
     );
@@ -21,13 +23,7 @@ export function HeadersView({ headers }: HeadersViewProps) {
 
   return (
     <div>
-      <div
-        className="flex items-center justify-between px-4 py-2"
-        style={{
-          background: "var(--bg-tertiary)",
-          borderBottom: "1px solid var(--border)",
-        }}
-      >
+      <div className="flex items-center justify-between px-4 py-2 bg-surface-tertiary border-b border-border">
         <span className="text-xs text-secondary font-mono uppercase">
           {headerEntries.length} headers
         </span>
@@ -40,26 +36,10 @@ export function HeadersView({ headers }: HeadersViewProps) {
         <tbody>
           {headerEntries.map(([key, value]) => (
             <tr key={key}>
-              <td
-                className="font-mono"
-                style={{
-                  color: "var(--accent-blue)",
-                  width: "30%",
-                  padding: "var(--space-2) var(--space-3)",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
+              <td className="font-mono text-accent-blue w-[30%] !py-2 !px-3">
                 {key}
               </td>
-              <td
-                className="font-mono"
-                style={{
-                  color: "var(--text-primary)",
-                  padding: "var(--space-2) var(--space-3)",
-                  borderBottom: "1px solid var(--border)",
-                  wordBreak: "break-all",
-                }}
-              >
+              <td className="font-mono text-text-primary break-all !py-2 !px-3">
                 {value}
               </td>
             </tr>

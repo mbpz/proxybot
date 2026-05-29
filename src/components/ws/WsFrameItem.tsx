@@ -43,16 +43,16 @@ export function WsFrameItem({ frame, isSelected, onClick }: WsFrameItemProps) {
   return (
     <div
       onClick={onClick}
-      className={`flex items-center px-3 py-2 border-b cursor-pointer hover:bg-gray-50 ${
-        isSelected ? "bg-blue-50" : ""
-      } ${frame.direction === "incoming" ? "text-green-600" : "text-blue-600"}`}
+      className={`flex items-center px-3 py-2 border-b border-border cursor-pointer hover:bg-surface-elevated ${
+        isSelected ? "bg-surface-tertiary" : ""
+      } ${frame.direction === "incoming" ? "text-accent-green" : "text-accent-blue"}`}
     >
       <span className="w-4 text-lg">
         {frame.direction === "incoming" ? "←" : "→"}
       </span>
       <span className="w-12 font-mono text-xs">{getOpcodeName(frame.opcode)}</span>
       <span className="flex-1 truncate text-sm">{truncate(frame.payload, 40)}</span>
-      <span className="text-xs text-gray-400 ml-2">{formatTime(frame.timestamp)}</span>
+      <span className="text-xs text-text-muted ml-2">{formatTime(frame.timestamp)}</span>
     </div>
   );
 }

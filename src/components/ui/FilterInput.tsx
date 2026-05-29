@@ -72,7 +72,7 @@ export function FilterInput({
               const name = prompt("Preset name:");
               if (name) onSavePreset(name, value);
             }}
-            className="px-2 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200"
+            className="btn btn-ghost btn-sm"
           >
             Save Preset
           </button>

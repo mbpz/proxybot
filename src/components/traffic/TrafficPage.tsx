@@ -5,6 +5,7 @@ import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
+import { Search } from "lucide-react";
 
 interface InterceptedRequest {
   id: string;
@@ -85,10 +86,7 @@ export function TrafficPage() {
       <FilterBar filters={filters} onChange={setFilters} />
 
       <div className="flex flex-1 overflow-hidden">
-        <div
-          className="w-3/5"
-          style={{ borderRight: "1px solid var(--border)" }}
-        >
+        <div className="w-3/5 border-r border-border">
           <ErrorBoundary>
             {loading ? (
               <SkeletonTable rows={10} />
@@ -107,7 +105,7 @@ export function TrafficPage() {
               <RequestDetail request={selectedRequest} />
             ) : (
               <div className="empty-state">
-                <div className="empty-state-icon">🔍</div>
+                <Search size={48} className="empty-state-icon" />
                 <div className="empty-state-title">No request selected</div>
                 <div className="empty-state-description">
                   Click on a request in the list to view its details

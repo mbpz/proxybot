@@ -36,28 +36,28 @@ export function RuleModal({ rule, onSave, onClose }: RuleModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="card w-full max-w-md p-6 shadow-lg">
         <h2 className="text-xl font-bold mb-4">{rule ? "Edit Rule" : "Add Rule"}</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Name</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2"
               placeholder="My Rule"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Pattern</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Pattern</label>
             <select
               value={formData.pattern}
               onChange={(e) => setFormData({ ...formData, pattern: e.target.value })}
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2"
             >
               {patterns.map((p) => (
                 <option key={p} value={p}>{p}</option>
@@ -66,23 +66,23 @@ export function RuleModal({ rule, onSave, onClose }: RuleModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Value</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Value</label>
             <input
               type="text"
               value={formData.value}
               onChange={(e) => setFormData({ ...formData, value: e.target.value })}
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2"
               placeholder="example.com"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Action</label>
             <select
               value={formData.action}
               onChange={(e) => setFormData({ ...formData, action: e.target.value })}
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2"
             >
               {actions.map((a) => (
                 <option key={a} value={a}>{a}</option>
@@ -91,24 +91,24 @@ export function RuleModal({ rule, onSave, onClose }: RuleModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Priority</label>
             <input
               type="number"
               value={formData.priority}
               onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 100 })}
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2"
               min="1"
               max="255"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Comment</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Comment</label>
             <input
               type="text"
               value={formData.comment}
               onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
-              className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2"
               placeholder="Optional comment"
             />
           </div>
@@ -117,13 +117,13 @@ export function RuleModal({ rule, onSave, onClose }: RuleModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded"
+              className="btn btn-ghost"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              className="btn btn-primary"
             >
               Save
             </button>

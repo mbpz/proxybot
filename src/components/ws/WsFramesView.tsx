@@ -50,7 +50,7 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
       {/* Frame List */}
       <div className="w-1/2 border-r overflow-auto">
         {frames.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
+          <div className="flex items-center justify-center h-full text-text-muted">
             No WebSocket frames captured
           </div>
         ) : (
@@ -70,7 +70,7 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
         {selectedFrame ? (
           <WsFrameDetail frame={selectedFrame} />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-500">
+          <div className="flex items-center justify-center h-full text-text-muted">
             Select a frame to view details
           </div>
         )}

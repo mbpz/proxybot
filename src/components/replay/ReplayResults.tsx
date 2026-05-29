@@ -15,47 +15,41 @@ export function ReplayResults({ results }: ReplayResultsProps) {
   const failCount = results.length - successCount;
 
   return (
-    <div className="mt-6 bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-4 py-3 border-b bg-gray-50">
+    <div className="mt-6 panel overflow-hidden">
+      <div className="panel-header">
         <h3 className="text-lg font-medium">
           Replay Results{" "}
-          <span className="text-green-600">{successCount} passed</span>
+          <span className="text-accent-green">{successCount} passed</span>
           {failCount > 0 && (
-            <span className="text-red-600 ml-2">{failCount} failed</span>
+            <span className="text-accent-red ml-2">{failCount} failed</span>
           )}
         </h3>
       </div>
 
-      <table className="w-full">
+      <table className="table">
         <thead>
-          <tr className="text-sm text-gray-500">
-            <th className="px-4 py-2 text-left">Target</th>
-            <th className="px-4 py-2 text-left">Status</th>
-            <th className="px-4 py-2 text-left">Duration</th>
-            <th className="px-4 py-2 text-left">Result</th>
+          <tr>
+            <th>Target</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Result</th>
           </tr>
         </thead>
         <tbody>
           {results.map((result, i) => (
-            <tr key={i} className="border-t">
-              <td className="px-4 py-2 text-sm">{result.target_id}</td>
-              <td className="px-4 py-2">
-                <span
-                  className={`px-2 py-1 rounded text-xs font-mono ${
-                    result.status >= 200 && result.status < 300
-                      ? "bg-green-100 text-green-800"
-                      : "bg-red-100 text-red-800"
-                  }`}
-                >
+            <tr key={i}>
+              <td className="text-sm">{result.target_id}</td>
+              <td>
+                <span className={`badge ${result.status >= 200 && result.status < 300 ? "badge-get" : "badge-reject"}`}>
                   {result.status}
                 </span>
               </td>
-              <td className="px-4 py-2 text-sm">{result.duration_ms}ms</td>
-              <td className="px-4 py-2">
+              <td className="text-sm">{result.duration_ms}ms</td>
+              <td>
                 {result.success ? (
-                  <span className="text-green-600">Success</span>
+                  <span className="text-accent-green">Success</span>
                 ) : (
-                  <span className="text-red-600" title={result.error}>
+                  <span className="text-accent-red" title={result.error}>
                     {result.error?.slice(0, 50) || "Failed"}
                   </span>
                 )}

@@ -1,12 +1,20 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ComposerEditor } from "./ComposerEditor";
+import { Send, AlertCircle } from "lucide-react";
 
 interface ComposerResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
   duration_ms: number;
+}
+
+function getStatusColor(status: number): string {
+  if (status >= 200 && status < 300) return "text-accent-green";
+  if (status >= 300 && status < 400) return "text-accent-blue";
+  if (status >= 400 && status < 500) return "text-accent-yellow";
+  return "text-accent-red";
 }
 
 export function ComposerPage() {
@@ -42,10 +50,13 @@ export function ComposerPage() {
   return (
     <div className="flex h-full">
       {/* Editor (left 40%) */}
-      <div className="w-2/5 border-r bg-white">
-        <div className="p-4 border-b">
-          <h1 className="text-xl font-bold">Composer</h1>
-          <p className="text-sm text-gray-500">Edit and send HTTP requests</p>
+      <div className="w-2/5 border-r border-border bg-surface-secondary">
+        <div className="p-4 border-b border-border">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <Send size={20} className="text-accent-blue" />
+            Composer
+          </h1>
+          <p className="text-sm text-text-muted">Edit and send HTTP requests</p>
         </div>
         <ComposerEditor
           method={method}
@@ -63,42 +74,45 @@ export function ComposerPage() {
 
       {/* Response (right 60%) */}
       <div className="w-3/5 flex flex-col">
-        <div className="p-4 border-b bg-gray-50">
+        <div className="p-4 border-b border-border bg-surface-tertiary">
           <h2 className="text-lg font-medium">Response</h2>
         </div>
         <div className="flex-1 overflow-auto p-4">
           {error && (
-            <div className="p-4 bg-red-50 text-red-700 rounded">{error}</div>
+            <div className="error-banner mb-4">
+              <AlertCircle size={16} />
+              <span className="error-banner-message">{error}</span>
+            </div>
           )}
           {response ? (
             <div className="space-y-4">
-              <div className="flex gap-4 text-sm">
-                <span className="px-2 py-1 rounded bg-green-100 text-green-800 font-mono">
+              <div className="flex gap-4 text-sm items-center">
+                <span className={`font-mono font-bold ${getStatusColor(response.status)}`}>
                   {response.status}
                 </span>
-                <span className="text-gray-500">{response.duration_ms}ms</span>
+                <span className="text-text-muted">{response.duration_ms}ms</span>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-2">
+                <h3 className="text-sm font-medium text-text-secondary mb-2">
                   Headers
                 </h3>
-                <pre className="text-xs font-mono bg-gray-50 p-2 rounded">
+                <pre className="text-xs font-mono bg-surface-tertiary p-2 rounded border border-border">
                   {Object.entries(response.headers)
                     .map(([k, v]) => `${k}: ${v}`)
                     .join("\n")}
                 </pre>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-2">
+                <h3 className="text-sm font-medium text-text-secondary mb-2">
                   Body
                 </h3>
-                <pre className="text-sm font-mono bg-gray-50 p-3 rounded whitespace-pre-wrap break-all max-h-96 overflow-auto">
+                <pre className="text-sm font-mono bg-surface-tertiary p-3 rounded border border-border whitespace-pre-wrap break-all max-h-96 overflow-auto">
                   {formatBody(response.body)}
                 </pre>
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-400">
+            <div className="flex items-center justify-center h-full text-text-muted">
               Enter a URL and click Send to see the response
             </div>
           )}

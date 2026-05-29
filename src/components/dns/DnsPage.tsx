@@ -4,6 +4,7 @@ import { AppBadge } from "../ui/Badge";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 import { safeInvokeOr } from "../../utils/safeInvoke";
+import { Globe } from "lucide-react";
 
 interface DnsEntry {
   domain: string;
@@ -24,7 +25,6 @@ export function DnsPage() {
     loadDnsLog();
     loadDnsUpstream();
 
-    // Subscribe to real-time DNS queries
     const unlisten = listen<DnsEntry>("dns-query", (event) => {
       setQueries((prev) => [event.payload, ...prev].slice(0, 500));
     });
@@ -69,17 +69,7 @@ export function DnsPage() {
         <div className="flex items-center gap-3">
           <span className="panel-title">DNS Queries</span>
           {dnsUpstream && (
-            <span
-              className="text-xs font-mono"
-              style={{
-                background: "var(--bg-elevated)",
-                padding: "var(--space-1) var(--space-2)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-muted)",
-              }}
-            >
-              {dnsUpstream}
-            </span>
+            <span className="badge badge-unknown font-mono">{dnsUpstream}</span>
           )}
         </div>
         <span className="text-sm text-muted">{queries.length} entries</span>
@@ -96,13 +86,13 @@ export function DnsPage() {
       )}
 
       {/* Content */}
-      <div style={{ maxHeight: 600, overflowY: "auto" }}>
+      <div className="max-h-[calc(100vh-200px)] overflow-y-auto">
         <ErrorBoundary>
           {loading ? (
             <SkeletonTable rows={8} />
           ) : queries.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-icon">🌐</div>
+              <Globe size={48} className="empty-state-icon" />
               <div className="empty-state-title">No DNS queries</div>
               <div className="empty-state-description">
                 Enable transparent proxy to start capturing DNS queries
@@ -112,10 +102,10 @@ export function DnsPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th style={{ width: 120 }}>App</th>
-                  <th style={{ width: 100 }}>Time</th>
+                  <th className="w-[120px]">App</th>
+                  <th className="w-[100px]">Time</th>
                   <th>Domain</th>
-                  <th style={{ width: 80 }}>Type</th>
+                  <th className="w-[80px]">Type</th>
                   <th>Response IPs</th>
                 </tr>
               </thead>
@@ -125,24 +115,16 @@ export function DnsPage() {
                     <td>
                       <AppBadge app={q.app_name || null} />
                     </td>
-                    <td className="mono text-xs" style={{ color: "var(--text-muted)" }}>
+                    <td className="mono text-xs text-text-muted">
                       {formatTime(q.timestamp_ms)}
                     </td>
                     <td className="mono text-sm">{q.domain}</td>
                     <td>
-                      <span
-                        className="text-xs font-mono"
-                        style={{
-                          background: "var(--bg-elevated)",
-                          padding: "2px 6px",
-                          borderRadius: "var(--radius-sm)",
-                          color: "var(--text-secondary)",
-                        }}
-                      >
+                      <span className="badge badge-unknown">
                         {q.query_type || "A"}
                       </span>
                     </td>
-                    <td className="mono text-xs" style={{ color: "var(--text-muted)" }}>
+                    <td className="mono text-xs text-text-muted">
                       {q.response_ips?.join(", ") || "-"}
                     </td>
                   </tr>

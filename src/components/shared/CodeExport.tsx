@@ -44,7 +44,7 @@ export function CodeExport({ method, url, headers, body = "" }: CodeExportProps)
           <button
             key={fmt}
             onClick={() => handleCopy(fmt)}
-            className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+            className="btn btn-ghost btn-sm"
             title={`Copy as ${FORMAT_LABELS[fmt]}`}
           >
             {FORMAT_LABELS[fmt]}
@@ -52,7 +52,7 @@ export function CodeExport({ method, url, headers, body = "" }: CodeExportProps)
         ))}
       </div>
       {copied && (
-        <span className="absolute -top-6 left-0 text-xs text-green-600">Copied!</span>
+        <span className="absolute -top-6 left-0 text-xs text-accent-green">Copied!</span>
       )}
     </div>
   );

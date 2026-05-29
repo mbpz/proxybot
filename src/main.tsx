@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
 import { TrafficPage } from "./components/traffic/TrafficPage";
 import { RulesPage } from "./components/rules/RulesPage";
@@ -11,6 +11,7 @@ import { ReplayPage } from "./components/replay/ReplayPage";
 import { ComposerPage } from "./components/composer/ComposerPage";
 import { GraphPage } from "./components/graph/GraphPage";
 import { AiPage } from "./components/ai/AiPage";
+import { SettingsPage } from "./components/settings/SettingsPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
@@ -28,6 +29,8 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="composer" element={<ComposerPage />} />
           <Route path="graph" element={<GraphPage />} />
           <Route path="gen" element={<AiPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

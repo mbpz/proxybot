@@ -6,6 +6,7 @@ import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonCard } from "../ui/skeleton";
 import { safeInvokeOr } from "../../utils/safeInvoke";
+import { Shield } from "lucide-react";
 
 interface Rule {
   pattern: string;
@@ -123,7 +124,7 @@ export function RulesPage() {
               </div>
             ) : rules.length === 0 ? (
               <div className="empty-state">
-                <div className="empty-state-icon">📋</div>
+                <Shield size={48} className="empty-state-icon" />
                 <div className="empty-state-title">No rules configured</div>
                 <div className="empty-state-description">
                   Click "Add Rule" to create your first routing rule.

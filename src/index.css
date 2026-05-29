@@ -3,22 +3,45 @@
 @import "tailwindcss";
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
 
+/* Register CSS variables as Tailwind v4 theme tokens */
+@theme {
+  --color-surface-primary: var(--bg-primary);
+  --color-surface-secondary: var(--bg-secondary);
+  --color-surface-tertiary: var(--bg-tertiary);
+  --color-surface-elevated: var(--bg-elevated);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-light: var(--border-light);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-green: var(--accent-green);
+  --color-accent-yellow: var(--accent-yellow);
+  --color-accent-red: var(--accent-red);
+  --color-accent-purple: var(--accent-purple);
+  --color-muted: var(--text-muted);
+  --color-secondary: var(--text-secondary);
+
+  /* Focus ring */
+  --color-focus-ring: var(--accent-blue);
+}
+
 /* ============================================
    CSS Variables — Design Tokens
    ============================================ */
 :root {
-  /* Colors */
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-tertiary: #0f3460;
-  --bg-elevated: #1e1e3f;
+  /* Colors — neutral dark gray (Proxyman/VS Code style) */
+  --bg-primary: #1c1c1e;
+  --bg-secondary: #2c2c2e;
+  --bg-tertiary: #3a3a3c;
+  --bg-elevated: #48484a;
 
-  --text-primary: #e8e8e8;
-  --text-secondary: #a0a0a0;
-  --text-muted: #606060;
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-muted: #636366;
 
-  --border: #2a2a4a;
-  --border-light: #3a3a5a;
+  --border: #38383a;
+  --border-light: #48484a;
 
   /* Accents */
   --accent-blue: #4d9de0;
@@ -77,6 +100,9 @@
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
+
+  /* Content max height for scrollable areas */
+  --content-max-h: 600px;
 }
 
 /* ============================================
@@ -126,6 +152,10 @@ h2 {
 }
 h3 {
   font-size: var(--text-lg);
+}
+
+::selection {
+  background: rgba(77, 157, 224, 0.3);
 }
 
 code,
@@ -222,6 +252,11 @@ a:hover {
   height: 32px;
 }
 
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.9);
+}
+
 /* ============================================
    Form Elements
    ============================================ */
@@ -239,10 +274,11 @@ textarea {
   transition: border-color var(--transition-fast);
 }
 
-input:focus,
-select:focus,
-textarea:focus {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(77, 157, 224, 0.2);
 }
 
 input::placeholder {
@@ -348,6 +384,7 @@ input::placeholder {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
 }
 
 .card-header {
@@ -375,6 +412,7 @@ input::placeholder {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .panel-header {
@@ -505,6 +543,21 @@ input::placeholder {
 }
 
 /* ============================================
+   Request Row
+   ============================================ */
+.request-row {
+  transition: background var(--transition-fast);
+}
+
+.request-row:hover {
+  background: var(--bg-elevated);
+}
+
+.request-row.selected {
+  background: var(--bg-tertiary);
+}
+
+/* ============================================
    Empty State
    ============================================ */
 .empty-state {
@@ -518,7 +571,6 @@ input::placeholder {
 }
 
 .empty-state-icon {
-  font-size: 48px;
   margin-bottom: var(--space-4);
   opacity: 0.5;
 }
@@ -575,138 +627,4 @@ input::placeholder {
   background: var(--border-light);
 }
 
-/* ============================================
-   Utilities
-   ============================================ */
-.flex {
-  display: flex;
-}
 
-.flex-col {
-  flex-direction: column;
-}
-
-.items-center {
-  align-items: center;
-}
-
-.justify-between {
-  justify-content: space-between;
-}
-
-.gap-1 {
-  gap: var(--space-1);
-}
-.gap-2 {
-  gap: var(--space-2);
-}
-.gap-3 {
-  gap: var(--space-3);
-}
-.gap-4 {
-  gap: var(--space-4);
-}
-
-.text-muted {
-  color: var(--text-muted);
-}
-
-.text-secondary {
-  color: var(--text-secondary);
-}
-
-.text-xs {
-  font-size: var(--text-xs);
-}
-
-.text-sm {
-  font-size: var(--text-sm);
-}
-
-.font-mono {
-  font-family: var(--font-mono);
-}
-
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-}
-
-/* ============================================
-   Layout Utilities (from Tailwind)
-   ============================================ */
-.h-screen { height: 100vh; }
-.w-16 { width: 4rem; }
-.w-52 { width: 13rem; }
-.w-3\/5 { width: 60%; }
-.w-2\/5 { width: 40%; }
-.flex-1 { flex: 1; }
-.flex-col { flex-direction: column; }
-.flex-wrap { flex-wrap: wrap; }
-.items-center { align-items: center; }
-.justify-center { justify-content: center; }
-.overflow-hidden { overflow: hidden; }
-.overflow-auto { overflow: auto; }
-
-/* ============================================
-   Colors (Tailwind dark theme)
-   ============================================ */
-.bg-gray-100 { background-color: #f3f4f6; }
-.bg-gray-900 { background-color: #111827; }
-.bg-gray-800 { background-color: #1f2937; }
-.bg-gray-700 { background-color: #374151; }
-.text-white { color: #fff; }
-.text-gray-500 { color: #6b7280; }
-.text-gray-400 { color: #9ca3af; }
-.text-blue-500 { color: #3b82f6; }
-.border-gray-700 { border-color: #374151; }
-.border-blue-500 { border-color: #3b82f6; }
-.border-b { border-bottom-width: 1px; }
-.border-l-2 { border-left-width: 2px; }
-
-/* ============================================
-   Spacing
-   ============================================ */
-.p-1 { padding: 0.25rem; }
-.p-4 { padding: 1rem; }
-.p-8 { padding: 2rem; }
-.py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
-.py-4 { padding-top: 1rem; padding-bottom: 1rem; }
-.px-4 { padding-left: 1rem; padding-right: 1rem; }
-.mb-2 { margin-bottom: 0.5rem; }
-.mb-4 { margin-bottom: 1rem; }
-
-/* ============================================
-   Typography
-   ============================================ */
-.font-bold { font-weight: 700; }
-.text-2xl { font-size: 1.5rem; }
-.text-lg { font-size: 1.125rem; }
-.text-sm { font-size: 0.875rem; }
-.text-xs { font-size: 0.75rem; }
-
-/* ============================================
-   Effects
-   ============================================ */
-.transition-all { transition: all 0.2s; }
-.transition-colors { transition: color 0.2s, background-color 0.2s; }
-.duration-200 { transition-duration: 0.2s; }
-.rounded { border-radius: 0.25rem; }
-
-/* ============================================
-   Hover states
-   ============================================ */
-.hover\:bg-gray-700:hover { background-color: #374151; }
-.hover\:bg-gray-800:hover { background-color: #1f2937; }

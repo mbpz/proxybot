@@ -1,6 +1,8 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MethodBadge } from "../ui/Badge";
+import { getStatusTailwindClass } from "../../utils";
+import { Radio } from "lucide-react";
 
 interface InterceptedRequest {
   id: string;
@@ -18,15 +20,6 @@ interface RequestTableProps {
   requests: InterceptedRequest[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-}
-
-function getStatusColor(status?: number): string {
-  if (!status) return "var(--text-muted)";
-  if (status >= 200 && status < 300) return "var(--accent-green)";
-  if (status >= 300 && status < 400) return "var(--accent-blue)";
-  if (status >= 400 && status < 500) return "var(--accent-yellow)";
-  if (status >= 500) return "var(--accent-red)";
-  return "var(--text-secondary)";
 }
 
 function formatTime(timestamp: number): string {
@@ -47,13 +40,13 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
   const rowVirtualizer = useVirtualizer({
     count: requests.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 40,
+    estimateSize: () => 48,
   });
 
   if (requests.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">📡</div>
+        <Radio size={48} className="text-text-muted mb-4 opacity-50" />
         <div className="empty-state-title">No requests captured yet</div>
         <div className="empty-state-description">
           Start the proxy and configure your device to see traffic here
@@ -65,17 +58,7 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
   return (
     <div ref={parentRef} className="h-full overflow-auto">
       {/* Header */}
-      <div
-        className="flex items-center px-3 py-2 text-xs font-mono uppercase"
-        style={{
-          background: "var(--bg-tertiary)",
-          borderBottom: "1px solid var(--border)",
-          color: "var(--text-secondary)",
-          position: "sticky",
-          top: 0,
-          zIndex: 1,
-        }}
-      >
+      <div className="flex items-center px-3 py-2 text-xs font-mono uppercase bg-surface-tertiary border-b border-border text-text-secondary sticky top-0 z-10 shadow-sm">
         <span className="w-20">Method</span>
         <span className="flex-1">Host / Path</span>
         <span className="w-16 text-center">Status</span>
@@ -94,47 +77,34 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const req = requests[virtualRow.index];
           const isSelected = req.id === selectedId;
+          const isEven = virtualRow.index % 2 === 0;
 
           return (
             <div
               key={req.id}
               onClick={() => onSelect(req.id)}
-              className="absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer"
+              className={`absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer border-b border-border request-row ${
+                isSelected ? "selected" : isEven ? "bg-surface-secondary" : ""
+              }`}
               style={{
                 height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start}px)`,
-                background: isSelected ? "var(--bg-tertiary)" : "transparent",
-                borderBottom: "1px solid var(--border)",
-                transition: "background var(--transition-fast)",
-              }}
-              onMouseEnter={(e) => {
-                if (!isSelected) {
-                  e.currentTarget.style.background = "var(--bg-elevated)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isSelected) {
-                  e.currentTarget.style.background = "transparent";
-                }
               }}
             >
               <span className="w-20">
                 <MethodBadge method={req.method} />
               </span>
               <span className="flex-1 truncate text-sm">
-                <span className="font-mono text-secondary">{req.host}</span>
-                <span className="text-muted">{req.path}</span>
+                <span className="font-mono text-text-primary">{req.host}</span>
+                <span className="text-text-muted">{req.path}</span>
               </span>
-              <span
-                className="w-16 text-center text-sm font-mono"
-                style={{ color: getStatusColor(req.status) }}
-              >
+              <span className={`w-16 text-center text-sm font-mono ${getStatusTailwindClass(req.status)}`}>
                 {req.status || ".."}
               </span>
-              <span className="w-16 text-center text-xs text-muted font-mono">
+              <span className="w-16 text-center text-xs text-text-muted font-mono">
                 {formatSize(req.size)}
               </span>
-              <span className="w-20 text-right text-xs text-muted font-mono">
+              <span className="w-20 text-right text-xs text-text-muted font-mono">
                 {formatTime(req.timestamp)}
               </span>
             </div>
