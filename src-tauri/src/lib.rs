@@ -291,6 +291,7 @@ pub fn run() {
             dag::get_traffic_dag,
             dag::get_device_dag,
             get_graph_data,
+            get_ws_frames,
             infer::infer_api_semantics,
             infer::store_inference_result,
             infer::get_inferred_apis,

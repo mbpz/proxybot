@@ -606,6 +606,171 @@ fn body_to_string(body: &[u8]) -> Option<String> {
     String::from_utf8(body.to_vec()).ok()
 }
 
+/// Check if an HTTP response is a WebSocket upgrade (101 + Upgrade: websocket).
+fn is_ws_upgrade_response(status: u16, resp_headers: &[(String, String)]) -> bool {
+    if status != 101 {
+        return false;
+    }
+    resp_headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("upgrade") && value.eq_ignore_ascii_case("websocket")
+    })
+}
+
+/// Check if an HTTP request is a WebSocket upgrade request.
+fn is_ws_upgrade_request(headers: &[(String, String)]) -> bool {
+    headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("upgrade") && value.eq_ignore_ascii_case("websocket")
+    })
+}
+
+/// Parsed WebSocket frame header.
+struct WsFrameHeader {
+    _fin: bool,
+    opcode: u8,
+    _masked: bool,
+    payload_len: usize,
+    mask_key: Option<[u8; 4]>,
+    header_size: usize,
+}
+
+/// Parse a single WebSocket frame from raw bytes.
+/// Returns (frame_header, total_bytes_needed) or None if not enough data.
+fn parse_ws_frame_header(data: &[u8]) -> Option<(WsFrameHeader, usize)> {
+    if data.len() < 2 {
+        return None;
+    }
+
+    let fin = (data[0] & 0x80) != 0;
+    let opcode = data[0] & 0x0F;
+    let masked = (data[1] & 0x80) != 0;
+    let mut payload_len = (data[1] & 0x7F) as usize;
+    let mut offset = 2;
+
+    if payload_len == 126 {
+        if data.len() < 4 {
+            return None;
+        }
+        payload_len = u16::from_be_bytes([data[2], data[3]]) as usize;
+        offset = 4;
+    } else if payload_len == 127 {
+        if data.len() < 10 {
+            return None;
+        }
+        payload_len = u64::from_be_bytes(data[2..10].try_into().ok()?) as usize;
+        offset = 10;
+    }
+
+    let mask_key = if masked {
+        if data.len() < offset + 4 {
+            return None;
+        }
+        let key = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+        offset += 4;
+        Some(key)
+    } else {
+        None
+    };
+
+    let total = offset + payload_len;
+    if data.len() < total {
+        return None;
+    }
+
+    Some((
+        WsFrameHeader {
+            _fin: fin,
+            opcode,
+            _masked: masked,
+            payload_len,
+            mask_key,
+            header_size: offset,
+        },
+        total,
+    ))
+}
+
+/// Decode WS frame payload (unmask if needed) and try to convert to UTF-8 text.
+fn decode_ws_payload(data: &[u8], header: &WsFrameHeader) -> (Vec<u8>, String) {
+    let payload_start = header.header_size;
+    let payload_end = payload_start + header.payload_len;
+    let mut raw = data[payload_start..payload_end].to_vec();
+
+    if let Some(mask) = header.mask_key {
+        for (i, byte) in raw.iter_mut().enumerate() {
+            *byte ^= mask[i % 4];
+        }
+    }
+
+    let text = String::from_utf8_lossy(&raw).to_string();
+    (raw, text)
+}
+
+/// Run bidirectional WebSocket frame forwarding between client and upstream,
+/// capturing frames and recording them to the database.
+async fn pipe_ws_bidirectional(
+    mut client_stream: TcpStream,
+    mut upstream_stream: TcpStream,
+    request_id: String,
+    db_state: &Arc<crate::db::DbState>,
+    network: &NetworkConditionEngine,
+) -> Result<(), String> {
+    use crate::db::{record_ws_frame, timestamp_now_for_ws};
+
+    let mut client_buf = vec![0u8; 65536];
+    let mut upstream_buf = vec![0u8; 65536];
+    let mut client_remainder: Vec<u8> = Vec::new();
+    let mut upstream_remainder: Vec<u8> = Vec::new();
+
+    loop {
+        tokio::select! {
+            n = client_stream.read(&mut client_buf) => {
+                let n = n.map_err(|e| format!("WS read from client failed: {}", e))?;
+                if n == 0 { return Ok(()); }
+
+                let effect = network.apply(n);
+                if effect.drop { continue; }
+                if effect.delay_ms > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(effect.delay_ms)).await;
+                }
+
+                // Forward raw bytes to upstream
+                upstream_stream.write_all(&client_buf[..n]).await
+                    .map_err(|e| format!("WS write to upstream failed: {}", e))?;
+
+                // Parse frames from accumulated buffer
+                client_remainder.extend_from_slice(&client_buf[..n]);
+                while let Some((header, total)) = parse_ws_frame_header(&client_remainder) {
+                    let (_, text) = decode_ws_payload(&client_remainder, &header);
+                    let ts = timestamp_now_for_ws();
+                    if let Ok(conn) = db_state.conn.lock() {
+                        let _ = record_ws_frame(&conn, &request_id, "outgoing", header.opcode, &text, None, header.payload_len, &ts);
+                    }
+                    client_remainder.drain(..total);
+                }
+            }
+            n = upstream_stream.read(&mut upstream_buf) => {
+                let n = n.map_err(|e| format!("WS read from upstream failed: {}", e))?;
+                if n == 0 { return Ok(()); }
+
+                // Forward raw bytes to client
+                client_stream.write_all(&upstream_buf[..n]).await
+                    .map_err(|e| format!("WS write to client failed: {}", e))?;
+
+                // Parse frames from accumulated buffer
+                upstream_remainder.extend_from_slice(&upstream_buf[..n]);
+                while let Some((header, total)) = parse_ws_frame_header(&upstream_remainder) {
+                    let (_, text) = decode_ws_payload(&upstream_remainder, &header);
+                    let ts = timestamp_now_for_ws();
+                    if let Ok(conn) = db_state.conn.lock() {
+                        let _ = record_ws_frame(&conn, &request_id, "incoming", header.opcode, &text, None, header.payload_len, &ts);
+                    }
+                    upstream_remainder.drain(..total);
+                }
+            }
+        }
+    }
+}
+
 /// Auto-decode gRPC response body if the content-type indicates gRPC.
 /// Returns JSON representation of protobuf fields, or None if not gRPC or decode fails.
 fn try_decode_grpc_body(resp_headers: &[(String, String)], resp_body: &[u8]) -> Option<String> {
@@ -1767,6 +1932,63 @@ async fn handle_http(
 
             let latency = start.elapsed().as_millis() as u64;
             let request_id = generate_request_id();
+
+            // Check if this is a WebSocket upgrade — if so, switch to WS frame capture
+            let (status_early, resp_headers_early, _) =
+                parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
+            if is_ws_upgrade_response(status_early, &resp_headers_early)
+                && is_ws_upgrade_request(&headers)
+            {
+                log::info!("WebSocket upgrade detected for {}{}", host, rule_path);
+
+                // Record the upgrade request to DB and get the ID
+                let ws_request_id = {
+                    let ts = timestamp_now();
+                    let app_info = app_rules::classify_host(host);
+                    if let Ok(conn) = ctx.db_state.conn.lock() {
+                        match record_http_request(
+                            &conn,
+                            &ts,
+                            &rule_method,
+                            if port == 443 { "wss" } else { "ws" },
+                            host,
+                            &rule_path,
+                            &headers,
+                            None,
+                            Some(101),
+                            &resp_headers_early,
+                            None,
+                            Some(latency),
+                            device_ctx.as_ref().map(|d| d.device_id),
+                            app_info.as_ref().map(|(n, _)| n.as_str()),
+                        ) {
+                            Ok(id) => {
+                                let _ = crate::db::mark_request_websocket(&conn, &id.to_string());
+                                Some(id.to_string())
+                            }
+                            Err(e) => {
+                                log::error!("Failed to record WS upgrade request: {}", e);
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                };
+                // conn guard is dropped here — safe to await
+
+                if let Some(req_id) = ws_request_id {
+                    let _ = pipe_ws_bidirectional(
+                        client_stream,
+                        target_stream,
+                        req_id,
+                        &ctx.db_state,
+                        &ctx.network,
+                    )
+                    .await;
+                }
+                return Ok(());
+            }
 
             let (status, resp_headers, resp_body) =
                 parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));

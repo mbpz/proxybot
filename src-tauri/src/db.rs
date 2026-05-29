@@ -327,6 +327,24 @@ impl DbState {
                 "Add query_name index for DNS lookups",
                 "CREATE INDEX IF NOT EXISTS idx_dns_queries_query_name ON dns_queries(query_name);",
             ),
+            (
+                3,
+                "Add ws_frames table and is_websocket column",
+                r#"
+                CREATE TABLE IF NOT EXISTS ws_frames (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id  TEXT NOT NULL,
+                    direction   TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+                    opcode      INTEGER NOT NULL,
+                    payload     TEXT NOT NULL DEFAULT '',
+                    payload_bin BLOB,
+                    size        INTEGER NOT NULL DEFAULT 0,
+                    timestamp   TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ws_frames_request_id ON ws_frames(request_id);
+                ALTER TABLE http_requests ADD COLUMN is_websocket INTEGER NOT NULL DEFAULT 0;
+                "#,
+            ),
         ];
 
         for (version, description, sql) in migrations {
@@ -704,6 +722,51 @@ pub fn get_recent_requests(conn: &Connection, limit: i64) -> Result<Vec<RecentRe
         }
     }
     Ok(requests)
+}
+
+/// Timestamp formatted as "YYYY-MM-DD HH:MM:SS" for WS frame recording.
+pub fn timestamp_now_for_ws() -> String {
+    chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Record a WebSocket frame to the database.
+pub fn record_ws_frame(
+    conn: &Connection,
+    request_id: &str,
+    direction: &str,
+    opcode: u8,
+    payload: &str,
+    payload_bin: Option<&[u8]>,
+    size: usize,
+    timestamp: &str,
+) -> Result<i64, String> {
+    conn.execute(
+        r#"INSERT INTO ws_frames
+           (request_id, direction, opcode, payload, payload_bin, size, timestamp)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
+        rusqlite::params![
+            request_id,
+            direction,
+            opcode,
+            payload,
+            payload_bin,
+            size as i64,
+            timestamp,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+/// Mark an HTTP request as a WebSocket connection.
+pub fn mark_request_websocket(conn: &Connection, request_id: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE http_requests SET is_websocket = 1 WHERE id = ?1",
+        rusqlite::params![request_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Lightweight request struct for TUI list view.
