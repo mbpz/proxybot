@@ -14,6 +14,8 @@
     "test:ui": "vitest run",
     "test:ui:watch": "vitest",
     "lint:rust": "cargo clippy -- -D warnings",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "ci:local": "cargo test && tsc --noEmit && cargo clippy -- -D warnings",
     "prepare": "if [ -d .git ]; then git config core.hooksPath .githooks 2>/dev/null || true; fi"
   },
@@ -39,6 +41,7 @@
     "vis-network": "^10.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4.3.0",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2",
