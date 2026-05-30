@@ -10,7 +10,7 @@ interface DnsUpstream {
 
 export function DnsTab() {
   const [upstream, setUpstream] = useState<DnsUpstream | null>(null);
-  const [upstreamType, setUpstreamType] = useState("PlainUdp");
+  const [upstreamType, setUpstreamType] = useState("plainudp");
   const [address, setAddress] = useState("");
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
@@ -80,21 +80,21 @@ export function DnsTab() {
               onChange={(e) => setUpstreamType(e.target.value)}
               className="w-full"
             >
-              <option value="PlainUdp">Plain UDP (e.g., 8.8.8.8:53)</option>
-              <option value="Doh">DNS over HTTPS (DoH)</option>
+              <option value="plainudp">Plain UDP (e.g., 8.8.8.8:53)</option>
+              <option value="doh">DNS over HTTPS (DoH)</option>
             </select>
           </div>
 
           <div>
             <label className="text-sm text-text-muted block mb-1">
-              {upstreamType === "Doh" ? "DoH URL" : "DNS Server"}
+              {upstreamType === "doh" ? "DoH URL" : "DNS Server"}
             </label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder={
-                upstreamType === "Doh"
+                upstreamType === "doh"
                   ? "https://1.1.1.1/dns-query"
                   : "8.8.8.8:53"
               }

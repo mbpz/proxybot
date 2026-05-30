@@ -13,6 +13,7 @@ import {
   GitBranch,
   Wand2,
   Send,
+  Brain,
   Settings,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { path: "/graph", label: "Graph", icon: <GitBranch size={20} /> },
   { path: "/composer", label: "Composer", icon: <Send size={20} /> },
   { path: "/gen", label: "Gen", icon: <Wand2 size={20} /> },
+  { path: "/ai", label: "AI", icon: <Brain size={20} /> },
 ];
 
 export function Sidebar() {

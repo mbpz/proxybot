@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
-import { Power, Smartphone } from "lucide-react";
+import { Power, Smartphone, Database } from "lucide-react";
 
 export function GeneralTab() {
   const [keepRunning, setKeepRunning] = useState(false);
   const [dashboardRunning, setDashboardRunning] = useState(false);
   const [dashboardUrl, setDashboardUrl] = useState("");
+  const [dbStats, setDbStats] = useState<{ http_requests_count: number; dns_queries_count: number; devices_count: number; app_tags_count: number } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,14 +16,16 @@ export function GeneralTab() {
 
   async function load() {
     try {
-      const [keep, running, url] = await Promise.all([
+      const [keep, running, url, stats] = await Promise.all([
         invoke<boolean>("get_keep_running"),
         invoke<boolean>("is_dashboard_running"),
         invoke<string>("get_dashboard_url").catch(() => ""),
+        invoke<{ http_requests_count: number; dns_queries_count: number; devices_count: number; app_tags_count: number }>("get_db_stats").catch(() => null),
       ]);
       setKeepRunning(keep);
       setDashboardRunning(running);
       setDashboardUrl(url);
+      setDbStats(stats);
     } catch (e) {
       console.error("Failed to load general settings:", e);
     } finally {
@@ -114,6 +117,34 @@ export function GeneralTab() {
           </Button>
         </div>
       </div>
+
+      {/* DB Statistics */}
+      {dbStats && (
+        <div className="card">
+          <div className="flex items-center gap-3 mb-4">
+            <Database size={20} className="text-text-secondary" />
+            <div className="font-medium text-text-primary">Database</div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="text-center p-3 rounded-md" style={{ background: "var(--bg-primary)" }}>
+              <div className="text-2xl font-bold text-accent-blue">{dbStats.http_requests_count.toLocaleString()}</div>
+              <div className="text-xs text-text-muted mt-1">HTTP Requests</div>
+            </div>
+            <div className="text-center p-3 rounded-md" style={{ background: "var(--bg-primary)" }}>
+              <div className="text-2xl font-bold text-accent-green">{dbStats.dns_queries_count.toLocaleString()}</div>
+              <div className="text-xs text-text-muted mt-1">DNS Queries</div>
+            </div>
+            <div className="text-center p-3 rounded-md" style={{ background: "var(--bg-primary)" }}>
+              <div className="text-2xl font-bold text-accent-yellow">{dbStats.devices_count.toLocaleString()}</div>
+              <div className="text-xs text-text-muted mt-1">Devices</div>
+            </div>
+            <div className="text-center p-3 rounded-md" style={{ background: "var(--bg-primary)" }}>
+              <div className="text-2xl font-bold text-accent-purple">{dbStats.app_tags_count.toLocaleString()}</div>
+              <div className="text-xs text-text-muted mt-1">App Tags</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

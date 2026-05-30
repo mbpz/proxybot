@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
-import { Search } from "lucide-react";
+import { Button } from "../ui/Button";
+import { Search, Download, Table2 } from "lucide-react";
 
 interface InterceptedRequest {
   id: string;
@@ -34,6 +36,10 @@ export function TrafficPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({});
   const [loading, setLoading] = useState(true);
+  const [harExporting, setHarExporting] = useState(false);
+  const [harName, setHarName] = useState("");
+  const [showHarDialog, setShowHarDialog] = useState(false);
+  const [normalizedView, setNormalizedView] = useState(false);
 
   useEffect(() => {
     // Start with empty list - requests will come via events
@@ -81,9 +87,60 @@ export function TrafficPage() {
     [requests, selectedId]
   );
 
+  async function exportHar() {
+    if (!harName) return;
+    try {
+      setHarExporting(true);
+      const har = await invoke<{ log: object }>("export_har", { session_name: harName });
+      const path = await invoke<string>("save_har_file", {
+        har_json: JSON.stringify(har),
+        session_name: harName,
+      });
+      setShowHarDialog(false);
+      setHarName("");
+      alert(`HAR exported to: ${path}`);
+    } catch (err) {
+      alert("Export failed: " + String(err));
+    } finally {
+      setHarExporting(false);
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen">
       <FilterBar filters={filters} onChange={setFilters} />
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface-primary">
+        <span className="text-xs text-text-muted">{filteredRequests.length} requests</span>
+        <div className="flex-1" />
+        <Button variant="secondary" size="sm" onClick={() => setNormalizedView(!normalizedView)}>
+          <Table2 size={14} />
+          {normalizedView ? "Raw" : "Normalized"}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setShowHarDialog(true)} disabled={requests.length === 0}>
+          <Download size={14} />
+          Export HAR
+        </Button>
+      </div>
+
+      {/* HAR Export Dialog */}
+      {showHarDialog && (
+        <div className="error-banner mx-4 mt-2" style={{ background: "var(--bg-tertiary)", border: "1px solid var(--accent-blue)", color: "var(--text-primary)" }}>
+          <input
+            type="text"
+            value={harName}
+            onChange={(e) => setHarName(e.target.value)}
+            placeholder="Session name..."
+            style={{ flex: 1 }}
+            onKeyDown={(e) => e.key === "Enter" && exportHar()}
+          />
+          <Button variant="primary" size="sm" onClick={exportHar} disabled={harExporting || !harName}>
+            {harExporting ? "Exporting..." : "Save"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setShowHarDialog(false)}>Cancel</Button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div className="w-3/5 border-r border-border">

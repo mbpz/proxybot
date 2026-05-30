@@ -10,7 +10,9 @@ import { DnsPage } from "./components/dns/DnsPage";
 import { ReplayPage } from "./components/replay/ReplayPage";
 import { ComposerPage } from "./components/composer/ComposerPage";
 import { GraphPage } from "./components/graph/GraphPage";
+import { AlertsPage } from "./components/alerts/AlertsPage";
 import { AiPage } from "./components/ai/AiPage";
+import { GenPage } from "./components/gen/GenPage";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import "./index.css";
 
@@ -24,11 +26,12 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="certs" element={<CertsPage />} />
           <Route path="devices" element={<DevicesPage />} />
           <Route path="dns" element={<DnsPage />} />
-          <Route path="alerts" element={<AiPage />} />
+          <Route path="alerts" element={<AlertsPage />} />
           <Route path="replay" element={<ReplayPage />} />
           <Route path="composer" element={<ComposerPage />} />
           <Route path="graph" element={<GraphPage />} />
-          <Route path="gen" element={<AiPage />} />
+          <Route path="gen" element={<GenPage />} />
+          <Route path="ai" element={<AiPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

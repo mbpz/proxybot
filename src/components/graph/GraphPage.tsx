@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { WaterfallChart } from "./WaterfallChart";
 import { DependencyGraph } from "./DependencyGraph";
 import { AuthStateMachine } from "./AuthStateMachine";
-import { GitBranch, AlertCircle } from "lucide-react";
+import { GitBranch, AlertCircle, RefreshCw } from "lucide-react";
+import { Button } from "../ui/Button";
 
 type ViewType = "waterfall" | "dag" | "auth";
 
@@ -42,10 +43,30 @@ export function GraphPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<GraphData>("get_graph_data", { maxRequests: 100 });
+      const result = await invoke<GraphData>("get_graph_data", { max_requests: 100 });
       setData(result);
     } catch (err) {
       setError(`Failed to load graph data: ${err}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function buildDag() {
+    try {
+      setLoading(true);
+      setError(null);
+      await invoke("build_traffic_dag");
+      const result = await invoke<GraphData>("get_traffic_dag");
+      setData(result);
+    } catch (err) {
+      // Fallback to get_graph_data
+      try {
+        const result = await invoke<GraphData>("get_graph_data", { max_requests: 100 });
+        setData(result);
+      } catch (e2) {
+        setError(`DAG build failed: ${err}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -66,7 +87,7 @@ export function GraphPage() {
       )}
 
       {/* View Selector */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-4 items-center">
         {(["waterfall", "dag", "auth"] as ViewType[]).map((v) => (
           <button
             key={v}
@@ -80,6 +101,11 @@ export function GraphPage() {
             {v === "waterfall" ? "Waterfall" : v === "dag" ? "Dependency" : "Auth Flow"}
           </button>
         ))}
+        <div className="flex-1" />
+        <Button variant="secondary" size="sm" onClick={buildDag} disabled={loading}>
+          <RefreshCw size={14} />
+          Build DAG
+        </Button>
       </div>
 
       {/* Content */}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Download, RefreshCw, Key, AlertCircle } from "lucide-react";
+import { Download, RefreshCw, Key, AlertCircle, Server } from "lucide-react";
+import { Button } from "../ui/Button";
 
 interface CaMetadata {
   created_at: number;
@@ -13,6 +14,8 @@ export function CertsPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [caServerRunning, setCaServerRunning] = useState(false);
+  const [caServerUrl, setCaServerUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,6 +43,27 @@ export function CertsPage() {
       setError(`Failed to export CA: ${err}`);
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function toggleCaServer() {
+    try {
+      setError(null);
+      if (caServerRunning) {
+        setCaServerRunning(false);
+        setCaServerUrl(null);
+      } else {
+        const certPath = await invoke<string>("get_ca_cert_path");
+        const netInfo = await invoke<{ lan_ip: string }>("get_network_info").catch(() => ({ lan_ip: "127.0.0.1" }));
+        const url = await invoke<string>("start_cert_server", {
+          cert_path: certPath,
+          local_ip: netInfo.lan_ip,
+        });
+        setCaServerRunning(true);
+        setCaServerUrl(url);
+      }
+    } catch (err) {
+      setError(`CA Server error: ${err}`);
     }
   }
 
@@ -137,7 +161,25 @@ export function CertsPage() {
             <RefreshCw size={16} />
             {regenerating ? "Regenerating..." : "Regenerate CA"}
           </button>
+          <Button
+            variant={caServerRunning ? "danger" : "secondary"}
+            size="sm"
+            onClick={toggleCaServer}
+          >
+            <Server size={16} />
+            {caServerRunning ? "Stop CA Server" : "Start CA Server"}
+          </Button>
         </div>
+
+        {caServerUrl && (
+          <div className="mt-3 p-3 rounded-md text-sm font-mono" style={{
+            background: "rgba(77,157,224,0.1)",
+            border: "1px solid var(--accent-blue)",
+            color: "var(--accent-blue)",
+          }}>
+            CA Server: {caServerUrl}
+          </div>
+        )}
       </div>
     </div>
   );

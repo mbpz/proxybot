@@ -61,13 +61,14 @@ export function DevicesPage() {
     rule: string | null
   ) {
     try {
+      setError(null);
       await invoke("set_device_rule_override", {
-        macAddress,
+        mac_address: macAddress,
         rule,
       });
       await loadDevices();
     } catch (err) {
-      console.error("Failed to update device rule:", err);
+      setError(String(err));
     }
   }
 
