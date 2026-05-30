@@ -290,7 +290,7 @@ pub fn run() {
             dag::build_traffic_dag,
             dag::get_traffic_dag,
             dag::get_device_dag,
-            get_graph_data,
+            commands::graph::get_graph_data,
             get_ws_frames,
             infer::infer_api_semantics,
             infer::store_inference_result,
