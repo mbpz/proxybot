@@ -140,6 +140,12 @@ export function AlertsPage() {
           <Button variant="secondary" size="sm" onClick={() => { loadAlerts(); loadBaseline(); }}>
             Refresh
           </Button>
+          <Button variant="secondary" size="sm" onClick={async () => {
+            try { await invoke("scan_request_anomalies", { device_id: null, host: "", ip: null, req_body: null, resp_body: null }); loadAlerts(); }
+            catch (err) { setError(String(err)); }
+          }}>
+            Scan Now
+          </Button>
         </div>
 
         {/* Error banner */}

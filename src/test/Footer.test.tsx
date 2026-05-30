@@ -13,6 +13,7 @@ const defaultProps = {
   onEnablePf: () => {},
   onDisablePf: () => {},
   onEnableTun: () => {},
+  onDisableTun: () => {},
   onToggleDashboard: () => {},
 };
 

@@ -52,6 +52,22 @@ export function GraphPage() {
     }
   }
 
+  const [deviceId, setDeviceId] = useState<string>("");
+
+  async function loadDeviceDag() {
+    if (!deviceId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke<GraphData>("get_device_dag", { device_id: parseInt(deviceId) });
+      setData(result);
+    } catch (err) {
+      setError(`Device DAG failed: ${err}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function buildDag() {
     try {
       setLoading(true);
@@ -102,6 +118,10 @@ export function GraphPage() {
           </button>
         ))}
         <div className="flex-1" />
+        <input type="text" value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder="Device ID" style={{ width: 100 }} />
+        <Button variant="secondary" size="sm" onClick={loadDeviceDag} disabled={loading || !deviceId}>
+          Device DAG
+        </Button>
         <Button variant="secondary" size="sm" onClick={buildDag} disabled={loading}>
           <RefreshCw size={14} />
           Build DAG

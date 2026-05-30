@@ -245,6 +245,48 @@ function ApiInferenceTab() {
     }
   }
 
+  async function triggerInference() {
+    if (!sessionId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      await invoke("infer_api_semantics", { session_id: sessionId, device_id: null });
+      loadInferred();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function evaluateInference() {
+    if (!sessionId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke<{ valid: boolean; errors: string[]; score: number }>(
+        "evaluate_inference", { session_id: sessionId }
+      );
+      setError(result.valid ? null : result.errors.join("; "));
+      alert(`Score: ${(result.score * 100).toFixed(0)}% — ${result.valid ? "Valid" : "Issues found"}`);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exportYaml() {
+    if (!sessionId) return;
+    try {
+      const yaml = await invoke<string>("generate_openapi_yaml", { session_id: sessionId });
+      await navigator.clipboard.writeText(yaml);
+      alert("OpenAPI YAML copied to clipboard");
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   async function loadOpenApi() {
     if (!sessionId) return;
     try {
@@ -278,11 +320,27 @@ function ApiInferenceTab() {
             placeholder="session_001"
           />
         </div>
-        <Button variant="primary" size="sm" onClick={loadInferred} disabled={loading}>
+        <Button variant="primary" size="sm" onClick={triggerInference} disabled={loading || !sessionId}>
+          Infer APIs
+        </Button>
+        <Button variant="secondary" size="sm" onClick={loadInferred} disabled={loading}>
           Load APIs
         </Button>
+        <Button variant="secondary" size="sm" onClick={evaluateInference} disabled={loading || !sessionId}>
+          Evaluate
+        </Button>
         <Button variant="secondary" size="sm" onClick={loadOpenApi} disabled={loading || !sessionId}>
-          OpenAPI Spec
+          JSON Spec
+        </Button>
+        <Button variant="secondary" size="sm" onClick={exportYaml} disabled={loading || !sessionId}>
+          YAML Export
+        </Button>
+        <Button variant="secondary" size="sm" onClick={async () => {
+          if (!sessionId) return;
+          try { await invoke("store_inference_result", { session_id: sessionId, inference: { interfaces: [], modules: [], valid: true, errors: [], score: 1.0 } }); alert("Stored"); }
+          catch (err) { setError(String(err)); }
+        }} disabled={loading || !sessionId}>
+          Store
         </Button>
       </div>
 
@@ -573,6 +631,16 @@ function VisionTab() {
             disabled={uploading || !sessionId}
           />
         </label>
+        <Button variant="secondary" size="sm" onClick={async () => {
+          const path = prompt("Enter screenshot file path:");
+          if (path && sessionId) {
+            try { setUploading(true); setError(null); await invoke("analyze_screenshot", { session_id: sessionId, image_path: path }); loadAnalyses(); }
+            catch (err) { setError(String(err)); }
+            finally { setUploading(false); }
+          }
+        }} disabled={!sessionId}>
+          From Path
+        </Button>
         <Button variant="secondary" size="sm" onClick={loadAnalyses} disabled={!sessionId}>
           Load Analyses
         </Button>

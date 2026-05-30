@@ -13,6 +13,7 @@ export function NetworkTab() {
     enablePf,
     disablePf,
     enableTun,
+    disableTun,
   } = useNetwork();
   const [error, setError] = useState("");
 
@@ -85,16 +86,14 @@ export function NetworkTab() {
               </span>
             </div>
           </div>
-          {!tunEnabled && (
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={tunLoading}
-              onClick={() => enableTun(setError)}
-            >
-              {tunLoading ? "..." : "Enable"}
-            </Button>
-          )}
+          <Button
+            variant={tunEnabled ? "danger" : "primary"}
+            size="sm"
+            disabled={tunLoading}
+            onClick={() => tunEnabled ? disableTun(setError) : enableTun(setError)}
+          >
+            {tunLoading ? "..." : tunEnabled ? "Disable" : "Enable"}
+          </Button>
         </div>
       </div>
     </div>

@@ -6,7 +6,7 @@ import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonCard } from "../ui/skeleton";
 import { safeInvokeOr } from "../../utils/safeInvoke";
-import { Shield } from "lucide-react";
+import { Shield, Search } from "lucide-react";
 
 interface Rule {
   pattern: string;
@@ -24,10 +24,45 @@ export function RulesPage() {
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ruleFiles, setRuleFiles] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState("custom.yaml");
+  const [testHost, setTestHost] = useState("");
+  const [matchResult, setMatchResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadRules();
+    loadRuleFiles();
   }, []);
+
+  async function loadRuleFiles() {
+    try {
+      const files = await invoke<string[]>("list_rule_files");
+      setRuleFiles(files);
+    } catch { /* ignore */ }
+  }
+
+  async function handleReorder(rule: Rule, direction: "up" | "down") {
+    const idx = rules.indexOf(rule);
+    if (idx < 0) return;
+    const newIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= rules.length) return;
+    try {
+      await invoke("reorder_rules", { from_index: idx, to_index: newIdx, filename: selectedFile });
+      loadRules();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleMatchHost() {
+    if (!testHost) return;
+    try {
+      const result = await invoke<string | null>("match_host", { host: testHost });
+      setMatchResult(result || "No match");
+    } catch (err) {
+      setMatchResult("Error: " + String(err));
+    }
+  }
 
   async function loadRules() {
     try {
@@ -91,10 +126,18 @@ export function RulesPage() {
           <div className="flex items-center gap-3">
             <span className="panel-title">Rules</span>
             <span className="text-sm text-muted">{rules.length} rules</span>
+            {ruleFiles.length > 0 && (
+              <select value={selectedFile} onChange={async (e) => { setSelectedFile(e.target.value); await loadRules(); }} style={{ width: 160 }}>
+                {ruleFiles.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            )}
           </div>
-          <Button variant="primary" size="sm" onClick={handleAddRule}>
-            + Add Rule
-          </Button>
+          <div className="flex items-center gap-2">
+            <input type="text" value={testHost} onChange={e => setTestHost(e.target.value)} placeholder="Test host..." style={{ width: 160 }} onKeyDown={e => e.key === "Enter" && handleMatchHost()} />
+            <Button variant="secondary" size="sm" onClick={handleMatchHost}><Search size={14} /></Button>
+            {matchResult && <span className="text-xs mono" style={{ color: matchResult === "No match" ? "var(--text-muted)" : "var(--accent-green)" }}>{matchResult}</span>}
+            <Button variant="primary" size="sm" onClick={handleAddRule}>+ Add Rule</Button>
+          </div>
         </div>
 
         {/* Error banner */}
@@ -138,13 +181,17 @@ export function RulesPage() {
                     "repeat(auto-fill, minmax(300px, 1fr))",
                 }}
               >
-                {rules.map((rule) => (
+                {rules.map((rule, i) => (
                   <RuleCard
                     key={`${rule.pattern}-${rule.value}`}
                     rule={rule}
+                    isFirst={i === 0}
+                    isLast={i === rules.length - 1}
                     onEdit={() => handleEditRule(rule)}
                     onDelete={() => handleDeleteRule(rule)}
                     onToggle={(enabled) => handleToggleRule(rule, enabled)}
+                    onMoveUp={() => handleReorder(rule, "up")}
+                    onMoveDown={() => handleReorder(rule, "down")}
                   />
                 ))}
               </div>

@@ -1,4 +1,4 @@
-import { Pencil, Trash2, Check } from "lucide-react";
+import { Pencil, Trash2, Check, ArrowUp, ArrowDown } from "lucide-react";
 
 interface Rule {
   pattern: string;
@@ -12,12 +12,16 @@ interface Rule {
 
 interface RuleCardProps {
   rule: Rule;
+  isFirst?: boolean;
+  isLast?: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onToggle: (enabled: boolean) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
-export function RuleCard({ rule, onEdit, onDelete, onToggle }: RuleCardProps) {
+export function RuleCard({ rule, isFirst, isLast, onEdit, onDelete, onToggle, onMoveUp, onMoveDown }: RuleCardProps) {
   const actionColors: Record<string, string> = {
     DIRECT: "badge-direct",
     PROXY: "badge-proxy",
@@ -52,19 +56,15 @@ export function RuleCard({ rule, onEdit, onDelete, onToggle }: RuleCardProps) {
         {rule.comment && <p className="text-text-muted">{rule.comment}</p>}
       </div>
 
-      <div className="flex justify-end gap-2">
-        <button
-          onClick={onEdit}
-          className="btn btn-ghost btn-sm"
-        >
-          <Pencil size={16} />
-        </button>
-        <button
-          onClick={onDelete}
-          className="btn btn-ghost btn-sm hover:!text-accent-red"
-        >
-          <Trash2 size={16} />
-        </button>
+      <div className="flex justify-between items-center">
+        <div className="flex gap-1">
+          {onMoveUp && <button onClick={onMoveUp} disabled={isFirst} className="btn btn-ghost btn-sm" title="Move up"><ArrowUp size={14} /></button>}
+          {onMoveDown && <button onClick={onMoveDown} disabled={isLast} className="btn btn-ghost btn-sm" title="Move down"><ArrowDown size={14} /></button>}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onEdit} className="btn btn-ghost btn-sm"><Pencil size={16} /></button>
+          <button onClick={onDelete} className="btn btn-ghost btn-sm hover:!text-accent-red"><Trash2 size={16} /></button>
+        </div>
       </div>
     </div>
   );

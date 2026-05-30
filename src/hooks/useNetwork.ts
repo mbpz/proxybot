@@ -66,8 +66,21 @@ export function useNetwork() {
     }
   }, []);
 
+  const disableTun = useCallback(async (onError: (msg: string) => void) => {
+    try {
+      setTunLoading(true);
+      onError("");
+      await invoke<void>("teardown_tun");
+      setTunEnabled(false);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setTunLoading(false);
+    }
+  }, []);
+
   return {
     networkInfo, pfEnabled, pfLoading, tunEnabled, tunLoading,
-    enablePf, disablePf, enableTun,
+    enablePf, disablePf, enableTun, disableTun,
   };
 }

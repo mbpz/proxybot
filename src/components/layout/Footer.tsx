@@ -11,13 +11,14 @@ interface FooterProps {
   onEnablePf: () => void;
   onDisablePf: () => void;
   onEnableTun: () => void;
+  onDisableTun: () => void;
   onToggleDashboard: () => void;
 }
 
 export function Footer({
   networkInfo, pfEnabled, pfLoading, tunEnabled, tunLoading,
   dashboardRunning, dashboardUrl,
-  onEnablePf, onDisablePf, onEnableTun, onToggleDashboard,
+  onEnablePf, onDisablePf, onEnableTun, onDisableTun, onToggleDashboard,
 }: FooterProps) {
   return (
     <div style={{
@@ -63,9 +64,13 @@ export function Footer({
             {pfLoading ? "..." : "Disable pf"}
           </button>
         )}
-        {!tunEnabled && (
+        {!tunEnabled ? (
           <button className="btn btn-sm btn-secondary" onClick={onEnableTun} disabled={tunLoading}>
             {tunLoading ? "..." : "TUN Mode"}
+          </button>
+        ) : (
+          <button className="btn btn-sm btn-secondary" onClick={onDisableTun} disabled={tunLoading}>
+            {tunLoading ? "..." : "Disable TUN"}
           </button>
         )}
         <button

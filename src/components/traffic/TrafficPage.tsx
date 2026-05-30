@@ -7,7 +7,7 @@ import { RequestDetail } from "./RequestDetail";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 import { Button } from "../ui/Button";
-import { Search, Download, Table2 } from "lucide-react";
+import { Search, Download, Table2, Save, FolderOpen } from "lucide-react";
 
 interface InterceptedRequest {
   id: string;
@@ -40,6 +40,10 @@ export function TrafficPage() {
   const [harName, setHarName] = useState("");
   const [showHarDialog, setShowHarDialog] = useState(false);
   const [normalizedView, setNormalizedView] = useState(false);
+  const [normalizedData, setNormalizedData] = useState<InterceptedRequest[]>([]);
+  const [normPage, setNormPage] = useState(1);
+  const [normTotal, setNormTotal] = useState(0);
+  const [normLoading, setNormLoading] = useState(false);
 
   useEffect(() => {
     // Start with empty list - requests will come via events
@@ -87,6 +91,45 @@ export function TrafficPage() {
     [requests, selectedId]
   );
 
+  async function loadNormalized() {
+    try {
+      setNormLoading(true);
+      const result = await invoke<{ records: InterceptedRequest[]; total: number; has_more: boolean }>(
+        "get_traffic_page", { page: normPage, page_size: 50 }
+      );
+      setNormalizedData(result.records);
+      setNormTotal(result.total);
+    } catch (err) {
+      alert("Normalized load failed: " + String(err));
+    } finally {
+      setNormLoading(false);
+    }
+  }
+
+  async function toggleNormalized() {
+    const next = !normalizedView;
+    setNormalizedView(next);
+    if (next) loadNormalized();
+  }
+
+  async function loadHistory() {
+    try {
+      const data = await invoke<InterceptedRequest[]>("load_history", { filter: {}, limit: 1000 });
+      setRequests(data);
+    } catch (err) {
+      alert("Load history failed: " + String(err));
+    }
+  }
+
+  async function saveHistory() {
+    try {
+      await invoke("save_history");
+      alert("Traffic history saved");
+    } catch (err) {
+      alert("Save failed: " + String(err));
+    }
+  }
+
   async function exportHar() {
     if (!harName) return;
     try {
@@ -114,7 +157,13 @@ export function TrafficPage() {
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface-primary">
         <span className="text-xs text-text-muted">{filteredRequests.length} requests</span>
         <div className="flex-1" />
-        <Button variant="secondary" size="sm" onClick={() => setNormalizedView(!normalizedView)}>
+        <Button variant="secondary" size="sm" onClick={loadHistory}>
+          <FolderOpen size={14} /> Load
+        </Button>
+        <Button variant="secondary" size="sm" onClick={saveHistory} disabled={requests.length === 0}>
+          <Save size={14} /> Save
+        </Button>
+        <Button variant="secondary" size="sm" onClick={toggleNormalized}>
           <Table2 size={14} />
           {normalizedView ? "Raw" : "Normalized"}
         </Button>
@@ -143,18 +192,29 @@ export function TrafficPage() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-3/5 border-r border-border">
-          <ErrorBoundary>
-            {loading ? (
-              <SkeletonTable rows={10} />
-            ) : (
-              <RequestTable
-                requests={filteredRequests}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-              />
-            )}
-          </ErrorBoundary>
+        <div className="w-3/5 border-r border-border flex flex-col">
+          <div className="flex-1 overflow-hidden">
+            <ErrorBoundary>
+              {loading || normLoading ? (
+                <SkeletonTable rows={10} />
+              ) : (
+                <RequestTable
+                  requests={normalizedView ? normalizedData : filteredRequests}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              )}
+            </ErrorBoundary>
+          </div>
+          {normalizedView && normTotal > 0 && (
+            <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-surface-primary text-xs text-text-muted">
+              <span>Page {normPage} of {Math.ceil(normTotal / 50)} ({normTotal} total)</span>
+              <div className="flex gap-1">
+                <Button variant="secondary" size="sm" disabled={normPage <= 1} onClick={() => { setNormPage(p => p - 1); setTimeout(loadNormalized, 0); }}>Prev</Button>
+                <Button variant="secondary" size="sm" disabled={normPage * 50 >= normTotal} onClick={() => { setNormPage(p => p + 1); setTimeout(loadNormalized, 0); }}>Next</Button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="w-2/5 overflow-hidden">
           <ErrorBoundary>

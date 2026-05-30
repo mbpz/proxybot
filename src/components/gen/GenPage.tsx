@@ -50,6 +50,17 @@ export function GenPage() {
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployWriteResult, setDeployWriteResult] = useState<string | null>(null);
 
+  async function loadMockEndpoints() {
+    if (!sessionId) return;
+    try {
+      setMockError(null);
+      const endpoints = await invoke<MockEndpoint[]>("get_mock_endpoints", { session_id: sessionId });
+      setMockProject({ name: projectName, base_path: "", endpoints, openapi_spec: "" });
+    } catch (err) {
+      setMockError(String(err));
+    }
+  }
+
   async function generateMock() {
     if (!sessionId) {
       setMockError("Session ID is required");
@@ -220,6 +231,9 @@ export function GenPage() {
                     disabled={mockLoading || !sessionId}
                   >
                     {mockLoading ? "Generating..." : "Generate Mock API"}
+                  </Button>
+                  <Button variant="secondary" onClick={loadMockEndpoints} disabled={!sessionId}>
+                    Load Endpoints
                   </Button>
                   {mockProject && (
                     <>
@@ -517,10 +531,30 @@ function ScaffoldTab({ sessionId, projectName, outputDir }: {
         <Button variant="primary" onClick={generate} disabled={loading || !sessionId}>
           {loading ? "Generating..." : "Generate Scaffold"}
         </Button>
+        <Button variant="secondary" onClick={async () => {
+          if (!sessionId) return;
+          try { setLoading(true); setError(null);
+            const r = await invoke<ScaffoldProject>("generate_scaffold_with_vision", { session_id: sessionId, name: projectName || null });
+            setProject(r);
+          } catch (err) { setError(String(err)); }
+          finally { setLoading(false); }
+        }} disabled={loading || !sessionId}>
+          +Vision
+        </Button>
         {project && (
           <>
             <Button variant="secondary" onClick={write} disabled={loading}>
               Write to Disk
+            </Button>
+            <Button variant="secondary" onClick={async () => {
+              if (!project) return;
+              try { setLoading(true);
+                const r = await invoke<string>("write_scaffold_project_with_vision", { project, output_dir: outputDir || null });
+                setWriteResult(r);
+              } catch (err) { setError(String(err)); }
+              finally { setLoading(false); }
+            }} disabled={loading}>
+              Write+Vision
             </Button>
             <Button variant="secondary" onClick={evaluate} disabled={loading}>
               Evaluate

@@ -85,6 +85,20 @@ export function ReplayPage() {
     }
   }
 
+  const [previewReqs, setPreviewReqs] = useState<{ id: number; method: string; path: string }[]>([]);
+
+  async function loadPreview() {
+    if (!selectedHost) return;
+    try {
+      const reqs = await invoke<{ id: number; method: string; path: string }[]>(
+        "get_requests_for_replay", { host: selectedHost }
+      );
+      setPreviewReqs(reqs);
+    } catch (err) { /* ignore */ }
+  }
+
+  useEffect(() => { if (selectedHost) loadPreview(); }, [selectedHost]);
+
   async function handleStartReplay() {
     if (!selectedHost) return;
     setIsRunning(true);
@@ -167,6 +181,24 @@ export function ReplayPage() {
               {isRunning ? "Replaying..." : "Start Replay"}
             </Button>
           </div>
+
+          {/* Request preview */}
+          {previewReqs.length > 0 && !isRunning && (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <div className="text-xs text-text-muted mb-2">{previewReqs.length} requests ready for replay</div>
+              <div style={{ maxHeight: 120, overflowY: "auto" }}>
+                <table className="table">
+                  <thead><tr><th>Method</th><th>Path</th></tr></thead>
+                  <tbody>
+                    {previewReqs.slice(0, 10).map((r) => (
+                      <tr key={r.id}><td className="text-xs">{r.method}</td><td className="mono text-xs">{r.path}</td></tr>
+                    ))}
+                    {previewReqs.length > 10 && <tr><td colSpan={2} className="text-xs text-text-muted">+{previewReqs.length - 10} more</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Progress */}
           {isRunning && (
