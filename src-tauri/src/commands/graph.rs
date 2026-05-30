@@ -180,7 +180,5 @@ pub fn get_graph_data(
     Ok(GraphData { requests, edges })
 }
 
-#[tauri::command]
-pub fn test_debug_command() -> String {
-    "debug ok".to_string()
-}
+// Non-command test function
+pub fn test_graph_helper() -> i32 { 42 }
