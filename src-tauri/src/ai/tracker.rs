@@ -5,9 +5,29 @@ use crate::commands::ai_stats;
 use crate::db::DbState;
 use crate::proxy::InterceptedRequest;
 
-/// Placeholder for future AI session tracking (e.g., multi-turn chat sessions).
+/// Tracks an AI chat session (multi-turn conversations).
 #[derive(Debug, Clone)]
-pub struct AiSession;
+pub struct AiSession {
+    pub session_id: String,
+    pub provider: String,
+    pub model: String,
+    pub total_tokens: u64,
+    pub request_count: u32,
+    pub created_at: String,
+}
+
+impl AiSession {
+    pub fn new(session_id: String, provider: String, model: String) -> Self {
+        Self {
+            session_id,
+            provider,
+            model,
+            total_tokens: 0,
+            request_count: 0,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+}
 
 pub struct AiTracker {
     db: Arc<DbState>,

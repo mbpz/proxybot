@@ -302,6 +302,7 @@ pub fn run() {
             state_machine::get_auth_state_machine,
             state_machine::get_alerts_cmd,
             state_machine::acknowledge_alert_cmd,
+            state_machine::get_alert_count_state_machine,
             mockgen::generate_mock_project,
             mockgen::write_mock_project,
             mockgen::get_mock_endpoints,

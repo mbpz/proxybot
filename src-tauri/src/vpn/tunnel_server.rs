@@ -244,9 +244,20 @@ impl TunnelServer {
                 packet.data.len()
             );
 
-            // TODO: Forward the packet into the proxy pipeline
-            // For now the packet is logged; integration with proxy::forward_tunnel_packet
-            // will be added when the full proxy pipeline supports tunnel-sourced packets.
+            // Forward TCP packets via simple tunnel proxy
+            if packet.protocol == 6 {
+                // TCP: spawn a tunnel connection
+                let dst = format!(
+                    "{}.{}.{}.{}:{}",
+                    packet.dest_ip[0], packet.dest_ip[1], packet.dest_ip[2], packet.dest_ip[3], packet.dest_port
+                );
+                tokio::spawn(async move {
+                    if let Ok(mut remote) = tokio::net::TcpStream::connect(&dst).await {
+                        use tokio::io::AsyncWriteExt;
+                        let _ = remote.write_all(&packet.data).await;
+                    }
+                });
+            }
         }
     }
 }

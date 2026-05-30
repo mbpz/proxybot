@@ -108,10 +108,8 @@ pub struct Anomaly {
 /// Auth flow extractor from DAG data.
 pub struct AuthFlowExtractor {
     // Token to state mapping
-    #[allow(dead_code)]
     token_states: HashMap<String, AuthState>,
     // Request ID to path mapping
-    #[allow(dead_code)]
     request_paths: HashMap<i64, (String, String)>, // (method, path)
 }
 
@@ -295,6 +293,16 @@ impl AuthFlowExtractor {
                 }
                 _ => {}
             }
+        }
+
+        // Populate internal caches for downstream use
+        for (token, state_id) in &token_to_authenticated {
+            if let Some(state) = states.iter().find(|s| s.id == *state_id) {
+                self.token_states.insert(token.clone(), state.clone());
+            }
+        }
+        for (id, _timestamp, method, _host, path) in nodes {
+            self.request_paths.insert(*id, (method.clone(), path.clone()));
         }
 
         (states, transitions, anomalies)
@@ -504,7 +512,6 @@ pub fn acknowledge_alert(db_state: &DbState, alert_id: i64) -> Result<(), String
 }
 
 /// Get unacknowledged alert count.
-#[allow(dead_code)]
 pub fn get_unacknowledged_alert_count(db_state: &DbState) -> Result<i64, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
     let count: i64 = conn
@@ -659,7 +666,6 @@ pub fn acknowledge_alert_cmd(
 
 /// Get unacknowledged alert count.
 #[tauri::command]
-#[allow(dead_code)]
 pub fn get_alert_count_state_machine(db_state: State<'_, Arc<DbState>>) -> Result<i64, String> {
     get_unacknowledged_alert_count(&db_state)
 }

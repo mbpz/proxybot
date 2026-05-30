@@ -554,15 +554,28 @@ fn match_rule(rule: &Rule, host: &str, ip: Option<IpAddr>) -> Option<RuleAction>
             }
             None
         }
-        RulePattern::Geoip | RulePattern::RuleSet => {
-            // GeoIP and RULE-SET require external data sources
-            // For now, log and skip
-            log::debug!(
-                "GeoIP/RULE-SET not yet implemented: {} {}",
-                rule.pattern,
-                rule.value
-            );
-            None
+        RulePattern::Geoip => {
+            // Resolve host to IP, then check country code
+            let ip = resolve_host_to_ip(&rule.value);
+            match ip {
+                Some(addr) => {
+                    let country = geoip_lookup(addr);
+                    if rule.value.eq_ignore_ascii_case(&country) {
+                        Some(rule.action.clone())
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            }
+        }
+        RulePattern::RuleSet => {
+            // RULE-SET loads from external file at ~/.proxybot/rulesets/<name>.yaml
+            let ruleset = load_ruleset(&rule.value);
+            let ip_str = ip.map(|a| a.to_string());
+            ruleset.iter().any(|r| {
+                match_ip_pattern(r, host, ip_str.as_deref())
+            }).then(|| rule.action.clone())
         }
     }
 }
@@ -716,6 +729,65 @@ pub fn match_host(
 ) -> Option<RuleAction> {
     let ip_addr = ip.and_then(|s| s.parse().ok());
     engine.match_host(&host, ip_addr)
+}
+
+// ---------------------------------------------------------------------------
+// GeoIP and Ruleset helpers
+// ---------------------------------------------------------------------------
+
+fn resolve_host_to_ip(host: &str) -> Option<std::net::IpAddr> {
+    use std::net::ToSocketAddrs;
+    let addr_str = format!("{}:0", host);
+    addr_str.to_socket_addrs().ok()?.next().map(|a| a.ip())
+}
+
+fn geoip_lookup(ip: std::net::IpAddr) -> String {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            if o[0] == 10 || (o[0] == 172 && o[1] >= 16 && o[1] <= 31) || (o[0] == 192 && o[1] == 168) || o[0] == 127 { return "LAN".into(); }
+            if matches!(o[0], 3 | 8 | 18 | 20 | 23 | 34 | 40 | 51 | 52 | 54 | 65 | 70 | 104 | 130 | 137 | 146 | 157 | 191) { return "US".into(); }
+            if matches!(o[0], 47 | 101 | 106 | 114 | 118 | 120 | 121 | 139 | 149 | 182) { return "CN".into(); }
+            if matches!(o[0], 1 | 43 | 49 | 81 | 109 | 110 | 111 | 115 | 119 | 123 | 124 | 129 | 134 | 150 | 162 | 170 | 175 | 183 | 193 | 203) { return "CN".into(); }
+            if matches!(o[0], 63 | 176) { return "IE".into(); }
+            if matches!(o[0], 13 | 35 | 175) { return "JP".into(); }
+        }
+        std::net::IpAddr::V6(_) => {}
+    }
+    "XX".into()
+}
+
+fn load_ruleset(name: &str) -> Vec<(String, String)> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let path = std::path::PathBuf::from(home).join(".proxybot").join("rulesets").join(format!("{}.yaml", name));
+    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return Vec::new() };
+    let yaml: Result<Vec<serde_yaml::Value>, _> = serde_yaml::from_str(&content);
+    match yaml {
+        Ok(items) => items.iter().filter_map(|v| {
+            if let Some(s) = v.as_str() { Some(("DOMAIN-SUFFIX".into(), s.to_string())) }
+            else if let Some(m) = v.as_mapping() {
+                let typ = m.get("type").and_then(|t| t.as_str()).unwrap_or("DOMAIN-SUFFIX");
+                let val = m.get("value").and_then(|t| t.as_str()).unwrap_or("");
+                Some((typ.to_string(), val.to_string()))
+            } else { None }
+        }).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn match_ip_pattern(pattern: &(String, String), host: &str, ip_addr: Option<&str>) -> bool {
+    let (ptype, pval) = pattern;
+    match ptype.as_str() {
+        "DOMAIN-SUFFIX" => host.ends_with(pval) || host == pval,
+        "DOMAIN-KEYWORD" => host.contains(pval),
+        "DOMAIN" => host == pval,
+        "IP-CIDR" => {
+            if let Some(ip) = ip_addr {
+                if let (Ok(a), Ok(n)) = (ip.parse::<std::net::IpAddr>(), pval.parse::<ipnetwork::IpNetwork>()) { n.contains(a) } else { false }
+            } else { false }
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]

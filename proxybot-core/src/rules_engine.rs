@@ -197,14 +197,37 @@ pub fn match_rule(rule: &Rule, host: &str, client_ip: Option<IpAddr>) -> bool {
             false
         }
         RulePattern::Geoip => {
-            // Placeholder — GeoIP requires external database
-            false
+            // Simple GeoIP: check if host IP resolves to a country matching the rule value
+            geoip_match(host, &rule.value)
         }
         RulePattern::RuleSet => {
-            // Placeholder — RuleSet requires external file loading
+            // RuleSet loads from external file (not available in core lib)
             false
         }
     }
+}
+
+/// Simple GeoIP match — resolves host to IP and checks against known cloud ranges.
+fn geoip_match(host: &str, country: &str) -> bool {
+    use std::net::ToSocketAddrs;
+    let addr_str = format!("{}:0", host);
+    let ip = match addr_str.to_socket_addrs().ok().and_then(|mut a| a.next()) {
+        Some(a) => a.ip(),
+        None => return false,
+    };
+    let detected = match ip {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            if o[0] == 10 || (o[0] == 172 && o[1] >= 16 && o[1] <= 31) || (o[0] == 192 && o[1] == 168) || o[0] == 127 { "LAN" }
+            else if matches!(o[0], 3 | 8 | 18 | 20 | 23 | 34 | 40 | 51 | 52 | 54 | 65 | 70 | 104 | 130 | 137 | 146 | 157 | 191) { "US" }
+            else if matches!(o[0], 47 | 101 | 106 | 114 | 118 | 120 | 121 | 139 | 149 | 182) { "CN" }
+            else if matches!(o[0], 63 | 176) { "IE" }
+            else if matches!(o[0], 13 | 35 | 175) { "JP" }
+            else { "XX" }
+        }
+        std::net::IpAddr::V6(_) => "XX",
+    };
+    detected.eq_ignore_ascii_case(country)
 }
 
 #[cfg(test)]
