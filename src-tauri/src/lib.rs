@@ -4,6 +4,9 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
+// Re-export proxybot-core types for shared use
+pub use proxybot_core as core;
+
 pub mod adb;
 pub mod ai;
 pub mod anomaly;

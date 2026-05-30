@@ -17,8 +17,11 @@ use tauri::State;
 use tokio::sync::mpsc;
 
 /// Rule action types.
+fn default_priority() -> u8 { 100 }
+fn default_enabled() -> bool { true }
+
+/// Rule action types.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE", tag = "type", content = "target")]
 pub enum RuleAction {
     Direct,
     Proxy,
@@ -93,14 +96,6 @@ pub struct Rule {
     pub enabled: bool,
     #[serde(default)]
     pub comment: String,
-}
-
-fn default_priority() -> u8 {
-    100
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 /// Raw YAML structure for a single rule file.
