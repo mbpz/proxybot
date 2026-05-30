@@ -108,20 +108,17 @@ pub struct LineDiff {
 
 /// Replay session state.
 pub struct ReplayState {
-    #[allow(dead_code)]
     pub mock_port: u16,
-    #[allow(dead_code)]
-    pub is_running: bool,
-    #[allow(dead_code)]
-    pub results: Vec<ReplayResult>,
+    pub is_running: std::sync::Mutex<bool>,
+    pub results: std::sync::Mutex<Vec<ReplayResult>>,
 }
 
 impl Default for ReplayState {
     fn default() -> Self {
         Self {
             mock_port: 19998,
-            is_running: false,
-            results: Vec::new(),
+            is_running: std::sync::Mutex::new(false),
+            results: std::sync::Mutex::new(Vec::new()),
         }
     }
 }
@@ -246,12 +243,17 @@ pub fn get_recorded_responses(
 #[tauri::command]
 pub async fn start_replay(
     state: State<'_, Arc<DbState>>,
+    replay_state: State<'_, Arc<ReplayState>>,
     host: String,
     delay_ms: u64,
 ) -> Result<Vec<ReplayResult>, String> {
+    // Mark replay as running
+    *replay_state.is_running.lock().unwrap() = true;
+
     // Get requests for this host
     let requests = get_requests_for_replay(state.clone(), host.clone())?;
     if requests.is_empty() {
+        *replay_state.is_running.lock().unwrap() = false;
         return Err("No requests found for this host".to_string());
     }
 
@@ -431,6 +433,10 @@ pub async fn start_replay(
 
     // Shutdown mock server
     drop(server_handle);
+
+    // Store results and mark replay as done
+    *replay_state.results.lock().unwrap() = results.clone();
+    *replay_state.is_running.lock().unwrap() = false;
 
     Ok(results)
 }

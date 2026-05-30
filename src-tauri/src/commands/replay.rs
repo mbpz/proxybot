@@ -44,8 +44,27 @@ pub struct ReplayOutcome {
 
 #[tauri::command]
 pub fn save_replay_target(target: ReplayTargetConfig) -> Result<(), String> {
-    // TODO: persist to config / DB
-    let _ = target;
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::PathBuf::from(home).join(".proxybot");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("replay_targets.json");
+
+    let mut targets: Vec<ReplayTargetConfig> = if path.exists() {
+        let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // Update existing or push new
+    if let Some(existing) = targets.iter_mut().find(|t| t.id == target.id) {
+        *existing = target;
+    } else {
+        targets.push(target);
+    }
+
+    let json = serde_json::to_string_pretty(&targets).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
 }
 

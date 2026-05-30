@@ -43,7 +43,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 serde_yaml = "0.9"
 notify = "8"
 ipnetwork = "0.20"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], default-features = false }
 sha1 = "0.10"
 base64 = "0.22"
 futures-util = "0.3"

@@ -2883,8 +2883,45 @@ pub fn hide_window(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn replay_request(id: String) -> Result<String, String> {
-    Ok(format!("Replay of {} not yet implemented", id))
+pub fn replay_request(
+    db_state: State<'_, Arc<DbState>>,
+    id: i64,
+) -> Result<String, String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    let (method, host, path, req_headers_json, req_body): (
+        String, String, String, String, Option<Vec<u8>>,
+    ) = conn
+        .query_row(
+            "SELECT method, host, path, req_headers, req_body FROM http_requests WHERE id = ?1",
+            rusqlite::params![id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .map_err(|e| format!("Request not found: {}", e))?;
+
+    let url = format!("https://{}{}", host, path);
+    let headers: Vec<(String, String)> =
+        serde_json::from_str(&req_headers_json).unwrap_or_default();
+
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut req = client.request(
+        reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
+        &url,
+    );
+    for (k, v) in &headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    if let Some(body) = &req_body {
+        req = req.body(body.clone());
+    }
+
+    let resp = req.send().map_err(|e| format!("Replay failed: {}", e))?;
+    let status = resp.status().as_u16();
+    let body = resp.text().unwrap_or_default();
+    Ok(format!("{} {} → {} ({} bytes)", method, url, status, body.len()))
 }
 
 #[cfg(test)]
