@@ -14,6 +14,7 @@
 //! ```
 
 pub mod protocol;
+pub mod quic;
 pub mod tcp_proxy;
 pub mod types;
 

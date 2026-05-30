@@ -182,3 +182,51 @@ pub fn teardown_pf_transport() -> Result<(), String> {
 pub fn is_pf_transport_enabled() -> bool {
     is_pf_enabled()
 }
+
+// ─── Windows WFP (Windows Filtering Platform) stubs ──────────────────────
+
+/// Set up Windows Filtering Platform rules for transparent proxying.
+///
+/// On Windows, pfctl is not available. Instead, WFP (Windows Filtering Platform)
+/// is used to redirect traffic. This requires the `windows-sys` crate and
+/// administrator privileges.
+///
+/// Current status: stub — full WFP integration requires the windows-sys crate
+/// and testing on a Windows machine. See docs/sdd/windows-wfp.md for details.
+#[cfg(windows)]
+pub fn setup_pf(_interface: String, _local_ip: String) -> Result<String, String> {
+    Err(
+        "Windows transparent proxy via WFP is not yet implemented.\n\
+         Use the manual proxy mode instead:\n\
+         Settings → Network → Proxy → Manual → 127.0.0.1:8088".into(),
+    )
+}
+
+#[cfg(windows)]
+pub fn teardown_pf() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn is_pf_enabled() -> bool {
+    false
+}
+
+#[cfg(windows)]
+pub fn setup_pf_transport(
+    _interface: String,
+    _local_ip: String,
+    _transport_port: u16,
+) -> Result<String, String> {
+    Err("Transport-layer proxy not available on Windows".into())
+}
+
+#[cfg(windows)]
+pub fn teardown_pf_transport() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn is_pf_transport_enabled() -> bool {
+    false
+}

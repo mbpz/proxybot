@@ -146,9 +146,9 @@ See [full competitive analysis](docs/sdd/competitors-analysis.md) for details.
 - ✅ **Project file management** — Save/restore capture sessions (workspace module)
 - ✅ **Mobile web dashboard** — Lightweight mitmweb-style remote access (Settings → General → Mobile Dashboard)
 
-### v2.0.0 (部分完成)
-- ❌ Windows support (WFP transparent proxy)
-- ❌ HTTP/3 & QUIC research/prototype
+### v2.0.0 (进行中)
+- 🚧 Windows support (WFP transparent proxy) — stub ready, needs windows-sys + testing
+- 🚧 HTTP/3 & QUIC research/prototype — QUIC packet detection + research doc
 - ✅ **Transport-layer TCP/UDP proxy** — Protocol detection, SNI extraction, pass-through
 
 ## Development

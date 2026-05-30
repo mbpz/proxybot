@@ -40,6 +40,15 @@
   .ai-badge { background: #bc8cff22; color: var(--purple); padding: 1px 6px; border-radius: 3px; font-size: 10px; }
   .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #8b949e; }
   .error-banner { background: #da363322; color: var(--red); padding: 8px 16px; text-align: center; font-size: 12px; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 16px; background: var(--surface); }
+  .tab { padding: 8px 16px; font-size: 12px; color: #8b949e; cursor: pointer; border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .dns-item { padding: 6px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .dns-domain { flex: 1; color: var(--blue); }
+  .dns-ips { color: var(--green); font-size: 11px; }
+  .device-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 8px; }
+  .device-name { font-weight: 600; font-size: 14px; }
+  .device-stats { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: #8b949e; }
 </style>
 </head>
 <body>
@@ -52,11 +61,22 @@
   </div>
 </div>
 <div id="errorBar" class="error-banner" style="display:none"></div>
-<div class="container">
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('traffic')" id="tabTraffic">Traffic</div>
+  <div class="tab" onclick="switchTab('dns')" id="tabDns">DNS</div>
+  <div class="tab" onclick="switchTab('devices')" id="tabDevices">Devices</div>
+</div>
+<div class="container" id="tabTrafficContent">
   <div class="request-list" id="requestList"></div>
   <div class="detail-panel" id="detailPanel">
     <div class="empty-state">Select a request to view details</div>
   </div>
+</div>
+<div class="container" id="tabDnsContent" style="display:none">
+  <div class="request-list" id="dnsList" style="width:100%"></div>
+</div>
+<div class="container" id="tabDevicesContent" style="display:none">
+  <div style="padding:16px;width:100%;overflow-y:auto" id="devicesList"></div>
 </div>
 <script>
   let requests = [];
@@ -154,6 +174,57 @@
   function escapeHtml(s) {
     if (!s) return '';
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function switchTab(tab) {
+    ['traffic','dns','devices'].forEach(t => {
+      document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.toggle('active', t===tab);
+      document.getElementById('tab'+t.charAt(0).toUpperCase()+t.slice(1)+'Content').style.display = t===tab ? 'flex' : 'none';
+    });
+    if (tab === 'dns') pollDns();
+    if (tab === 'devices') pollDevices();
+  }
+
+  async function pollDns() {
+    if (!token) return;
+    try {
+      const res = await fetch(apiUrl('/api/dns'));
+      if (res.status === 401) return;
+      const data = await res.json();
+      document.getElementById('dnsList').innerHTML = data.map(d => `
+        <div class="dns-item">
+          <span class="dns-domain">${escapeHtml(d.domain)}</span>
+          <span class="dns-ips">${(d.resolved_ips||[]).join(', ') || '\u2014'}</span>
+          ${d.app_name ? `<span class="ai-badge">${d.app_name}</span>` : ''}
+        </div>
+      `).join('') || '<div class="empty-state">No DNS queries yet</div>';
+    } catch(e) {}
+  }
+
+  async function pollDevices() {
+    if (!token) return;
+    try {
+      const res = await fetch(apiUrl('/api/devices'));
+      if (res.status === 401) return;
+      const data = await res.json();
+      document.getElementById('devicesList').innerHTML = data.map(d => `
+        <div class="device-card">
+          <div class="device-name">${escapeHtml(d.name || d.mac_address)}</div>
+          <div class="device-stats">
+            <span>↑ ${formatBytes(d.upload_bytes)}</span>
+            <span>↓ ${formatBytes(d.download_bytes)}</span>
+            <span>Last: ${d.last_seen_at || '\u2014'}</span>
+          </div>
+        </div>
+      `).join('') || '<div class="empty-state">No devices connected</div>';
+    } catch(e) {}
+  }
+
+  function formatBytes(b) {
+    if (!b) return '0 B';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
   }
 
   poll();
