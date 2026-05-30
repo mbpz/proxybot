@@ -109,8 +109,7 @@ struct ProxyContext {
 struct DeviceContext {
     device_id: i64,
     device_name: String,
-    #[allow(dead_code)]
-    ip_address: String,
+    pub ip_address: String,
 }
 
 fn timestamp_now() -> String {

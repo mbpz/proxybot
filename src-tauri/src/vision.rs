@@ -176,7 +176,6 @@ fn parse_vision_response(raw: &str) -> Result<Vec<VisionComponent>, String> {
 // Database
 // ============================================================================
 
-#[allow(dead_code)]
 pub fn init_vision_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"

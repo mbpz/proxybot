@@ -20,7 +20,6 @@ pub struct CertManager {
     /// Serialized PEM of the CA private key (for signing leaf certs)
     ca_key_pem: Mutex<String>,
     /// Cached leaf certificates: host -> (cert_pem, key_pem)
-    #[allow(dead_code)]
     host_certs: Mutex<HashMap<String, (String, String)>>,
 }
 
@@ -189,12 +188,10 @@ impl CertManager {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn get_ca_key_pem(&self) -> String {
         self.ca_key_pem.lock().unwrap().clone()
     }
 
-    #[allow(dead_code)]
     pub fn generate_host_cert(&self, host: &str) -> Result<(String, String), String> {
         let mut host_certs = self.host_certs.lock().map_err(|e| e.to_string())?;
 
