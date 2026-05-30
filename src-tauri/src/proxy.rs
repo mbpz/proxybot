@@ -109,6 +109,7 @@ struct ProxyContext {
 struct DeviceContext {
     device_id: i64,
     device_name: String,
+    #[allow(dead_code)]
     pub ip_address: String,
 }
 
