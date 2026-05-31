@@ -1,4 +1,4 @@
-import { Pencil, Trash2, Check } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 
 interface Rule {
   pattern: string;
@@ -18,41 +18,45 @@ interface RuleCardProps {
 }
 
 export function RuleCard({ rule, onEdit, onDelete, onToggle }: RuleCardProps) {
-  const actionColors: Record<string, string> = {
-    DIRECT: "badge-direct",
-    PROXY: "badge-proxy",
-    REJECT: "badge-reject",
-    MAPREMOTE: "badge-info",
-    MAPLOCAL: "badge-warning",
-  };
+  const isEnabled = rule.enabled;
+  const domain = `${rule.pattern}:${rule.value}`;
+  const ruleType = rule.action;
+  const category = rule.comment || "general";
+  const blocked = 0; // Placeholder - actual implementation would track this
 
   return (
-    <div className={`card hover:border-border-light transition-colors cursor-pointer ${!rule.enabled ? "opacity-50" : ""}`}>
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onToggle(!rule.enabled)}
-            className={`w-8 h-5 rounded-full flex items-center justify-center transition-colors ${
-              rule.enabled ? "bg-accent-blue" : "bg-surface-tertiary"
-            }`}
-          >
-            <Check size={14} className="text-white" />
-          </button>
-          <h3 className="font-semibold text-text-primary">{rule.name || "Unnamed Rule"}</h3>
-        </div>
-        <span className={`badge ${actionColors[rule.action] || "badge-unknown"}`}>
-          {rule.action}
+    <div
+      className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg hover:bg-surface-tertiary transition-colors cursor-pointer"
+      onClick={onEdit}
+    >
+      {/* Toggle switch */}
+      <div
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(!isEnabled);
+        }}
+        className={`w-9 h-5.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+          isEnabled
+            ? 'bg-accent-red/40 border border-accent-red/50'
+            : 'bg-surface-tertiary border border-border'
+        }`}
+      >
+        <span className={`text-xs font-medium ${isEnabled ? 'text-accent-red' : 'text-text-muted'}`}>
+          {isEnabled ? 'ON' : 'OFF'}
         </span>
       </div>
 
-      <div className="space-y-1 text-sm text-text-secondary mb-3">
-        <p>
-          <span className="font-medium">{rule.pattern}:</span> {rule.value}
-        </p>
-        {rule.comment && <p className="text-text-muted">{rule.comment}</p>}
+      {/* Domain and rule type */}
+      <div className="flex-1 min-w-0">
+        <div className="text-text-primary font-mono text-sm truncate">{domain}</div>
+        <div className="text-text-muted text-xs">{ruleType} • {category}</div>
       </div>
 
-      <div className="flex justify-end gap-2">
+      {/* Blocked count */}
+      <span className="text-accent-red text-xs shrink-0">{blocked} blocked</span>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onEdit}
           className="btn btn-ghost btn-sm"

@@ -92,9 +92,9 @@ export function RulesPage() {
             <span className="panel-title">Rules</span>
             <span className="text-sm text-muted">{rules.length} rules</span>
           </div>
-          <Button variant="primary" size="sm" onClick={handleAddRule}>
-            + Add Rule
-          </Button>
+          <button className="btn btn-sm bg-accent-blue text-black hover:bg-accent-blue/80" onClick={handleAddRule}>
+            + New Rule
+          </button>
         </div>
 
         {/* Error banner */}
