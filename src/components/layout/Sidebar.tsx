@@ -49,10 +49,14 @@ export function Sidebar() {
     >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
-        {!collapsed && <span className="font-bold">ProxyBot</span>}
+        {!collapsed && (
+          <span className="font-bold text-accent-blue tracking-wider">
+            PROXYBOT
+          </span>
+        )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="p-1 hover:bg-surface-tertiary rounded"
+          className="p-1 hover:bg-surface-tertiary rounded text-text-secondary hover:text-text-primary transition-colors"
         >
           {collapsed ? <Menu size={20} /> : <X size={20} />}
         </button>
@@ -67,10 +71,10 @@ export function Sidebar() {
               key={item.path}
               to={item.path}
               title={collapsed ? item.label : undefined}
-              className={`flex items-center gap-3 mx-2 px-4 py-2.5 rounded-lg hover:bg-surface-secondary transition-colors ${
+              className={`flex items-center gap-3 mx-2 px-4 py-2.5 rounded-lg transition-all duration-200 ${
                 isActive
-                  ? "bg-surface-secondary border-l-4 border-accent-blue"
-                  : "border-l-4 border-transparent"
+                  ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"
+                  : "border-l-2 border-transparent text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
               }`}
             >
               <span className={isActive ? "text-accent-blue" : ""}>{item.icon}</span>
@@ -85,10 +89,10 @@ export function Sidebar() {
         <Link
           to="/settings"
           title={collapsed ? "Settings" : undefined}
-          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-surface-secondary transition-colors ${
+          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
             location.pathname === "/settings"
-              ? "bg-surface-secondary border-l-4 border-accent-blue"
-              : "border-l-4 border-transparent"
+              ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"
+              : "border-l-2 border-transparent text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
           }`}
         >
           <span className={location.pathname === "/settings" ? "text-accent-blue" : ""}>
