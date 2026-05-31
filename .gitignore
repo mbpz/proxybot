@@ -51,6 +51,10 @@ homebrew-proxybot/
 .env
 .env.*
 
+# Pencil design files
+*.pen
+/proxybot-*.png
+
 # Generated Rust files
 # (handled by src-tauri/target/ above)
 
