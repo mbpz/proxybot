@@ -131,52 +131,74 @@ export function DevicesPage() {
                 </div>
               </div>
             ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>MAC</th>
-                    <th>Last Seen</th>
-                    <th>Upload</th>
-                    <th>Download</th>
-                    <th>Rule Override</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {devices.map((device) => (
-                    <tr
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                {devices.map((device) => {
+                  const isOnline =
+                    Date.now() - new Date(device.last_seen_at).getTime() < 60000;
+                  const statusColor = isOnline
+                    ? "var(--accent-green)"
+                    : "var(--text-muted)";
+                  return (
+                    <div
                       key={device.id}
                       onClick={() =>
                         setSelectedDevice(
                           selectedDevice?.id === device.id ? null : device
                         )
                       }
-                      style={{
-                        cursor: "pointer",
-                        background:
-                          selectedDevice?.id === device.id
-                            ? "var(--bg-tertiary)"
-                            : undefined,
-                      }}
+                      className={`
+                        bg-gradient-to-br from-surface-elevated to-surface-secondary
+                        border border-border rounded-lg
+                        hover:border-accent-cyan/40 hover:shadow-lg hover:shadow-accent-cyan/5
+                        transition-all duration-200 p-4 cursor-pointer
+                        ${selectedDevice?.id === device.id ? "border-accent-cyan/60" : ""}
+                      `}
                     >
-                      <td className="text-sm font-medium">{device.name}</td>
-                      <td className="mono text-xs" style={{ color: "var(--text-muted)" }}>
-                        {device.mac_address}
-                      </td>
-                      <td className="text-xs" style={{ color: "var(--text-muted)" }}>
-                        {formatTime(device.last_seen_at)}
-                      </td>
-                      <td>
-                        <span className="text-xs" style={{ color: "var(--accent-green)" }}>
-                          {formatBytes(device.upload_bytes)}
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div
+                            style={{
+                              background: statusColor,
+                              boxShadow: `0 0 8px ${statusColor}`,
+                            }}
+                            className="w-2.5 h-2.5 rounded-full"
+                          />
+                          <span className="text-primary font-medium">
+                            {device.name}
+                          </span>
+                        </div>
+                        <span
+                          className="mono text-xs text-muted"
+                        >
+                          {device.mac_address}
                         </span>
-                      </td>
-                      <td>
-                        <span className="text-xs" style={{ color: "var(--accent-blue)" }}>
-                          {formatBytes(device.download_bytes)}
+                      </div>
+                      <div className="flex items-center gap-4 mt-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs" style={{ color: "var(--accent-green)" }}>
+                            <svg className="w-3 h-3 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M12 19V5M5 12l7-7 7 7" />
+                            </svg>
+                          </span>
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            {formatBytes(device.upload_bytes)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs" style={{ color: "var(--accent-blue)" }}>
+                            <svg className="w-3 h-3 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M12 5v14M5 12l7 7 7-7" />
+                            </svg>
+                          </span>
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            {formatBytes(device.download_bytes)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                        <span className="text-xs text-muted">
+                          {formatTime(device.last_seen_at)}
                         </span>
-                      </td>
-                      <td>
                         <select
                           value={device.rule_override || ""}
                           onChange={(e) => {
@@ -187,26 +209,23 @@ export function DevicesPage() {
                             );
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          style={{
-                            background: "var(--bg-tertiary)",
-                            border: "1px solid var(--border)",
-                            borderRadius: "var(--radius-md)",
-                            padding: "var(--space-1) var(--space-2)",
-                            fontSize: "var(--text-xs)",
-                            color: "var(--text-primary)",
-                            width: 90,
-                          }}
+                          className="
+                            bg-bg-tertiary border border-border rounded-md
+                            px-2 py-1 text-xs text-primary
+                            focus:outline-none focus:border-accent-cyan/40
+                          "
+                          style={{ width: 90 }}
                         >
                           <option value="">Default</option>
                           <option value="DIRECT">DIRECT</option>
                           <option value="PROXY">PROXY</option>
                           <option value="REJECT">REJECT</option>
                         </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </ErrorBoundary>
         </div>
