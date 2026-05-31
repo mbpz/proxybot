@@ -228,3 +228,99 @@ test.describe("Design System", () => {
     expect(bgColor).not.toBe("rgb(255, 255, 255)");
   });
 });
+
+// ============================================================
+// Data Binding Tests (verify mock data renders)
+// ============================================================
+
+test.describe("Data Binding", () => {
+  test("alerts page shows severity filters", async ({ page }) => {
+    await page.goto("/alerts");
+    // Severity filter buttons should always render
+    await expect(page.getByText("All")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Scan Now")).toBeVisible();
+  });
+
+  test("cert page shows Export/Regenerate/Start buttons", async ({ page }) => {
+    await page.goto("/certs");
+    await expect(page.getByText("Export CA")).toBeVisible();
+    await expect(page.getByText("Regenerate CA")).toBeVisible();
+    await expect(page.getByText("Start CA Server")).toBeVisible();
+  });
+
+  test("devices page shows refresh", async ({ page }) => {
+    await page.goto("/devices");
+    await expect(page.getByText("Refresh")).toBeVisible();
+  });
+
+  test("dns tab shows DoH/UDP controls", async ({ page }) => {
+    await page.goto("/dns");
+    await expect(page.getByText("DoH")).toBeVisible();
+    await expect(page.getByText("UDP")).toBeVisible();
+  });
+
+  test("ai page shows AI Analysis title", async ({ page }) => {
+    await page.goto("/ai");
+    await expect(page.locator("h1")).toBeVisible();
+  });
+
+  test("settings shows Keep Running", async ({ page }) => {
+    await page.goto("/settings");
+    await expect(page.getByText("Keep Running")).toBeVisible();
+    await expect(page.getByText("Mobile Dashboard")).toBeVisible();
+  });
+
+  test("replay shows delay input", async ({ page }) => {
+    await page.goto("/replay");
+    await expect(page.locator('input[type="number"]')).toBeVisible();
+  });
+
+  test("graph shows view buttons", async ({ page }) => {
+    await page.goto("/graph");
+    await expect(page.getByText("Waterfall")).toBeVisible();
+    await expect(page.getByText("Dependency")).toBeVisible();
+  });
+
+  test("composer has URL input", async ({ page }) => {
+    await page.goto("/composer");
+    await expect(page.locator("input").first()).toBeVisible();
+  });
+
+  test("gen has session input", async ({ page }) => {
+    await page.goto("/gen");
+    await expect(page.locator('input[placeholder="e.g. session_001"]')).toBeVisible();
+  });
+});
+
+// ============================================================
+// Interaction Tests
+// ============================================================
+
+test.describe("Interactions", () => {
+  test("clicking sidebar nav item changes active state", async ({ page }) => {
+    await page.goto("/");
+    // Traffic should be active
+    const trafficLink = page.locator("aside a[href='/']");
+    await expect(trafficLink).toHaveClass(/border-accent-blue/);
+
+    // Click Rules
+    await page.click("aside a[href='/rules']");
+    await expect(page).toHaveURL("/rules");
+  });
+
+  test("alert tab shows content when clicked", async ({ page }) => {
+    await page.goto("/alerts");
+    // Click Baseline tab
+    await page.locator("button.tab", { hasText: "Baseline" }).click();
+    // Should become active
+    await expect(page.locator("button.tab.active", { hasText: "Baseline" })).toBeVisible();
+  });
+
+  test("ai tabs are all clickable", async ({ page }) => {
+    await page.goto("/ai");
+    for (const tab of ["Token Usage", "API Inference", "Auth Flow", "Vision"]) {
+      await page.locator("button.tab", { hasText: tab }).click();
+      await expect(page.locator("button.tab.active", { hasText: tab })).toBeVisible();
+    }
+  });
+});
