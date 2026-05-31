@@ -183,22 +183,28 @@ pub fn is_pf_transport_enabled() -> bool {
     is_pf_enabled()
 }
 
-// ─── Windows WFP (Windows Filtering Platform) stubs ──────────────────────
+// ─── Windows WFP (Windows Filtering Platform) ─────────────────────────
+//
+// Windows transparent proxy uses the Windows Filtering Platform (WFP) API
+// instead of macOS pfctl. Full implementation requires:
+//
+//   1. windows-sys or winapi crate with WFP bindings
+//   2. Administrator privileges (run as admin)
+//   3. WFP callout driver for TCP stream redirection
+//
+// API contract (implement when Windows target is available):
+//   setup_pf(interface, local_ip) → redirects TCP 80/443 → local proxy port
+//   teardown_pf() → removes WFP filters
+//   is_pf_enabled() → checks WFP filter state
+//
+// Current stub returns manual proxy instructions.
 
-/// Set up Windows Filtering Platform rules for transparent proxying.
-///
-/// On Windows, pfctl is not available. Instead, WFP (Windows Filtering Platform)
-/// is used to redirect traffic. This requires the `windows-sys` crate and
-/// administrator privileges.
-///
-/// Current status: stub — full WFP integration requires the windows-sys crate
-/// and testing on a Windows machine. See docs/sdd/windows-wfp.md for details.
 #[cfg(windows)]
 pub fn setup_pf(_interface: String, _local_ip: String) -> Result<String, String> {
     Err(
         "Windows transparent proxy via WFP is not yet implemented.\n\
-         Use the manual proxy mode instead:\n\
-         Settings → Network → Proxy → Manual → 127.0.0.1:8088".into(),
+         Use manual proxy mode: Settings → Network → Proxy → 127.0.0.1:8088\n\
+         WFP API integration requires windows-sys or winapi crate.".into(),
     )
 }
 
