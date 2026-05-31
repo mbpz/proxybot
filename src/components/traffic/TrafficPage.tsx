@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
 import { ErrorBoundary } from "../ui/error-boundary";
@@ -82,11 +81,28 @@ export function TrafficPage() {
   );
 
   return (
-    <div className="flex flex-col h-screen">
-      <FilterBar filters={filters} onChange={setFilters} />
+    <div className="flex flex-col h-full">
+      {/* Top Toolbar */}
+      <div className="h-14 bg-surface-secondary border-b border-border flex items-center justify-between px-5">
+        <div className="flex items-center gap-3">
+          <button className="btn btn-sm bg-accent-green text-black">Start Proxy</button>
+          <button className="btn btn-sm bg-accent-red text-white">Stop</button>
+          <div className="w-px h-6 bg-border mx-2"></div>
+          <input
+            className="w-60 bg-bg-primary border-border text-text-primary text-sm"
+            placeholder="Filter by domain..."
+          />
+        </div>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="text-accent-blue">● Proxy Running</span>
+          <span className="text-text-muted">12:34:56</span>
+        </div>
+      </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-3/5 border-r border-border">
+      {/* Main content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Connection list - 320px */}
+        <div className="w-80 border-r border-border overflow-y-auto">
           <ErrorBoundary>
             {loading ? (
               <SkeletonTable rows={10} />
@@ -99,7 +115,8 @@ export function TrafficPage() {
             )}
           </ErrorBoundary>
         </div>
-        <div className="w-2/5 overflow-hidden">
+        {/* Request detail - flex */}
+        <div className="flex-1 overflow-y-auto">
           <ErrorBoundary>
             {selectedRequest ? (
               <RequestDetail request={selectedRequest} />

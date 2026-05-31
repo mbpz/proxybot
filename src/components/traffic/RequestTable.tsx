@@ -83,8 +83,12 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
             <div
               key={req.id}
               onClick={() => onSelect(req.id)}
-              className={`absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer border-b border-border request-row ${
-                isSelected ? "selected" : isEven ? "bg-surface-secondary" : ""
+              className={`absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer border-b border-border request-row border-l-4 ${
+                isSelected
+                  ? "border-l-accent-blue bg-surface-tertiary"
+                  : isEven
+                  ? "border-l-transparent bg-surface-secondary"
+                  : "border-l-transparent"
               }`}
               style={{
                 height: `${virtualRow.size}px`,
