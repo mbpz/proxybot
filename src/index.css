@@ -30,25 +30,25 @@
    CSS Variables — Design Tokens
    ============================================ */
 :root {
-  /* Colors — neutral dark gray (Proxyman/VS Code style) */
-  --bg-primary: #1c1c1e;
-  --bg-secondary: #2c2c2e;
-  --bg-tertiary: #3a3a3c;
-  --bg-elevated: #48484a;
+  /* Colors — Cyberpunk Dark */
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-tertiary: #1a1a2e;
+  --bg-elevated: #16162a;
 
-  --text-primary: #f5f5f7;
-  --text-secondary: #a1a1a6;
-  --text-muted: #636366;
+  --text-primary: #ffffff;
+  --text-secondary: #8888aa;
+  --text-muted: #666688;
 
-  --border: #38383a;
-  --border-light: #48484a;
+  --border: #1e1e2e;
+  --border-light: #2a2a4a;
 
-  /* Accents */
-  --accent-blue: #4d9de0;
+  /* Accents — Neon */
+  --accent-blue: #00d4ff;
   --accent-green: #3ecf8e;
   --accent-yellow: #f4d35e;
-  --accent-red: #e76f51;
-  --accent-purple: #9b5de5;
+  --accent-red: #ff4d4d;
+  --accent-purple: #a855f7;
 
   /* Method badges */
   --method-get: #3ecf8e;
@@ -103,6 +103,12 @@
 
   /* Content max height for scrollable areas */
   --content-max-h: 600px;
+
+  /* Glow effects for tech aesthetic */
+  --glow-cyan: 0 0 8px rgba(0, 212, 255, 0.5);
+  --glow-purple: 0 0 8px rgba(168, 85, 247, 0.5);
+  --glow-green: 0 0 8px rgba(62, 207, 142, 0.5);
+  --glow-red: 0 0 8px rgba(255, 77, 77, 0.5);
 }
 
 /* ============================================
