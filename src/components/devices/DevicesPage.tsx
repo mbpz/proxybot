@@ -91,144 +91,132 @@ export function DevicesPage() {
     });
   }
 
-  return (
+   return (
     <div>
-      <div className="panel">
-        {/* Header */}
-        <div className="panel-header">
-          <div className="flex items-center gap-3">
-            <span className="panel-title">Devices</span>
-            <span className="text-sm text-muted">
-              {devices.length} registered
-            </span>
-          </div>
+      {/* Header */}
+      <div
+        style={{
+          height: 48,
+          padding: "0 16px",
+          background: "#12121a",
+          borderBottom: "1px solid #1e1e2e",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span style={{ color: "#fff", fontSize: 14 }}>
+          Connected Devices ({devices.length})
+        </span>
+        <button
+          style={{
+            padding: "6px 12px",
+            borderRadius: 4,
+            background: "#00d4ff20",
+            border: "1px solid #00d4ff",
+            color: "#00d4ff",
+            fontSize: 11,
+            cursor: "pointer",
+          }}
+          onClick={loadDevices}
+        >
+          + Add Device
+        </button>
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="error-banner mx-4 mt-2">
+          <span className="error-banner-message">{error}</span>
           <Button variant="secondary" size="sm" onClick={loadDevices}>
-            Refresh
+            Retry
           </Button>
         </div>
+      )}
 
-        {/* Error banner */}
-        {error && (
-          <div className="error-banner mx-4 mt-2">
-            <span className="error-banner-message">{error}</span>
-            <Button variant="secondary" size="sm" onClick={loadDevices}>
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {/* Content */}
-        <div style={{ maxHeight: 500, overflowY: "auto" }}>
-          <ErrorBoundary>
-            {loading ? (
-              <SkeletonTable rows={5} />
-            ) : devices.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">📱</div>
-                <div className="empty-state-title">No devices</div>
-                <div className="empty-state-description">
-                  Devices are registered when they connect through the proxy.
-                </div>
+      {/* Content */}
+      <div style={{ maxHeight: 500, overflowY: "auto" }}>
+        <ErrorBoundary>
+          {loading ? (
+            <SkeletonTable rows={5} />
+          ) : devices.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">📱</div>
+              <div className="empty-state-title">No devices</div>
+              <div className="empty-state-description">
+                Devices are registered when they connect through the proxy.
               </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                {devices.map((device) => {
-                  const isOnline =
-                    Date.now() - new Date(device.last_seen_at).getTime() < 60000;
-                  const statusColor = isOnline
-                    ? "var(--accent-green)"
-                    : "var(--text-muted)";
-                  return (
-                    <div
-                      key={device.id}
-                      onClick={() =>
-                        setSelectedDevice(
-                          selectedDevice?.id === device.id ? null : device
-                        )
-                      }
-                      className={`
-                        bg-gradient-to-br from-surface-elevated to-surface-secondary
-                        border border-border rounded-lg
-                        hover:border-accent-cyan/40 hover:shadow-lg hover:shadow-accent-cyan/5
-                        transition-all duration-200 p-4 cursor-pointer
-                        ${selectedDevice?.id === device.id ? "border-accent-cyan/60" : ""}
-                      `}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div
-                            style={{
-                              background: statusColor,
-                              boxShadow: `0 0 8px ${statusColor}`,
-                            }}
-                            className="w-2.5 h-2.5 rounded-full"
-                          />
-                          <span className="text-primary font-medium">
-                            {device.name}
-                          </span>
-                        </div>
-                        <span
-                          className="mono text-xs text-muted"
-                        >
+            </div>
+          ) : (
+            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {devices.map((device) => {
+                const isOnline =
+                  Date.now() - new Date(device.last_seen_at).getTime() < 60000;
+                const statusColor = isOnline ? "var(--accent-green)" : "var(--accent-purple)";
+                return (
+                  <div
+                    key={device.id}
+                    onClick={() =>
+                      setSelectedDevice(
+                        selectedDevice?.id === device.id ? null : device
+                      )
+                    }
+                    className="device-card"
+                    style={{
+                      padding: 12,
+                      borderRadius: 8,
+                      background: "linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%)",
+                      border: "1px solid rgba(0, 212, 255, 0.25)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                      cursor: "pointer",
+                      transition: "border-color 0.2s, box-shadow 0.2s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(0, 212, 255, 0.5)";
+                      e.currentTarget.style.boxShadow = "0 0 12px rgba(0, 212, 255, 0.2)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(0, 212, 255, 0.25)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
+                  >
+                    {/* Card Header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={{ color: "var(--text-primary)", fontSize: 14 }}>
+                          {device.name}
+                        </span>
+                        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
                           {device.mac_address}
                         </span>
                       </div>
-                      <div className="flex items-center gap-4 mt-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs" style={{ color: "var(--accent-green)" }}>
-                            <svg className="w-3 h-3 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 19V5M5 12l7-7 7 7" />
-                            </svg>
-                          </span>
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {formatBytes(device.upload_bytes)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs" style={{ color: "var(--accent-blue)" }}>
-                            <svg className="w-3 h-3 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 5v14M5 12l7 7 7-7" />
-                            </svg>
-                          </span>
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {formatBytes(device.download_bytes)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                        <span className="text-xs text-muted">
-                          {formatTime(device.last_seen_at)}
-                        </span>
-                        <select
-                          value={device.rule_override || ""}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            updateDeviceRuleOverride(
-                              device.mac_address,
-                              e.target.value || null
-                            );
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="
-                            bg-bg-tertiary border border-border rounded-md
-                            px-2 py-1 text-xs text-primary
-                            focus:outline-none focus:border-accent-cyan/40
-                          "
-                          style={{ width: 90 }}
-                        >
-                          <option value="">Default</option>
-                          <option value="DIRECT">DIRECT</option>
-                          <option value="PROXY">PROXY</option>
-                          <option value="REJECT">REJECT</option>
-                        </select>
-                      </div>
+                      <div
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          background: statusColor,
+                          boxShadow: `0 0 8px ${statusColor}`,
+                        }}
+                      />
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </ErrorBoundary>
-        </div>
+                    {/* Stats */}
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                        Req: {device.upload_bytes.toLocaleString()}
+                      </span>
+                      <span style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                        Data: {formatBytes(device.upload_bytes + device.download_bytes)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ErrorBoundary>
       </div>
 
       {/* Device topology */}

@@ -87,12 +87,24 @@ export function RulesPage() {
     <div>
       <div className="panel">
         {/* Header */}
-        <div className="panel-header">
-          <div className="flex items-center gap-3">
-            <span className="panel-title">Rules</span>
-            <span className="text-sm text-muted">{rules.length} rules</span>
-          </div>
-          <button className="btn btn-sm bg-accent-blue text-black hover:bg-accent-blue/80" onClick={handleAddRule}>
+        <div
+          className="flex items-center justify-between px-4"
+          style={{
+            height: 48,
+            background: '#12121a',
+            borderBottom: '1px solid #1e1e2e',
+          }}
+        >
+          <span className="text-[#fff] text-[14px]">Blocking Rules</span>
+          <button
+            className="text-[#000] text-[11px] font-medium rounded"
+            onClick={handleAddRule}
+            style={{
+              padding: '6px 12px',
+              background: '#22c55e',
+              borderRadius: 4,
+            }}
+          >
             + New Rule
           </button>
         </div>
@@ -132,10 +144,11 @@ export function RulesPage() {
               </div>
             ) : (
               <div
-                className="grid gap-4"
+                className="grid"
                 style={{
-                  gridTemplateColumns:
-                    "repeat(auto-fill, minmax(300px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+                  gap: 6,
+                  padding: 12,
                 }}
               >
                 {rules.map((rule) => (

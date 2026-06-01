@@ -1,7 +1,5 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MethodBadge } from "../ui/Badge";
-import { getStatusTailwindClass } from "../../utils";
 import { Radio } from "lucide-react";
 
 interface InterceptedRequest {
@@ -22,16 +20,22 @@ interface RequestTableProps {
   onSelect: (id: string) => void;
 }
 
-function formatTime(timestamp: number): string {
-  const d = new Date(timestamp * 1000);
-  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
-}
+const APP_COLORS = {
+  WeChat: 'var(--accent-green)',
+  Douyin: 'var(--accent-purple)',
+  Alipay: 'var(--accent-blue)',
+  Blocked: 'var(--accent-red)',
+} as const;
 
 function formatSize(bytes?: number): string {
   if (!bytes) return "-";
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function getAppColor(appTag: string): string {
+  return APP_COLORS[appTag as keyof typeof APP_COLORS] || 'var(--text-secondary)';
 }
 
 export function RequestTable({ requests, selectedId, onSelect }: RequestTableProps) {
@@ -56,60 +60,45 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
   }
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto">
-      {/* Header */}
-      <div className="flex items-center px-3 py-2 text-xs font-mono uppercase bg-surface-tertiary border-b border-border text-text-secondary sticky top-0 z-10 shadow-sm">
-        <span className="w-20">Method</span>
-        <span className="flex-1">Host / Path</span>
-        <span className="w-16 text-center">Status</span>
-        <span className="w-16 text-center">Size</span>
-        <span className="w-20 text-right">Time</span>
-      </div>
-
-      {/* Virtual rows */}
-      <div
-        style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-          width: "100%",
-          position: "relative",
-        }}
-      >
+    <div ref={parentRef} className="h-full overflow-auto bg-bg-primary">
+      {/* Traffic Rows Container */}
+      <div className="flex flex-col gap-1 p-3" style={{ gap: 4 }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const req = requests[virtualRow.index];
           const isSelected = req.id === selectedId;
-          const isEven = virtualRow.index % 2 === 0;
 
           return (
             <div
               key={req.id}
               onClick={() => onSelect(req.id)}
-              className={`absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer border-b border-border request-row border-l-4 ${
-                isSelected
-                  ? "border-l-accent-blue bg-surface-tertiary"
-                  : isEven
-                  ? "border-l-transparent bg-surface-secondary"
-                  : "border-l-transparent"
-              }`}
+              className="flex items-center cursor-pointer"
               style={{
                 height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
+                padding: '10px 12px',
+                gap: 12,
+                background: isSelected ? '#00d4ff14' : 'transparent',
+                borderLeft: isSelected ? '2px solid #00d4ff' : '2px solid transparent',
+                fontFamily: 'Inter',
               }}
             >
-              <span className="w-20">
-                <MethodBadge method={req.method} />
+              <span className="flex-1 truncate" style={{ fontSize: 13, color: '#fff', fontFamily: 'Inter' }}>
+                {req.host}
               </span>
-              <span className="flex-1 truncate text-sm">
-                <span className="font-mono text-text-primary">{req.host}</span>
-                <span className="text-text-muted">{req.path}</span>
+              <span className="w-24 flex justify-center" style={{ fontFamily: 'Inter', fontSize: 11 }}>
+                {req.app_tag && (
+                  <span
+                    style={{
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      color: getAppColor(req.app_tag),
+                    }}
+                  >
+                    {req.app_tag}
+                  </span>
+                )}
               </span>
-              <span className={`w-16 text-center text-sm font-mono ${getStatusTailwindClass(req.status)}`}>
-                {req.status || ".."}
-              </span>
-              <span className="w-16 text-center text-xs text-text-muted font-mono">
+              <span className="w-20 text-right" style={{ fontSize: 11, color: '#8888aa', fontFamily: 'Inter' }}>
                 {formatSize(req.size)}
-              </span>
-              <span className="w-20 text-right text-xs text-text-muted font-mono">
-                {formatTime(req.timestamp)}
               </span>
             </div>
           );

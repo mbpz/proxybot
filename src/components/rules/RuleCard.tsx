@@ -26,34 +26,38 @@ export function RuleCard({ rule, onEdit, onDelete, onToggle }: RuleCardProps) {
 
   return (
     <div
-      className="flex items-center gap-3 p-3 bg-surface-secondary rounded-lg hover:bg-surface-tertiary transition-colors cursor-pointer"
+      className="flex items-center gap-3 p-2 px-3 bg-[#12121a] rounded-lg hover:bg-surface-tertiary transition-colors cursor-pointer"
       onClick={onEdit}
+      style={{ gap: 12 }}
     >
-      {/* Toggle switch */}
+      {/* Toggle switch - 36x22px with cornerRadius 4 */}
       <div
         onClick={(e) => {
           e.stopPropagation();
           onToggle(!isEnabled);
         }}
-        className={`w-9 h-5.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+        className={`w-9 h-[22px] rounded flex items-center justify-center transition-all cursor-pointer ${
           isEnabled
-            ? 'bg-accent-red/40 border border-accent-red/50'
-            : 'bg-surface-tertiary border border-border'
+            ? 'bg-[#ff4d4d40] border border-[#ff4d4d50]'
+            : 'bg-[#22c55e40] border border-[#2a2a4a]'
         }`}
+        style={{ borderWidth: 1 }}
       >
-        <span className={`text-xs font-medium ${isEnabled ? 'text-accent-red' : 'text-text-muted'}`}>
+        <span className={`text-[11px] font-medium ${isEnabled ? 'text-[#ff6b6b]' : 'text-[#22c55e]'}`}>
           {isEnabled ? 'ON' : 'OFF'}
         </span>
       </div>
 
       {/* Domain and rule type */}
       <div className="flex-1 min-w-0">
-        <div className="text-text-primary font-mono text-sm truncate">{domain}</div>
-        <div className="text-text-muted text-xs">{ruleType} • {category}</div>
+        <div className="text-[#fff] font-mono text-[13px] truncate" style={{ fontFamily: 'JetBrains Mono, monospace' }}>{domain}</div>
+        <div className="text-[#666688] text-[10px]">{ruleType} • {category}</div>
       </div>
 
-      {/* Blocked count */}
-      <span className="text-accent-red text-xs shrink-0">{blocked} blocked</span>
+      {/* Blocked count or paused */}
+      <span className={isEnabled ? 'text-[#ff6b6b] text-[11px] shrink-0' : 'text-[#666688] text-[11px] shrink-0'}>
+        {isEnabled ? `${blocked} blocked` : 'paused'}
+      </span>
 
       {/* Action buttons */}
       <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
