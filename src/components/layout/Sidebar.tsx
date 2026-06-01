@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  Activity,
+  Menu,
+  X,
+  List,
   Shield,
   Key,
   Smartphone,
@@ -19,177 +22,81 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-const monitorItems: NavItem[] = [
-  { path: "/", label: "Traffic", icon: <Activity size={18} /> },
-  { path: "/rules", label: "Rules", icon: <Shield size={18} /> },
-];
-
-const toolsItems: NavItem[] = [
-  { path: "/certs", label: "Certs", icon: <Key size={18} /> },
-  { path: "/devices", label: "Devices", icon: <Smartphone size={18} /> },
-  { path: "/dns", label: "DNS", icon: <Globe size={18} /> },
-  { path: "/alerts", label: "Alerts", icon: <AlertTriangle size={18} /> },
-  { path: "/replay", label: "Replay", icon: <PlayCircle size={18} /> },
-  { path: "/graph", label: "Graph", icon: <GitBranch size={18} /> },
-  { path: "/composer", label: "Composer", icon: <Send size={18} /> },
-  { path: "/gen", label: "Gen", icon: <Wand2 size={18} /> },
+const navItems: NavItem[] = [
+  { path: "/", label: "Traffic", icon: <List size={20} /> },
+  { path: "/rules", label: "Rules", icon: <Shield size={20} /> },
+  { path: "/certs", label: "Certs", icon: <Key size={20} /> },
+  { path: "/devices", label: "Devices", icon: <Smartphone size={20} /> },
+  { path: "/dns", label: "DNS", icon: <Globe size={20} /> },
+  { path: "/alerts", label: "Alerts", icon: <AlertTriangle size={20} /> },
+  { path: "/replay", label: "Replay", icon: <PlayCircle size={20} /> },
+  { path: "/graph", label: "Graph", icon: <GitBranch size={20} /> },
+  { path: "/composer", label: "Composer", icon: <Send size={20} /> },
+  { path: "/gen", label: "Gen", icon: <Wand2 size={20} /> },
 ];
 
 export function Sidebar() {
+  const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
 
   return (
     <aside
-      className="flex flex-col"
-      style={{
-        width: 200,
-        height: "100vh",
-        backgroundColor: "var(--bg-secondary)",
-        color: "var(--text-primary)",
-        borderRight: "1px solid var(--border)",
-      }}
+      className={`flex flex-col bg-surface-primary text-text-primary h-screen border-r border-border transition-all duration-200 ${
+        collapsed ? "w-16" : "w-52"
+      }`}
     >
       {/* Header */}
-      <div
-        className="flex items-center gap-3"
-        style={{ height: 56, padding: "20px 16px" }}
-      >
-        <div
-          className="rounded"
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 6,
-            backgroundColor: "var(--accent-blue)",
-          }}
-        />
-        <span
-          className="font-bold"
-          style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: "var(--accent-blue)",
-            letterSpacing: 3,
-          }}
+      <div className="flex items-center justify-between p-4 border-b border-border">
+        {!collapsed && (
+          <span className="font-bold text-accent-blue tracking-wider">
+            PROXYBOT
+          </span>
+        )}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="p-1 hover:bg-surface-tertiary rounded text-text-secondary hover:text-text-primary transition-colors"
         >
-          PROXYBOT
-        </span>
+          {collapsed ? <Menu size={20} /> : <X size={20} />}
+        </button>
       </div>
 
-      {/* Divider */}
-      <div className="border-t" style={{ borderColor: "var(--border)" }} />
-
-      {/* Nav Section - MONITOR */}
+      {/* Nav Items */}
       <nav className="flex-1 py-4">
-        <div className="px-4 pb-2" style={{ paddingBottom: 6 }}>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              letterSpacing: 2,
-            }}
-          >
-            MONITOR
-          </span>
-        </div>
-        {monitorItems.map((item) => {
+        {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
             <Link
               key={item.path}
               to={item.path}
-              className="flex items-center rounded transition-all duration-200"
-              style={{
-                padding: "10px 16px",
-                gap: 12,
-                marginLeft: 16,
-                marginRight: 16,
-                backgroundColor: isActive ? "rgba(0, 212, 255, 0.08)" : "transparent",
-                borderLeft: isActive ? "2px solid var(--accent-blue)" : "2px solid transparent",
-                color: isActive ? "var(--accent-blue)" : "var(--text-secondary)",
-              }}
+              title={collapsed ? item.label : undefined}
+              className={`flex items-center gap-3 mx-2 px-4 py-2.5 rounded-lg transition-all duration-200 ${
+                isActive
+                  ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"
+                  : "border-l-2 border-transparent text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
+              }`}
             >
-              <span style={{ color: isActive ? "var(--accent-blue)" : "var(--text-secondary)" }}>
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-
-        {/* Divider */}
-        <div className="border-t my-3" style={{ borderColor: "var(--border)" }} />
-
-        <div className="px-4 pb-2" style={{ paddingBottom: 6 }}>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--text-muted)",
-              letterSpacing: 2,
-            }}
-          >
-            TOOLS
-          </span>
-        </div>
-        {toolsItems.map((item) => {
-          const isActive = location.pathname === item.path;
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className="flex items-center rounded transition-all duration-200"
-              style={{
-                padding: "10px 16px",
-                gap: 12,
-                marginLeft: 16,
-                marginRight: 16,
-                backgroundColor: isActive ? "rgba(0, 212, 255, 0.08)" : "transparent",
-                borderLeft: isActive ? "2px solid var(--accent-blue)" : "2px solid transparent",
-                color: isActive ? "var(--accent-blue)" : "var(--text-secondary)",
-              }}
-            >
-              <span style={{ color: isActive ? "var(--accent-blue)" : "var(--text-secondary)" }}>
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
+              <span className={isActive ? "text-accent-blue" : ""}>{item.icon}</span>
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer - Settings */}
-      <div className="border-t" style={{ borderColor: "var(--border)" }}>
+      {/* Footer */}
+      <div className="p-3 border-t border-border">
         <Link
           to="/settings"
-          className="flex items-center rounded transition-all duration-200"
-          style={{
-            padding: "10px 16px",
-            gap: 12,
-            marginLeft: 16,
-            marginRight: 16,
-            marginTop: 12,
-            marginBottom: 12,
-            backgroundColor:
-              location.pathname === "/settings"
-                ? "rgba(0, 212, 255, 0.08)"
-                : "transparent",
-            borderLeft:
-              location.pathname === "/settings"
-                ? "2px solid var(--accent-blue)"
-                : "2px solid transparent",
-            color: location.pathname === "/settings" ? "var(--accent-blue)" : "var(--text-secondary)",
-          }}
+          title={collapsed ? "Settings" : undefined}
+          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
+            location.pathname === "/settings"
+              ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"
+              : "border-l-2 border-transparent text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
+          }`}
         >
-          <span
-            style={{
-              color: location.pathname === "/settings" ? "var(--accent-blue)" : "var(--text-secondary)",
-            }}
-          >
-            <Settings size={18} />
+          <span className={location.pathname === "/settings" ? "text-accent-blue" : ""}>
+            <Settings size={20} />
           </span>
-          <span>Settings</span>
+          {!collapsed && <span>Settings</span>}
         </Link>
       </div>
     </aside>
