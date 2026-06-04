@@ -64,7 +64,7 @@ use anomaly::{
 };
 use cert::CertManager;
 use db::DbState;
-use deploy::{generate_deployment_bundle, write_deployment_bundle};
+use deploy::{generate_deployment_bundle, get_last_deployment, git_init_deployment, write_deployment_bundle};
 use dns::DnsState;
 #[allow(unused_imports)]
 use mockgen::{generate_mock_project, get_mock_endpoints, start_mock_server, write_mock_project};
@@ -322,6 +322,8 @@ pub fn run() {
             fuse_vision_with_api,
             generate_deployment_bundle,
             write_deployment_bundle,
+            git_init_deployment,
+            get_last_deployment,
             commands::ai_stats::get_ai_stats,
             commands::ai_stats::get_ai_context_windows,
             start_dashboard,
