@@ -561,6 +561,25 @@ pub fn git_init_deployment(
     Ok(result)
 }
 
+/// Inner testable logic for `get_last_deployment`.
+pub fn get_last_deployment_inner(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    project_name: &str,
+) -> Result<Option<crate::db::DeploymentRecord>, String> {
+    crate::db::get_deployment(conn, session_id, project_name)
+}
+
+#[tauri::command]
+pub fn get_last_deployment(
+    db: State<'_, Arc<DbState>>,
+    session_id: String,
+    project_name: String,
+) -> Result<Option<crate::db::DeploymentRecord>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    get_last_deployment_inner(&conn, &session_id, &project_name)
+}
+
 /// Generate a deployment bundle (in-memory, no files written).
 #[tauri::command]
 pub fn generate_deployment_bundle(
@@ -1073,5 +1092,25 @@ mod tests {
         assert!(tmp.join(".gitignore").exists());
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_get_last_deployment_returns_none_when_missing() {
+        use crate::db::DbState;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+        let result = get_last_deployment_inner(&conn, "nope", "nope");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_last_deployment_returns_record() {
+        use crate::db::DbState;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+        crate::db::upsert_deployment(&conn, "s1", "p1", "/x", None).unwrap();
+        let rec = get_last_deployment_inner(&conn, "s1", "p1").unwrap().unwrap();
+        assert_eq!(rec.bundle_path, "/x");
     }
 }
