@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 // All invoke() calls will fail gracefully (error states shown),
 // but the page structure (tabs, buttons, inputs) should still render.
 
-test.describe("Navigation — All 11 Pages", () => {
+test.describe("Navigation — All 12 Pages", () => {
   const pages = [
     { name: "Traffic", path: "/" },
     { name: "Rules", path: "/rules" },
@@ -17,13 +17,16 @@ test.describe("Navigation — All 11 Pages", () => {
     { name: "Graph", path: "/graph" },
     { name: "Gen", path: "/gen" },
     { name: "AI", path: "/ai" },
+    { name: "Deploy", path: "/deploy" },
   ];
 
   for (const { name, path } of pages) {
     test(`${name} page loads (${path})`, async ({ page }) => {
       await page.goto(path);
-      // Every page should have the sidebar visible
-      await expect(page.getByText("ProxyBot")).toBeVisible({ timeout: 5000 });
+      // Every page should have the sidebar visible.
+      // Scope to aside so the deploy form's "proxybot_deployment" path
+      // text doesn't trigger a strict-mode collision on /deploy.
+      await expect(page.locator("aside").getByText("ProxyBot")).toBeVisible({ timeout: 5000 });
       // Should not show a blank page
       const body = page.locator("body");
       await expect(body).toBeVisible();
@@ -34,7 +37,7 @@ test.describe("Navigation — All 11 Pages", () => {
 test.describe("Sidebar Navigation", () => {
   test("sidebar has all nav items", async ({ page }) => {
     await page.goto("/");
-    const labels = ["Traffic", "Rules", "Certs", "Devices", "DNS", "Alerts", "Replay", "Graph", "Composer", "Gen", "AI"];
+    const labels = ["Traffic", "Rules", "Certs", "Devices", "DNS", "Alerts", "Replay", "Graph", "Composer", "Gen", "AI", "Deploy"];
     for (const label of labels) {
       // Sidebar links use Link components with text
       await expect(page.locator("aside").getByText(label)).toBeVisible();
@@ -160,8 +163,8 @@ test.describe("Graph Page", () => {
 test.describe("Gen Page", () => {
   test("has all generate tabs", async ({ page }) => {
     await page.goto("/gen");
-    // All three tabs should exist
-    const tabs = ["Mock API", "Scaffold", "Deploy"];
+    // Mock API and Scaffold tabs should exist (Deploy moved to its own page)
+    const tabs = ["Mock API", "Scaffold"];
     for (const t of tabs) {
       await expect(page.locator("button.tab", { hasText: t })).toBeVisible();
     }
@@ -171,12 +174,6 @@ test.describe("Gen Page", () => {
     await page.goto("/gen");
     await page.click("text=Scaffold");
     await expect(page.getByText("Generate Scaffold")).toBeVisible();
-  });
-
-  test("deploy tab shows Generate button", async ({ page }) => {
-    await page.goto("/gen");
-    await page.click("text=Deploy");
-    await expect(page.getByText("Generate Deployment Bundle")).toBeVisible();
   });
 });
 
