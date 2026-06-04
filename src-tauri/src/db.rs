@@ -4,7 +4,7 @@
 //! Tables: http_requests, dns_queries, devices, app_tags
 
 use rusqlite::{Connection, Result as SqlResult};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -343,6 +343,24 @@ impl DbState {
                 );
                 CREATE INDEX IF NOT EXISTS idx_ws_frames_request_id ON ws_frames(request_id);
                 ALTER TABLE http_requests ADD COLUMN is_websocket INTEGER NOT NULL DEFAULT 0;
+                "#,
+            ),
+            (
+                4,
+                "Add deployments table for Deploy panel persistence",
+                r#"
+                CREATE TABLE IF NOT EXISTS deployments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    project_name TEXT NOT NULL,
+                    bundle_path TEXT NOT NULL,
+                    last_git_init_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(session_id, project_name)
+                );
+                CREATE INDEX IF NOT EXISTS idx_deployments_session_project
+                    ON deployments(session_id, project_name);
                 "#,
             ),
         ];
@@ -795,6 +813,81 @@ pub struct AiTokenStats {
     pub requests: i64,
 }
 
+/// Deployment record persisted per (session_id, project_name) for the Deploy panel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentRecord {
+    pub id: i64,
+    pub session_id: String,
+    pub project_name: String,
+    pub bundle_path: String,
+    pub last_git_init_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Insert or update a deployment record for (session_id, project_name).
+///
+/// On conflict, `bundle_path` is overwritten with the new value. `last_git_init_at`
+/// is treated as a monotonic timestamp: passing `Some(_)` overwrites the previous
+/// value, but passing `None` preserves any prior value via COALESCE. This ensures
+/// that re-writing the bundle record (e.g. for a new deployment of an existing
+/// project) does not erase the original "when was git last initialized" timestamp.
+pub fn upsert_deployment(
+    conn: &Connection,
+    session_id: &str,
+    project_name: &str,
+    bundle_path: &str,
+    last_git_init_at: Option<&str>,
+) -> Result<(), String> {
+    let now = chrono_lite_timestamp();
+    conn.execute(
+        r#"
+        INSERT INTO deployments
+            (session_id, project_name, bundle_path, last_git_init_at, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        ON CONFLICT(session_id, project_name) DO UPDATE SET
+            bundle_path = excluded.bundle_path,
+            last_git_init_at = COALESCE(excluded.last_git_init_at, deployments.last_git_init_at),
+            updated_at = excluded.updated_at
+        "#,
+        rusqlite::params![session_id, project_name, bundle_path, last_git_init_at, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Fetch a deployment record for (session_id, project_name), or None if absent.
+pub fn get_deployment(
+    conn: &Connection,
+    session_id: &str,
+    project_name: &str,
+) -> Result<Option<DeploymentRecord>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, project_name, bundle_path, last_git_init_at, created_at, updated_at
+             FROM deployments WHERE session_id = ?1 AND project_name = ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt
+        .query_map(rusqlite::params![session_id, project_name], |row| {
+            Ok(DeploymentRecord {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                project_name: row.get(2)?,
+                bundle_path: row.get(3)?,
+                last_git_init_at: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    match rows.next() {
+        Some(Ok(rec)) => Ok(Some(rec)),
+        Some(Err(e)) => Err(e.to_string()),
+        None => Ok(None),
+    }
+}
+
 impl DbState {
     /// Record AI token usage from the tracker.
     ///
@@ -938,5 +1031,40 @@ mod tests {
             .query_row("SELECT response_size FROM http_requests LIMIT 1", [], |row| row.get(0))
             .unwrap();
         assert_eq!(size, 1024);
+    }
+
+    #[test]
+    fn test_deployments_table_upsert_and_get() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        // Initial upsert with a git-init timestamp
+        upsert_deployment(&conn, "sess1", "proj1", "/tmp/proj1", Some("2026-06-04T00:00:00Z")).unwrap();
+        let rec = get_deployment(&conn, "sess1", "proj1").unwrap().unwrap();
+        assert_eq!(rec.session_id, "sess1");
+        assert_eq!(rec.project_name, "proj1");
+        assert_eq!(rec.bundle_path, "/tmp/proj1");
+        assert_eq!(rec.last_git_init_at, Some("2026-06-04T00:00:00Z".to_string()));
+
+        // Upserting with None preserves the existing last_git_init_at (COALESCE semantics)
+        upsert_deployment(&conn, "sess1", "proj1", "/tmp/proj1_v2", None).unwrap();
+        let rec = get_deployment(&conn, "sess1", "proj1").unwrap().unwrap();
+        assert_eq!(rec.bundle_path, "/tmp/proj1_v2");
+        assert_eq!(
+            rec.last_git_init_at,
+            Some("2026-06-04T00:00:00Z".to_string()),
+            "Re-write with None must preserve prior git-init timestamp"
+        );
+
+        // Explicitly passing a new timestamp overwrites
+        upsert_deployment(&conn, "sess1", "proj1", "/tmp/proj1_v3", Some("2026-06-05T00:00:00Z")).unwrap();
+        let rec = get_deployment(&conn, "sess1", "proj1").unwrap().unwrap();
+        assert_eq!(rec.bundle_path, "/tmp/proj1_v3");
+        assert_eq!(rec.last_git_init_at, Some("2026-06-05T00:00:00Z".to_string()));
+
+        // Missing returns None
+        let none = get_deployment(&conn, "sess1", "missing").unwrap();
+        assert!(none.is_none());
     }
 }
