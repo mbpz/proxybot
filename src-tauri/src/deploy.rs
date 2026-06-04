@@ -525,6 +525,42 @@ fn get_frontend_routes(
 // Tauri Commands
 // ============================================================================
 
+/// Inner testable logic for `git_init_deployment`.
+/// Splits the Tauri-State wrapper so we can unit-test it.
+pub fn git_init_deployment_inner(path: &str) -> Result<DeploymentResult, String> {
+    let base_path = PathBuf::from(path);
+    if !base_path.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    init_git_repo(&base_path)?;
+    Ok(DeploymentResult {
+        success: true,
+        bundle_path: path.to_string(),
+        message: format!("Git repository re-initialized at {}", path),
+    })
+}
+
+#[tauri::command]
+pub fn git_init_deployment(
+    db: State<'_, Arc<DbState>>,
+    path: String,
+) -> Result<DeploymentResult, String> {
+    let result = git_init_deployment_inner(&path)?;
+
+    // Update last_git_init_at in the deployments table
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let now = crate::db::chrono_lite_timestamp();
+    let updated = conn.execute(
+        "UPDATE deployments SET last_git_init_at = ?1, updated_at = ?1 WHERE bundle_path = ?2",
+        rusqlite::params![now, path],
+    );
+    if let Err(e) = updated {
+        log::warn!("Failed to update last_git_init_at: {}", e);
+    }
+
+    Ok(result)
+}
+
 /// Generate a deployment bundle (in-memory, no files written).
 #[tauri::command]
 pub fn generate_deployment_bundle(
@@ -1000,4 +1036,42 @@ function App() {{
 export default App
 "#,
     )
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+
+    #[test]
+    fn test_git_init_deployment_errors_on_missing_path() {
+        let path = "/tmp/definitely_does_not_exist_xyz_12345";
+        // ensure path is gone
+        let _ = fs::remove_dir_all(path);
+        let result = git_init_deployment_inner(path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_git_init_deployment_succeeds_on_real_dir() {
+        // Create a temp dir
+        let tmp = env::temp_dir().join(format!("proxybot_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let result = git_init_deployment_inner(tmp.to_str().unwrap());
+        assert!(result.is_ok(), "Got error: {:?}", result.err());
+
+        // Verify .git was created
+        assert!(tmp.join(".git").exists());
+        assert!(tmp.join(".gitignore").exists());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
