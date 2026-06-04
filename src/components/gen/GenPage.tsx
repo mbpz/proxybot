@@ -20,14 +20,6 @@ interface MockProject {
   openapi_spec: string;
 }
 
-interface DeploymentBundle {
-  name: string;
-  base_path: string;
-  docker_compose_content: string;
-  readme_content: string;
-  ci_template_content: string;
-}
-
 export function GenPage() {
   const [activeTab, setActiveTab] = useState("mock");
   const [sessionId, setSessionId] = useState("");
@@ -43,12 +35,6 @@ export function GenPage() {
   // Mock server state
   const [mockServerRunning, setMockServerRunning] = useState(false);
   const [mockServerUrl, setMockServerUrl] = useState<string | null>(null);
-
-  // Deploy state
-  const [deployBundle, setDeployBundle] = useState<DeploymentBundle | null>(null);
-  const [deployLoading, setDeployLoading] = useState(false);
-  const [deployError, setDeployError] = useState<string | null>(null);
-  const [deployWriteResult, setDeployWriteResult] = useState<string | null>(null);
 
   async function loadMockEndpoints() {
     if (!sessionId) return;
@@ -128,52 +114,9 @@ export function GenPage() {
     }
   }
 
-  async function generateDeploy() {
-    if (!sessionId) {
-      setDeployError("Session ID is required");
-      return;
-    }
-    setDeployLoading(true);
-    setDeployError(null);
-    setDeployWriteResult(null);
-    try {
-      const result = await invoke<DeploymentBundle>("generate_deployment_bundle", {
-        session_id: sessionId,
-        project_name: projectName || null,
-      });
-      setDeployBundle(result);
-    } catch (err) {
-      setDeployError(String(err));
-    } finally {
-      setDeployLoading(false);
-    }
-  }
-
-  async function writeDeploy() {
-    if (!sessionId) return;
-    setDeployLoading(true);
-    setDeployError(null);
-    try {
-      const result = await invoke<{ success: boolean; bundle_path: string; message: string }>(
-        "write_deployment_bundle",
-        {
-          session_id: sessionId,
-          project_name: projectName || null,
-          output_dir: outputDir || null,
-        }
-      );
-      setDeployWriteResult(result.message);
-    } catch (err) {
-      setDeployError(String(err));
-    } finally {
-      setDeployLoading(false);
-    }
-  }
-
   const tabs = [
     { id: "mock", label: "Mock API" },
     { id: "scaffold", label: "Scaffold" },
-    { id: "deploy", label: "Deploy" },
   ];
 
   return (
@@ -349,101 +292,6 @@ export function GenPage() {
 
             {/* ================ Scaffold ================ */}
             {activeTab === "scaffold" && <ScaffoldTab sessionId={sessionId} projectName={projectName} outputDir={outputDir} />}
-
-            {/* ================ Deploy ================ */}
-            {activeTab === "deploy" && (
-              <div>
-                <div className="flex gap-2" style={{ marginBottom: "var(--space-4)" }}>
-                  <Button
-                    variant="primary"
-                    onClick={generateDeploy}
-                    disabled={deployLoading || !sessionId}
-                  >
-                    {deployLoading ? "Generating..." : "Generate Deployment Bundle"}
-                  </Button>
-                  {deployBundle && (
-                    <Button variant="secondary" onClick={writeDeploy} disabled={deployLoading}>
-                      Write to Disk + Git Init
-                    </Button>
-                  )}
-                </div>
-
-                {deployError && (
-                  <div className="error-banner" style={{ marginBottom: "var(--space-4)" }}>
-                    <span className="error-banner-message">{deployError}</span>
-                  </div>
-                )}
-
-                {deployWriteResult && (
-                  <div
-                    style={{
-                      padding: "var(--space-3)",
-                      background: "rgba(62,207,142,0.1)",
-                      border: "1px solid var(--accent-green)",
-                      borderRadius: "var(--radius-md)",
-                      color: "var(--accent-green)",
-                      marginBottom: "var(--space-4)",
-                      fontSize: "var(--text-sm)",
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {deployWriteResult}
-                  </div>
-                )}
-
-                {deployBundle ? (
-                  <div>
-                    {/* Docker Compose preview */}
-                    <div className="card-title" style={{ marginBottom: "var(--space-2)" }}>
-                      docker-compose.yml
-                    </div>
-                    <pre style={{
-                      background: "var(--bg-primary)",
-                      padding: "var(--space-3)",
-                      borderRadius: "var(--radius-md)",
-                      fontSize: "var(--text-xs)",
-                      fontFamily: "var(--font-mono)",
-                      maxHeight: 300,
-                      overflowY: "auto",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-all",
-                    }}>
-                      {deployBundle.docker_compose_content}
-                    </pre>
-
-                    {/* CI template preview */}
-                    <details style={{ marginTop: "var(--space-4)" }}>
-                      <summary className="text-sm" style={{ cursor: "pointer", color: "var(--accent-blue)" }}>
-                        GitHub Actions CI
-                      </summary>
-                      <pre style={{
-                        background: "var(--bg-primary)",
-                        padding: "var(--space-3)",
-                        borderRadius: "var(--radius-md)",
-                        fontSize: "var(--text-xs)",
-                        fontFamily: "var(--font-mono)",
-                        maxHeight: 300,
-                        overflowY: "auto",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-all",
-                        marginTop: "var(--space-2)",
-                      }}>
-                        {deployBundle.ci_template_content}
-                      </pre>
-                    </details>
-                  </div>
-                ) : !deployLoading && (
-                  <div className="empty-state">
-                    <div className="empty-state-icon">🐳</div>
-                    <div className="empty-state-title">Deployment Bundle</div>
-                    <div className="empty-state-description">
-                      Generate a complete Docker Compose deployment with mock API,
-                      frontend scaffold, PostgreSQL, and GitHub Actions CI.
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </ErrorBoundary>
         </div>
       </div>
