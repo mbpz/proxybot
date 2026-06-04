@@ -13,6 +13,7 @@ import { GraphPage } from "./components/graph/GraphPage";
 import { AlertsPage } from "./components/alerts/AlertsPage";
 import { AiPage } from "./components/ai/AiPage";
 import { GenPage } from "./components/gen/GenPage";
+import { DeployPage } from "./components/deploy/DeployPage";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import "./index.css";
 
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="composer" element={<ComposerPage />} />
           <Route path="graph" element={<GraphPage />} />
           <Route path="gen" element={<GenPage />} />
+          <Route path="deploy" element={<DeployPage />} />
           <Route path="ai" element={<AiPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
