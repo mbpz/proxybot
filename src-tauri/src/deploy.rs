@@ -360,7 +360,7 @@ MIT
 // Git Initialization
 // ============================================================================
 
-fn init_git_repo(base_path: &PathBuf) -> Result<(), String> {
+pub fn init_git_repo(base_path: &PathBuf) -> Result<(), String> {
     // Create .github/workflows directory
     let workflows_dir = base_path.join(".github").join("workflows");
     fs::create_dir_all(&workflows_dir)
@@ -569,6 +569,7 @@ pub fn write_deployment_bundle(
     session_id: String,
     project_name: Option<String>,
     output_dir: Option<String>,
+    init_git: bool,
 ) -> Result<DeploymentResult, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
@@ -848,9 +849,23 @@ test('navigation works', async ({ page }) => {
     )
     .map_err(|e| format!("Failed to write e2e test: {}", e))?;
 
-    // Initialize git repo
-    if let Err(e) = init_git_repo(&base_path) {
-        log::warn!("Git init failed (non-fatal): {}", e);
+    // Initialize git repo if requested
+    if init_git {
+        if let Err(e) = init_git_repo(&base_path) {
+            log::warn!("Git init failed (non-fatal): {}", e);
+        }
+    }
+
+    // Persist deployment record
+    let last_git_init = if init_git { Some(crate::db::chrono_lite_timestamp()) } else { None };
+    if let Err(e) = crate::db::upsert_deployment(
+        &conn,
+        &session_id,
+        &name,
+        &base,
+        last_git_init.as_deref(),
+    ) {
+        log::warn!("Failed to persist deployment record: {}", e);
     }
 
     log::info!("Deployment bundle written to {}", base);
