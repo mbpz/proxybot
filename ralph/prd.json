@@ -153,8 +153,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": "Skipped - Deploy panel uses existing deploy module, not part of core UI redesign"
+      "passes": true,
+      "notes": "Implemented in 2026-06-04 — dedicated /deploy page with preview, write, re-init git actions, SQLite persistence."
     },
     {
       "id": "US-010",
