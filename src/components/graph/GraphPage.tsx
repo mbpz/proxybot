@@ -43,8 +43,8 @@ export function GraphPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<GraphData>("get_graph_data", { max_requests: 100 });
-      setData(result);
+      const result = await invoke<GraphData | null>("get_graph_data", { max_requests: 100 });
+      setData(result ?? null);
     } catch (err) {
       setError(`Failed to load graph data: ${err}`);
     } finally {
@@ -59,8 +59,8 @@ export function GraphPage() {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<GraphData>("get_device_dag", { device_id: parseInt(deviceId) });
-      setData(result);
+      const result = await invoke<GraphData | null>("get_device_dag", { device_id: parseInt(deviceId) });
+      setData(result ?? null);
     } catch (err) {
       setError(`Device DAG failed: ${err}`);
     } finally {
@@ -73,13 +73,13 @@ export function GraphPage() {
       setLoading(true);
       setError(null);
       await invoke("build_traffic_dag");
-      const result = await invoke<GraphData>("get_traffic_dag");
-      setData(result);
+      const result = await invoke<GraphData | null>("get_traffic_dag");
+      setData(result ?? null);
     } catch (err) {
       // Fallback to get_graph_data
       try {
-        const result = await invoke<GraphData>("get_graph_data", { max_requests: 100 });
-        setData(result);
+        const result = await invoke<GraphData | null>("get_graph_data", { max_requests: 100 });
+        setData(result ?? null);
       } catch (e2) {
         setError(`DAG build failed: ${err}`);
       }

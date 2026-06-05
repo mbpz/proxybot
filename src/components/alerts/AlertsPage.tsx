@@ -43,14 +43,14 @@ export function AlertsPage() {
       setLoading(true);
       setError(null);
       const [result, count] = await Promise.all([
-        invoke<Alert[]>("get_alerts", {
+        invoke<Alert[] | null>("get_alerts", {
           severity: severityFilter === "all" ? null : severityFilter.toLowerCase(),
           limit: 100,
         }),
-        invoke<number>("get_alert_count"),
+        invoke<number | null>("get_alert_count"),
       ]);
-      setAlerts(result);
-      setUnackedCount(count);
+      setAlerts(Array.isArray(result) ? result : []);
+      setUnackedCount(typeof count === "number" ? count : 0);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -60,8 +60,10 @@ export function AlertsPage() {
 
   const loadBaseline = useCallback(async () => {
     try {
-      const result = await invoke<TrafficBaseline>("get_traffic_baseline", { device_id: null });
-      setBaseline(result);
+      const result = await invoke<TrafficBaseline | null>("get_traffic_baseline", { device_id: null });
+      if (result !== null && result !== undefined) {
+        setBaseline(result);
+      }
     } catch (err) {
       console.error("Failed to load baseline:", err);
     }

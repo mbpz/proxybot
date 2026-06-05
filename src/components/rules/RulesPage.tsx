@@ -36,8 +36,10 @@ export function RulesPage() {
 
   async function loadRuleFiles() {
     try {
-      const files = await invoke<string[]>("list_rule_files");
-      setRuleFiles(files);
+      const files = await invoke<string[] | null>("list_rule_files");
+      if (Array.isArray(files)) {
+        setRuleFiles(files);
+      }
     } catch { /* ignore */ }
   }
 
