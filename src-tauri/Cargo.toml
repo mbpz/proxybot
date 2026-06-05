@@ -24,9 +24,6 @@ thiserror = "2"
 
 rhai = { version = "1", features = ["sync"] }
 
-# Yew GUI dependencies (compiled separately via wasm-pack)
-# Note: These are NOT cargo build dependencies - they are built by wasm-pack
-
 # MITM proxy dependencies
 tokio = { version = "1", features = ["full"] }
 nix = "0.27"
