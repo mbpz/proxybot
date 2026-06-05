@@ -14,6 +14,11 @@ const BASE_MOCKS = {
   get_rules: [],
   get_devices: [],
   get_ca_cert_pem: "",
+  list_rule_files: [],
+  get_alerts: [],
+  get_alert_count: 0,
+  get_traffic_baseline: null,
+  get_graph_data: { requests: [] },
 };
 
 test.describe("Sidebar navigation", () => {
@@ -23,10 +28,10 @@ test.describe("Sidebar navigation", () => {
   });
 
   test("defaults to traffic page", async ({ page }) => {
-    // Traffic link should be active (has bg-gray-800 class)
+    // Traffic link should be active (has border-accent-blue class after theme refactor)
     const trafficLink = page.getByRole("link", { name: "Traffic" });
     await expect(trafficLink).toBeVisible();
-    await expect(trafficLink).toHaveClass(/bg-gray-800/);
+    await expect(trafficLink).toHaveClass(/border-accent-blue/);
     // Traffic page content should be visible
     await expect(page.getByText("No requests captured yet")).toBeVisible();
   });

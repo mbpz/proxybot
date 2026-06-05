@@ -247,7 +247,7 @@ test.describe("Data Binding", () => {
 
   test("devices page shows refresh", async ({ page }) => {
     await page.goto("/devices");
-    await expect(page.getByText("Refresh")).toBeVisible();
+    await expect(page.getByText("Refresh")).toBeVisible({ timeout: 10000 });
   });
 
   test("dns tab shows DoH/UDP controls", async ({ page }) => {

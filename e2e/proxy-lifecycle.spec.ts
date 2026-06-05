@@ -14,6 +14,7 @@ const BASE_MOCKS = {
   get_rules: [],
   get_devices: [],
   get_ca_cert_pem: "",
+  list_rule_files: [],
 };
 
 test.describe("App shell", () => {
