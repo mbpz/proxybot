@@ -16,6 +16,7 @@ dist-ssr
 *.local
 target/
 proxybot-core/target/
+/src-tauri/Cargo.lock
 
 # Generated documentation sites
 site/
