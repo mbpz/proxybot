@@ -28,6 +28,7 @@ test.describe("Deploy Page", () => {
     await page.goto("/deploy");
     const input = page.locator('input[placeholder="proxybot_deployment"]');
     await expect(input).toBeVisible();
+    await expect(input).toHaveValue("proxybot_deployment");
   });
 
   test("has output path display", async ({ page }) => {
@@ -37,8 +38,19 @@ test.describe("Deploy Page", () => {
 
   test("has Initialize git repo checkbox checked by default", async ({ page }) => {
     await page.goto("/deploy");
-    const checkbox = page.locator('input[type="checkbox"]');
+    // Label wraps the input in DeployForm.tsx, so getByLabel resolves cleanly.
+    const checkbox = page.getByLabel("Initialize git repo on write");
     await expect(checkbox).toBeChecked();
+  });
+
+  // Tab-switching test omitted: the preview tabs require a generated bundle,
+  // which depends on a successful Tauri invoke. Without IPC mocks we can't
+  // produce a bundle in the browser, so the tabs render but are inert.
+
+  test("Clear status button is visible in Deploy page header", async ({ page }) => {
+    await page.goto("/deploy");
+    const btn = page.getByRole("button", { name: /Clear status/i });
+    await expect(btn).toBeVisible();
   });
 
   test("Generate button is disabled when session ID is empty", async ({ page }) => {

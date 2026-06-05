@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
 import { DeployForm } from "./DeployForm";
@@ -35,31 +35,50 @@ export function DeployPage() {
   // Track which handler was last attempted (for Retry button)
   const [lastAction, setLastAction] = useState<"generate" | "write" | "reinit" | null>(null);
 
-  // Hydrate last deployment record on mount (when sessionId/projectName set)
+  // Approximate timestamp of the most recent successful git init.
+  // Sourced from the hydrated record on mount; updated locally after
+  // a successful reinit (we don't refetch the record to keep this lightweight).
+  const [lastGitInitAt, setLastGitInitAt] = useState<string | null>(null);
+
+  // Hydrate last deployment record on mount (when sessionId/projectName set).
+  // Debounced 300ms so a burst of keystrokes only fires one invoke.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!sessionId.trim()) {
       setBundlePath("");
+      setLastGitInitAt(null);
       return;
     }
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
     let cancelled = false;
-    (async () => {
-      try {
-        const rec = await invoke<DeploymentRecord | null>("get_last_deployment", {
-          sessionId,
-          projectName,
-        });
-        if (!cancelled && rec) {
-          setBundlePath(rec.bundle_path);
-        } else if (!cancelled) {
-          setBundlePath("");
+    debounceRef.current = setTimeout(() => {
+      (async () => {
+        try {
+          const rec = await invoke<DeploymentRecord | null>("get_last_deployment", {
+            sessionId,
+            projectName,
+          });
+          if (cancelled) return;
+          if (rec) {
+            setBundlePath(rec.bundle_path);
+            setLastGitInitAt(rec.last_git_init_at);
+          } else {
+            setBundlePath("");
+            setLastGitInitAt(null);
+          }
+        } catch (err) {
+          // Non-fatal: just log
+          console.error("Failed to load last deployment:", err);
         }
-      } catch (err) {
-        // Non-fatal: just log
-        console.error("Failed to load last deployment:", err);
-      }
-    })();
+      })();
+    }, 300);
     return () => {
       cancelled = true;
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
     };
   }, [sessionId, projectName]);
 
@@ -113,6 +132,8 @@ export function DeployPage() {
         path: bundlePath,
       });
       setResult(r);
+      // Approximate: stamp now rather than re-querying the record.
+      setLastGitInitAt(new Date().toISOString());
     } catch (err) {
       setError(String(err));
     } finally {
@@ -132,15 +153,22 @@ export function DeployPage() {
       <div className="panel">
         <div className="panel-header">
           <span className="panel-title">Deploy</span>
+          {/*
+            "Clear status" intentionally only clears the result/error banner.
+            It does NOT touch sessionId, projectName, initGit, or the generated
+            bundle — those represent user intent and are not "status". Users
+            can edit the inputs directly if they want to start over.
+          */}
           <Button
             variant="secondary"
             size="sm"
+            aria-label="Clear status messages"
             onClick={() => {
               setError(null);
               setResult(null);
             }}
           >
-            Reset
+            Clear status
           </Button>
         </div>
 
@@ -185,6 +213,7 @@ export function DeployPage() {
               bundlePath={bundlePath}
               hasBundle={bundle !== null}
               writing={writing}
+              lastGitInitAt={lastGitInitAt}
               onWrite={handleWrite}
               onReinitGit={handleReinitGit}
             />
