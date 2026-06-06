@@ -1151,7 +1151,8 @@ mod tests {
     #[test]
     fn test_parse_response_skips_non_a_records() {
         let mut r = build_response_with_a_records(&["example", "com"], &["1.2.3.4"]);
-        // Update ANCOUNT to 2 to include the AAAA.
+        // ANCOUNT update is cosmetic — parse_response_ips uses byte-length
+        // (while pos < response.len() - 12), not the count field.
         r[7] = 0x02;
         append_aaaa_record(&mut r, &[0u8; 16]);
         let ips = parse_response_ips(&r);
@@ -1257,7 +1258,8 @@ mod tests {
     #[test]
     fn test_build_hosts_response_returns_empty_for_invalid_ip() {
         let q = build_query(0x1234, &["example", "com"]);
-        // "not.an.ip" has 3 dot-separated parts, so ip_parts.len() != 4 → empty.
+        // "not", "an", "ip" all fail to parse as u8, so filter_map drops them
+        // and ip_parts.len() == 0, which fails the len() == 4 check.
         let r = build_hosts_response(&q, "not.an.ip");
         assert!(r.is_empty(), "expected empty response for malformed IP");
     }
