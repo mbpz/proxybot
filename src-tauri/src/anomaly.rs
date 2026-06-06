@@ -57,7 +57,7 @@ pub struct Alert {
 }
 
 /// Privacy pattern types for scanning results.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum PrivacyPattern {
@@ -113,6 +113,11 @@ impl AlertStore {
         let dir = PathBuf::from(home).join(".proxybot");
         std::fs::create_dir_all(&dir).ok();
         let path = dir.join("alerts.json");
+        Self::with_path(path)
+    }
+
+    /// Test-friendly constructor that uses the given path instead of `$HOME/.proxybot/`.
+    pub fn with_path(path: PathBuf) -> Self {
         let (alerts, next_id) = Self::load_from_file(&path);
         Self {
             path,
@@ -251,6 +256,11 @@ impl BaselineStore {
         let dir = PathBuf::from(home).join(".proxybot");
         std::fs::create_dir_all(&dir).ok();
         let path = dir.join("baseline.json");
+        Self::with_path(path)
+    }
+
+    /// Test-friendly constructor that uses the given path instead of `$HOME/.proxybot/`.
+    pub fn with_path(path: PathBuf) -> Self {
         let baselines = Self::load_from_file(&path);
         Self {
             path,
@@ -512,6 +522,18 @@ impl AnomalyDetector {
         }
     }
 
+    /// Test-friendly constructor that wires in the given stores instead of creating
+    /// fresh `$HOME/.proxybot/`-backed stores.
+    pub fn with_stores(alert: Arc<AlertStore>, baseline: Arc<BaselineStore>) -> Self {
+        Self {
+            privacy_scanner: PrivacyScanner::new(),
+            alert_store: alert,
+            baseline_store: baseline,
+            domain_cache: Mutex::new(HashSet::new()),
+            ip_cache: Mutex::new(HashSet::new()),
+        }
+    }
+
     pub fn scan_request(
         &self,
         device_id: Option<i64>,
@@ -728,7 +750,7 @@ pub fn chrono_lite_timestamp() -> String {
 }
 
 #[allow(clippy::manual_is_multiple_of)]
-fn is_leap_year(year: u64) -> bool {
+pub(crate) fn is_leap_year(year: u64) -> bool {
     year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
@@ -833,4 +855,349 @@ pub fn acknowledge_alert(
 #[tauri::command]
 pub fn get_alert_count(detector: State<'_, Arc<AnomalyDetector>>) -> i64 {
     detector.get_unacknowledged_count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn make_alert(severity: AlertSeverity, details: &str) -> Alert {
+        Alert {
+            id: 0,
+            device_id: None,
+            severity,
+            alert_type: AlertType::NewDomain,
+            details: details.to_string(),
+            created_at: chrono_lite_timestamp(),
+            acknowledged: false,
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // PrivacyScanner
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_scanner_finds_idfa() {
+        let scanner = PrivacyScanner::new();
+        let results = scanner.scan("x-idfa: 12345678-1234-5678-9ABC-123456789012");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].pattern, PrivacyPattern::IDFA);
+        // Matched text is uppercased; digits and already-upper letters unchanged.
+        assert_eq!(
+            results[0].matched_text,
+            "12345678-1234-5678-9ABC-123456789012"
+        );
+    }
+
+    #[test]
+    fn test_scanner_finds_phone_e164() {
+        let scanner = PrivacyScanner::new();
+        let results = scanner.scan("call +14155551234 now");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].pattern, PrivacyPattern::PhoneNumber);
+        assert_eq!(results[0].matched_text, "+14155551234");
+    }
+
+    #[test]
+    fn test_scanner_rejects_short_phone() {
+        let scanner = PrivacyScanner::new();
+        // Only 3 digits after the leading `+` — regex requires 7-15.
+        let results = scanner.scan("+123");
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_scanner_finds_gps_coords() {
+        let scanner = PrivacyScanner::new();
+        let results = scanner.scan("latitude:37.7749,-122.4194");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].pattern, PrivacyPattern::GpsCoordinates);
+    }
+
+    #[test]
+    fn test_scanner_empty_text_returns_no_results() {
+        let scanner = PrivacyScanner::new();
+        let results = scanner.scan("");
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_scanner_finds_multiple_patterns_in_same_text() {
+        let scanner = PrivacyScanner::new();
+        let text = "IDFA: 12345678-1234-5678-9ABC-123456789012 phone: +14155551234 lat:37.7749,-122.4194";
+        let results = scanner.scan(text);
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_extract_context_truncates_long_text() {
+        let scanner = PrivacyScanner::new();
+        // 50 chars of padding on each side, match is in the middle — context window
+        // (30 chars each side) gets clipped on both ends. Trailing space on the prefix
+        // (and leading space on the suffix) ensures the IDFA's `\b` word boundary fires.
+        let prefix = format!("{} ", "a".repeat(49));
+        let suffix = format!(" {}", "b".repeat(49));
+        let text = format!(
+            "{}12345678-1234-5678-9ABC-123456789012{}",
+            prefix, suffix
+        );
+        let results = scanner.scan(&text);
+        assert_eq!(results.len(), 1);
+        assert!(
+            results[0].context.starts_with("..."),
+            "context should have leading ellipsis: {:?}",
+            results[0].context
+        );
+        assert!(
+            results[0].context.ends_with("..."),
+            "context should have trailing ellipsis: {:?}",
+            results[0].context
+        );
+    }
+
+    #[test]
+    fn test_extract_context_no_truncation_for_short_text() {
+        let scanner = PrivacyScanner::new();
+        // Text is short enough that the 30-char context window fully contains it.
+        let text = "a 12345678-1234-5678-9ABC-123456789012 b";
+        let results = scanner.scan(text);
+        assert_eq!(results.len(), 1);
+        assert!(
+            !results[0].context.contains("..."),
+            "context should not be truncated: {:?}",
+            results[0].context
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // AlertStore
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_alert_store_assigns_incrementing_ids() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        let store = AlertStore::with_path(path);
+        let id1 = store.add_alert(make_alert(AlertSeverity::Info, "a1"));
+        let id2 = store.add_alert(make_alert(AlertSeverity::Info, "a2"));
+        let id3 = store.add_alert(make_alert(AlertSeverity::Info, "a3"));
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+        assert_eq!(id3, 3);
+    }
+
+    #[test]
+    fn test_alert_store_persists_across_reload() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        {
+            let store = AlertStore::with_path(path.clone());
+            store.add_alert(make_alert(AlertSeverity::Info, "persisted"));
+        }
+        let store = AlertStore::with_path(path);
+        let alerts = store.get_alerts(None, 10);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].details, "persisted");
+    }
+
+    #[test]
+    fn test_alert_store_filter_by_severity() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        let store = AlertStore::with_path(path);
+        store.add_alert(make_alert(AlertSeverity::Info, "info1"));
+        store.add_alert(make_alert(AlertSeverity::Warning, "warn1"));
+        store.add_alert(make_alert(AlertSeverity::Critical, "crit1"));
+        let filtered = store.get_alerts(Some("warning"), 10);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].details, "warn1");
+        assert_eq!(filtered[0].severity, AlertSeverity::Warning);
+    }
+
+    #[test]
+    fn test_alert_store_limit_respected() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        let store = AlertStore::with_path(path);
+        for i in 0..5 {
+            store.add_alert(make_alert(AlertSeverity::Info, &format!("a{}", i)));
+        }
+        let alerts = store.get_alerts(None, 2);
+        assert_eq!(alerts.len(), 2);
+        // get_alerts sorts by id descending, so the most recent two are first.
+        assert_eq!(alerts[0].id, 5);
+        assert_eq!(alerts[1].id, 4);
+    }
+
+    #[test]
+    fn test_alert_store_acknowledge_marks_alert() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        let store = AlertStore::with_path(path);
+        let id = store.add_alert(make_alert(AlertSeverity::Info, "a"));
+        assert_eq!(store.unacknowledged_count(), 1);
+        assert!(store.acknowledge(id));
+        assert_eq!(store.unacknowledged_count(), 0);
+    }
+
+    #[test]
+    fn test_alert_store_acknowledge_returns_false_for_missing_id() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        let store = AlertStore::with_path(path);
+        assert!(!store.acknowledge(999));
+    }
+
+    #[test]
+    fn test_alert_store_caps_at_1000_alerts() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("alerts.json");
+        let store = AlertStore::with_path(path);
+        for i in 0..1005 {
+            store.add_alert(make_alert(AlertSeverity::Info, &format!("a{}", i)));
+        }
+        let alerts = store.get_alerts(None, 2000);
+        assert_eq!(alerts.len(), 1000);
+    }
+
+    // ------------------------------------------------------------------
+    // BaselineStore
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_baseline_new_domain_for_device() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let store = BaselineStore::with_path(path);
+        assert!(store.is_new_domain(Some(1), "example.com"));
+    }
+
+    #[test]
+    fn test_baseline_existing_domain_not_new() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let store = BaselineStore::with_path(path);
+        store.add_domain(Some(1), "example.com");
+        assert!(!store.is_new_domain(Some(1), "example.com"));
+    }
+
+    #[test]
+    fn test_baseline_different_device_treats_as_new() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let store = BaselineStore::with_path(path);
+        store.add_domain(Some(1), "a.com");
+        assert!(store.is_new_domain(Some(2), "a.com"));
+    }
+
+    #[test]
+    fn test_baseline_add_increments_count() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let store = BaselineStore::with_path(path);
+        store.add_domain(Some(1), "counter.com");
+        store.add_domain(Some(1), "counter.com");
+        let baseline = store.get_baseline(Some(1));
+        let entry = baseline
+            .domains
+            .iter()
+            .find(|e| e.value == "counter.com")
+            .expect("counter.com should exist in baseline");
+        assert_eq!(entry.count, 2);
+    }
+
+    #[test]
+    fn test_baseline_persists_across_reload() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        {
+            let store = BaselineStore::with_path(path.clone());
+            store.add_domain(Some(1), "example.com");
+        }
+        let store = BaselineStore::with_path(path);
+        let baseline = store.get_baseline(Some(1));
+        assert_eq!(baseline.domains.len(), 1);
+        assert_eq!(baseline.domains[0].value, "example.com");
+    }
+
+    #[test]
+    fn test_baseline_is_new_ip_separate_from_domain() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let store = BaselineStore::with_path(path);
+        assert!(store.is_new_ip(Some(1), "1.2.3.4"));
+        store.add_ip(Some(1), "1.2.3.4");
+        assert!(!store.is_new_ip(Some(1), "1.2.3.4"));
+    }
+
+    // ------------------------------------------------------------------
+    // AnomalyDetector integration
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_detector_scan_request_generates_alert_for_new_domain() {
+        let dir = tempdir().unwrap();
+        let alert_path = dir.path().join("alerts.json");
+        let baseline_path = dir.path().join("baseline.json");
+        let alert = Arc::new(AlertStore::with_path(alert_path));
+        let baseline = Arc::new(BaselineStore::with_path(baseline_path));
+        let detector = AnomalyDetector::with_stores(alert, baseline);
+
+        let result = detector.scan_request(Some(1), "fresh.example.com", None, None, None);
+        assert!(
+            result.alerts_generated >= 1,
+            "expected at least one alert for a brand-new domain, got {}",
+            result.alerts_generated
+        );
+        assert!(result
+            .new_domains
+            .contains(&"fresh.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_detector_scan_request_no_alert_for_seen_domain() {
+        let dir = tempdir().unwrap();
+        let alert_path = dir.path().join("alerts.json");
+        let baseline_path = dir.path().join("baseline.json");
+        let alert = Arc::new(AlertStore::with_path(alert_path));
+        let baseline = Arc::new(BaselineStore::with_path(baseline_path));
+        let detector = AnomalyDetector::with_stores(alert, baseline);
+
+        // First call populates the baseline.
+        let _ = detector.scan_request(Some(1), "seen.example.com", None, None, None);
+        // Second call: in-memory cache (and baseline) short-circuit, no new domains.
+        let result2 = detector.scan_request(Some(1), "seen.example.com", None, None, None);
+        assert!(
+            result2.new_domains.is_empty(),
+            "expected no new_domains on second scan, got {:?}",
+            result2.new_domains
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_chrono_lite_timestamp_format() {
+        let ts = chrono_lite_timestamp();
+        assert_eq!(ts.len(), 19, "unexpected length: {:?}", ts);
+        let bytes = ts.as_bytes();
+        assert_eq!(bytes[4], b'-', "expected '-' at index 4, got {:?}", ts);
+        assert_eq!(bytes[7], b'-', "expected '-' at index 7, got {:?}", ts);
+        assert_eq!(bytes[10], b' ', "expected ' ' at index 10, got {:?}", ts);
+        assert_eq!(bytes[13], b':', "expected ':' at index 13, got {:?}", ts);
+        assert_eq!(bytes[16], b':', "expected ':' at index 16, got {:?}", ts);
+    }
+
+    #[test]
+    fn test_is_leap_year() {
+        assert!(is_leap_year(2000), "2000 should be a leap year");
+        assert!(!is_leap_year(1900), "1900 should NOT be a leap year");
+        assert!(is_leap_year(2024), "2024 should be a leap year");
+        assert!(!is_leap_year(2023), "2023 should NOT be a leap year");
+    }
 }
