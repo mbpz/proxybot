@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/safeInvoke";
 import { Button } from "../ui/Button";
 import { Globe, RefreshCw } from "lucide-react";
 
@@ -21,13 +22,11 @@ export function DnsTab() {
   }, []);
 
   async function load() {
-    try {
-      const result = await invoke<DnsUpstream>("get_dns_upstream");
+    const result = await safeInvoke<DnsUpstream>("get_dns_upstream");
+    if (result) {
       setUpstream(result);
       setUpstreamType(result.upstream_type);
       setAddress(result.address);
-    } catch (e) {
-      console.error("Failed to load DNS upstream:", e);
     }
   }
 

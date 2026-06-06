@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/safeInvoke";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { ErrorBoundary } from "../ui/error-boundary";
@@ -48,12 +49,8 @@ export function DevicesPage() {
   }
 
   async function loadNetworkInfo() {
-    try {
-      const info = await invoke<NetworkInfo>("get_network_info");
-      setNetworkInfo(info);
-    } catch (err) {
-      console.error("Failed to load network info:", err);
-    }
+    const info = await safeInvoke<NetworkInfo>("get_network_info");
+    if (info !== null) setNetworkInfo(info);
   }
 
   async function updateDeviceRuleOverride(

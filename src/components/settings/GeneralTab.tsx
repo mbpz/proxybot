@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke, safeInvokeOr } from "../../utils/safeInvoke";
 import { Button } from "../ui/Button";
 import { Power, Smartphone, Database } from "lucide-react";
 
@@ -17,44 +17,36 @@ export function GeneralTab() {
   async function load() {
     try {
       const [keep, running, url, stats] = await Promise.all([
-        invoke<boolean>("get_keep_running"),
-        invoke<boolean>("is_dashboard_running"),
-        invoke<string>("get_dashboard_url").catch(() => ""),
-        invoke<{ http_requests_count: number; dns_queries_count: number; devices_count: number; app_tags_count: number }>("get_db_stats").catch(() => null),
+        safeInvokeOr<boolean>("get_keep_running", false),
+        safeInvokeOr<boolean>("is_dashboard_running", false),
+        safeInvokeOr<string>("get_dashboard_url", ""),
+        safeInvokeOr<{ http_requests_count: number; dns_queries_count: number; devices_count: number; app_tags_count: number } | null>("get_db_stats", null),
       ]);
       setKeepRunning(keep);
       setDashboardRunning(running);
       setDashboardUrl(url);
       setDbStats(stats);
-    } catch (e) {
-      console.error("Failed to load general settings:", e);
     } finally {
       setLoading(false);
     }
   }
 
   async function toggleKeepRunning() {
-    try {
-      await invoke("set_keep_running", { keep: !keepRunning });
-      setKeepRunning(!keepRunning);
-    } catch (e) {
-      console.error("Failed to toggle keep running:", e);
-    }
+    await safeInvoke("set_keep_running", { keep: !keepRunning });
+    setKeepRunning(!keepRunning);
   }
 
   async function toggleDashboard() {
-    try {
-      if (dashboardRunning) {
-        await invoke("stop_dashboard");
-        setDashboardRunning(false);
-        setDashboardUrl("");
-      } else {
-        const url = await invoke<string>("start_dashboard");
+    if (dashboardRunning) {
+      await safeInvoke("stop_dashboard");
+      setDashboardRunning(false);
+      setDashboardUrl("");
+    } else {
+      const url = await safeInvoke<string>("start_dashboard");
+      if (url !== null) {
         setDashboardRunning(true);
         setDashboardUrl(url);
       }
-    } catch (e) {
-      console.error("Failed to toggle dashboard:", e);
     }
   }
 

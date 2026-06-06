@@ -5,7 +5,7 @@ import { RuleModal } from "./RuleModal";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonCard } from "../ui/skeleton";
-import { safeInvokeOr } from "../../utils/safeInvoke";
+import { safeInvoke, safeInvokeOr } from "../../utils/safeInvoke";
 import { Shield, Search } from "lucide-react";
 
 interface Rule {
@@ -90,34 +90,22 @@ export function RulesPage() {
   }
 
   async function handleSaveRule(rule: Rule) {
-    try {
-      await invoke("save_rule", { rule, filename: "custom.yaml" });
-      setModalOpen(false);
-      loadRules();
-    } catch (err) {
-      console.error("Failed to save rule:", err);
-    }
+    await safeInvoke("save_rule", { rule, filename: "custom.yaml" });
+    setModalOpen(false);
+    loadRules();
   }
 
   async function handleDeleteRule(rule: Rule) {
-    try {
-      await invoke("delete_rule", { rule, filename: "custom.yaml" });
-      loadRules();
-    } catch (err) {
-      console.error("Failed to delete rule:", err);
-    }
+    await safeInvoke("delete_rule", { rule, filename: "custom.yaml" });
+    loadRules();
   }
 
   async function handleToggleRule(rule: Rule, enabled: boolean) {
-    try {
-      await invoke("save_rule", {
-        rule: { ...rule, enabled },
-        filename: "custom.yaml",
-      });
-      loadRules();
-    } catch (err) {
-      console.error("Failed to toggle rule:", err);
-    }
+    await safeInvoke("save_rule", {
+      rule: { ...rule, enabled },
+      filename: "custom.yaml",
+    });
+    loadRules();
   }
 
   return (

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/safeInvoke";
 import { Download, RefreshCw, Key, AlertCircle, Server } from "lucide-react";
 import { Button } from "../ui/Button";
 
@@ -23,14 +24,9 @@ export function CertsPage() {
   }, []);
 
   async function loadCaMetadata() {
-    try {
-      const result = await invoke<CaMetadata | null>("get_ca_metadata");
-      setCaMetadata(result);
-    } catch (err) {
-      console.error("Failed to load CA metadata:", err);
-    } finally {
-      setLoading(false);
-    }
+    const result = await safeInvoke<CaMetadata | null>("get_ca_metadata");
+    setCaMetadata(result);
+    setLoading(false);
   }
 
   async function handleExport() {

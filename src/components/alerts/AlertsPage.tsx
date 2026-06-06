@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "../../utils/safeInvoke";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
@@ -59,13 +60,9 @@ export function AlertsPage() {
   }, [severityFilter]);
 
   const loadBaseline = useCallback(async () => {
-    try {
-      const result = await invoke<TrafficBaseline | null>("get_traffic_baseline", { device_id: null });
-      if (result !== null && result !== undefined) {
-        setBaseline(result);
-      }
-    } catch (err) {
-      console.error("Failed to load baseline:", err);
+    const result = await safeInvoke<TrafficBaseline | null>("get_traffic_baseline", { device_id: null });
+    if (result !== null && result !== undefined) {
+      setBaseline(result);
     }
   }, []);
 

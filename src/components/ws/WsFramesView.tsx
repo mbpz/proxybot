@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvokeOr } from "../../utils/safeInvoke";
 import { listen } from "@tauri-apps/api/event";
 import { WsFrameItem } from "./WsFrameItem";
 import { WsFrameDetail } from "./WsFrameDetail";
@@ -22,12 +22,8 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
   const [selectedFrame, setSelectedFrame] = useState<WsFrame | null>(null);
 
   const loadFrames = useCallback(async () => {
-    try {
-      const result = await invoke<WsFrame[]>("get_ws_frames", { requestId });
-      setFrames(result);
-    } catch (err) {
-      console.error("Failed to load WS frames:", err);
-    }
+    const result = await safeInvokeOr<WsFrame[]>("get_ws_frames", [], { requestId });
+    setFrames(result);
   }, [requestId]);
 
   useEffect(() => {

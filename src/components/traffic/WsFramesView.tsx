@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvokeOr } from "../../utils/safeInvoke";
 
 interface WsFrame {
   id: string;
@@ -39,12 +39,8 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
   }, [requestId]);
 
   async function loadFrames() {
-    try {
-      const result = await invoke<WsFrame[]>("get_ws_frames", { requestId });
-      setFrames(result);
-    } catch (err) {
-      console.error("Failed to load WS frames:", err);
-    }
+    const result = await safeInvokeOr<WsFrame[]>("get_ws_frames", [], { requestId });
+    setFrames(result);
   }
 
   return (

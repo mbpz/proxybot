@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke, safeInvokeOr } from "../../utils/safeInvoke";
 import { UpdateSettings } from "./UpdateSettings";
 import { Smartphone, Monitor } from "lucide-react";
 
@@ -22,17 +22,14 @@ export function ClientSetup() {
   }, []);
 
   async function loadClients() {
-    try {
-      const result = await invoke<ClientInfo[]>("detect_clients");
-      setClients(result);
-    } catch (err) {
-      console.error("Failed to detect clients:", err);
-    }
+    const result = await safeInvokeOr<ClientInfo[]>("detect_clients", []);
+    setClients(result);
   }
 
   async function handleCopyCommand(clientId: string) {
+    const cmd = await safeInvoke<string>("get_proxy_config_command", { clientId });
+    if (cmd === null) return;
     try {
-      const cmd = await invoke<string>("get_proxy_config_command", { clientId });
       await navigator.clipboard.writeText(cmd);
       setCopiedId(clientId);
       setTimeout(() => setCopiedId(null), 2000);
