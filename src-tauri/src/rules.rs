@@ -246,6 +246,7 @@ pub enum MoveDirection {
 pub struct RulesEngine {
     rules: Mutex<Vec<Rule>>,
     watcher_handle: Mutex<Option<RecommendedWatcher>>,
+    dir: PathBuf,
 }
 
 impl RulesEngine {
@@ -253,6 +254,19 @@ impl RulesEngine {
         let engine = Self {
             rules: Mutex::new(Vec::new()),
             watcher_handle: Mutex::new(None),
+            dir: get_rules_dir(),
+        };
+        engine.reload();
+        engine
+    }
+
+    /// Create a new RulesEngine backed by a custom rules directory.
+    /// Used by tests to avoid polluting $HOME/.proxybot/.
+    pub fn with_dir(dir: PathBuf) -> Self {
+        let engine = Self {
+            rules: Mutex::new(Vec::new()),
+            watcher_handle: Mutex::new(None),
+            dir,
         };
         engine.reload();
         engine
@@ -260,7 +274,7 @@ impl RulesEngine {
 
     /// Reload rules from disk.
     pub fn reload(&self) {
-        let dir = get_rules_dir();
+        let dir = self.dir.clone();
         let rules = load_rules_from_dir(&dir);
         *self.rules.lock().unwrap() = rules;
         log::info!("Rules reloaded");
@@ -404,7 +418,7 @@ impl RulesEngine {
             })
             .collect();
 
-        let dir = get_rules_dir();
+        let dir = self.dir.clone();
         let path = dir.join(filename);
 
         let file = RuleFile {
@@ -419,7 +433,7 @@ impl RulesEngine {
 
     /// Delete a rule from a file (internal, non-Tauri).
     pub fn delete_rule(&self, rule: &Rule, filename: &str) -> Result<(), String> {
-        let dir = get_rules_dir();
+        let dir = self.dir.clone();
         let path = dir.join(filename);
 
         if !path.exists() {
@@ -464,9 +478,8 @@ impl RulesEngine {
 
     /// Save a rule to a file (non-Tauri internal version).
     pub fn save_rule_internal(&self, rule: Rule, filename: &str) -> Result<(), String> {
-        ensure_rules_dir().map_err(|e| e.to_string())?;
-
-        let dir = get_rules_dir();
+        let dir = self.dir.clone();
+        fs::create_dir_all(&dir).map_err(|e| format!("create dir: {}", e))?;
         let path = dir.join(filename);
 
         // Load existing rules from that file if it exists
@@ -788,6 +801,19 @@ fn match_ip_pattern(pattern: &(String, String), host: &str, ip_addr: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    fn make_rule(value: &str, priority: u8) -> Rule {
+        Rule {
+            pattern: RulePattern::Domain,
+            value: value.to_string(),
+            action: RuleAction::Direct,
+            name: value.to_string(),
+            priority,
+            enabled: true,
+            comment: "".to_string(),
+        }
+    }
 
     #[test]
     fn test_domain_exact_match() {
@@ -893,5 +919,297 @@ mod tests {
         };
 
         assert_eq!(match_rule(&rule, "example.com", None), None);
+    }
+
+    // ------------------------------------------------------------------
+    // RulesEngine CRUD + persistence
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_engine_starts_empty_with_empty_dir() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        assert!(
+            engine.get_rules().is_empty(),
+            "engine with empty dir should have no rules"
+        );
+    }
+
+    #[test]
+    fn test_engine_loads_rule_from_yaml_file() {
+        let dir = tempdir().unwrap();
+        let yaml = r#"
+rules:
+  - pattern: DOMAIN
+    value: example.com
+    action: DIRECT
+    name: from-yaml
+    priority: 50
+    enabled: true
+    comment: ""
+"#;
+        fs::write(dir.path().join("test.yaml"), yaml).unwrap();
+
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        let rules = engine.get_rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].value, "example.com");
+        assert_eq!(rules[0].priority, 50);
+        assert_eq!(rules[0].name, "from-yaml");
+        assert_eq!(rules[0].pattern, RulePattern::Domain);
+    }
+
+    #[test]
+    fn test_save_rule_internal_persists_to_file() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        let rule = make_rule("example.com", 100);
+        engine.save_rule_internal(rule, "custom.yaml").unwrap();
+
+        let yaml_path = dir.path().join("custom.yaml");
+        assert!(yaml_path.exists(), "yaml file should be written");
+
+        let content = std::fs::read_to_string(&yaml_path).unwrap();
+        let rule_file: RuleFile = serde_yaml::from_str(&content).unwrap();
+        assert_eq!(rule_file.rules.len(), 1);
+        assert_eq!(rule_file.rules[0].value, "example.com");
+        assert_eq!(rule_file.rules[0].pattern, "DOMAIN");
+        assert_eq!(rule_file.rules[0].action, "DIRECT");
+    }
+
+    #[test]
+    fn test_save_rule_internal_appends_to_existing_file() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        let rule_a = make_rule("a.com", 1);
+        let rule_b = make_rule("b.com", 2);
+        engine.save_rule_internal(rule_a, "test.yaml").unwrap();
+        engine.save_rule_internal(rule_b, "test.yaml").unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join("test.yaml")).unwrap();
+        let rule_file: RuleFile = serde_yaml::from_str(&content).unwrap();
+        assert_eq!(rule_file.rules.len(), 2);
+        assert_eq!(rule_file.rules[0].value, "a.com");
+        assert_eq!(rule_file.rules[1].value, "b.com");
+    }
+
+    #[test]
+    fn test_delete_rule_removes_all_matching_entries() {
+        // NOTE: the test spec described this as "removes first match", but
+        // `delete_rule` is implemented with `retain` over the full entries
+        // list — so it removes EVERY entry whose pattern/value/action
+        // triple matches the deleted rule, not just the first. This test
+        // locks in the current behavior. Two rules with identical
+        // pattern/value/action are saved, the first is "deleted", and the
+        // assertion is that the file is now empty.
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        let rule_a = make_rule("dup.com", 1);
+        let rule_b = make_rule("dup.com", 2);
+        engine.save_rule_internal(rule_a, "test.yaml").unwrap();
+        engine.save_rule_internal(rule_b, "test.yaml").unwrap();
+
+        let to_delete = make_rule("dup.com", 1);
+        engine.delete_rule(&to_delete, "test.yaml").unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join("test.yaml")).unwrap();
+        let rule_file: RuleFile = serde_yaml::from_str(&content).unwrap();
+        assert_eq!(rule_file.rules.len(), 0);
+        assert!(engine.get_rules().is_empty());
+    }
+
+    #[test]
+    fn test_delete_rule_file_not_found_returns_error() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        let rule = make_rule("missing.com", 1);
+        let result = engine.delete_rule(&rule, "does-not-exist.yaml");
+        assert!(result.is_err(), "expected Err for missing file");
+    }
+
+    #[test]
+    fn test_move_rule_swaps_in_memory() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        engine.save_rule_internal(make_rule("a.com", 1), "test.yaml").unwrap();
+        engine.save_rule_internal(make_rule("b.com", 2), "test.yaml").unwrap();
+        engine.save_rule_internal(make_rule("c.com", 3), "test.yaml").unwrap();
+
+        assert!(engine.move_rule(0, MoveDirection::Down));
+
+        let rules = engine.get_rules();
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].value, "b.com");
+        assert_eq!(rules[1].value, "a.com");
+        assert_eq!(rules[2].value, "c.com");
+    }
+
+    #[test]
+    fn test_move_rule_at_top_cannot_go_up() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        engine.save_rule_internal(make_rule("only.com", 1), "test.yaml").unwrap();
+        assert!(!engine.move_rule(0, MoveDirection::Up));
+    }
+
+    #[test]
+    fn test_move_rule_at_bottom_cannot_go_down() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        engine.save_rule_internal(make_rule("a.com", 1), "test.yaml").unwrap();
+        engine.save_rule_internal(make_rule("b.com", 2), "test.yaml").unwrap();
+        let len = engine.get_rules().len();
+        assert!(!engine.move_rule(len - 1, MoveDirection::Down));
+    }
+
+    #[test]
+    fn test_move_rule_with_single_rule_returns_false() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        engine.save_rule_internal(make_rule("solo.com", 1), "test.yaml").unwrap();
+        assert!(!engine.move_rule(0, MoveDirection::Up));
+        assert!(!engine.move_rule(0, MoveDirection::Down));
+    }
+
+    #[test]
+    fn test_move_rule_internal_persists_to_disk() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        engine.save_rule_internal(make_rule("a.com", 1), "test.yaml").unwrap();
+        engine.save_rule_internal(make_rule("b.com", 2), "test.yaml").unwrap();
+        engine.save_rule_internal(make_rule("c.com", 3), "test.yaml").unwrap();
+
+        assert!(engine.move_rule_internal(0, MoveDirection::Down, "test.yaml"));
+
+        let content = std::fs::read_to_string(dir.path().join("test.yaml")).unwrap();
+        let rule_file: RuleFile = serde_yaml::from_str(&content).unwrap();
+        assert_eq!(rule_file.rules.len(), 3);
+        // After move(0, Down), the on-disk YAML order is [b, a, c].
+        assert_eq!(rule_file.rules[0].value, "b.com");
+        assert_eq!(rule_file.rules[1].value, "a.com");
+        assert_eq!(rule_file.rules[2].value, "c.com");
+    }
+
+    #[test]
+    fn test_reload_re_reads_from_disk() {
+        let dir = tempdir().unwrap();
+        let initial_yaml = r#"
+rules:
+  - pattern: DOMAIN
+    value: initial.com
+    action: DIRECT
+    name: initial
+    priority: 100
+    enabled: true
+    comment: ""
+"#;
+        fs::write(dir.path().join("test.yaml"), initial_yaml).unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        assert_eq!(engine.get_rules().len(), 1);
+        assert_eq!(engine.get_rules()[0].value, "initial.com");
+
+        let updated_yaml = r#"
+rules:
+  - pattern: DOMAIN
+    value: updated.com
+    action: DIRECT
+    name: updated
+    priority: 100
+    enabled: true
+    comment: ""
+"#;
+        fs::write(dir.path().join("test.yaml"), updated_yaml).unwrap();
+
+        engine.reload();
+
+        let rules = engine.get_rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].value, "updated.com");
+    }
+
+    #[test]
+    fn test_invalid_yaml_file_is_skipped_gracefully() {
+        let dir = tempdir().unwrap();
+        // Unclosed flow sequence — serde_yaml will reject this.
+        fs::write(dir.path().join("bad.yaml"), "[unclosed sequence: [\n").unwrap();
+        let valid_yaml = r#"
+rules:
+  - pattern: DOMAIN
+    value: valid.com
+    action: DIRECT
+    name: valid
+    priority: 100
+    enabled: true
+    comment: ""
+"#;
+        fs::write(dir.path().join("good.yaml"), valid_yaml).unwrap();
+
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        let rules = engine.get_rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].value, "valid.com");
+    }
+
+    #[test]
+    fn test_save_then_delete_then_reload_cycle() {
+        let dir = tempdir().unwrap();
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+
+        let rule = make_rule("temp.com", 1);
+        engine.save_rule_internal(rule.clone(), "test.yaml").unwrap();
+        assert_eq!(engine.get_rules().len(), 1);
+
+        engine.delete_rule(&rule, "test.yaml").unwrap();
+        assert_eq!(engine.get_rules().len(), 0);
+
+        engine.reload();
+        assert_eq!(engine.get_rules().len(), 0);
+    }
+
+    #[test]
+    fn test_priority_sorting_on_load() {
+        let dir = tempdir().unwrap();
+        let yaml = r#"
+rules:
+  - pattern: DOMAIN
+    value: high.com
+    action: DIRECT
+    name: high
+    priority: 200
+    enabled: true
+    comment: ""
+  - pattern: DOMAIN
+    value: mid.com
+    action: DIRECT
+    name: mid
+    priority: 100
+    enabled: true
+    comment: ""
+  - pattern: DOMAIN
+    value: low.com
+    action: DIRECT
+    name: low
+    priority: 50
+    enabled: true
+    comment: ""
+"#;
+        fs::write(dir.path().join("test.yaml"), yaml).unwrap();
+
+        let engine = RulesEngine::with_dir(dir.path().to_path_buf());
+        let rules = engine.get_rules();
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].value, "low.com");
+        assert_eq!(rules[0].priority, 50);
+        assert_eq!(rules[1].value, "mid.com");
+        assert_eq!(rules[1].priority, 100);
+        assert_eq!(rules[2].value, "high.com");
+        assert_eq!(rules[2].priority, 200);
     }
 }
