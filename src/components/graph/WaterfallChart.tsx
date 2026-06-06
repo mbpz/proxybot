@@ -7,21 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-
-interface RequestNode {
-  id: string;
-  host: string;
-  path: string;
-  method: string;
-  status?: number;
-  duration_ms: number;
-  timestamp: number;
-}
-
-interface GraphData {
-  requests: RequestNode[];
-  edges: any[];
-}
+import { GraphData } from "./types";
 
 interface WaterfallChartProps {
   data: GraphData | null;

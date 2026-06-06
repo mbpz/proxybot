@@ -1,10 +1,6 @@
 import { useEffect, useRef, useMemo } from "react";
 import mermaid from "mermaid";
-
-interface GraphData {
-  requests: any[];
-  edges: any[];
-}
+import { GraphData } from "./types";
 
 interface AuthStateMachineProps {
   data?: GraphData | null;

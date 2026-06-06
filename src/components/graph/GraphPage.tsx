@@ -5,29 +5,9 @@ import { DependencyGraph } from "./DependencyGraph";
 import { AuthStateMachine } from "./AuthStateMachine";
 import { GitBranch, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "../ui/Button";
+import { GraphData } from "./types";
 
 type ViewType = "waterfall" | "dag" | "auth";
-
-interface GraphData {
-  requests: RequestNode[];
-  edges: Edge[];
-}
-
-interface RequestNode {
-  id: string;
-  host: string;
-  path: string;
-  method: string;
-  status?: number;
-  duration_ms: number;
-  timestamp: number;
-  parentId?: string;
-}
-
-interface Edge {
-  from: string;
-  to: string;
-}
 
 export function GraphPage() {
   const [view, setView] = useState<ViewType>("waterfall");
