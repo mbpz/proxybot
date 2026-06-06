@@ -184,7 +184,7 @@ impl DnsState {
     }
 
     /// Check if a domain is in the blocklist.
-    fn is_blocked(&self, domain: &str) -> bool {
+    pub(crate) fn is_blocked(&self, domain: &str) -> bool {
         // Check if blocklist is enabled first
         if !self.blocklist_enabled.load(Ordering::SeqCst) {
             return false;
@@ -210,7 +210,7 @@ impl DnsState {
 
     /// Check hosts file for a domain.
     /// Returns Some(ip) if found, None otherwise.
-    fn check_hosts(&self, domain: &str) -> Option<String> {
+    pub(crate) fn check_hosts(&self, domain: &str) -> Option<String> {
         let hosts = self.hosts.lock().unwrap();
         let domain_lower = domain.to_lowercase();
 
@@ -326,7 +326,7 @@ fn record_query(state: &DnsState, domain: String, response_ips: &[String], app_h
 }
 
 /// Get a lightweight timestamp string for SQLite (YYYY-MM-DD HH:MM:SS).
-fn chrono_lite_timestamp() -> String {
+pub(crate) fn chrono_lite_timestamp() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -372,7 +372,7 @@ fn chrono_lite_timestamp() -> String {
     )
 }
 
-fn is_leap_year(year: i64) -> bool {
+pub(crate) fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
@@ -438,7 +438,7 @@ pub fn parse_dns_query(buf: &[u8]) -> Option<String> {
 }
 
 /// Parse response IPs from a DNS response packet.
-fn parse_response_ips(response: &[u8]) -> Vec<String> {
+pub(crate) fn parse_response_ips(response: &[u8]) -> Vec<String> {
     let mut ips = Vec::new();
 
     // DNS header is 12 bytes
@@ -548,7 +548,7 @@ async fn query_upstream_udp(query: &[u8], upstream: &str) -> Result<Vec<u8>, Str
 }
 
 /// Simple base64 encoding for DoH (URL-safe variant).
-fn base64_encode(data: &[u8]) -> String {
+pub(crate) fn base64_encode(data: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::new();
 
@@ -620,7 +620,7 @@ async fn forward_dns_query(query: &[u8], upstream: &DnsUpstream) -> Result<Vec<u
 }
 
 /// Build a DNS response with a single A record for blocked domains (0.0.0.0).
-fn build_blocked_response(query: &[u8]) -> Vec<u8> {
+pub(crate) fn build_blocked_response(query: &[u8]) -> Vec<u8> {
     // Build a minimal DNS response with NXDOMAIN or 0.0.0.0
     // Since we can't easily construct a proper DNS message without trust-dns,
     // we'll construct a simple response manually
@@ -795,7 +795,7 @@ async fn handle_dns_query(
 }
 
 /// Build a DNS response with a hosts file IP.
-fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
+pub(crate) fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
     // Parse the IP
     let ip_parts: Vec<u8> = ip.split('.').filter_map(|s| s.parse().ok()).collect();
 
@@ -1002,4 +1002,368 @@ pub fn reload_dns_lists(state: State<'_, Arc<DnsState>>) {
     state.load_hosts_file();
     state.load_blocklist();
     log::info!("DNS hosts and blocklist reloaded");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal DNS query packet: 12-byte header + QNAME labels + QTYPE/QCLASS.
+    /// All queries are standard queries with RD=1 and QDCOUNT=1, QTYPE=A, QCLASS=IN.
+    fn build_query(id: u16, qname: &[&str]) -> Vec<u8> {
+        let mut q = Vec::new();
+        q.extend_from_slice(&id.to_be_bytes()); // ID
+        q.extend_from_slice(&[0x01, 0x00]); // standard query, RD=1
+        q.extend_from_slice(&[0x00, 0x01]); // QDCOUNT=1
+        q.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // AN/NS/AR=0
+        for label in qname {
+            q.push(label.len() as u8);
+            q.extend_from_slice(label.as_bytes());
+        }
+        q.push(0x00); // root label
+        q.extend_from_slice(&[0x00, 0x01]); // QTYPE=A
+        q.extend_from_slice(&[0x00, 0x01]); // QCLASS=IN
+        q
+    }
+
+    /// Build a minimal DNS response with the given A-record IPs in the answer section.
+    /// Uses a compression pointer (0xC0 0x0C) for the answer name.
+    fn build_response_with_a_records(qname: &[&str], ips: &[&str]) -> Vec<u8> {
+        let mut r = Vec::new();
+        r.extend_from_slice(&[0x12, 0x34]); // ID
+        r.extend_from_slice(&[0x81, 0x80]); // QR=1, RD=1, RA=1, RCODE=0
+        r.extend_from_slice(&[0x00, 0x01]); // QDCOUNT=1
+        r.extend_from_slice(&(ips.len() as u16).to_be_bytes()); // ANCOUNT
+        r.extend_from_slice(&[0x00, 0x00]); // NSCOUNT
+        r.extend_from_slice(&[0x00, 0x00]); // ARCOUNT
+        // Question section
+        for label in qname {
+            r.push(label.len() as u8);
+            r.extend_from_slice(label.as_bytes());
+        }
+        r.push(0x00);
+        r.extend_from_slice(&[0x00, 0x01]); // QTYPE=A
+        r.extend_from_slice(&[0x00, 0x01]); // QCLASS=IN
+        // Answer section
+        for ip in ips {
+            r.push(0xC0);
+            r.push(0x0C); // pointer to question name
+            r.extend_from_slice(&[0x00, 0x01]); // TYPE=A
+            r.extend_from_slice(&[0x00, 0x01]); // CLASS=IN
+            r.extend_from_slice(&[0x00, 0x00, 0x01, 0x2C]); // TTL=300
+            r.extend_from_slice(&[0x00, 0x04]); // RDLENGTH=4
+            for octet in ip.split('.').map(|s| s.parse::<u8>().unwrap()) {
+                r.push(octet);
+            }
+        }
+        r
+    }
+
+    /// Append a non-A answer record to an existing response builder.
+    /// Used to test that non-A records are skipped.
+    fn append_aaaa_record(r: &mut Vec<u8>, ipv6_octets: &[u8; 16]) {
+        r.push(0xC0);
+        r.push(0x0C); // pointer to question name
+        r.extend_from_slice(&[0x00, 0x1C]); // TYPE=AAAA (28)
+        r.extend_from_slice(&[0x00, 0x01]); // CLASS=IN
+        r.extend_from_slice(&[0x00, 0x00, 0x01, 0x2C]); // TTL=300
+        r.extend_from_slice(&[0x00, 0x10]); // RDLENGTH=16
+        r.extend_from_slice(ipv6_octets);
+    }
+
+    // ------------------------------------------------------------------
+    // parse_dns_query
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_query_simple_domain() {
+        let q = build_query(0x1234, &["example", "com"]);
+        assert_eq!(parse_dns_query(&q), Some("example.com".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_subdomain() {
+        let q = build_query(0x1234, &["www", "api", "example", "com"]);
+        assert_eq!(parse_dns_query(&q), Some("www.api.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_too_short_returns_none() {
+        // Only 6 bytes — under the 12-byte header.
+        let q = vec![0x12, 0x34, 0x01, 0x00, 0x00, 0x01];
+        assert_eq!(parse_dns_query(&q), None);
+    }
+
+    #[test]
+    fn test_parse_query_label_too_long_returns_none() {
+        // Header (12) + label length 64 (>63) — too long.
+        let mut q = vec![0; 12];
+        q.push(64);
+        assert_eq!(parse_dns_query(&q), None);
+    }
+
+    #[test]
+    fn test_parse_query_compression_pointer_returns_none() {
+        // Header (12) + label length byte 0xC0 (top 2 bits set) — compression pointer.
+        let mut q = vec![0; 12];
+        q.push(0xC0);
+        assert_eq!(parse_dns_query(&q), None);
+    }
+
+    #[test]
+    fn test_parse_query_non_printable_returns_none() {
+        // Label "a\x01b" — contains 0x01 which is non-printable.
+        let mut q = vec![0; 12];
+        q.push(3);
+        q.extend_from_slice(b"a\x01b");
+        assert_eq!(parse_dns_query(&q), None);
+    }
+
+    #[test]
+    fn test_parse_query_empty_labels_returns_none() {
+        // Header + immediate \x00 (no labels).
+        let q = vec![0; 12];
+        assert_eq!(parse_dns_query(&q), None);
+    }
+
+    // ------------------------------------------------------------------
+    // parse_response_ips
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_response_extracts_single_a_record() {
+        let r = build_response_with_a_records(&["example", "com"], &["93.184.216.34"]);
+        assert_eq!(parse_response_ips(&r), vec!["93.184.216.34".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_response_extracts_multiple_a_records() {
+        let r = build_response_with_a_records(
+            &["example", "com"],
+            &["1.2.3.4", "5.6.7.8"],
+        );
+        assert_eq!(
+            parse_response_ips(&r),
+            vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_parse_response_skips_non_a_records() {
+        let mut r = build_response_with_a_records(&["example", "com"], &["1.2.3.4"]);
+        // Update ANCOUNT to 2 to include the AAAA.
+        r[7] = 0x02;
+        append_aaaa_record(&mut r, &[0u8; 16]);
+        let ips = parse_response_ips(&r);
+        assert_eq!(ips, vec!["1.2.3.4".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_response_handles_compression_pointer_in_answer() {
+        // The default builder already uses a compression pointer, so a single
+        // A record with a pointer should be parsed correctly.
+        let r = build_response_with_a_records(&["example", "com"], &["10.0.0.1"]);
+        assert_eq!(parse_response_ips(&r), vec!["10.0.0.1".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_response_too_short_returns_empty() {
+        let r = vec![0u8; 6];
+        assert!(parse_response_ips(&r).is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // base64_encode
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_base64_encode_empty() {
+        assert_eq!(base64_encode(&[]), "");
+    }
+
+    #[test]
+    fn test_base64_encode_one_byte() {
+        // URL-safe variant strips `=` padding, so one byte yields two chars.
+        assert_eq!(base64_encode(&[0x66]), "Zg");
+    }
+
+    #[test]
+    fn test_base64_encode_two_bytes() {
+        // URL-safe variant strips `=` padding, so two bytes yield three chars.
+        assert_eq!(base64_encode(&[0x66, 0x6f]), "Zm8");
+    }
+
+    #[test]
+    fn test_base64_encode_three_bytes() {
+        assert_eq!(base64_encode(&[0x66, 0x6f, 0x6f]), "Zm9v");
+    }
+
+    #[test]
+    fn test_base64_encode_round_text() {
+        assert_eq!(
+            base64_encode(b"Many hands make light work."),
+            "TWFueSBoYW5kcyBtYWtlIGxpZ2h0IHdvcmsu"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // build_blocked_response
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_build_blocked_response_returns_empty_for_short_query() {
+        let q = vec![0xAB, 0xCD, 0x01, 0x00, 0x00, 0x01];
+        assert!(build_blocked_response(&q).is_empty());
+    }
+
+    #[test]
+    fn test_build_blocked_response_copies_id_from_query() {
+        let q = build_query(0xABCD, &["example", "com"]);
+        let r = build_blocked_response(&q);
+        assert_eq!(r[0..2], [0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_build_blocked_response_sets_response_flags_and_ancount_1() {
+        let q = build_query(0x1234, &["example", "com"]);
+        let r = build_blocked_response(&q);
+        assert_eq!(r[2], 0x81, "expected byte 2 = 0x81 (QR/AA/RD)");
+        assert_eq!(r[3], 0x80, "expected byte 3 = 0x80 (RA, RCODE=0)");
+        assert_eq!(r[6..8], [0x00, 0x01], "ANCOUNT should be 1");
+    }
+
+    #[test]
+    fn test_build_blocked_response_ends_with_zero_ip() {
+        let q = build_query(0x1234, &["example", "com"]);
+        let r = build_blocked_response(&q);
+        let n = r.len();
+        assert!(n >= 4, "response too short: {} bytes", n);
+        assert_eq!(r[n - 4..n], [0, 0, 0, 0]);
+    }
+
+    // ------------------------------------------------------------------
+    // build_hosts_response
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_build_hosts_response_includes_ip_in_rdata() {
+        let q = build_query(0x1234, &["example", "com"]);
+        let r = build_hosts_response(&q, "1.2.3.4");
+        let n = r.len();
+        assert!(n >= 4, "response too short: {} bytes", n);
+        assert_eq!(r[n - 4..n], [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_build_hosts_response_returns_empty_for_invalid_ip() {
+        let q = build_query(0x1234, &["example", "com"]);
+        // "not.an.ip" has 3 dot-separated parts, so ip_parts.len() != 4 → empty.
+        let r = build_hosts_response(&q, "not.an.ip");
+        assert!(r.is_empty(), "expected empty response for malformed IP");
+    }
+
+    // ------------------------------------------------------------------
+    // is_leap_year + chrono_lite_timestamp
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_is_leap_year_dns_module() {
+        assert!(is_leap_year(2000), "2000 should be a leap year");
+        assert!(!is_leap_year(1900), "1900 should NOT be a leap year");
+        assert!(is_leap_year(2024), "2024 should be a leap year");
+        assert!(!is_leap_year(2023), "2023 should NOT be a leap year");
+    }
+
+    #[test]
+    fn test_chrono_lite_timestamp_format_dns() {
+        let ts = chrono_lite_timestamp();
+        assert_eq!(ts.len(), 19, "unexpected length: {:?}", ts);
+        let bytes = ts.as_bytes();
+        assert_eq!(bytes[4], b'-', "expected '-' at index 4, got {:?}", ts);
+        assert_eq!(bytes[7], b'-', "expected '-' at index 7, got {:?}", ts);
+        assert_eq!(bytes[10], b' ', "expected ' ' at index 10, got {:?}", ts);
+        assert_eq!(bytes[13], b':', "expected ':' at index 13, got {:?}", ts);
+        assert_eq!(bytes[16], b':', "expected ':' at index 16, got {:?}", ts);
+    }
+
+    // ------------------------------------------------------------------
+    // DnsState behavior
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_is_blocked_exact_match() {
+        let state = DnsState::new();
+        state
+            .blocklist
+            .lock()
+            .unwrap()
+            .push(BlocklistEntry {
+                domain: "ads.example.com".to_string(),
+            });
+        assert!(state.is_blocked("ads.example.com"));
+        assert!(!state.is_blocked("other.example.com"));
+    }
+
+    #[test]
+    fn test_is_blocked_suffix_match() {
+        let state = DnsState::new();
+        state
+            .blocklist
+            .lock()
+            .unwrap()
+            .push(BlocklistEntry {
+                domain: ".example.com".to_string(),
+            });
+        // Suffix matching means both subdomains AND the bare domain are matched.
+        assert!(state.is_blocked("www.example.com"));
+        assert!(state.is_blocked("example.com"));
+        // NOTE: current production behavior is `ends_with(suffix)` (no leading-dot
+        // check on the domain), so "notexample.com" is also matched. Locking in
+        // this behavior — do not "fix" without a separate bug ticket.
+        assert!(state.is_blocked("notexample.com"));
+    }
+
+    #[test]
+    fn test_is_blocked_returns_false_when_disabled() {
+        let state = DnsState::new();
+        state
+            .blocklist
+            .lock()
+            .unwrap()
+            .push(BlocklistEntry {
+                domain: "ads.example.com".to_string(),
+            });
+        state.blocklist_enabled.store(false, Ordering::SeqCst);
+        assert!(!state.is_blocked("ads.example.com"));
+    }
+
+    #[test]
+    fn test_check_hosts_returns_ip_for_known_domain() {
+        let state = DnsState::new();
+        state
+            .hosts
+            .lock()
+            .unwrap()
+            .push(HostsEntry {
+                domain: "example.com".to_string(),
+                ip: "10.0.0.5".to_string(),
+            });
+        assert_eq!(state.check_hosts("example.com"), Some("10.0.0.5".to_string()));
+    }
+
+    #[test]
+    fn test_check_hosts_returns_none_for_unknown_domain() {
+        let state = DnsState::new();
+        assert_eq!(state.check_hosts("missing.com"), None);
+    }
+
+    // ------------------------------------------------------------------
+    // correlate_app smoke test
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_correlate_app_returns_none_when_no_entries_match() {
+        let state = DnsState::new();
+        assert_eq!(state.correlate_app("unknown.com", 0), None);
+    }
 }
