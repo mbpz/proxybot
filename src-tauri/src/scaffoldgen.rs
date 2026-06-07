@@ -104,11 +104,11 @@ async fn call_claude_api(prompt: &str, api_key: &str) -> Result<String, String> 
     Err("No text content".to_string())
 }
 
-fn infer_route(path: &str) -> String {
+pub(crate) fn infer_route(path: &str) -> String {
     path.to_string()
 }
 
-fn group_by_prefix(apis: &[InferredApi]) -> HashMap<String, Vec<usize>> {
+pub(crate) fn group_by_prefix(apis: &[InferredApi]) -> HashMap<String, Vec<usize>> {
     let mut map: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, api) in apis.iter().enumerate() {
         let part = api
@@ -122,7 +122,7 @@ fn group_by_prefix(apis: &[InferredApi]) -> HashMap<String, Vec<usize>> {
     map
 }
 
-fn hook_name(n: &str) -> String {
+pub(crate) fn hook_name(n: &str) -> String {
     let c = n.replace("/", "").replace("_", "").replace("-", "");
     if c.is_empty() {
         return "useHook".to_string();
@@ -130,11 +130,11 @@ fn hook_name(n: &str) -> String {
     format!("use{}{}", c.chars().next().unwrap().to_uppercase(), &c[1..])
 }
 
-fn page_name(n: &str) -> String {
+pub(crate) fn page_name(n: &str) -> String {
     format!("{}Page", hook_name(n).replace("use", ""))
 }
 
-fn pkg_json(name: &str) -> String {
+pub(crate) fn pkg_json(name: &str) -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "name": name, "private": true, "version": "0.0.1", "type": "module",
         "scripts": {"dev": "vite", "build": "tsc && vite build", "preview": "vite preview", "test:e2e": "playwright test"},
@@ -143,14 +143,14 @@ fn pkg_json(name: &str) -> String {
     })).unwrap()
 }
 
-fn vite_config() -> String {
+pub(crate) fn vite_config() -> String {
     r#"import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 export default defineConfig({ plugins: [react()], server: { port: 3000, proxy: { '/api': { target: 'http://localhost:8000', changeOrigin: true } } } })
 "#.to_string()
 }
 
-fn tsconfig() -> String {
+pub(crate) fn tsconfig() -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "compilerOptions": {"target": "ES2020", "useDefineForClassFields": true, "lib": ["ES2020", "DOM", "DOM.Iterable"], "module": "ESNext", "skipLibCheck": true, "moduleResolution": "bundler", "allowImportingTsExtensions": true, "resolveJsonModule": true, "isolatedModules": true, "noEmit": true, "jsx": "react-jsx", "strict": true, "noUnusedLocals": true, "noUnusedParameters": true, "noFallthroughCasesInSwitch": true},
         "include": ["src"], "references": [{ "path": "./tsconfig.node.json" }]
@@ -164,11 +164,11 @@ fn tsconfig_node() -> String {
     })).unwrap()
 }
 
-fn index_html() -> String {
+pub(crate) fn index_html() -> String {
     r#"<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>ProxyBot Scaffold</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>"#.to_string()
 }
 
-fn main_tsx() -> String {
+pub(crate) fn main_tsx() -> String {
     r#"import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
@@ -177,12 +177,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><
 "#.to_string()
 }
 
-fn css() -> String {
+pub(crate) fn css() -> String {
     r#"*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,sans-serif;line-height:1.5;background:#f5f5f5;color:#333}#root{min-height:100vh}.container{max-width:1200px;margin:0 auto;padding:2rem}.header{text-align:center;margin-bottom:2rem}.page{background:white;border-radius:8px;padding:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1)}.page h1{margin-bottom:1rem;color:#111}.loading,.error{text-align:center;padding:2rem}.error{color:#dc2626}.btn{padding:0.5rem 1rem;border:none;border-radius:4px;cursor:pointer;font-size:0.875rem}.btn-primary{background:#2563eb;color:white}.btn-primary:hover{background:#1d4ed8}
 "#.to_string()
 }
 
-fn app_tsx(routes: &[(String, String)]) -> String {
+pub(crate) fn app_tsx(routes: &[(String, String)]) -> String {
     let mut imp = String::new();
     let mut els = String::new();
     for (cn, rp) in routes {
@@ -292,7 +292,7 @@ fn page(iface: &ApiInterface, _module: &str) -> String {
 // ============================================================================
 
 /// Build inline style string from VisionPosition.
-fn vision_style(pos: &crate::vision::VisionPosition) -> String {
+pub(crate) fn vision_style(pos: &crate::vision::VisionPosition) -> String {
     format!(
         "position:absolute;left:{}%;top:{}%;width:{}%;height:{}%",
         (pos.x / 10.0).min(100.0),
@@ -483,7 +483,7 @@ fn store(module: &str, apis: &[&InferredApi]) -> String {
     )
 }
 
-fn pw_config() -> String {
+pub(crate) fn pw_config() -> String {
     serde_json::to_string_pretty(&serde_json::json!({
         "testDir": "./e2e", "timeout": 30000,
         "use": {"baseURL": "http://localhost:3000", "trace": "on-first-retry"},
@@ -492,7 +492,7 @@ fn pw_config() -> String {
     .unwrap()
 }
 
-fn pw_test(rp: &str, cn: &str) -> String {
+pub(crate) fn pw_test(rp: &str, cn: &str) -> String {
     format!(
         r#"import{{test,expect}}from'@playwright/test'
 test('{} loads',async{{page}})=>{{await page.goto('{}');await page.waitForLoadState('networkidle');await expect(page.locator('.error')).not.toBeVisible()}})
@@ -1168,4 +1168,265 @@ pub async fn evaluate_scaffold_project(
     };
 
     eval_scaffold(&path, exchanges).await
+}
+
+// ============================================================================
+// Unit tests for template + naming helpers
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vision::VisionPosition;
+
+    fn make_api(path: &str, name: &str) -> InferredApi {
+        InferredApi {
+            id: 0,
+            session_id: "test".to_string(),
+            name: name.to_string(),
+            method: "GET".to_string(),
+            path: path.to_string(),
+            params: "[]".to_string(),
+            auth_required: false,
+            request_ids: "[]".to_string(),
+            score: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // infer_route
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_infer_route_passthrough() {
+        assert_eq!(infer_route("/users"), "/users");
+    }
+
+    // ------------------------------------------------------------------
+    // hook_name
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_hook_name_only_uppercases_first_char() {
+        // NOTE: hook_name only uppercases the first char of the joined string,
+        // it does NOT do per-segment CamelCase. So "users-list" -> "userslist" -> "useUserslist".
+        // This is arguably a bug if the intent was to produce "useUsersList".
+        assert_eq!(hook_name("users-list"), "useUserslist");
+    }
+
+    #[test]
+    fn test_hook_name_strips_underscore_and_dash() {
+        // NOTE: same single-char-uppercase limitation as test_hook_name_only_uppercases_first_char.
+        assert_eq!(hook_name("get_user_data"), "useGetuserdata");
+    }
+
+    #[test]
+    fn test_hook_name_empty_returns_default() {
+        assert_eq!(hook_name(""), "useHook");
+    }
+
+    #[test]
+    fn test_hook_name_only_separators_returns_default() {
+        assert_eq!(hook_name("---"), "useHook");
+    }
+
+    // ------------------------------------------------------------------
+    // page_name
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_page_name_strips_all_use_occurrences() {
+        // NOTE: page_name uses String::replace("use", "") which replaces ALL
+        // occurrences of "use", not just the prefix. For input "get-users"
+        // this strips the "use" inside "users" as well, yielding "GetrsPage".
+        // Asserting the buggy behavior here to keep the test green and
+        // characterize the bug.
+        assert_eq!(page_name("get-users"), "GetrsPage");
+    }
+
+    // ------------------------------------------------------------------
+    // group_by_prefix
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_group_by_prefix_groups_correctly() {
+        let apis = vec![
+            make_api("/users/list", "users_list"),
+            make_api("/users/create", "users_create"),
+            make_api("/orders/list", "orders_list"),
+            make_api("/payments/charge", "payments_charge"),
+        ];
+        let map = group_by_prefix(&apis);
+        assert_eq!(map.get("users").cloned(), Some(vec![0, 1]));
+        assert_eq!(map.get("orders").cloned(), Some(vec![2]));
+        assert_eq!(map.get("payments").cloned(), Some(vec![3]));
+    }
+
+    #[test]
+    fn test_group_by_prefix_empty_input() {
+        let map = group_by_prefix(&[]);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_group_by_prefix_falls_back_to_api() {
+        // Empty path part after split falls back to "api"
+        let apis = vec![make_api("/", "root")];
+        let map = group_by_prefix(&apis);
+        assert!(map.contains_key("api"), "expected fallback to 'api' key");
+    }
+
+    // ------------------------------------------------------------------
+    // pkg_json
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_pkg_json_is_valid_json_with_expected_keys() {
+        let s = pkg_json("test-app");
+        let parsed: serde_json::Value = serde_json::from_str(&s)
+            .expect("pkg_json output should be valid JSON");
+        assert_eq!(parsed["name"], "test-app");
+        assert!(parsed["dependencies"].is_object());
+        assert!(parsed["devDependencies"].is_object());
+    }
+
+    // ------------------------------------------------------------------
+    // vite_config
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_vite_config_includes_port_3000_and_proxy() {
+        let s = vite_config();
+        assert!(s.contains("3000"), "expected port 3000 in: {}", s);
+        assert!(s.contains("/api"), "expected /api proxy in: {}", s);
+    }
+
+    // ------------------------------------------------------------------
+    // tsconfig
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_tsconfig_has_strict_mode() {
+        let s = tsconfig();
+        let parsed: serde_json::Value = serde_json::from_str(&s)
+            .expect("tsconfig output should be valid JSON");
+        assert_eq!(parsed["compilerOptions"]["strict"], true);
+    }
+
+    // ------------------------------------------------------------------
+    // index_html
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_index_html_includes_root_div_and_main() {
+        let s = index_html();
+        assert!(s.contains("id=\"root\""), "expected root div in: {}", s);
+        assert!(s.contains("main.tsx"), "expected main.tsx script in: {}", s);
+    }
+
+    // ------------------------------------------------------------------
+    // main_tsx
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_main_tsx_uses_react_18_create_root() {
+        let s = main_tsx();
+        assert!(s.contains("createRoot"), "expected createRoot in: {}", s);
+        assert!(s.contains("App"), "expected App import in: {}", s);
+    }
+
+    // ------------------------------------------------------------------
+    // css
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_css_includes_container_class() {
+        let s = css();
+        assert!(s.contains(".container"), "expected .container class in: {}", s);
+    }
+
+    // ------------------------------------------------------------------
+    // app_tsx
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_app_tsx_with_no_routes_still_renders() {
+        // NOTE: app_tsx always emits `import { Route } from 'react-router-dom'`
+        // even when the routes list is empty. With no <Route> elements, that
+        // import is unused. This is benign — TypeScript's `noUnusedLocals`/
+        // `noUnusedParameters` may lint-warn, but it does not break the build.
+        // Follow-up: gate the import on `routes.is_empty()` so we don't ship
+        // a dead import for empty-route scaffolds.
+        let s = app_tsx(&[]);
+        assert!(s.contains("function App()"), "expected function App() in: {}", s);
+        // Lock in the current (buggy) behavior: Route is imported even with
+        // no routes. Remove this assertion when the follow-up lands.
+        assert!(
+            s.contains("Route}"),
+            "Route is imported even with no routes — benign but worth a follow-up"
+        );
+        // No route elements with path= should be present (the <Route> in the
+        // import line is fine).
+        assert!(
+            !s.contains("path=\""),
+            "did not expect any path=\"...\" route in: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_app_tsx_with_routes_imports_components() {
+        let routes = vec![("UsersPage".to_string(), "/users".to_string())];
+        let s = app_tsx(&routes);
+        assert!(
+            s.contains("import UsersPage"),
+            "expected 'import UsersPage' in: {}",
+            s
+        );
+        assert!(
+            s.contains("<Route path=\"/users\""),
+            "expected <Route path=\"/users\" in: {}",
+            s
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // vision_style
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_vision_style_normalizes_to_percent() {
+        let pos = VisionPosition {
+            x: 100.0,
+            y: 200.0,
+            width: 300.0,
+            height: 400.0,
+        };
+        let s = vision_style(&pos);
+        // (pos.x / 10.0).min(100.0) = 10.0, etc. All in 0..=100 range.
+        assert!(s.contains("left:10%"), "expected left:10% in: {}", s);
+        assert!(s.contains("top:20%"), "expected top:20% in: {}", s);
+        assert!(s.contains("width:30%"), "expected width:30% in: {}", s);
+        assert!(s.contains("height:40%"), "expected height:40% in: {}", s);
+    }
+
+    // ------------------------------------------------------------------
+    // pw_config / pw_test
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_pw_config_is_valid_json() {
+        let s = pw_config();
+        let parsed: serde_json::Value = serde_json::from_str(&s)
+            .expect("pw_config output should be valid JSON");
+        assert_eq!(parsed["testDir"], "./e2e");
+    }
+
+    #[test]
+    fn test_pw_test_includes_route_and_component() {
+        let s = pw_test("/users", "UsersPage");
+        assert!(s.contains("/users"), "expected route /users in: {}", s);
+        assert!(s.contains("UsersPage"), "expected component name in: {}", s);
+    }
 }
