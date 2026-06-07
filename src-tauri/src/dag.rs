@@ -318,6 +318,7 @@ pub fn build_dag_from_requests(
     // `dag.edges` is always empty. To fix: widen the `requests` tuple to
     // include response data, pass it through here, and switch the
     // `extract_tokens` call to use the real response body/headers.
+    // Tracked as task #77.
     for &idx in &node_indices {
         let node = &nodes[idx];
         if let Some((req_headers_str, req_body_str, resp_status)) = node_request_data.get(&node.id)
@@ -800,7 +801,8 @@ mod tests {
     // data at all. Until the tuple is widened to include `resp_body` /
     // `resp_headers` and the producer pass is fixed to consume them, no
     // request can be identified as a token producer and no edges are
-    // created. See the NOTE comment in `build_dag_from_requests`.
+    // created. Tracked as task #77. See the NOTE comment in
+    // `build_dag_from_requests`.
     // ------------------------------------------------------------------
 
     // ------------------------------------------------------------------
