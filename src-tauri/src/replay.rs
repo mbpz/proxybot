@@ -3,6 +3,7 @@
 //! Replays recorded HTTP requests against a local mock server and computes diffs.
 
 use crate::db::DbState;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,7 +89,7 @@ pub struct BodyDiff {
 }
 
 /// Type of difference.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum DiffType {
     Added,
     Removed,
@@ -127,6 +128,11 @@ impl Default for ReplayState {
 #[tauri::command]
 pub fn get_replay_targets(state: State<'_, Arc<DbState>>) -> Result<Vec<ReplayTarget>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    get_replay_targets_internal(&conn)
+}
+
+/// Get all hosts that have recorded requests (takes `&Connection` for testability).
+pub(crate) fn get_replay_targets_internal(conn: &Connection) -> Result<Vec<ReplayTarget>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT host, COUNT(*) as cnt, COUNT(DISTINCT path) as path_cnt
@@ -158,6 +164,19 @@ pub fn get_requests_for_replay(
     host: String,
 ) -> Result<Vec<ReplayRequest>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    get_requests_for_replay_internal(&conn, &host)
+}
+
+/// Get requests for a specific host (takes `&Connection` for testability).
+///
+/// NOTE: The `url` field is constructed as `format!("{}{}", host, path)` — a
+/// scheme-less, authority+path string like `api.example.com/v1/users`. This is
+/// a display field only (the real HTTP target in `start_replay` is built from
+/// the loopback `mock_url` constant), but a UI consumer may expect a full URL.
+pub(crate) fn get_requests_for_replay_internal(
+    conn: &Connection,
+    host: &str,
+) -> Result<Vec<ReplayRequest>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, method, host, path, req_headers, req_body
@@ -205,7 +224,19 @@ pub fn get_recorded_responses(
     request_ids: Vec<i64>,
 ) -> Result<HashMap<i64, RecordedResponse>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut responses = HashMap::new();
+    get_recorded_responses_internal(&conn, &request_ids)
+}
+
+/// Get recorded responses for requests (takes `&Connection` for testability).
+///
+/// NOTE: For unknown `request_ids`, the function silently omits them from the
+/// returned map (no error, no entry). The `unwrap_or_default()` calls for
+/// header JSON parsing also silently swallow malformed JSON.
+pub(crate) fn get_recorded_responses_internal(
+    conn: &Connection,
+    request_ids: &[i64],
+) -> Result<HashMap<i64, RecordedResponse>, String> {
+    let mut responses: HashMap<i64, RecordedResponse> = HashMap::new();
 
     for id in request_ids {
         let mut stmt = conn
@@ -232,7 +263,7 @@ pub fn get_recorded_responses(
                 body: resp_body_str,
             })
         }) {
-            responses.insert(id, result);
+            responses.insert(*id, result);
         }
     }
 
@@ -293,8 +324,14 @@ pub async fn start_replay(
                                     let mut response_headers = Vec::new();
 
                                     for (_req_id, resp) in &responses {
-                                        // Try to find request with this path
-                                        // For simplicity, use first response if path matches
+                                        // NOTE: BUG — the path check
+                                        //   `if path == "/" || path.starts_with("/")`
+                                        // is ALWAYS true (every HTTP path starts with
+                                        // "/"), so this loop always returns the FIRST
+                                        // response in the HashMap regardless of which
+                                        // path the client requested. Replay diffs will
+                                        // be incorrect when multiple distinct paths
+                                        // exist for the same host. See task #80.
                                         if path == "/" || path.starts_with("/") {
                                             response_status = resp.status;
                                             response_headers = resp.headers.clone();
@@ -555,45 +592,546 @@ fn compute_body_diff(recorded: &Option<String>, mock: &Option<String>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::{record_http_request, DbState};
+
+    /// Helper: open an in-memory database with the full schema and seed
+    /// `http_requests` rows so replay queries have something to read.
+    fn seeded_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+        conn
+    }
+
+    // ------------------------------------------------------------------
+    // compute_diff — pure function tests
+    // ------------------------------------------------------------------
 
     #[test]
-    fn test_compute_diff() {
-        let recorded_status = 200;
+    fn test_compute_diff_detects_modified_value_and_modified_body() {
         let recorded_headers = vec![
             ("Content-Type".to_string(), "application/json".to_string()),
             ("X-Custom".to_string(), "value1".to_string()),
         ];
-        let recorded_body = Some(r#"{"key": "value"}"#.to_string());
-
-        let mock_status = 200;
         let mock_headers = vec![
             ("Content-Type".to_string(), "application/json".to_string()),
             ("X-Custom".to_string(), "different".to_string()),
         ];
+        let recorded_body = Some(r#"{"key": "value"}"#.to_string());
         let mock_body = Some(r#"{"key": "different"}"#.to_string());
 
-        let diff = compute_diff(
-            &recorded_status,
-            &recorded_headers,
-            &recorded_body,
-            &mock_status,
-            &mock_headers,
-            &mock_body,
-        );
+        let diff = compute_diff(&200, &recorded_headers, &recorded_body, &200, &mock_headers, &mock_body);
 
-        assert!(diff.has_changes);
+        assert!(diff.has_changes, "modified header + modified body must set has_changes");
+
+        // Two distinct header keys, both with values present on both sides.
         assert_eq!(diff.header_diffs.len(), 2);
-        assert!(diff.body_diff.is_some());
+
+        // Per-header: Content-Type unchanged, X-Custom modified.
+        let content_type = diff.header_diffs.iter().find(|h| h.header == "Content-Type").unwrap();
+        assert_eq!(content_type.diff_type, DiffType::Unchanged);
+
+        let x_custom = diff.header_diffs.iter().find(|h| h.header == "X-Custom").unwrap();
+        assert_eq!(x_custom.diff_type, DiffType::Modified);
+        assert_eq!(x_custom.recorded.as_deref(), Some("value1"));
+        assert_eq!(x_custom.mock.as_deref(), Some("different"));
+
+        // Body diff present and shows modification.
+        let body = diff.body_diff.as_ref().expect("body diff should be Some");
+        assert_eq!(body.line_diffs.len(), 1);
+        assert_eq!(body.line_diffs[0].diff_type, DiffType::Modified);
     }
 
     #[test]
-    fn test_compute_body_diff() {
+    fn test_compute_diff_identical_inputs_have_no_changes() {
+        let headers = vec![("Content-Type".to_string(), "text/plain".to_string())];
+        let body = Some("hello\nworld".to_string());
+
+        let diff = compute_diff(&200, &headers, &body, &200, &headers, &body);
+
+        assert!(!diff.has_changes, "Identical inputs must NOT set has_changes");
+        assert_eq!(diff.header_diffs.len(), 1);
+        assert_eq!(diff.header_diffs[0].diff_type, DiffType::Unchanged);
+
+        let body = diff.body_diff.as_ref().unwrap();
+        assert!(body.line_diffs.iter().all(|l| l.diff_type == DiffType::Unchanged));
+    }
+
+    #[test]
+    fn test_compute_diff_header_added_on_mock_side() {
+        let recorded_headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+        let mock_headers = vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("X-Request-Id".to_string(), "abc-123".to_string()),
+        ];
+
+        let diff = compute_diff(&200, &recorded_headers, &None, &200, &mock_headers, &None);
+
+        assert!(diff.has_changes, "An added header should set has_changes");
+        let added = diff
+            .header_diffs
+            .iter()
+            .find(|h| h.header == "X-Request-Id")
+            .expect("X-Request-Id should appear in the union");
+        assert_eq!(added.diff_type, DiffType::Added);
+        assert_eq!(added.recorded, None);
+        assert_eq!(added.mock.as_deref(), Some("abc-123"));
+    }
+
+    #[test]
+    fn test_compute_diff_header_removed_on_mock_side() {
+        let recorded_headers = vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("Authorization".to_string(), "Bearer xyz".to_string()),
+        ];
+        let mock_headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+        let diff = compute_diff(&200, &recorded_headers, &None, &200, &mock_headers, &None);
+
+        assert!(diff.has_changes);
+        let removed = diff
+            .header_diffs
+            .iter()
+            .find(|h| h.header == "Authorization")
+            .expect("Authorization should still appear as Removed");
+        assert_eq!(removed.diff_type, DiffType::Removed);
+        assert_eq!(removed.recorded.as_deref(), Some("Bearer xyz"));
+        assert_eq!(removed.mock, None);
+    }
+
+    #[test]
+    fn test_compute_diff_empty_header_lists_produce_no_header_diffs() {
+        let empty: Vec<(String, String)> = vec![];
+        let diff = compute_diff(&200, &empty, &None, &200, &empty, &None);
+
+        assert_eq!(diff.header_diffs.len(), 0);
+        // has_changes should be false since headers and body are both empty/none.
+        assert!(!diff.has_changes);
+    }
+
+    #[test]
+    fn test_compute_diff_body_only_change_keeps_headers_unchanged() {
+        let recorded_headers = vec![("Content-Type".to_string(), "text/plain".to_string())];
+        let mock_headers = vec![("Content-Type".to_string(), "text/plain".to_string())];
+        let recorded_body = Some("a\nb\nc".to_string());
+        let mock_body = Some("a\nB\nc".to_string());
+
+        let diff = compute_diff(&200, &recorded_headers, &recorded_body, &200, &mock_headers, &mock_body);
+
+        // Headers match; only body has a change.
+        assert!(diff.has_changes, "Body-only change must still set has_changes");
+        assert_eq!(diff.header_diffs.len(), 1);
+        assert_eq!(diff.header_diffs[0].diff_type, DiffType::Unchanged);
+    }
+
+    // ------------------------------------------------------------------
+    // compute_body_diff — pure helper tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_compute_body_diff_three_lines_one_modified() {
         let recorded = Some("line1\nline2\nline3".to_string());
         let mock = Some("line1\nmodified\nline3".to_string());
 
-        let diff = compute_body_diff(&recorded, &mock);
-        assert!(diff.is_some());
-        let diff = diff.unwrap();
+        let diff = compute_body_diff(&recorded, &mock).expect("always Some");
+        assert_eq!(diff.recorded_lines, vec!["line1", "line2", "line3"]);
+        assert_eq!(diff.mock_lines, vec!["line1", "modified", "line3"]);
         assert_eq!(diff.line_diffs.len(), 3);
+        assert_eq!(diff.line_diffs[0].diff_type, DiffType::Unchanged);
+        assert_eq!(diff.line_diffs[1].diff_type, DiffType::Modified);
+        assert_eq!(diff.line_diffs[1].recorded_text.as_deref(), Some("line2"));
+        assert_eq!(diff.line_diffs[1].mock_text.as_deref(), Some("modified"));
+        assert_eq!(diff.line_diffs[2].diff_type, DiffType::Unchanged);
+        // 1-based line numbers.
+        assert_eq!(diff.line_diffs[0].line_number_recorded, Some(1));
+        assert_eq!(diff.line_diffs[1].line_number_mock, Some(2));
+    }
+
+    #[test]
+    fn test_compute_body_diff_mock_shorter_marks_trailing_as_removed() {
+        let recorded = Some("a\nb\nc".to_string());
+        let mock = Some("a".to_string());
+
+        let diff = compute_body_diff(&recorded, &mock).expect("always Some");
+        // max_len = 3, so we get 3 entries; the ones past the end of mock are Removed.
+        assert_eq!(diff.line_diffs.len(), 3);
+        assert_eq!(diff.line_diffs[0].diff_type, DiffType::Unchanged);
+        assert_eq!(diff.line_diffs[1].diff_type, DiffType::Removed);
+        assert_eq!(diff.line_diffs[1].recorded_text.as_deref(), Some("b"));
+        assert_eq!(diff.line_diffs[1].mock_text, None);
+        assert_eq!(diff.line_diffs[2].diff_type, DiffType::Removed);
+    }
+
+    #[test]
+    fn test_compute_body_diff_mock_longer_marks_trailing_as_added() {
+        let recorded = Some("a".to_string());
+        let mock = Some("a\nb\nc".to_string());
+
+        let diff = compute_body_diff(&recorded, &mock).expect("always Some");
+        assert_eq!(diff.line_diffs.len(), 3);
+        assert_eq!(diff.line_diffs[0].diff_type, DiffType::Unchanged);
+        assert_eq!(diff.line_diffs[1].diff_type, DiffType::Added);
+        assert_eq!(diff.line_diffs[1].recorded_text, None);
+        assert_eq!(diff.line_diffs[1].mock_text.as_deref(), Some("b"));
+        assert_eq!(diff.line_diffs[2].diff_type, DiffType::Added);
+    }
+
+    #[test]
+    fn test_compute_body_diff_both_none_yields_empty_lines() {
+        let diff = compute_body_diff(&None, &None).expect("always Some");
+        assert_eq!(diff.recorded_lines.len(), 0);
+        assert_eq!(diff.mock_lines.len(), 0);
+        assert_eq!(diff.line_diffs.len(), 0);
+        assert_eq!(diff.recorded, None);
+        assert_eq!(diff.mock, None);
+    }
+
+    #[test]
+    fn test_compute_body_diff_one_none_one_some_yields_all_removed() {
+        let recorded = Some("only-on-recorded".to_string());
+        let diff = compute_body_diff(&recorded, &None).expect("always Some");
+        assert_eq!(diff.line_diffs.len(), 1);
+        assert_eq!(diff.line_diffs[0].diff_type, DiffType::Removed);
+        assert_eq!(diff.line_diffs[0].recorded_text.as_deref(), Some("only-on-recorded"));
+        assert_eq!(diff.line_diffs[0].mock_text, None);
+    }
+
+    // ------------------------------------------------------------------
+    // get_replay_targets_internal — DB CRUD tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_get_replay_targets_internal_empty_db() {
+        let conn = seeded_db();
+        let targets = get_replay_targets_internal(&conn).unwrap();
+        assert!(targets.is_empty(), "Empty http_requests should yield no targets");
+    }
+
+    #[test]
+    fn test_get_replay_targets_internal_groups_by_host_and_counts_paths() {
+        let conn = seeded_db();
+        let empty_headers: Vec<(String, String)> = vec![];
+
+        // api.example.com: 3 requests, 2 distinct paths
+        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:02", "POST", "https", "api.example.com", "/v1/login", &empty_headers, None, Some(201), &empty_headers, None, None, None, None).unwrap();
+
+        // cdn.example.com: 1 request, 1 path
+        record_http_request(&conn, "2026-06-04 10:00:03", "GET", "https", "cdn.example.com", "/img.png", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+
+        let targets = get_replay_targets_internal(&conn).unwrap();
+        assert_eq!(targets.len(), 2, "Should have 2 distinct hosts");
+
+        // ORDER BY cnt DESC → api.example.com first.
+        assert_eq!(targets[0].host, "api.example.com");
+        assert_eq!(targets[0].request_count, 3);
+        assert_eq!(targets[0].path_count, 2, "Two distinct paths under api.example.com");
+
+        assert_eq!(targets[1].host, "cdn.example.com");
+        assert_eq!(targets[1].request_count, 1);
+        assert_eq!(targets[1].path_count, 1);
+    }
+
+    #[test]
+    fn test_get_replay_targets_internal_sorts_by_count_descending() {
+        let conn = seeded_db();
+        let empty_headers: Vec<(String, String)> = vec![];
+
+        // a.com: 1 row
+        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        // b.com: 5 rows
+        for i in 0..5 {
+            record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        }
+        // c.com: 3 rows
+        for i in 0..3 {
+            record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "c.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        }
+
+        let targets = get_replay_targets_internal(&conn).unwrap();
+        assert_eq!(targets.len(), 3);
+        // Expected sort: b.com (5), c.com (3), a.com (1)
+        assert_eq!(targets[0].host, "b.com");
+        assert_eq!(targets[0].request_count, 5);
+        assert_eq!(targets[1].host, "c.com");
+        assert_eq!(targets[1].request_count, 3);
+        assert_eq!(targets[2].host, "a.com");
+        assert_eq!(targets[2].request_count, 1);
+    }
+
+    // ------------------------------------------------------------------
+    // get_requests_for_replay_internal — DB CRUD tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_get_requests_for_replay_internal_unknown_host_returns_empty() {
+        let conn = seeded_db();
+        let requests = get_requests_for_replay_internal(&conn, "no-such-host.example").unwrap();
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn test_get_requests_for_replay_internal_round_trip() {
+        let conn = seeded_db();
+        let req_headers = vec![("User-Agent".to_string(), "proxybot-test".to_string())];
+        let empty_headers: Vec<(String, String)> = vec![];
+
+        let id1 = record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "api.example.com",
+            "/v1/users",
+            &req_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            Some("[]"),
+            Some(50),
+            None,
+            Some("wechat"),
+        )
+        .unwrap();
+
+        let id2 = record_http_request(
+            &conn,
+            "2026-06-04 10:00:01",
+            "POST",
+            "https",
+            "api.example.com",
+            "/v1/login",
+            &empty_headers,
+            Some(r#"{"u":"x"}"#),
+            Some(201),
+            &empty_headers,
+            Some(r#"{"ok":true}"#),
+            Some(120),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let requests = get_requests_for_replay_internal(&conn, "api.example.com").unwrap();
+        assert_eq!(requests.len(), 2);
+
+        // First request (by timestamp ASC)
+        let r1 = &requests[0];
+        assert_eq!(r1.id, id1);
+        assert_eq!(r1.method, "GET");
+        assert_eq!(r1.path, "/v1/users");
+        // NOTE: url is scheme-less `host + path` (existing quirky behavior — see NOTE
+        // in the source). We document the current behavior rather than fix it.
+        assert_eq!(r1.url, "api.example.com/v1/users");
+        assert_eq!(r1.req_headers, req_headers);
+        assert_eq!(r1.req_body, None);
+
+        let r2 = &requests[1];
+        assert_eq!(r2.id, id2);
+        assert_eq!(r2.method, "POST");
+        assert_eq!(r2.path, "/v1/login");
+        assert_eq!(r2.url, "api.example.com/v1/login");
+        assert_eq!(r2.req_body.as_deref(), Some(r#"{"u":"x"}"#));
+    }
+
+    #[test]
+    fn test_get_requests_for_replay_internal_filters_by_host() {
+        let conn = seeded_db();
+        let empty_headers: Vec<(String, String)> = vec![];
+
+        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "a.com", "/v2", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+
+        let a = get_requests_for_replay_internal(&conn, "a.com").unwrap();
+        let b = get_requests_for_replay_internal(&conn, "b.com").unwrap();
+        assert_eq!(a.len(), 2, "Only a.com rows should be returned");
+        assert_eq!(b.len(), 1, "Only b.com rows should be returned");
+        assert!(a.iter().all(|r| r.url.starts_with("a.com")));
+        assert!(b.iter().all(|r| r.url.starts_with("b.com")));
+    }
+
+    #[test]
+    fn test_get_requests_for_replay_internal_handles_malformed_header_json() {
+        let conn = seeded_db();
+        // Seed a row with intentionally malformed JSON in req_headers.
+        conn.execute(
+            "INSERT INTO http_requests (timestamp, method, scheme, host, path, req_headers, req_body, resp_status, resp_headers, resp_body)
+             VALUES ('2026-06-04 10:00:00', 'GET', 'https', 'broken.com', '/', 'this-is-not-json', NULL, 200, '[]', NULL)",
+            [],
+        )
+        .unwrap();
+
+        let requests = get_requests_for_replay_internal(&conn, "broken.com").unwrap();
+        assert_eq!(requests.len(), 1, "Malformed JSON must not skip the row");
+        // req_headers is silently default-empty (current behavior — see NOTE in source).
+        assert!(requests[0].req_headers.is_empty());
+    }
+
+    // ------------------------------------------------------------------
+    // get_recorded_responses_internal — DB CRUD tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_get_recorded_responses_internal_empty_ids_returns_empty_map() {
+        let conn = seeded_db();
+        let responses = get_recorded_responses_internal(&conn, &[]).unwrap();
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn test_get_recorded_responses_internal_round_trip() {
+        let conn = seeded_db();
+        let req_headers: Vec<(String, String)> = vec![];
+        let resp_headers = vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("X-Server".to_string(), "nginx/1.18".to_string()),
+        ];
+
+        let id1 = record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "api.example.com",
+            "/v1/users",
+            &req_headers,
+            None,
+            Some(200),
+            &resp_headers,
+            Some(r#"[{"id":1}]"#),
+            Some(42),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let id2 = record_http_request(
+            &conn,
+            "2026-06-04 10:00:01",
+            "POST",
+            "https",
+            "api.example.com",
+            "/v1/login",
+            &req_headers,
+            Some("{}"),
+            Some(404),
+            &resp_headers,
+            None,
+            Some(11),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let responses = get_recorded_responses_internal(&conn, &[id1, id2]).unwrap();
+        assert_eq!(responses.len(), 2, "Both IDs should be in the returned map");
+
+        let r1 = responses.get(&id1).expect("id1 must be present");
+        assert_eq!(r1.status, 200);
+        assert_eq!(r1.headers, resp_headers);
+        assert_eq!(r1.body.as_deref(), Some(r#"[{"id":1}]"#));
+
+        let r2 = responses.get(&id2).expect("id2 must be present");
+        assert_eq!(r2.status, 404);
+        assert_eq!(r2.body, None, "Body was inserted as NULL");
+    }
+
+    #[test]
+    fn test_get_recorded_responses_internal_skips_unknown_ids_silently() {
+        let conn = seeded_db();
+        let empty_headers: Vec<(String, String)> = vec![];
+        let id = record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "api.example.com",
+            "/v1/users",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Pass [id, 99999] — id 99999 does not exist.
+        let responses = get_recorded_responses_internal(&conn, &[id, 99_999]).unwrap();
+        assert_eq!(responses.len(), 1, "Unknown ids are silently dropped");
+        assert!(responses.contains_key(&id));
+        assert!(!responses.contains_key(&99_999));
+    }
+
+    #[test]
+    fn test_get_recorded_responses_internal_normalizes_null_status_to_zero() {
+        let conn = seeded_db();
+        // Insert a row with resp_status = NULL (response was incomplete).
+        conn.execute(
+            "INSERT INTO http_requests (timestamp, method, scheme, host, path, req_headers, resp_status, resp_headers)
+             VALUES ('2026-06-04 10:00:00', 'GET', 'https', 'partial.com', '/', '[]', NULL, '[]')",
+            [],
+        )
+        .unwrap();
+        let id: i64 = conn
+            .query_row("SELECT id FROM http_requests WHERE host='partial.com'", [], |row| row.get(0))
+            .unwrap();
+
+        let responses = get_recorded_responses_internal(&conn, &[id]).unwrap();
+        let r = responses.get(&id).expect("Row should still be returned");
+        assert_eq!(r.status, 0, "NULL resp_status must be normalized to 0");
+    }
+
+    #[test]
+    fn test_get_recorded_responses_internal_handles_binary_body() {
+        let conn = seeded_db();
+        // Non-UTF8 body: 0xFF 0xFE 0x00 0x41 ("\xFF\xFE\x00A")
+        let empty_headers: Vec<(String, String)> = vec![];
+        let id = record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "bin.example.com",
+            "/blob",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None, // body = None
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Now write some binary data directly via raw SQL so we don't go through
+        // record_http_request's UTF-8 assumption.
+        conn.execute(
+            "UPDATE http_requests SET resp_body = X'FFFE0041' WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+
+        let responses = get_recorded_responses_internal(&conn, &[id]).unwrap();
+        let r = responses.get(&id).unwrap();
+        let body = r.body.as_ref().expect("body should be Some after raw bytes update");
+        // Body bytes are lossy-decoded; the result starts with U+FFFD replacements.
+        assert!(body.starts_with('\u{FFFD}'), "Non-UTF8 bytes must be lossy-decoded to replacement chars");
+    }
+
+    // ------------------------------------------------------------------
+    // ReplayState defaults — pure constructor test
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_replay_state_default_values() {
+        let state = ReplayState::default();
+        assert_eq!(state.mock_port, 19998, "Default mock_port should be 19998");
+        assert!(!*state.is_running.lock().unwrap(), "Default is_running should be false");
+        assert!(state.results.lock().unwrap().is_empty(), "Default results should be empty");
     }
 }
