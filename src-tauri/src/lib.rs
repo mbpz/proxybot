@@ -43,6 +43,7 @@ pub mod rules;
 pub mod scaffoldgen;
 pub mod scripting;
 pub mod state_machine;
+pub mod topology;
 pub mod transport;
 pub mod tun;
 pub mod vision;
