@@ -114,8 +114,8 @@ src/components/topology/
 
 | View | vis-network layout | Node grouping | Edge order | Best for |
 |------|--------------------|---------------|------------|----------|
-| **Radial** | `hierarchical.direction: 'UD'` + center pin | Devices in center, Apps around | by duration desc | Environment overview |
-| **Layered** | `hierarchical.direction: 'LR'` + sortMethod | Device → Proxy → App → Host | by error rate | Anomaly diagnosis |
+| **Radial** | `hierarchical.direction: 'UD'` + center pin | Proxy at center, Devices in inner ring, Apps in outer ring, Hosts in outermost | by duration desc | Environment overview |
+| **Layered** | `hierarchical.direction: 'LR'` + sortMethod | Device → Proxy → App → Host (left to right) | by error rate | Anomaly diagnosis |
 | **Grouped** | `physics.solver: 'forceAtlas2Based'` + cluster | Auto-cluster by `app_tag` | by total bytes | Performance analysis |
 
 ### 3.3 Interaction details
@@ -248,7 +248,11 @@ WHERE timestamp >= ? AND timestamp <= ?
 GROUP BY device_id, app_tag, host;
 ```
 
-**Edges:** `device → host` direct connection. The App node sits as a visual middle node for the Layered view but is not part of the edge in the data model (one logical device-to-host relationship, three visual layers).
+**Edges (data model):** `device → host` direct connection. One logical edge per (device, host) pair.
+
+**App nodes (synthesized at render time):** App nodes are *not* in the `edges` array. They are synthesized by the frontend from unique `app_tag` values for the Layered view, and the data edge `device → host` is visually split into `device → app` + `app → host` so the layered layout shows four tiers. Radial and Grouped views ignore App nodes (or use them as cluster labels only).
+
+**Proxy node (synthesized once at render time):** A single Proxy node is added between every device and the rest of the graph. Radial view places Proxy at the center; Layered view places it as a second-tier node.
 
 ### 4.3 Tauri command interface
 
@@ -376,7 +380,7 @@ Pure-function aggregation tests, no Tauri runtime:
 
 - Rust aggregation logic: ≥ 90% line coverage
 - Frontend components: ≥ 80% line coverage
-- E2E: all 5 core user paths covered
+- E2E: all 6 core user paths covered
 
 ### 6.6 Performance benchmarks
 
