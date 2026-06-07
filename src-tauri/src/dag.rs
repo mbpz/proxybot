@@ -5,7 +5,7 @@
 
 use crate::db::DbState;
 use regex::Regex;
-use rusqlite::params;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -308,6 +308,16 @@ pub fn build_dag_from_requests(
     });
 
     // First pass: identify token producers (responses that return tokens)
+    // NOTE: Bug — the producer pass hardcodes `resp_body_json: None` and an
+    // empty `resp_headers_json`, then only uses the `resp_tokens` half of
+    // the returned tuple. Combined with the fact that the `requests` tuple
+    // returned by `get_all_requests` does NOT include `resp_body` or
+    // `resp_headers` (only `req_headers`, `req_body`, `resp_status`), no
+    // request can ever be identified as a token producer. The consumer
+    // pass below therefore never finds a producer to link against, and
+    // `dag.edges` is always empty. To fix: widen the `requests` tuple to
+    // include response data, pass it through here, and switch the
+    // `extract_tokens` call to use the real response body/headers.
     for &idx in &node_indices {
         let node = &nodes[idx];
         if let Some((req_headers_str, req_body_str, resp_status)) = node_request_data.get(&node.id)
@@ -390,7 +400,11 @@ pub fn build_dag_from_requests(
 /// Store DAG in the database.
 pub fn store_dag(db_state: &DbState, dag: &TrafficDag) -> Result<(), String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    store_dag_internal(&conn, dag)
+}
 
+/// Store DAG in the database (takes &Connection directly for testability).
+fn store_dag_internal(conn: &Connection, dag: &TrafficDag) -> Result<(), String> {
     // Clear existing DAG data
     conn.execute("DELETE FROM dag_edges", [])
         .map_err(|e| e.to_string())?;
@@ -420,7 +434,11 @@ pub fn store_dag(db_state: &DbState, dag: &TrafficDag) -> Result<(), String> {
 /// Get stored DAG from database.
 pub fn get_stored_dag(db_state: &DbState) -> Result<TrafficDag, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    get_stored_dag_internal(&conn)
+}
 
+/// Get stored DAG from database (takes &Connection directly for testability).
+fn get_stored_dag_internal(conn: &Connection) -> Result<TrafficDag, String> {
     // Get nodes
     let mut stmt = conn
         .prepare(
@@ -650,5 +668,235 @@ mod tests {
 
         let dag = build_dag_from_requests(&requests);
         assert_eq!(dag.nodes.len(), 2);
+    }
+
+    // ------------------------------------------------------------------
+    // extract_tokens tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_tokens_from_request_headers() {
+        // The Authorization header value contains a `access_token=...`
+        // key=value pair, which the `access_token[=:]` regex pattern picks
+        // up. The captured value is 18 chars, well over the 8-char minimum.
+        let req_headers = serde_json::json!({
+            "Authorization": "Bearer access_token=abc123def456ghi789"
+        });
+        let (request_tokens, _) = extract_tokens(
+            &req_headers,
+            None,
+            200,
+            &serde_json::json!({}),
+            None,
+        );
+        assert!(
+            !request_tokens.is_empty(),
+            "Expected at least one token extracted from the Authorization header"
+        );
+        assert!(
+            request_tokens.iter().any(|t| t.value == "abc123def456ghi789"),
+            "Expected the token 'abc123def456ghi789' in request_tokens, got {:?}",
+            request_tokens
+        );
+    }
+
+    #[test]
+    fn test_extract_tokens_from_response_body() {
+        // A response body containing a JSON `access_token` field — the
+        // recursive JSON walker should pick this up via
+        // `extract_token_from_key_value`.
+        let resp_body = serde_json::json!({"access_token": "xyz123abc456def789"});
+        let (_, response_tokens) = extract_tokens(
+            &serde_json::json!({}),
+            None,
+            200,
+            &serde_json::json!({}),
+            Some(&resp_body),
+        );
+        assert!(
+            response_tokens.iter().any(|t| t.value == "xyz123abc456def789"),
+            "Expected 'xyz123abc456def789' to be extracted from the response body, got {:?}",
+            response_tokens
+        );
+    }
+
+    #[test]
+    fn test_extract_tokens_skips_short_tokens() {
+        // The regex pattern matches `access_token=ab` and captures "ab",
+        // but the 8-char minimum length filter must drop it. This verifies
+        // the length guard in `extract_tokens_from_text`.
+        let req_headers = serde_json::json!({
+            "Authorization": "Bearer access_token=ab"
+        });
+        let (request_tokens, _) = extract_tokens(
+            &req_headers,
+            None,
+            200,
+            &serde_json::json!({}),
+            None,
+        );
+        assert_eq!(
+            request_tokens.len(),
+            0,
+            "Tokens shorter than 8 chars must be filtered out; got {:?}",
+            request_tokens
+        );
+    }
+
+    #[test]
+    fn test_extract_tokens_returns_empty_for_clean_request() {
+        // No header keys match the auth-header set, and the JSON bodies
+        // use keys ('user', 'role', 'status', 'message') that are not in
+        // the token-names allowlist, so no tokens should be extracted.
+        let req_body = serde_json::json!({"user": "alice", "role": "admin"});
+        let resp_body = serde_json::json!({"status": "ok", "message": "logged in"});
+        let (request_tokens, response_tokens) = extract_tokens(
+            &serde_json::json!({}),
+            Some(&req_body),
+            200,
+            &serde_json::json!({}),
+            Some(&resp_body),
+        );
+        assert_eq!(request_tokens.len(), 0, "Clean request body should yield no tokens");
+        assert_eq!(response_tokens.len(), 0, "Clean response body should yield no tokens");
+    }
+
+    // ------------------------------------------------------------------
+    // build_dag_from_requests tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_build_dag_from_requests_empty() {
+        let dag = build_dag_from_requests(&[]);
+        assert_eq!(dag.nodes.len(), 0, "Empty requests should produce no nodes");
+        assert_eq!(dag.edges.len(), 0, "Empty requests should produce no edges");
+        assert_eq!(dag.adjacency_list.len(), 0, "Empty requests should produce empty adjacency_list");
+    }
+
+    #[test]
+    fn test_build_dag_from_requests_single_request() {
+        let requests = vec![(
+            1,
+            "2024-01-01T00:00:00".to_string(),
+            "GET".to_string(),
+            "api.example.com".to_string(),
+            "/test".to_string(),
+            Some("{}".to_string()),
+            None,
+            200,
+            None,
+        )];
+        let dag = build_dag_from_requests(&requests);
+        assert_eq!(dag.nodes.len(), 1, "One request should produce one node");
+        assert_eq!(dag.edges.len(), 0, "A single request cannot produce any edges");
+    }
+
+    // ------------------------------------------------------------------
+    // NOTE: A test asserting that `build_dag_from_requests` links two
+    // requests via a shared token is intentionally OMITTED. The current
+    // implementation cannot produce any edges: the producer pass hardcodes
+    // `None` for `resp_body_json` and an empty `resp_headers_json`, and the
+    // 9-tuple returned by `get_all_requests` does not include response
+    // data at all. Until the tuple is widened to include `resp_body` /
+    // `resp_headers` and the producer pass is fixed to consume them, no
+    // request can be identified as a token producer and no edges are
+    // created. See the NOTE comment in `build_dag_from_requests`.
+    // ------------------------------------------------------------------
+
+    // ------------------------------------------------------------------
+    // store_dag_internal / get_stored_dag_internal tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_store_dag_internal_persists_nodes_and_edges() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let dag = TrafficDag {
+            nodes: vec![
+                DagNode {
+                    id: 1,
+                    timestamp: "2024-01-01T00:00:00".to_string(),
+                    method: "GET".to_string(),
+                    path: "/a".to_string(),
+                    host: "x.com".to_string(),
+                    device_id: None,
+                },
+                DagNode {
+                    id: 2,
+                    timestamp: "2024-01-01T00:00:01".to_string(),
+                    method: "GET".to_string(),
+                    path: "/b".to_string(),
+                    host: "x.com".to_string(),
+                    device_id: None,
+                },
+            ],
+            edges: vec![DagEdge {
+                from_node_id: 1,
+                to_node_id: 2,
+                token_value: "abc123def456".to_string(),
+            }],
+            adjacency_list: HashMap::new(),
+        };
+
+        store_dag_internal(&conn, &dag).unwrap();
+        let loaded = get_stored_dag_internal(&conn).unwrap();
+
+        assert_eq!(loaded.nodes.len(), 2, "Should persist both nodes");
+        assert_eq!(loaded.edges.len(), 1, "Should persist the single edge");
+        assert_eq!(loaded.edges[0].from_node_id, 1);
+        assert_eq!(loaded.edges[0].to_node_id, 2);
+        assert_eq!(loaded.edges[0].token_value, "abc123def456");
+        // Adjacency list is rebuilt from the loaded edges.
+        assert_eq!(loaded.adjacency_list.get(&1).unwrap(), &vec![2]);
+    }
+
+    #[test]
+    fn test_store_dag_internal_clears_existing() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let dag_a = TrafficDag {
+            nodes: vec![DagNode {
+                id: 1,
+                timestamp: "2024-01-01T00:00:00".to_string(),
+                method: "GET".to_string(),
+                path: "/a".to_string(),
+                host: "x.com".to_string(),
+                device_id: None,
+            }],
+            edges: vec![],
+            adjacency_list: HashMap::new(),
+        };
+        store_dag_internal(&conn, &dag_a).unwrap();
+
+        let dag_b = TrafficDag {
+            nodes: vec![DagNode {
+                id: 99,
+                timestamp: "2024-01-01T00:00:01".to_string(),
+                method: "GET".to_string(),
+                path: "/b".to_string(),
+                host: "y.com".to_string(),
+                device_id: None,
+            }],
+            edges: vec![],
+            adjacency_list: HashMap::new(),
+        };
+        store_dag_internal(&conn, &dag_b).unwrap();
+
+        let loaded = get_stored_dag_internal(&conn).unwrap();
+        assert_eq!(loaded.nodes.len(), 1, "Second store must replace (not append) first");
+        assert_eq!(loaded.nodes[0].id, 99, "Loaded node must reflect the second dag, not the first");
+    }
+
+    #[test]
+    fn test_get_stored_dag_internal_empty() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let loaded = get_stored_dag_internal(&conn).unwrap();
+        assert_eq!(loaded.nodes.len(), 0, "Fresh DB should have no nodes");
+        assert_eq!(loaded.edges.len(), 0, "Fresh DB should have no edges");
+        assert_eq!(loaded.adjacency_list.len(), 0, "Fresh DB should have empty adjacency list");
     }
 }
