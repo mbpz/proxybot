@@ -439,6 +439,15 @@ pub fn store_inference_result(
     inference: InferenceResult,
 ) -> Result<Vec<i64>, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    store_inference_result_internal(&conn, &session_id, &inference)
+}
+
+/// Store inference result in database using a borrowed connection.
+pub(crate) fn store_inference_result_internal(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    inference: &InferenceResult,
+) -> Result<Vec<i64>, String> {
     let now = chrono_lite_timestamp();
     let mut ids = Vec::new();
 
@@ -475,7 +484,14 @@ pub fn get_inferred_apis(
     session_id: Option<String>,
 ) -> Result<Vec<InferredApi>, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    get_inferred_apis_internal(&conn, session_id.as_deref())
+}
 
+/// Get stored inference results using a borrowed connection.
+pub(crate) fn get_inferred_apis_internal(
+    conn: &rusqlite::Connection,
+    session_id: Option<&str>,
+) -> Result<Vec<InferredApi>, String> {
     let query = "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
                  FROM inferred_apis WHERE (?1 = '' OR session_id = ?1) ORDER BY id";
 
@@ -666,7 +682,14 @@ pub fn get_evaluation_result(
     session_id: String,
 ) -> Result<Option<EvaluationResult>, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    get_evaluation_result_internal(&conn, &session_id)
+}
 
+/// Get evaluation result for a session using a borrowed connection.
+pub(crate) fn get_evaluation_result_internal(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> Result<Option<EvaluationResult>, String> {
     let query = "SELECT valid, errors, score, evaluated_at \
                  FROM inference_evaluations WHERE session_id = ?1 \
                  ORDER BY evaluated_at DESC LIMIT 1";
@@ -750,6 +773,7 @@ fn is_leap_year(year: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     #[test]
     fn test_openapi_generation() {
@@ -789,5 +813,314 @@ mod tests {
         let prompt = build_inference_prompt(&records);
         assert!(prompt.contains("GET"));
         assert!(prompt.contains("/api/test"));
+    }
+
+    // ------------------------------------------------------------------
+    // Pure function tests — build_evaluation_prompt
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_build_evaluation_prompt_includes_interfaces_and_modules() {
+        let inference = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "GET".to_string(),
+                path: "/api/user".to_string(),
+                params: "user ID".to_string(),
+                auth_required: false,
+            }],
+            modules: vec![ApiModule {
+                name: "UserModule".to_string(),
+                description: "User-related endpoints".to_string(),
+                interface_ids: vec!["getUser".to_string()],
+            }],
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        let prompt = build_evaluation_prompt(&inference);
+        assert!(
+            prompt.contains("getUser"),
+            "Prompt should include interface name, got: {}",
+            prompt
+        );
+        assert!(
+            prompt.contains("UserModule"),
+            "Prompt should include module name, got: {}",
+            prompt
+        );
+        assert!(
+            prompt.contains("\"valid\""),
+            "Prompt should describe the valid output JSON key, got: {}",
+            prompt
+        );
+    }
+
+    #[test]
+    fn test_build_evaluation_prompt_with_empty_result() {
+        let inference = InferenceResult {
+            interfaces: Vec::new(),
+            modules: Vec::new(),
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        let prompt = build_evaluation_prompt(&inference);
+        // Should not panic and should still describe the expected output shape.
+        assert!(
+            prompt.contains("\"valid\""),
+            "Prompt should always include output JSON key, got: {}",
+            prompt
+        );
+        assert!(
+            prompt.contains("\"score\""),
+            "Prompt should always include output JSON key, got: {}",
+            prompt
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Pure function tests — validate_inference_result
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_inference_result_passes_valid_input() {
+        let mut result = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "GET".to_string(),
+                path: "/api/user".to_string(),
+                params: "user ID".to_string(),
+                auth_required: false,
+            }],
+            modules: vec![ApiModule {
+                name: "UserModule".to_string(),
+                description: "User-related endpoints".to_string(),
+                interface_ids: vec!["getUser".to_string()],
+            }],
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert_eq!(result.valid, true, "Valid input should mark result as valid");
+        assert_eq!(result.errors.is_empty(), true, "Valid input should produce no errors");
+        assert_eq!(result.score, 1.0, "Valid input should have a score of 1.0");
+    }
+
+    #[test]
+    fn test_validate_inference_result_flags_empty_method() {
+        let mut result = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "".to_string(),
+                path: "/api/user".to_string(),
+                params: "".to_string(),
+                auth_required: false,
+            }],
+            modules: Vec::new(),
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert_eq!(result.valid, false, "Empty method should mark result as invalid");
+        assert!(
+            result.errors.iter().any(|e| e.contains("empty method")),
+            "Errors should mention empty method, got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_inference_result_flags_missing_slash_in_path() {
+        let mut result = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "GET".to_string(),
+                path: "api/test".to_string(),
+                params: "".to_string(),
+                auth_required: false,
+            }],
+            modules: Vec::new(),
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert_eq!(result.valid, false, "Path without leading / should mark result as invalid");
+        assert!(
+            result.errors.iter().any(|e| e.contains("must start with /")),
+            "Errors should mention leading /, got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_inference_result_flags_duplicate_interface_names() {
+        let mut result = InferenceResult {
+            interfaces: vec![
+                ApiInterface {
+                    name: "getUser".to_string(),
+                    method: "GET".to_string(),
+                    path: "/api/user".to_string(),
+                    params: "".to_string(),
+                    auth_required: false,
+                },
+                ApiInterface {
+                    name: "getUser".to_string(),
+                    method: "POST".to_string(),
+                    path: "/api/user".to_string(),
+                    params: "".to_string(),
+                    auth_required: false,
+                },
+            ],
+            modules: Vec::new(),
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert_eq!(result.valid, false, "Duplicate names should mark result as invalid");
+        assert!(
+            result.errors.iter().any(|e| e.contains("Duplicate interface name")),
+            "Errors should mention duplicate name, got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_inference_result_flags_module_with_unknown_interface() {
+        let mut result = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "GET".to_string(),
+                path: "/api/user".to_string(),
+                params: "".to_string(),
+                auth_required: false,
+            }],
+            modules: vec![ApiModule {
+                name: "UserModule".to_string(),
+                description: "User endpoints".to_string(),
+                interface_ids: vec!["nonexistent".to_string()],
+            }],
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert_eq!(result.valid, false, "Unknown interface id should mark result as invalid");
+        assert!(
+            result.errors.iter().any(|e| e.contains("references unknown interface")),
+            "Errors should mention unknown interface, got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_inference_result_score_decreases_with_errors() {
+        let mut result = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "".to_string(),
+                path: "/api/user".to_string(),
+                params: "".to_string(),
+                auth_required: false,
+            }],
+            modules: Vec::new(),
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert!(
+            result.score < 1.0,
+            "Score should decrease below 1.0 with errors, got: {}",
+            result.score
+        );
+        assert!(
+            result.score >= 0.0,
+            "Score should not go below 0.0, got: {}",
+            result.score
+        );
+    }
+
+    #[test]
+    fn test_validate_inference_result_multiple_errors_aggregate() {
+        let mut result = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "".to_string(),
+                method: "".to_string(),
+                path: "/api/user".to_string(),
+                params: "".to_string(),
+                auth_required: false,
+            }],
+            modules: Vec::new(),
+            valid: false,
+            errors: Vec::new(),
+            score: 0.0,
+        };
+        validate_inference_result(&mut result);
+        assert_eq!(result.errors.len(), 2, "Empty name and empty method should produce 2 errors, got: {:?}", result.errors);
+    }
+
+    // ------------------------------------------------------------------
+    // DB CRUD tests — *_internal helpers
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_store_inference_result_persists() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let inference = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "GET".to_string(),
+                path: "/api/user".to_string(),
+                params: "user ID".to_string(),
+                auth_required: false,
+            }],
+            modules: Vec::new(),
+            valid: true,
+            errors: Vec::new(),
+            score: 1.0,
+        };
+        let ids = store_inference_result_internal(&conn, "sess1", &inference).unwrap();
+        assert_eq!(ids.len(), 1, "Should persist one row for one interface");
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM inferred_apis WHERE session_id = ?1", ["sess1"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "Row should be persisted to inferred_apis table");
+    }
+
+    #[test]
+    fn test_get_inferred_apis_filters_by_session() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let inference = InferenceResult {
+            interfaces: vec![ApiInterface {
+                name: "getUser".to_string(),
+                method: "GET".to_string(),
+                path: "/api/user".to_string(),
+                params: "".to_string(),
+                auth_required: false,
+            }],
+            modules: Vec::new(),
+            valid: true,
+            errors: Vec::new(),
+            score: 1.0,
+        };
+        store_inference_result_internal(&conn, "sess1", &inference).unwrap();
+        store_inference_result_internal(&conn, "sess2", &inference).unwrap();
+
+        let sess1_apis = get_inferred_apis_internal(&conn, Some("sess1")).unwrap();
+        assert_eq!(sess1_apis.len(), 1, "Should return only sess1's row");
+        assert_eq!(sess1_apis[0].session_id, "sess1");
+
+        let all_apis = get_inferred_apis_internal(&conn, None).unwrap();
+        assert_eq!(all_apis.len(), 2, "None filter should return all rows across sessions");
     }
 }
