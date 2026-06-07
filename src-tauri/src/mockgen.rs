@@ -799,4 +799,105 @@ mod tests {
         assert!(compose.contains("postgres"));
         assert!(compose.contains("8000:8000"));
     }
+
+    #[test]
+    fn test_generate_dockerfile_includes_required_directives() {
+        let dockerfile = generate_dockerfile();
+        assert!(
+            dockerfile.contains("FROM python:"),
+            "expected FROM python: in output: {}",
+            dockerfile
+        );
+        assert!(
+            dockerfile.contains("WORKDIR /app"),
+            "expected WORKDIR /app in output: {}",
+            dockerfile
+        );
+        assert!(
+            dockerfile.contains("COPY requirements.txt"),
+            "expected COPY requirements.txt in output: {}",
+            dockerfile
+        );
+        assert!(
+            dockerfile.contains("EXPOSE 8000"),
+            "expected EXPOSE 8000 in output: {}",
+            dockerfile
+        );
+        assert!(
+            dockerfile.contains("CMD [\"uvicorn\""),
+            "expected CMD [\"uvicorn\" in output: {}",
+            dockerfile
+        );
+    }
+
+    #[test]
+    fn test_generate_requirements_includes_fastapi_and_uvicorn() {
+        let requirements = generate_requirements();
+        assert!(
+            requirements.contains("fastapi"),
+            "expected fastapi in output: {}",
+            requirements
+        );
+        assert!(
+            requirements.contains("uvicorn"),
+            "expected uvicorn in output: {}",
+            requirements
+        );
+    }
+
+    #[test]
+    fn test_generate_readme_with_no_endpoints() {
+        let readme = generate_readme("test-api", &[]);
+        assert!(
+            readme.contains("# test-api Mock API"),
+            "expected title in output: {}",
+            readme
+        );
+        assert!(
+            readme.contains("## Endpoints"),
+            "expected Endpoints section in output: {}",
+            readme
+        );
+    }
+
+    #[test]
+    fn test_generate_readme_lists_endpoints_with_method_and_path() {
+        let endpoints = vec![
+            MockEndpoint {
+                method: "GET".to_string(),
+                path: "/api/user".to_string(),
+                name: "getUser".to_string(),
+                fixtures: vec![],
+                conditionals: vec![],
+            },
+            MockEndpoint {
+                method: "POST".to_string(),
+                path: "/api/login".to_string(),
+                name: "postLogin".to_string(),
+                fixtures: vec![],
+                conditionals: vec![],
+            },
+        ];
+        let readme = generate_readme("my-api", &endpoints);
+        assert!(
+            readme.contains("**getUser** `GET /api/user`"),
+            "expected getUser line in output: {}",
+            readme
+        );
+        assert!(
+            readme.contains("**postLogin** `POST /api/login`"),
+            "expected postLogin line in output: {}",
+            readme
+        );
+    }
+
+    #[test]
+    fn test_generate_readme_title_uses_project_name() {
+        let readme = generate_readme("custom-name-123", &[]);
+        assert!(
+            readme.starts_with("# custom-name-123 Mock API"),
+            "expected title at start of output: {}",
+            readme
+        );
+    }
 }
