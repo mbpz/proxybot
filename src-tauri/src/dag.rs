@@ -315,10 +315,7 @@ pub fn build_dag_from_requests(
     // `resp_headers` (only `req_headers`, `req_body`, `resp_status`), no
     // request can ever be identified as a token producer. The consumer
     // pass below therefore never finds a producer to link against, and
-    // `dag.edges` is always empty. To fix: widen the `requests` tuple to
-    // include response data, pass it through here, and switch the
-    // `extract_tokens` call to use the real response body/headers.
-    // Tracked as task #77.
+    // `dag.edges` is always empty. Tracked as task #77.
     for &idx in &node_indices {
         let node = &nodes[idx];
         if let Some((req_headers_str, req_body_str, resp_status)) = node_request_data.get(&node.id)
@@ -849,6 +846,18 @@ mod tests {
         assert_eq!(loaded.edges[0].from_node_id, 1);
         assert_eq!(loaded.edges[0].to_node_id, 2);
         assert_eq!(loaded.edges[0].token_value, "abc123def456");
+        // Field-level roundtrip checks guard against column-swap bugs in the
+        // INSERT/SELECT pair (e.g., path <-> host transposition).
+        let n0 = &loaded.nodes[0];
+        assert_eq!(n0.id, 1);
+        assert_eq!(n0.timestamp, "2024-01-01T00:00:00");
+        assert_eq!(n0.method, "GET");
+        assert_eq!(n0.path, "/a");
+        assert_eq!(n0.host, "x.com");
+        let n1 = &loaded.nodes[1];
+        assert_eq!(n1.id, 2);
+        assert_eq!(n1.path, "/b");
+        assert_eq!(n1.host, "x.com");
         // Adjacency list is rebuilt from the loaded edges.
         assert_eq!(loaded.adjacency_list.get(&1).unwrap(), &vec![2]);
     }
