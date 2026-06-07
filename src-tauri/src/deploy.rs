@@ -1262,7 +1262,7 @@ mod tests {
     // write_deployment_bundle_inner integration
     // ------------------------------------------------------------------
 
-    // Ignored: http_requests table is missing session_id column (db.rs:142-158); get_mock_endpoints_from_db query fails. See issue/TODO. Once the column is added, remove #[ignore].
+    // Ignored: http_requests table is missing session_id column (db.rs:142-158); get_mock_endpoints_from_db query fails. See TODO #69. Once the column is added, remove #[ignore].
     #[test]
     #[ignore]
     fn test_write_deployment_bundle_inner_creates_expected_files() {
@@ -1304,7 +1304,7 @@ mod tests {
         assert!(tmp.path().join("frontend/src/App.tsx").exists(), "missing frontend/src/App.tsx");
     }
 
-    // Ignored: http_requests table is missing session_id column (db.rs:142-158); get_mock_endpoints_from_db query fails. See issue/TODO. Once the column is added, remove #[ignore].
+    // Ignored: http_requests table is missing session_id column (db.rs:142-158); get_mock_endpoints_from_db query fails. See TODO #69. Once the column is added, remove #[ignore].
     #[test]
     #[ignore]
     fn test_write_deployment_bundle_inner_persists_deployment_record() {
