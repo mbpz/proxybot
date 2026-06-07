@@ -467,14 +467,18 @@ pub fn get_devices(state: State<'_, Arc<DbState>>) -> Result<Vec<DeviceInfo>, St
     get_devices_internal(&conn)
 }
 
-/// Register a new device or return existing device id.
-#[tauri::command]
-pub fn register_device(
-    state: State<'_, Arc<DbState>>,
-    mac_address: String,
-    name: String,
+/// Register a new device or return existing device id - internal non-Tauri version.
+///
+/// **Note on naming:** The `_only` suffix distinguishes this helper from
+/// [`DbState::register_device_internal`], which does the same INSERT OR IGNORE
+/// PLUS an `UPDATE devices SET last_seen_at = ?` on top. This helper deliberately
+/// does NOT touch `last_seen_at` — call [`update_device_last_seen_internal`]
+/// separately when you need that side effect.
+pub(crate) fn register_device_only(
+    conn: &Connection,
+    mac_address: &str,
+    name: &str,
 ) -> Result<DeviceInfo, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let now = chrono_lite_timestamp();
 
     // Try to insert, on conflict do nothing and select existing
@@ -509,6 +513,31 @@ pub fn register_device(
     Ok(device)
 }
 
+/// Register a new device or return existing device id.
+#[tauri::command]
+pub fn register_device(
+    state: State<'_, Arc<DbState>>,
+    mac_address: String,
+    name: String,
+) -> Result<DeviceInfo, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    register_device_only(&conn, &mac_address, &name)
+}
+
+/// Update device last seen timestamp - internal non-Tauri version.
+pub(crate) fn update_device_last_seen_internal(
+    conn: &Connection,
+    mac_address: &str,
+) -> Result<(), String> {
+    let now = chrono_lite_timestamp();
+    conn.execute(
+        "UPDATE devices SET last_seen_at = ?1 WHERE mac_address = ?2",
+        rusqlite::params![now, mac_address],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Update device last seen timestamp.
 #[tauri::command]
 pub fn update_device_last_seen(
@@ -516,10 +545,20 @@ pub fn update_device_last_seen(
     mac_address: String,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let now = chrono_lite_timestamp();
+    update_device_last_seen_internal(&conn, &mac_address)
+}
+
+/// Update device byte counters - internal non-Tauri version.
+pub(crate) fn update_device_stats_internal(
+    conn: &Connection,
+    mac_address: &str,
+    upload_bytes: i64,
+    download_bytes: i64,
+) -> Result<(), String> {
     conn.execute(
-        "UPDATE devices SET last_seen_at = ?1 WHERE mac_address = ?2",
-        rusqlite::params![now, mac_address],
+        "UPDATE devices SET upload_bytes = upload_bytes + ?1, download_bytes = download_bytes + ?2
+         WHERE mac_address = ?3",
+        rusqlite::params![upload_bytes, download_bytes, mac_address],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -534,13 +573,7 @@ pub fn update_device_stats(
     download_bytes: i64,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE devices SET upload_bytes = upload_bytes + ?1, download_bytes = download_bytes + ?2
-         WHERE mac_address = ?3",
-        rusqlite::params![upload_bytes, download_bytes, mac_address],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    update_device_stats_internal(&conn, &mac_address, upload_bytes, download_bytes)
 }
 
 /// Set device rule override (internal, takes Connection directly).
@@ -573,13 +606,11 @@ pub fn set_device_rule_override(
     Ok(())
 }
 
-/// Get device by MAC address.
-#[tauri::command]
-pub fn get_device_by_mac(
-    state: State<'_, Arc<DbState>>,
-    mac_address: String,
+/// Get device by MAC address - internal non-Tauri version.
+pub(crate) fn get_device_by_mac_internal(
+    conn: &Connection,
+    mac_address: &str,
 ) -> Result<Option<DeviceInfo>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let result = conn.query_row(
         "SELECT id, mac_address, name, created_at, last_seen_at, upload_bytes, download_bytes, rule_override
          FROM devices WHERE mac_address = ?1",
@@ -603,6 +634,16 @@ pub fn get_device_by_mac(
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Get device by MAC address.
+#[tauri::command]
+pub fn get_device_by_mac(
+    state: State<'_, Arc<DbState>>,
+    mac_address: String,
+) -> Result<Option<DeviceInfo>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    get_device_by_mac_internal(&conn, &mac_address)
 }
 
 /// Format timestamp for SQLite (YYYY-MM-DD HH:MM:SS).
@@ -653,7 +694,7 @@ pub(crate) fn chrono_lite_timestamp() -> String {
     )
 }
 
-fn is_leap_year(year: u64) -> bool {
+pub(crate) fn is_leap_year(year: u64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
@@ -1066,5 +1107,311 @@ mod tests {
         // Missing returns None
         let none = get_deployment(&conn, "sess1", "missing").unwrap();
         assert!(none.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Device CRUD tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_register_device_inserts_new_device() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let device = register_device_only(&conn, "aa:bb:cc:dd:ee:ff", "Test Phone").unwrap();
+        assert_eq!(device.mac_address, "aa:bb:cc:dd:ee:ff");
+        assert_eq!(device.name, "Test Phone");
+        assert_eq!(device.upload_bytes, 0, "New device should have zero upload_bytes");
+        assert_eq!(device.download_bytes, 0, "New device should have zero download_bytes");
+        assert!(device.id > 0, "Auto-incremented id should be > 0");
+        assert!(device.created_at.len() > 0, "created_at should be populated");
+        assert!(device.last_seen_at.len() > 0, "last_seen_at should be populated");
+    }
+
+    #[test]
+    fn test_register_device_returns_existing_on_duplicate_mac() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let first = register_device_only(&conn, "11:22:33:44:55:66", "Original Name").unwrap();
+        let second = register_device_only(&conn, "11:22:33:44:55:66", "Different Name").unwrap();
+
+        assert_eq!(first.id, second.id, "Duplicate MAC should return the same row id");
+        assert_eq!(second.name, "Original Name", "INSERT OR IGNORE preserves original name on duplicate MAC");
+        assert_eq!(second.mac_address, "11:22:33:44:55:66");
+    }
+
+    #[test]
+    fn test_get_device_by_mac_returns_inserted_device() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let inserted = register_device_only(&conn, "de:ad:be:ef:00:01", "My Laptop").unwrap();
+        let fetched = get_device_by_mac_internal(&conn, "de:ad:be:ef:00:01").unwrap();
+
+        assert!(fetched.is_some(), "Should find the just-inserted device");
+        let device = fetched.unwrap();
+        assert_eq!(device.id, inserted.id);
+        assert_eq!(device.mac_address, "de:ad:be:ef:00:01");
+        assert_eq!(device.name, "My Laptop");
+    }
+
+    #[test]
+    fn test_get_device_by_mac_returns_none_for_missing() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let result = get_device_by_mac_internal(&conn, "ff:ff:ff:ff:ff:ff").unwrap();
+        assert!(result.is_none(), "Missing MAC should return Ok(None), not an error");
+    }
+
+    #[test]
+    fn test_update_device_last_seen_changes_timestamp() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        // Manually backdate last_seen_at to a known earlier value, then call
+        // update_device_last_seen_internal and verify it was updated to "now"
+        // (strictly greater than the backdated value).
+        conn.execute(
+            "INSERT INTO devices (mac_address, name, created_at, last_seen_at)
+             VALUES ('aa:bb:cc:dd:ee:01', 'Phone', '2000-01-01 00:00:00', '2000-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        update_device_last_seen_internal(&conn, "aa:bb:cc:dd:ee:01").unwrap();
+
+        let device = get_device_by_mac_internal(&conn, "aa:bb:cc:dd:ee:01").unwrap().unwrap();
+        assert_ne!(
+            device.last_seen_at, "2000-01-01 00:00:00",
+            "last_seen_at should be updated away from the backdated value"
+        );
+        assert!(device.created_at == "2000-01-01 00:00:00", "created_at must NOT be touched");
+    }
+
+    #[test]
+    fn test_update_device_stats_accumulates_bytes() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        register_device_only(&conn, "aa:bb:cc:dd:ee:02", "Device").unwrap();
+
+        update_device_stats_internal(&conn, "aa:bb:cc:dd:ee:02", 100, 200).unwrap();
+        let device = get_device_by_mac_internal(&conn, "aa:bb:cc:dd:ee:02").unwrap().unwrap();
+        assert_eq!(device.upload_bytes, 100);
+        assert_eq!(device.download_bytes, 200);
+
+        update_device_stats_internal(&conn, "aa:bb:cc:dd:ee:02", 50, 75).unwrap();
+        let device = get_device_by_mac_internal(&conn, "aa:bb:cc:dd:ee:02").unwrap().unwrap();
+        assert_eq!(device.upload_bytes, 150, "Second update should be additive (100 + 50)");
+        assert_eq!(device.download_bytes, 275, "Second update should be additive (200 + 75)");
+    }
+
+    #[test]
+    fn test_get_devices_internal_returns_all_devices() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        register_device_only(&conn, "aa:bb:cc:dd:ee:10", "One").unwrap();
+        register_device_only(&conn, "aa:bb:cc:dd:ee:20", "Two").unwrap();
+        register_device_only(&conn, "aa:bb:cc:dd:ee:30", "Three").unwrap();
+
+        let devices = get_devices_internal(&conn).unwrap();
+        assert_eq!(devices.len(), 3, "Should return all 3 registered devices");
+
+        let names: Vec<&str> = devices.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"One"));
+        assert!(names.contains(&"Two"));
+        assert!(names.contains(&"Three"));
+    }
+
+    // ------------------------------------------------------------------
+    // HTTP request CRUD tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_record_http_request_returns_id_and_persists() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let req_headers: Vec<(String, String)> = vec![("User-Agent".to_string(), "test".to_string())];
+        let resp_headers: Vec<(String, String)> = vec![("Content-Type".to_string(), "application/json".to_string())];
+
+        let id = record_http_request(
+            &conn,
+            "2026-06-04 00:00:00",
+            "GET",
+            "https",
+            "example.com",
+            "/",
+            &req_headers,
+            None,
+            Some(200),
+            &resp_headers,
+            Some("{}"),
+            Some(42),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(id > 0, "Auto-increment id should be > 0");
+
+        let recent = get_recent_requests(&conn, 10).unwrap();
+        assert_eq!(recent.len(), 1, "Should have 1 request in the database");
+        assert_eq!(recent[0].id, id);
+        assert_eq!(recent[0].host, "example.com");
+        assert_eq!(recent[0].method, "GET");
+        assert_eq!(recent[0].status, Some(200));
+    }
+
+    #[test]
+    fn test_get_recent_requests_orders_by_id_desc() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let empty_headers: Vec<(String, String)> = vec![];
+        let id1 = record_http_request(&conn, "2026-06-04 00:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        let id2 = record_http_request(&conn, "2026-06-04 00:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        let id3 = record_http_request(&conn, "2026-06-04 00:00:02", "GET", "https", "c.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+
+        let recent = get_recent_requests(&conn, 10).unwrap();
+        assert_eq!(recent.len(), 3);
+        assert_eq!(recent[0].id, id3, "Most recently inserted should be first");
+        assert_eq!(recent[1].id, id2);
+        assert_eq!(recent[2].id, id1);
+    }
+
+    #[test]
+    fn test_record_http_request_with_optional_fields_none() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let empty_headers: Vec<(String, String)> = vec![];
+
+        // All optional fields as None
+        let id = record_http_request(
+            &conn,
+            "2026-06-04 00:00:00",
+            "POST",
+            "https",
+            "example.com",
+            "/api",
+            &empty_headers,
+            None,
+            None,
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(id > 0, "Should successfully insert even with all optional fields None");
+
+        let recent = get_recent_requests(&conn, 10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].status, None, "resp_status should be None");
+        assert_eq!(recent[0].duration_ms, None, "duration_ms should be None");
+        assert_eq!(recent[0].app_tag, None, "app_tag should be None");
+    }
+
+    // ------------------------------------------------------------------
+    // WebSocket tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_record_ws_frame_persists() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let id = record_ws_frame(
+            &conn,
+            "req-1",
+            // "outgoing" not "send" — ws_frames has a CHECK constraint limiting direction to 'incoming'|'outgoing'
+            "outgoing",
+            1,
+            "hello",
+            None,
+            5,
+            "2026-06-04 00:00:00",
+        )
+        .unwrap();
+
+        assert!(id > 0, "Auto-increment id should be > 0");
+
+        // Verify the row was actually written
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ws_frames WHERE request_id = ?1", ["req-1"], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "ws_frame row should be persisted");
+    }
+
+    #[test]
+    fn test_mark_request_websocket_sets_flag() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let empty_headers: Vec<(String, String)> = vec![];
+        let id = record_http_request(
+            &conn,
+            "2026-06-04 00:00:00",
+            "GET",
+            "wss",
+            "ws.example.com",
+            "/socket",
+            &empty_headers,
+            None,
+            Some(101),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Should not panic, should return Ok
+        mark_request_websocket(&conn, &id.to_string()).unwrap();
+
+        // Verify the flag was set
+        let is_ws: i64 = conn
+            .query_row("SELECT is_websocket FROM http_requests WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(is_ws, 1, "is_websocket flag should be set to 1 after mark_request_websocket");
+    }
+
+    // ------------------------------------------------------------------
+    // Pure helper tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_is_leap_year() {
+        assert!(is_leap_year(2000), "2000 is divisible by 400 — leap year");
+        assert!(!is_leap_year(1900), "1900 is divisible by 100 but not 400 — NOT a leap year");
+        assert!(is_leap_year(2024), "2024 is divisible by 4 and not 100 — leap year");
+        assert!(!is_leap_year(2023), "2023 is not divisible by 4 — NOT a leap year");
+        assert!(is_leap_year(2020), "2020 is divisible by 4 and not 100 — leap year");
+    }
+
+    #[test]
+    fn test_timestamp_now_for_ws_format() {
+        let ts = timestamp_now_for_ws();
+        // Format is "YYYY-MM-DD HH:MM:SS" — 19 chars
+        assert_eq!(ts.len(), 19, "Timestamp should be 19 chars, got '{}'", ts);
+        // Verify shape: digits and separators
+        let bytes = ts.as_bytes();
+        assert_eq!(bytes[4], b'-', "Year separator");
+        assert_eq!(bytes[7], b'-', "Month separator");
+        assert_eq!(bytes[10], b' ', "Date-time separator");
+        assert_eq!(bytes[13], b':', "Hour separator");
+        assert_eq!(bytes[16], b':', "Minute separator");
+        // Verify all non-separator positions are digits
+        for (i, &b) in bytes.iter().enumerate() {
+            let is_sep = matches!(i, 4 | 7 | 10 | 13 | 16);
+            assert!(is_sep || b.is_ascii_digit(), "Position {} should be digit or separator, got {:?}", i, b as char);
+        }
     }
 }
