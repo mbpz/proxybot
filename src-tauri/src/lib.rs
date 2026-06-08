@@ -295,6 +295,8 @@ pub fn run() {
             dag::get_traffic_dag,
             dag::get_device_dag,
             commands::graph::get_graph_data,
+            build_topology_graph,
+            get_topology_node_detail,
             commands::ws_frames::get_ws_frames,
             infer::infer_api_semantics,
             infer::store_inference_result,
@@ -358,4 +360,23 @@ fn is_dashboard_running(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -
 fn get_dashboard_url(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> Result<String, String> {
     let lan_ip = crate::network::get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string());
     Ok(format!("http://{}:{}?token={}", lan_ip, dashboard.port(), dashboard.token()))
+}
+
+/// Build the network topology graph from current traffic.
+#[tauri::command]
+fn build_topology_graph(
+    db_state: State<'_, Arc<DbState>>,
+    filter: topology::TopologyFilter,
+) -> Result<topology::TopologyGraph, String> {
+    topology::builder::build_topology_graph(&db_state, &filter)
+}
+
+/// Get detail (recent requests, status breakdown) for a single topology node.
+#[tauri::command]
+fn get_topology_node_detail(
+    db_state: State<'_, Arc<DbState>>,
+    node_id: String,
+    filter: topology::TopologyFilter,
+) -> Result<topology::NodeDetail, String> {
+    topology::builder::get_topology_node_detail(&db_state, &node_id, &filter)
 }
