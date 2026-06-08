@@ -810,6 +810,27 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     fs::write(frontend_src.join("App.tsx"), app_content)
         .map_err(|e| format!("Failed to write App.tsx: {}", e))?;
 
+    // Create placeholder home page when no routes are inferred
+    if frontend_routes.is_empty() {
+        let pages_dir = frontend_src.join("pages");
+        fs::create_dir_all(&pages_dir)
+            .map_err(|e| format!("Failed to create pages dir: {}", e))?;
+        fs::write(
+            pages_dir.join("home.tsx"),
+            r#"export default function Home() {
+  return (
+    <div className="page">
+      <h1>ProxyBot Frontend</h1>
+      <p>Welcome! This scaffold was generated from captured traffic.</p>
+      <p>Run API inference and scaffold generation to populate the routes.</p>
+    </div>
+  )
+}
+"#,
+        )
+        .map_err(|e| format!("Failed to write home.tsx: {}", e))?;
+    }
+
     fs::write(
         frontend_src.join("App.css"),
         r#"* { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1030,21 +1051,6 @@ fn generate_frontend_app(routes: &[(String, String)]) -> String {
     if routes.is_empty() {
         imports.push_str("import Home from './pages/home';\n");
         route_elements.push_str("      <Route path=\"/\" element={<Home />} />\n");
-
-        // Create a placeholder home page
-        let pages_dir = PathBuf::from("src/pages");
-        let _ = fs::create_dir_all(&pages_dir);
-        let home_content = r#"export default function Home() {
-  return (
-    <div className="page">
-      <h1>ProxyBot Frontend</h1>
-      <p>Welcome! This scaffold was generated from captured traffic.</p>
-      <p>Run API inference and scaffold generation to populate the routes.</p>
-    </div>
-  )
-}
-"#;
-        let _ = fs::write(pages_dir.join("home.tsx"), home_content);
     }
 
     format!(
@@ -1080,17 +1086,10 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
-    use std::sync::{LazyLock, Mutex};
     use tempfile::tempdir;
 
-    // NOTE: `generate_frontend_app` with an empty `routes` slice writes
-    // `src/pages/home.tsx` *relative to the current working directory* (see
-    // line ~1021). Any test that exercises that branch must serialize CWD
-    // changes via this mutex to avoid race conditions with parallel tests.
-    static CHDIR_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
     /// Helper: insert a single inferred API so `get_frontend_routes` returns
-    /// a non-empty Vec — this avoids triggering the relative-path side-effect
+    /// a non-empty Vec — this avoids the empty-routes placeholder branch
     /// in `generate_frontend_app` during integration tests.
     fn insert_dummy_api(conn: &rusqlite::Connection, session_id: &str) {
         let now = crate::db::chrono_lite_timestamp();
@@ -1227,17 +1226,7 @@ mod tests {
 
     #[test]
     fn test_generate_frontend_app_with_empty_routes() {
-        // NOTE: `generate_frontend_app(&[])` writes `src/pages/home.tsx`
-        // relative to CWD as a side effect (pre-existing bug). Serialize the
-        // CWD swap and run inside a tempdir to avoid polluting the source tree.
-        let _guard = CHDIR_LOCK.lock().unwrap();
-        let prev_cwd = env::current_dir().unwrap();
-        let tmp = tempdir().unwrap();
-        env::set_current_dir(tmp.path()).unwrap();
-
         let out = generate_frontend_app(&[]);
-
-        env::set_current_dir(&prev_cwd).unwrap();
 
         assert!(out.contains("BrowserRouter"), "missing react-router import: {}", out);
         assert!(out.contains("./App.css"), "missing App.css import: {}", out);
@@ -1262,16 +1251,13 @@ mod tests {
     // write_deployment_bundle_inner integration
     // ------------------------------------------------------------------
 
-    // Ignored: http_requests table is missing session_id column (db.rs:142-158); get_mock_endpoints_from_db query fails. See TODO #69. Once the column is added, remove #[ignore].
     #[test]
-    #[ignore]
     fn test_write_deployment_bundle_inner_creates_expected_files() {
         use crate::db::DbState;
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         DbState::init_schema(&conn).unwrap();
         // Seed at least one inferred API so `generate_frontend_app` does NOT
-        // hit the empty-routes branch (which has a pre-existing relative-path
-        // side-effect bug — see CHDIR_LOCK NOTE above).
+        // hit the empty-routes placeholder branch.
         insert_dummy_api(&conn, "test-session");
 
         let tmp = tempdir().unwrap();
@@ -1304,9 +1290,7 @@ mod tests {
         assert!(tmp.path().join("frontend/src/App.tsx").exists(), "missing frontend/src/App.tsx");
     }
 
-    // Ignored: http_requests table is missing session_id column (db.rs:142-158); get_mock_endpoints_from_db query fails. See TODO #69. Once the column is added, remove #[ignore].
     #[test]
-    #[ignore]
     fn test_write_deployment_bundle_inner_persists_deployment_record() {
         use crate::db::DbState;
         let conn = rusqlite::Connection::open_in_memory().unwrap();

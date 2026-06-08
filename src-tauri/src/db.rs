@@ -363,6 +363,14 @@ impl DbState {
                     ON deployments(session_id, project_name);
                 "#,
             ),
+            (
+                5,
+                "Add session_id column to http_requests for session-scoped queries",
+                r#"
+                ALTER TABLE http_requests ADD COLUMN session_id TEXT;
+                CREATE INDEX IF NOT EXISTS idx_http_requests_session_id ON http_requests(session_id);
+                "#,
+            ),
         ];
 
         for (version, description, sql) in migrations {
