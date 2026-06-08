@@ -257,6 +257,8 @@ pub fn build_dag_from_requests(
         Option<String>,
         Option<String>,
         i64,
+        Option<String>,
+        Option<String>,
         Option<i64>,
     )],
 ) -> TrafficDag {
@@ -264,10 +266,10 @@ pub fn build_dag_from_requests(
     let mut node_by_id: HashMap<i64, usize> = HashMap::new();
 
     // Collect request data for token extraction
-    let mut node_request_data: HashMap<i64, (String, Option<String>, u16)> = HashMap::new();
+    let mut node_request_data: HashMap<i64, (String, Option<String>, u16, String, Option<String>)> = HashMap::new();
 
     // First pass: create nodes and collect request data
-    for (id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id) in
+    for (id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id) in
         requests
     {
         let node = DagNode {
@@ -288,6 +290,8 @@ pub fn build_dag_from_requests(
                 req_headers.clone().unwrap_or_default(),
                 req_body.clone(),
                 *resp_status as u16,
+                resp_headers.clone().unwrap_or_else(|| "{}".to_string()),
+                resp_body.clone(),
             ),
         );
     }
@@ -308,17 +312,9 @@ pub fn build_dag_from_requests(
     });
 
     // First pass: identify token producers (responses that return tokens)
-    // NOTE: Bug — the producer pass hardcodes `resp_body_json: None` and an
-    // empty `resp_headers_json`, then only uses the `resp_tokens` half of
-    // the returned tuple. Combined with the fact that the `requests` tuple
-    // returned by `get_all_requests` does NOT include `resp_body` or
-    // `resp_headers` (only `req_headers`, `req_body`, `resp_status`), no
-    // request can ever be identified as a token producer. The consumer
-    // pass below therefore never finds a producer to link against, and
-    // `dag.edges` is always empty. Tracked as task #77.
     for &idx in &node_indices {
         let node = &nodes[idx];
-        if let Some((req_headers_str, req_body_str, resp_status)) = node_request_data.get(&node.id)
+        if let Some((req_headers_str, req_body_str, resp_status, resp_headers_str, resp_body_str)) = node_request_data.get(&node.id)
         {
             let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
                 .ok()
@@ -326,9 +322,12 @@ pub fn build_dag_from_requests(
             let req_body_json: Option<serde_json::Value> = req_body_str
                 .as_ref()
                 .and_then(|s| serde_json::from_str(s).ok());
-            let resp_headers_json: serde_json::Value =
-                serde_json::Value::Object(serde_json::Map::new());
-            let resp_body_json: Option<serde_json::Value> = None;
+            let resp_headers_json: serde_json::Value = serde_json::from_str(resp_headers_str)
+                .ok()
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            let resp_body_json: Option<serde_json::Value> = resp_body_str
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok());
 
             let (_, resp_tokens) = extract_tokens(
                 &req_headers_json,
@@ -348,7 +347,7 @@ pub fn build_dag_from_requests(
     // Second pass: create edges for token consumers
     for &idx in &node_indices {
         let node = &nodes[idx];
-        if let Some((req_headers_str, req_body_str, _)) = node_request_data.get(&node.id) {
+        if let Some((req_headers_str, req_body_str, _, _, _)) = node_request_data.get(&node.id) {
             let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
                 .ok()
                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
@@ -509,12 +508,14 @@ fn get_all_requests(
         Option<String>,
         Option<String>,
         i64,
+        Option<String>,
+        Option<String>,
         Option<i64>,
     )>,
     rusqlite::Error,
 > {
     let mut stmt = conn.prepare(
-        "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id
+        "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id
          FROM http_requests ORDER BY timestamp",
     )?;
 
@@ -529,6 +530,8 @@ fn get_all_requests(
             row.get(6)?,
             row.get(7)?,
             row.get(8)?,
+            row.get(9)?,
+            row.get(10)?,
         ))
     })?;
 
@@ -570,11 +573,13 @@ pub fn get_device_dag(
         Option<String>,
         Option<String>,
         i64,
+        Option<String>,
+        Option<String>,
         Option<i64>,
     )> = {
         let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, device_id
+            "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id
              FROM http_requests WHERE device_id = ?1 ORDER BY timestamp"
         ).map_err(|e| e.to_string())?;
 
@@ -590,6 +595,8 @@ pub fn get_device_dag(
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -649,6 +656,8 @@ mod tests {
                 Some(r#"{" Content-Type":"application/json"}"#.to_string()),
                 Some(r#"{"username":"test"}"#.to_string()),
                 200,
+                Some(r#"{"Content-Type":"application/json"}"#.to_string()),
+                None,
                 None,
             ),
             (
@@ -660,6 +669,8 @@ mod tests {
                 Some(r#"{"Authorization":"Bearer token123"}"#.to_string()),
                 None,
                 200,
+                None,
+                None,
                 None,
             ),
         ];
@@ -783,24 +794,64 @@ mod tests {
             None,
             200,
             None,
+            None,
+            None,
         )];
         let dag = build_dag_from_requests(&requests);
         assert_eq!(dag.nodes.len(), 1, "One request should produce one node");
         assert_eq!(dag.edges.len(), 0, "A single request cannot produce any edges");
     }
 
-    // ------------------------------------------------------------------
-    // NOTE: A test asserting that `build_dag_from_requests` links two
-    // requests via a shared token is intentionally OMITTED. The current
-    // implementation cannot produce any edges: the producer pass hardcodes
-    // `None` for `resp_body_json` and an empty `resp_headers_json`, and the
-    // 9-tuple returned by `get_all_requests` does not include response
-    // data at all. Until the tuple is widened to include `resp_body` /
-    // `resp_headers` and the producer pass is fixed to consume them, no
-    // request can be identified as a token producer and no edges are
-    // created. Tracked as task #77. See the NOTE comment in
-    // `build_dag_from_requests`.
-    // ------------------------------------------------------------------
+    #[test]
+    fn test_build_dag_links_requests_via_shared_token() {
+        // Request 1: POST /login returns an access_token in the response body.
+        // Request 2: GET /profile sends that access_token in a Cookie header
+        //            (key=value format, which the `access_token[=:]` regex matches).
+        // The DAG must contain a single edge from request 1 -> request 2.
+        let requests = vec![
+            (
+                1,
+                "2024-01-01T00:00:00".to_string(),
+                "POST".to_string(),
+                "api.example.com".to_string(),
+                "/login".to_string(),
+                Some(r#"{"Content-Type":"application/json"}"#.to_string()),
+                Some(r#"{"username":"test","password":"secret"}"#.to_string()),
+                200,
+                Some(r#"{"Content-Type":"application/json"}"#.to_string()),
+                Some(r#"{"access_token":"abc123token456def789"}"#.to_string()),
+                None,
+            ),
+            (
+                2,
+                "2024-01-01T00:00:01".to_string(),
+                "GET".to_string(),
+                "api.example.com".to_string(),
+                "/profile".to_string(),
+                Some(r#"{"Cookie":"access_token=abc123token456def789"}"#.to_string()),
+                None,
+                200,
+                None,
+                None,
+                None,
+            ),
+        ];
+
+        let dag = build_dag_from_requests(&requests);
+        assert_eq!(dag.nodes.len(), 2, "Should have 2 nodes");
+        assert_eq!(dag.edges.len(), 1, "Should have 1 edge linking the two requests via the shared token");
+        assert_eq!(dag.edges[0].from_node_id, 1, "Edge must originate from the token producer (request 1)");
+        assert_eq!(dag.edges[0].to_node_id, 2, "Edge must point to the token consumer (request 2)");
+        assert_eq!(
+            dag.edges[0].token_value, "abc123token456def789",
+            "Edge should carry the shared token value"
+        );
+        assert_eq!(
+            dag.adjacency_list.get(&1).unwrap(),
+            &vec![2],
+            "Adjacency list should map node 1 -> node 2"
+        );
+    }
 
     // ------------------------------------------------------------------
     // store_dag_internal / get_stored_dag_internal tests
