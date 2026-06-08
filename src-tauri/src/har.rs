@@ -318,7 +318,8 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
 
 /// Export recorded HTTP requests to HAR 1.2 format.
 #[tauri::command]
-pub fn export_har(state: State<'_, Arc<DbState>>, _session_name: String) -> Result<HarFile, String> {
+pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Result<HarFile, String> {
+    log::info!("Exporting HAR for session: {}", session_name);
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     export_har_internal(&conn)
 }
