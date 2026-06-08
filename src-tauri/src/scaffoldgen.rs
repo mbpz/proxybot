@@ -131,7 +131,9 @@ pub(crate) fn hook_name(n: &str) -> String {
 }
 
 pub(crate) fn page_name(n: &str) -> String {
-    format!("{}Page", hook_name(n).replace("use", ""))
+    let h = hook_name(n);
+    let stripped = h.strip_prefix("use").unwrap_or(&h);
+    format!("{}Page", stripped)
 }
 
 pub(crate) fn pkg_json(name: &str) -> String {
@@ -1236,13 +1238,18 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn test_page_name_strips_all_use_occurrences() {
-        // NOTE: page_name uses String::replace("use", "") which replaces ALL
-        // occurrences of "use", not just the prefix. For input "get-users"
-        // this strips the "use" inside "users" as well, yielding "GetrsPage".
-        // Asserting the buggy behavior here to keep the test green and
-        // characterize the bug.
-        assert_eq!(page_name("get-users"), "GetrsPage");
+    fn test_page_name_only_strips_leading_use_prefix() {
+        // "get-users" -> hook_name -> "useGetusers" -> strip "use" prefix -> "GetusersPage"
+        // Previously this produced "GetrsPage" because replace("use","") stripped
+        // the "use" inside "users" as well.
+        assert_eq!(page_name("get-users"), "GetusersPage");
+    }
+
+    #[test]
+    fn test_page_name_preserves_use_inside_word() {
+        // "UserSettings" -> hook_name -> "useUsersettings" -> strip "use" prefix -> "UsersettingsPage"
+        // Must NOT corrupt "User" into "r".
+        assert_eq!(page_name("UserSettings"), "UserSettingsPage");
     }
 
     // ------------------------------------------------------------------
