@@ -517,7 +517,7 @@ mod tests {
         // The content-type branch forces FormData ONLY when the body is
         // ALSO valid JSON. A real urlencoded body like "key=value" fails
         // JSON parsing — see the characterization test below for that
-        // case (tracked as task #85).
+        // case (tracked as task #84).
         let body = b"{\"a\": 1}";
         let result = parse_body(body, Some("application/x-www-form-urlencoded"));
         assert_eq!(result.format, BodyFormat::FormData);
@@ -532,7 +532,7 @@ mod tests {
         // landing in Protobuf.
         //
         // This test pins the current (buggy) behavior. Tracked as
-        // task #85 — the form-urlencoded branch needs its own parser
+        // task #84 — the form-urlencoded branch needs its own parser
         // (or to fall back to a string-valued parsed field).
         let body = b"key=value&other=2";
         let result = parse_body(body, Some("application/x-www-form-urlencoded"));
@@ -540,7 +540,7 @@ mod tests {
             result.format,
             BodyFormat::Protobuf,
             "Characterization: form-urlencoded body wrongly classified as Protobuf. \
-             Will need to be flipped to FormData when task #85 is fixed."
+             Will need to be flipped to FormData when task #84 is fixed."
         );
     }
 
@@ -586,7 +586,7 @@ mod tests {
         // `test_parse_body_short_ascii_text_is_misclassified_as_protobuf`).
         // The single-byte body below intentionally bypasses the
         // heuristic (it requires `body.len() >= 2`) so this test
-        // exercises the actual Text fallback path. Tracked as task #85.
+        // exercises the actual Text fallback path. Tracked as task #84.
         let body: &[u8] = b"h";
         let result = parse_body(body, None);
         assert_eq!(result.format, BodyFormat::Text);
@@ -604,14 +604,14 @@ mod tests {
         // classified as Protobuf today.
         //
         // This test pins the current (buggy) behavior so the future fix
-        // (task #85) can be detected.
+        // (task #84) can be detected.
         let body = b"hello world";
         let result = parse_body(body, None);
         assert_eq!(
             result.format,
             BodyFormat::Protobuf,
             "Characterization: short ASCII text wrongly falls into Protobuf. \
-             This test will need to be flipped when task #85 is fixed."
+             This test will need to be flipped when task #84 is fixed."
         );
     }
 
