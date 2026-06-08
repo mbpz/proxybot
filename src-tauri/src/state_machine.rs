@@ -473,13 +473,13 @@ pub(crate) fn get_alerts_internal(
          FROM alerts WHERE device_id = ?1 AND severity = ?2 ORDER BY created_at DESC LIMIT ?3"
     } else if device_id.is_some() {
         "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts WHERE device_id = ?1 ORDER BY created_at DESC LIMIT ?3"
+         FROM alerts WHERE device_id = ?1 ORDER BY created_at DESC LIMIT ?2"
     } else if severity_filter.is_some() {
         "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts WHERE severity = ?2 ORDER BY created_at DESC LIMIT ?3"
+         FROM alerts WHERE severity = ?1 ORDER BY created_at DESC LIMIT ?2"
     } else {
         "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts ORDER BY created_at DESC LIMIT ?3"
+         FROM alerts ORDER BY created_at DESC LIMIT ?1"
     };
 
     let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
@@ -826,14 +826,6 @@ mod tests {
 
     // ------------------------------------------------------------------
     // DB CRUD tests — *_internal helpers
-    //
-    // NOTE: 3 of 4 SQL branches have placeholder/param mismatches; only "both filters" works.
-    //   "no filters": query uses ?3 but passes 1 param ([limit])
-    //   "device_id only": query uses ?1, ?3 but passes 2 params ([did, limit])
-    //   "severity only": query uses ?2, ?3 but passes 2 params ([sev, limit])
-    //   "both filters": works (query ?1, ?2, ?3 with [did, sev, limit])
-    // Fix: renumber placeholders to ?1/?2 in the three broken query strings (lines 471-483).
-    // TODO #74: critical production bug — fix in a follow-up commit.
     // ------------------------------------------------------------------
 
     #[test]
@@ -862,8 +854,8 @@ mod tests {
         store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Info, &AlertType::NewDomain, "a1").unwrap();
         store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Info, &AlertType::NewDomain, "a2").unwrap();
 
-        // Must pass both filters — only the "both" query branch works (see NOTE).
-        let alerts = get_alerts_internal(&conn, Some(d1.id), Some("info"), 10).unwrap();
+        // Filter by device_id only.
+        let alerts = get_alerts_internal(&conn, Some(d1.id), None, 10).unwrap();
         assert_eq!(alerts.len(), 2, "Should return both stored alerts");
     }
 
@@ -892,8 +884,8 @@ mod tests {
         )
         .unwrap();
 
-        // Use the working "both filters" branch (see NOTE).
-        let alerts = get_alerts_internal(&conn, Some(d1.id), Some("info"), 10).unwrap();
+        // Filter by device_id only.
+        let alerts = get_alerts_internal(&conn, Some(d1.id), None, 10).unwrap();
         assert_eq!(alerts.len(), 1, "Should only return alert for device 1");
         assert_eq!(alerts[0].device_id, Some(d1.id));
         assert_eq!(alerts[0].details, "for-1");
@@ -909,8 +901,8 @@ mod tests {
         store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Warning, &AlertType::NewDomain, "warn-1").unwrap();
         store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Warning, &AlertType::NewDomain, "warn-2").unwrap();
 
-        // Use the working "both filters" branch (see NOTE).
-        let alerts = get_alerts_internal(&conn, Some(d1.id), Some("warning"), 10).unwrap();
+        // Filter by severity only.
+        let alerts = get_alerts_internal(&conn, None, Some("warning"), 10).unwrap();
         assert_eq!(alerts.len(), 2, "Should return both warning alerts");
         for a in &alerts {
             assert_eq!(a.severity, AlertSeverity::Warning);
@@ -934,8 +926,8 @@ mod tests {
             .unwrap();
         }
 
-        // Use the working "both filters" branch (see NOTE).
-        let alerts = get_alerts_internal(&conn, Some(d1.id), Some("info"), 2).unwrap();
+        // Filter by device_id only, testing limit.
+        let alerts = get_alerts_internal(&conn, Some(d1.id), None, 2).unwrap();
         assert_eq!(alerts.len(), 2, "Limit should cap result count");
     }
 
