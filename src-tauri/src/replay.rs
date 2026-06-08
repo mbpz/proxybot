@@ -1134,4 +1134,16 @@ mod tests {
         assert!(!*state.is_running.lock().unwrap(), "Default is_running should be false");
         assert!(state.results.lock().unwrap().is_empty(), "Default results should be empty");
     }
+
+    // ------------------------------------------------------------------
+    // NOTE: start_replay (the mock-server path-matching logic) is NOT
+    // covered by a unit test. The path check inside the request loop
+    // (`path == "/" || path.starts_with("/")`) is broken — see task #80.
+    // start_replay spins up a real tokio listener and binds to a port;
+    // exercising it from a unit test would require fixtures (a live port,
+    // a tokio runtime, request fakes) that are beyond this audit's
+    // scope. The bug is characterized in the source comment at
+    // `start_replay`; whoever picks up task #80 should also add the
+    // first test that exercises that path.
+    // ------------------------------------------------------------------
 }
