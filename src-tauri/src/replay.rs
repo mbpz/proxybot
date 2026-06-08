@@ -594,6 +594,9 @@ mod tests {
     use super::*;
     use crate::db::{record_http_request, DbState};
 
+    // Missing coverage: see tombstone NOTE at the bottom of this module for
+    // start_replay / task #80.
+
     /// Helper: open an in-memory database with the full schema and seed
     /// `http_requests` rows so replay queries have something to read.
     fn seeded_db() -> Connection {
