@@ -283,10 +283,10 @@ impl RulesEngine {
     /// Start file watching for hot reload.
     pub fn start_watcher(self: Arc<Self>) {
         let (tx, mut rx) = mpsc::channel(100);
-        let rules_dir = get_rules_dir();
+        let rules_dir = self.dir.clone();
 
         // Ensure directory exists first
-        if let Err(e) = ensure_rules_dir() {
+        if let Err(e) = fs::create_dir_all(&rules_dir) {
             log::error!("Failed to create rules directory: {}", e);
             return;
         }
