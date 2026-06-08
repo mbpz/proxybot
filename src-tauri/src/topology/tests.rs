@@ -259,3 +259,68 @@ fn test_node_limit_500() {
     let graph = build_topology_graph(&db, &TopologyFilter::default()).unwrap();
     assert!(graph.nodes.len() <= 500);
 }
+
+#[test]
+fn test_get_node_detail_for_host() {
+    let db = make_in_memory_db();
+    let conn = db.conn.lock().unwrap();
+    let dev = seed_device(&conn, "Phone");
+    seed_request(&conn, dev, "target.com", "wechat", 200, 50, "2026-01-01 00:00:00");
+    seed_request(&conn, dev, "target.com", "wechat", 404, 50, "2026-01-01 00:00:01");
+    seed_request(&conn, dev, "target.com", "wechat", 301, 50, "2026-01-01 00:00:02");
+    seed_request(&conn, dev, "target.com", "wechat", 503, 50, "2026-01-01 00:00:03");
+    drop(conn);
+
+    let detail =
+        get_topology_node_detail(&db, "host:target.com", &TopologyFilter::default()).unwrap();
+    assert_eq!(detail.node.kind, NodeKind::Host);
+    assert_eq!(detail.recent_requests.len(), 4);
+    // request_count must reflect the full-window total, not the recent_requests cap.
+    assert_eq!(detail.node.request_count, 4);
+    let s2 = detail
+        .status_breakdown
+        .iter()
+        .find(|s| s.status_class == "2xx")
+        .unwrap();
+    let s3 = detail
+        .status_breakdown
+        .iter()
+        .find(|s| s.status_class == "3xx")
+        .unwrap();
+    let s4 = detail
+        .status_breakdown
+        .iter()
+        .find(|s| s.status_class == "4xx")
+        .unwrap();
+    let s5 = detail
+        .status_breakdown
+        .iter()
+        .find(|s| s.status_class == "5xx")
+        .unwrap();
+    assert_eq!(s2.count, 1);
+    assert_eq!(s3.count, 1);
+    assert_eq!(s4.count, 1);
+    assert_eq!(s5.count, 1);
+    // error_count = 4xx + 5xx, error_rate = 2 / 4 = 0.5
+    assert_eq!(detail.node.error_count, 2);
+    assert!((detail.node.error_rate - 0.5).abs() < 0.001);
+}
+
+#[test]
+fn test_get_node_detail_empty() {
+    let db = make_in_memory_db();
+    let conn = db.conn.lock().unwrap();
+    seed_device(&conn, "Phone");
+    // No requests seeded for any host.
+    drop(conn);
+
+    let detail =
+        get_topology_node_detail(&db, "host:missing.com", &TopologyFilter::default()).unwrap();
+    assert_eq!(detail.recent_requests.len(), 0);
+    assert_eq!(detail.node.request_count, 0);
+    assert_eq!(detail.node.error_count, 0);
+    assert!((detail.node.error_rate - 0.0).abs() < 0.001);
+    for s in &detail.status_breakdown {
+        assert_eq!(s.count, 0);
+    }
+}

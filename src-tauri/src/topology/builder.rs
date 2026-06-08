@@ -284,3 +284,164 @@ fn format_ts_for_sql(ts: i64) -> String {
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_default()
 }
+
+pub fn get_topology_node_detail(
+    db: &Arc<DbState>,
+    node_id: &str,
+    filter: &TopologyFilter,
+) -> Result<NodeDetail, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let (start_ts, end_ts) = resolve_time_window(filter.time_window.as_ref());
+
+    // Parse node id of the form "kind:key" (e.g. "host:api.weixin.qq.com").
+    let (kind_str, key) = node_id.split_once(':').ok_or("invalid node id")?;
+    let kind = match kind_str {
+        "device" => NodeKind::Device,
+        "app" => NodeKind::App,
+        "host" => NodeKind::Host,
+        "proxy" => NodeKind::Proxy,
+        _ => return Err(format!("unknown node kind: {}", kind_str)),
+    };
+
+    // Build a kind-specific filter clause plus its bind value. All values
+    // are normalised to String so they can share a single Vec<String> for
+    // rusqlite::params_from_iter (matches the pattern in build_topology_graph).
+    let (where_clause, params_vec): (String, Vec<String>) = match kind {
+        NodeKind::Device => {
+            let id = key
+                .parse::<i64>()
+                .map_err(|_| format!("invalid device id: {}", key))?;
+            ("device_id = ?3".to_string(), vec![id.to_string()])
+        }
+        NodeKind::App => ("app_tag = ?3".to_string(), vec![key.to_string()]),
+        NodeKind::Host => ("host = ?3".to_string(), vec![key.to_string()]),
+        // Proxy node represents the whole window: no extra filter.
+        NodeKind::Proxy => ("1=1".to_string(), vec![]),
+    };
+
+    // C1 fix: bind timestamps as the "YYYY-MM-DD HH:MM:SS" TEXT literal that
+    // http_requests.timestamp stores, not as i64 unix-millis (which would
+    // compare lexically and exclude every real row).
+    let start_ts_str = format_ts_for_sql(start_ts);
+    let end_ts_str = format_ts_for_sql(end_ts);
+    let mut all_params: Vec<String> = vec![start_ts_str, end_ts_str];
+    all_params.extend(params_vec);
+
+    // Fetch up to 20 most recent requests matching the node.
+    let sql = format!(
+        "SELECT id, method, host, path, resp_status, duration_ms, timestamp
+         FROM http_requests
+         WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}
+         ORDER BY id DESC LIMIT 20",
+        where_clause
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let requests: Vec<RecentRequest> = stmt
+        .query_map(rusqlite::params_from_iter(all_params.iter()), |row| {
+            Ok(RecentRequest {
+                id: row.get::<_, i64>(0)?.to_string(),
+                method: row.get(1)?,
+                host: row.get(2)?,
+                path: row.get(3)?,
+                status: row.get::<_, Option<i64>>(4)?.map(|s| s as u16),
+                duration_ms: row.get::<_, Option<i64>>(5)?.unwrap_or(0) as u64,
+                timestamp: parse_timestamp(&row.get::<_, String>(6)?),
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    // Status-code class breakdown. SUM() returns NULL when the WHERE clause
+    // matches no rows, so the column types are Option<i64> and we unwrap.
+    let status_sql = format!(
+        "SELECT
+            SUM(CASE WHEN resp_status >= 200 AND resp_status < 300 THEN 1 ELSE 0 END) AS s2xx,
+            SUM(CASE WHEN resp_status >= 300 AND resp_status < 400 THEN 1 ELSE 0 END) AS s3xx,
+            SUM(CASE WHEN resp_status >= 400 AND resp_status < 500 THEN 1 ELSE 0 END) AS s4xx,
+            SUM(CASE WHEN resp_status >= 500 THEN 1 ELSE 0 END) AS s5xx
+         FROM http_requests
+         WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}",
+        where_clause
+    );
+    let mut s_stmt = conn.prepare(&status_sql).map_err(|e| e.to_string())?;
+    let counts: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = s_stmt
+        .query_row(rusqlite::params_from_iter(all_params.iter()), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap_or((None, None, None, None));
+    drop(s_stmt);
+
+    let status_breakdown = vec![
+        StatusCount {
+            status_class: "2xx".into(),
+            count: counts.0.unwrap_or(0) as u64,
+        },
+        StatusCount {
+            status_class: "3xx".into(),
+            count: counts.1.unwrap_or(0) as u64,
+        },
+        StatusCount {
+            status_class: "4xx".into(),
+            count: counts.2.unwrap_or(0) as u64,
+        },
+        StatusCount {
+            status_class: "5xx".into(),
+            count: counts.3.unwrap_or(0) as u64,
+        },
+    ];
+
+    // Full-window request count (no LIMIT). The recent_requests Vec above
+    // is capped at 20; this COUNT(*) gives the true total for the drawer.
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM http_requests WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}",
+        where_clause
+    );
+    let mut c_stmt = conn.prepare(&count_sql).map_err(|e| e.to_string())?;
+    let full_count: i64 = c_stmt
+        .query_row(
+            rusqlite::params_from_iter(all_params.iter()),
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    drop(c_stmt);
+
+    // The drawer shows a representative node; request_count is the full-window
+    // total (from the COUNT above), not the 20-row recent_requests sample.
+    let request_count = full_count as u64;
+    let error_count = status_breakdown[2].count + status_breakdown[3].count;
+    let error_rate = if request_count > 0 {
+        error_count as f64 / request_count as f64
+    } else {
+        0.0
+    };
+    let node = TopologyNode {
+        id: node_id.to_string(),
+        kind: kind.clone(),
+        label: key.to_string(),
+        app_tag: if kind == NodeKind::App {
+            Some(key.to_string())
+        } else {
+            None
+        },
+        device_id: if kind == NodeKind::Device {
+            Some(key.to_string())
+        } else {
+            None
+        },
+        request_count,
+        total_bytes: 0,
+        avg_latency_ms: 0.0,
+        p95_latency_ms: 0.0,
+        error_count,
+        error_rate,
+        last_seen: now_unix_ms(),
+    };
+
+    Ok(NodeDetail {
+        node,
+        recent_requests: requests,
+        status_breakdown,
+    })
+}
