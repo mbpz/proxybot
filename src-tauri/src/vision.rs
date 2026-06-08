@@ -743,7 +743,7 @@ mod tests {
         assert_eq!(tree.components[0].text, Some("New".to_string()));
     }
 
-    // NOTE: fuse_vision_with_api_internal uses `ORDER BY created_at DESC LIMIT 1`
+    // NOTE: BUG — fuse_vision_with_api_internal uses `ORDER BY created_at DESC LIMIT 1`
     // with chrono_lite_timestamp (second resolution). Two inserts in the same
     // second produce the same created_at, making the "latest" selection
     // indeterminate. Production impact is low (sequential user actions rarely
