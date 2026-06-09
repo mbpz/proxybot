@@ -324,3 +324,48 @@ fn test_get_node_detail_empty() {
         assert_eq!(s.count, 0);
     }
 }
+
+#[test]
+fn test_escape_like_escapes_wildcards() {
+    assert_eq!(escape_like("plain"), "plain");
+    assert_eq!(escape_like("a%b"), "a\\%b");
+    assert_eq!(escape_like("a_b"), "a\\_b");
+    assert_eq!(escape_like("a\\b"), "a\\\\b");
+    assert_eq!(escape_like("100%_done"), "100\\%\\_done");
+}
+
+#[test]
+fn test_host_contains_does_not_match_wildcards() {
+    let db = make_in_memory_db();
+    let dev = insert_device(&db, "mac-like", "Phone");
+    insert_request(&db, dev, "wechat.example.com", "wechat", 200, 50);
+    insert_request(&db, dev, "wechatXexample.com", "wechat", 200, 50);
+    insert_request(&db, dev, "wchatexample.com", "wechat", 200, 50);
+
+    // Without escaping, "%" in the needle would match anything.
+    // With escaping, the literal "%" should match nothing.
+    let filter = TopologyFilter {
+        host_contains: Some("%".to_string()),
+        ..Default::default()
+    };
+    let graph = build_topology_graph(&db, &filter).unwrap();
+    let host_nodes: Vec<&TopologyNode> = graph
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.kind, NodeKind::Host))
+        .collect();
+    assert_eq!(host_nodes.len(), 0, "literal % should match zero hosts");
+
+    // Underscore should also be treated literally, not as single-char wildcard.
+    let filter = TopologyFilter {
+        host_contains: Some("w_chat".to_string()),
+        ..Default::default()
+    };
+    let graph = build_topology_graph(&db, &filter).unwrap();
+    let host_nodes: Vec<&TopologyNode> = graph
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.kind, NodeKind::Host))
+        .collect();
+    assert_eq!(host_nodes.len(), 0, "literal _ should not match any host");
+}

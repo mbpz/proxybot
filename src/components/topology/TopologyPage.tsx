@@ -17,10 +17,11 @@ const INITIAL_FILTER: TopologyFilter = {
 export function TopologyPage() {
   const [filter, setFilter] = useState<TopologyFilter>(INITIAL_FILTER);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
   const { graph, loading, error } = useTopologyGraph(filter, 300);
 
-  const handleRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  const handleRefresh = useCallback(() => {
+    setFilter((f) => ({ ...f }));
+  }, []);
 
   return (
     <div className="p-6 h-screen flex flex-col">
@@ -33,7 +34,7 @@ export function TopologyPage() {
         <div className="flex flex-1 overflow-hidden">
           <TopologyCanvas
             graph={graph ?? { nodes: [], edges: [], meta: emptyMeta() }}
-            loading={loading || refreshKey > 0 && !graph}
+            loading={loading}
             error={error}
             onNodeClick={setSelectedNodeId}
             onRefresh={handleRefresh}

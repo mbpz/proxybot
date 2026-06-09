@@ -43,7 +43,6 @@ pub fn build_topology_graph(
             request_count: 0,
             total_bytes: 0,
             avg_latency_ms: 0.0,
-            p95_latency_ms: 0.0,
             error_count: 0,
             error_rate: 0.0,
             last_seen: parse_timestamp(last_seen),
@@ -65,8 +64,8 @@ pub fn build_topology_graph(
     let mut params_vec: Vec<String> = vec![start_ts_str, end_ts_str];
     let mut next_idx: usize = 3;
     if let Some(needle) = &filter.host_contains {
-        sql.push_str(&format!(" AND host LIKE ?{}", next_idx));
-        params_vec.push(format!("%{}%", needle));
+        sql.push_str(&format!(" AND host LIKE ?{} ESCAPE '\\'", next_idx));
+        params_vec.push(format!("%{}%", escape_like(needle)));
         next_idx += 1;
     }
     if let Some(ids) = &filter.device_ids {
@@ -125,7 +124,6 @@ pub fn build_topology_graph(
             request_count: 0,
             total_bytes: 0,
             avg_latency_ms: 0.0,
-            p95_latency_ms: 0.0,
             error_count: 0,
             error_rate: 0.0,
             last_seen: 0,
@@ -145,7 +143,6 @@ pub fn build_topology_graph(
             request_count: 0,
             total_bytes: 0,
             avg_latency_ms: 0.0,
-            p95_latency_ms: 0.0,
             error_count: 0,
             error_rate: 0.0,
             last_seen: 0,
@@ -270,6 +267,23 @@ fn parse_timestamp(ts: &str) -> i64 {
     chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
         .map(|dt| dt.and_utc().timestamp_millis())
         .unwrap_or(0)
+}
+
+/// Escape SQL `LIKE` wildcards (`%` and `_`) plus the escape character itself
+/// so user-supplied `host_contains` text matches literally. Pairs with the
+/// `ESCAPE '\'` clause added to the `LIKE` expression.
+fn escape_like(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' | '%' | '_' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 /// Format a unix-millis timestamp as the `"YYYY-MM-DD HH:MM:SS"` literal
@@ -433,7 +447,6 @@ pub fn get_topology_node_detail(
         request_count,
         total_bytes: 0,
         avg_latency_ms: 0.0,
-        p95_latency_ms: 0.0,
         error_count,
         error_rate,
         last_seen: now_unix_ms(),

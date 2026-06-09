@@ -17,7 +17,6 @@ pub struct TopologyNode {
     pub request_count: u64,
     pub total_bytes: u64,
     pub avg_latency_ms: f64,
-    pub p95_latency_ms: f64,
     pub error_count: u64,
     pub error_rate: f64,
     pub last_seen: i64,

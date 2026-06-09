@@ -12,7 +12,6 @@ function makeNode(overrides: Partial<TopologyNode> = {}): TopologyNode {
     request_count: 1,
     total_bytes: 0,
     avg_latency_ms: 0,
-    p95_latency_ms: 0,
     error_count: 0,
     error_rate: 0,
     last_seen: 0,

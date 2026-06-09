@@ -24,7 +24,6 @@ vi.mock("@tauri-apps/api/core", () => ({
           request_count: 10,
           total_bytes: 0,
           avg_latency_ms: 50,
-          p95_latency_ms: 0,
           error_count: 2,
           error_rate: 0.2,
           last_seen: 0,

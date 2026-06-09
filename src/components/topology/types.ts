@@ -9,7 +9,6 @@ export interface TopologyNode {
   request_count: number;
   total_bytes: number;
   avg_latency_ms: number;
-  p95_latency_ms: number;
   error_count: number;
   error_rate: number;
   last_seen: number;

@@ -12,6 +12,8 @@ interface Props {
 export function RadialView({ graph, onNodeClick }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
+  const onNodeClickRef = useRef(onNodeClick);
+  onNodeClickRef.current = onNodeClick;
 
   useEffect(() => {
     if (!ref.current) return;
@@ -51,14 +53,14 @@ export function RadialView({ graph, onNodeClick }: Props) {
       },
     );
     networkRef.current.on("click", (params) => {
-      if (params.nodes.length > 0) onNodeClick(params.nodes[0] as string);
+      if (params.nodes.length > 0) onNodeClickRef.current(params.nodes[0] as string);
     });
 
     return () => {
       networkRef.current?.destroy();
       networkRef.current = null;
     };
-  }, [graph, onNodeClick]);
+  }, [graph]);
 
   return <div ref={ref} className="w-full h-full" />;
 }
