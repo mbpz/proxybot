@@ -272,7 +272,7 @@ fn parse_timestamp(ts: &str) -> i64 {
 /// Escape SQL `LIKE` wildcards (`%` and `_`) plus the escape character itself
 /// so user-supplied `host_contains` text matches literally. Pairs with the
 /// `ESCAPE '\'` clause added to the `LIKE` expression.
-fn escape_like(s: &str) -> String {
+pub(crate) fn escape_like(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {

@@ -337,10 +337,36 @@ fn test_escape_like_escapes_wildcards() {
 #[test]
 fn test_host_contains_does_not_match_wildcards() {
     let db = make_in_memory_db();
-    let dev = insert_device(&db, "mac-like", "Phone");
-    insert_request(&db, dev, "wechat.example.com", "wechat", 200, 50);
-    insert_request(&db, dev, "wechatXexample.com", "wechat", 200, 50);
-    insert_request(&db, dev, "wchatexample.com", "wechat", 200, 50);
+    let conn = db.conn.lock().unwrap();
+    let dev = seed_device(&conn, "Phone");
+    seed_request(
+        &conn,
+        dev,
+        "wechat.example.com",
+        "wechat",
+        200,
+        50,
+        "2026-01-01 00:00:00",
+    );
+    seed_request(
+        &conn,
+        dev,
+        "wechatXexample.com",
+        "wechat",
+        200,
+        50,
+        "2026-01-01 00:00:01",
+    );
+    seed_request(
+        &conn,
+        dev,
+        "wchatexample.com",
+        "wechat",
+        200,
+        50,
+        "2026-01-01 00:00:02",
+    );
+    drop(conn);
 
     // Without escaping, "%" in the needle would match anything.
     // With escaping, the literal "%" should match nothing.
