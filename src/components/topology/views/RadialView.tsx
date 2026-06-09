@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Network, Node, Edge, DataSet } from "vis-network";
+import { Network, Node, Edge } from "vis-network";
+import { DataSet } from "vis-data";
 import { TopologyGraph } from "../types";
 import { nodeBackgroundColor, nodeBorderColor, nodeSize } from "../nodeColor";
 
