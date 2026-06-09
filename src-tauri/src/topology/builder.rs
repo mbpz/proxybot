@@ -261,9 +261,9 @@ fn now_unix_ms() -> i64 {
 }
 
 fn parse_timestamp(ts: &str) -> i64 {
-    if let Ok(f) = ts.parse::<f64>() {
-        return f as i64;
-    }
+    // http_requests.timestamp is stored as the "YYYY-MM-DD HH:MM:SS" TEXT
+    // literal defined in db.rs schema. Anything else (including the literal
+    // "0" we emit for missing values) parses to 0 via the fallback.
     chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
         .map(|dt| dt.and_utc().timestamp_millis())
         .unwrap_or(0)
@@ -288,15 +288,12 @@ pub(crate) fn escape_like(s: &str) -> String {
 
 /// Format a unix-millis timestamp as the `"YYYY-MM-DD HH:MM:SS"` literal
 /// that `http_requests.timestamp` is stored in (see db.rs schema).
-/// Empty string for invalid inputs means the SQL `>=` / `<=` will be
-/// skipped by SQLite's `TEXT` collation only if a literal empty is
-/// compared — but since we only call this on values produced by
-/// `resolve_time_window` (which are i64 unix-millis), the function will
-/// always succeed.
+/// Only called on values produced by `resolve_time_window`, which always
+/// yields a valid i64 unix-millis — so failure here is a logic bug.
 fn format_ts_for_sql(ts: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ts)
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_default()
+        .expect("resolve_time_window should always produce a valid unix-millis")
 }
 
 pub fn get_topology_node_detail(
@@ -313,7 +310,6 @@ pub fn get_topology_node_detail(
         "device" => NodeKind::Device,
         "app" => NodeKind::App,
         "host" => NodeKind::Host,
-        "proxy" => NodeKind::Proxy,
         _ => return Err(format!("unknown node kind: {}", kind_str)),
     };
 
@@ -329,8 +325,6 @@ pub fn get_topology_node_detail(
         }
         NodeKind::App => ("app_tag = ?3".to_string(), vec![key.to_string()]),
         NodeKind::Host => ("host = ?3".to_string(), vec![key.to_string()]),
-        // Proxy node represents the whole window: no extra filter.
-        NodeKind::Proxy => ("1=1".to_string(), vec![]),
     };
 
     // C1 fix: bind timestamps as the "YYYY-MM-DD HH:MM:SS" TEXT literal that
@@ -367,24 +361,26 @@ pub fn get_topology_node_detail(
         .map_err(|e| e.to_string())?;
     drop(stmt);
 
-    // Status-code class breakdown. SUM() returns NULL when the WHERE clause
-    // matches no rows, so the column types are Option<i64> and we unwrap.
-    let status_sql = format!(
+    // Status-code class breakdown + full-window count in one query. SUM()
+    // returns NULL when the WHERE clause matches no rows, so the column types
+    // are Option<i64> and we unwrap.
+    let counts_sql = format!(
         "SELECT
             SUM(CASE WHEN resp_status >= 200 AND resp_status < 300 THEN 1 ELSE 0 END) AS s2xx,
             SUM(CASE WHEN resp_status >= 300 AND resp_status < 400 THEN 1 ELSE 0 END) AS s3xx,
             SUM(CASE WHEN resp_status >= 400 AND resp_status < 500 THEN 1 ELSE 0 END) AS s4xx,
-            SUM(CASE WHEN resp_status >= 500 THEN 1 ELSE 0 END) AS s5xx
+            SUM(CASE WHEN resp_status >= 500 THEN 1 ELSE 0 END) AS s5xx,
+            COUNT(*) AS total
          FROM http_requests
          WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}",
         where_clause
     );
-    let mut s_stmt = conn.prepare(&status_sql).map_err(|e| e.to_string())?;
-    let counts: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = s_stmt
+    let mut s_stmt = conn.prepare(&counts_sql).map_err(|e| e.to_string())?;
+    let counts: (Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64) = s_stmt
         .query_row(rusqlite::params_from_iter(all_params.iter()), |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         })
-        .unwrap_or((None, None, None, None));
+        .unwrap_or((None, None, None, None, 0));
     drop(s_stmt);
 
     let status_breakdown = vec![
@@ -406,20 +402,9 @@ pub fn get_topology_node_detail(
         },
     ];
 
-    // Full-window request count (no LIMIT). The recent_requests Vec above
-    // is capped at 20; this COUNT(*) gives the true total for the drawer.
-    let count_sql = format!(
-        "SELECT COUNT(*) FROM http_requests WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}",
-        where_clause
-    );
-    let mut c_stmt = conn.prepare(&count_sql).map_err(|e| e.to_string())?;
-    let full_count: i64 = c_stmt
-        .query_row(
-            rusqlite::params_from_iter(all_params.iter()),
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-    drop(c_stmt);
+    // The recent_requests Vec above is capped at 20; this COUNT(*) gives
+    // the true full-window total for the drawer.
+    let full_count = counts.4;
 
     // The drawer shows a representative node; request_count is the full-window
     // total (from the COUNT above), not the 20-row recent_requests sample.

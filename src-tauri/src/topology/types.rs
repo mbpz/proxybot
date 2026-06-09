@@ -51,7 +51,6 @@ pub enum NodeKind {
     Device,
     App,
     Host,
-    Proxy,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
