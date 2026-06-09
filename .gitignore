@@ -62,6 +62,7 @@ homebrew-proxybot/
 # Playwright
 test-results/
 playwright-report/
+e2e-report/
 
 # macOS
 *.dSYM/
