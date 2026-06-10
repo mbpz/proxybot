@@ -239,6 +239,8 @@ pub(crate) fn get_recorded_responses_internal(
     let mut responses: HashMap<i64, RecordedResponse> = HashMap::new();
 
     for id in request_ids {
+        // `request_ids: &[i64]` iterates as `&i64`; deref to `i64` for the
+        // rusqlite parameter binding below.
         let mut stmt = conn
             .prepare(
                 "SELECT resp_status, resp_headers, resp_body
