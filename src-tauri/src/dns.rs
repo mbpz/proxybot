@@ -63,6 +63,7 @@ pub struct DnsEntry {
     pub app_icon: Option<String>,
     pub action: Option<String>, // Routing action: DIRECT, PROXY, REJECT
     pub resolved_ips: Vec<String>,
+    pub client_ip: Option<String>, // Source LAN IP of the DNS query
 }
 
 /// Shared DNS state.
@@ -282,7 +283,13 @@ fn timestamp_ms() -> u64 {
 }
 
 /// Record a DNS query entry and emit a Tauri event.
-fn record_query(state: &DnsState, domain: String, response_ips: &[String], app_handle: &AppHandle) {
+fn record_query(
+    state: &DnsState,
+    domain: String,
+    response_ips: &[String],
+    client_ip: &str,
+    app_handle: &AppHandle,
+) {
     let timestamp_ms_val = timestamp_ms();
 
     // Classify the domain for app tagging
@@ -301,6 +308,7 @@ fn record_query(state: &DnsState, domain: String, response_ips: &[String], app_h
         app_icon: app_icon.clone(),
         action: action.clone(),
         resolved_ips: response_ips.to_vec(),
+        client_ip: Some(client_ip.to_string()),
     };
 
     let mut entries = state.entries.lock().unwrap();
@@ -727,7 +735,7 @@ async fn handle_dns_query(
         }
 
         // Record the query with hosts IP
-        record_query(state, domain, &response_ips, app_handle);
+        record_query(state, domain, &response_ips, &src.ip().to_string(), app_handle);
         return;
     }
 
@@ -743,7 +751,7 @@ async fn handle_dns_query(
         }
 
         // Record as blocked (empty response)
-        record_query(state, domain, &[], app_handle);
+        record_query(state, domain, &[], &src.ip().to_string(), app_handle);
         return;
     }
 
@@ -796,7 +804,7 @@ async fn handle_dns_query(
     }
 
     // Record the query with response IPs
-    record_query(state, domain, &response_ips, app_handle);
+    record_query(state, domain, &response_ips, &src.ip().to_string(), app_handle);
 }
 
 /// Build a DNS response with a hosts file IP.
@@ -1386,6 +1394,7 @@ mod tests {
             app_icon: Some("\u{1F4AC}".to_string()),
             action: None,
             resolved_ips: vec!["1.2.3.4".to_string()],
+            client_ip: None,
         };
         state.entries.lock().unwrap().push_back(entry);
 
@@ -1394,6 +1403,20 @@ mod tests {
             state.correlate_app("api.weixin.qq.com", now_ms),
             Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
         );
+    }
+
+    #[test]
+    fn test_dns_entry_has_client_ip_field() {
+        let entry = DnsEntry {
+            domain: "weixin.qq.com".to_string(),
+            timestamp_ms: 0,
+            app_name: Some("WeChat".to_string()),
+            app_icon: Some("\u{1F4AC}".to_string()),
+            action: None,
+            resolved_ips: vec!["1.2.3.4".to_string()],
+            client_ip: Some("192.168.1.5".to_string()),
+        };
+        assert_eq!(entry.client_ip.as_deref(), Some("192.168.1.5"));
     }
 
     #[test]
@@ -1408,6 +1431,7 @@ mod tests {
             app_icon: Some("\u{1F4AC}".to_string()),
             action: None,
             resolved_ips: vec!["1.2.3.4".to_string()],
+            client_ip: None,
         };
         state.entries.lock().unwrap().push_back(entry);
 
