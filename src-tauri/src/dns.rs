@@ -257,6 +257,43 @@ impl DnsState {
         None
     }
 
+    /// Correlate a connection whose target is a literal IP (e.g. CDN
+    /// endpoint) against recent DNS resolutions for the same client.
+    /// Returns the app_name and app_icon of the most recent DNS query
+    /// from `client_ip` whose `resolved_ips` includes `resolved_ip`,
+    /// within `CORRELATION_WINDOW_MS` of `request_timestamp_ms`.
+    pub fn correlate_app_for_ip(
+        &self,
+        client_ip: &str,
+        resolved_ip: &str,
+        request_timestamp_ms: u64,
+    ) -> Option<(String, String)> {
+        let entries = self.entries.lock().unwrap();
+        for entry in entries.iter().rev() {
+            // Skip entries in the future (clock skew).
+            if request_timestamp_ms < entry.timestamp_ms {
+                continue;
+            }
+            // Entries are sorted by insertion; once we pass the window,
+            // older ones cannot match.
+            if request_timestamp_ms - entry.timestamp_ms > CORRELATION_WINDOW_MS {
+                break;
+            }
+            // Must be the same client.
+            if entry.client_ip.as_deref() != Some(client_ip) {
+                continue;
+            }
+            // Must include the resolved IP we're correlating against.
+            if !entry.resolved_ips.iter().any(|ip| ip == resolved_ip) {
+                continue;
+            }
+            if let (Some(name), Some(icon)) = (&entry.app_name, &entry.app_icon) {
+                return Some((name.clone(), icon.clone()));
+            }
+        }
+        None
+    }
+
     /// Get routing action for a resolved domain.
     fn get_routing_action(&self, domain: &str) -> Option<String> {
         if let Some(engine) = &self.rules_engine {
@@ -1437,5 +1474,191 @@ mod tests {
 
         // 6 minutes after the entry, the host should NOT correlate (window is 5 min).
         assert_eq!(state.correlate_app("api.weixin.qq.com", now_ms), None);
+    }
+
+    // ------------------------------------------------------------------
+    // correlate_app_for_ip tests
+    // ------------------------------------------------------------------
+
+    fn push_entry(
+        state: &DnsState,
+        domain: &str,
+        timestamp_ms: u64,
+        client_ip: Option<&str>,
+        resolved_ips: Vec<&str>,
+        app_name: Option<&str>,
+        app_icon: Option<&str>,
+    ) {
+        let entry = DnsEntry {
+            domain: domain.to_string(),
+            timestamp_ms,
+            app_name: app_name.map(str::to_string),
+            app_icon: app_icon.map(str::to_string),
+            action: None,
+            resolved_ips: resolved_ips.into_iter().map(str::to_string).collect(),
+            client_ip: client_ip.map(str::to_string),
+        };
+        state.entries.lock().unwrap().push_back(entry);
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_in_window() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 60_000, // 1 minute ago
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
+        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_out_of_window() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 6 * 60 * 1000, // 6 minutes ago
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_picks_latest() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Older entry for Alipay
+        push_entry(
+            &state,
+            "alipay.com",
+            now_ms - 2 * 60 * 1000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("Alipay"),
+            Some("\u{1F4AC}"),
+        );
+        // Newer entry for WeChat at the same IP
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
+        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_no_match() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Query for a different IP
+        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "5.6.7.8", now_ms), None);
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_wrong_client() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.6"), // different client
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Phone 1.5 queries — should not see 1.6's tag
+        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_empty_state() {
+        let state = DnsState::new();
+        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", 0), None);
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_skips_future_entries() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Entry in the future (clock skew)
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms + 60_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Past entry that should match
+        push_entry(
+            &state,
+            "alipay.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("Alipay"),
+            Some("\u{1F4AC}"),
+        );
+        let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
+        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_app_name_only_returns_none() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            None, // app_icon is None
+        );
+        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+    }
+
+    #[test]
+    fn test_correlate_app_for_ip_app_icon_only_returns_none() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            None, // app_name is None
+            Some("\u{1F4AC}"),
+        );
+        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
     }
 }
