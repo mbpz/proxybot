@@ -5,6 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const CERT_SERVER_PORT: u16 = 19876;
 static SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// Returns true if the CertServer is currently listening.
+pub fn is_running() -> bool {
+    SERVER_RUNNING.load(Ordering::SeqCst)
+}
+
 /// Starts a tiny_http server that serves the CA certificate at /ca.crt.
 /// Returns the LAN IP and port so mobile devices can download via browser.
 #[tauri::command]

@@ -259,6 +259,7 @@ pub fn run() {
             dns::set_dns_upstream,
             dns::reload_dns_lists,
             cert_server::start_cert_server,
+            commands::device_setup::generate_device_qr,
             get_traffic_baseline,
             scan_request_anomalies,
             get_alerts,
