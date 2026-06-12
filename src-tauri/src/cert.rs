@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod mobileconfig;
+pub mod wizard;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
