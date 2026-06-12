@@ -294,6 +294,27 @@ impl DnsState {
         None
     }
 
+    /// Two-step DNS-side classification for a captured connection.
+    /// Tries the host-string path first (`correlate_app`), then the
+    /// resolved-IP path (`correlate_app_for_ip`) if the first missed
+    /// and a `resolved_ip` is known. Used by the proxy to combine
+    /// both DNS-side fallbacks into a single call.
+    pub fn classify_connection(
+        &self,
+        target_host: &str,
+        client_ip: &str,
+        resolved_ip: Option<&str>,
+        request_timestamp_ms: u64,
+    ) -> Option<(String, String)> {
+        if let Some(hit) = self.correlate_app(target_host, request_timestamp_ms) {
+            return Some(hit);
+        }
+        if let Some(ip) = resolved_ip {
+            return self.correlate_app_for_ip(client_ip, ip, request_timestamp_ms);
+        }
+        None
+    }
+
     /// Get routing action for a resolved domain.
     fn get_routing_action(&self, domain: &str) -> Option<String> {
         if let Some(engine) = &self.rules_engine {
@@ -1660,5 +1681,78 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+    }
+
+    // ------------------------------------------------------------------
+    // classify_connection tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_classify_connection_host_string_wins_over_ip() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // DNS entry: domain = alipay.com, resolved to 1.2.3.4
+        push_entry(
+            &state,
+            "alipay.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("Alipay"),
+            Some("\u{1F4AC}"),
+        );
+        // Connection to api.alipay.com (host-string match should win)
+        let result =
+            state.classify_connection("api.alipay.com", "192.168.1.5", Some("1.2.3.4"), now_ms);
+        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+    }
+
+    #[test]
+    fn test_classify_connection_falls_back_to_ip() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // DNS entry: domain = weixin.qq.com, resolved to 1.2.3.4
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Connection target is the IP literal directly
+        let result =
+            state.classify_connection("1.2.3.4", "192.168.1.5", Some("1.2.3.4"), now_ms);
+        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+    }
+
+    #[test]
+    fn test_classify_connection_no_match_returns_none() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // No DNS entries at all
+        let result =
+            state.classify_connection("unknown.com", "192.168.1.5", Some("1.2.3.4"), now_ms);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_classify_connection_no_resolved_ip_skips_ip_path() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Connection without a known peer IP (None) — host path still works
+        let result =
+            state.classify_connection("api.weixin.qq.com", "192.168.1.5", None, now_ms);
+        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
     }
 }
