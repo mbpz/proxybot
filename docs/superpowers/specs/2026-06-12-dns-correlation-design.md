@@ -200,6 +200,8 @@ The new IP-correlation function depends on the DNS lookup being observed **befor
 - `dns_then_https_to_ip`: same DNS record; capture with `target_host = "1.2.3.4"` and `peer_ip = "1.2.3.4"`; expect `app_name = "WeChat"`.
 - `no_dns_ip_direct`: no DNS record; capture with `target_host = "1.2.3.4"` and `peer_ip = "1.2.3.4"`; expect `app_name = None`.
 
+**Implementation note (added after the plan was executed):** The three integration scenarios above are subsumed by the four `classify_connection` unit tests in `src-tauri/src/dns.rs` (`test_classify_connection_host_string_wins_over_ip` covers the first, `test_classify_connection_falls_back_to_ip` covers the second, `test_classify_connection_no_match_returns_none` covers the third, and `test_classify_connection_no_resolved_ip_skips_ip_path` is a fourth case). Spinning up a real `TcpStream` + `UdpSocket` for an end-to-end integration test was deferred in favor of (a) the helper-level unit tests, which exercise the same logic with a controlled `DnsState`, and (b) the manual real-device test in §7.3, which covers the full proxy flow on actual hardware.
+
 ### 7.3 Manual (real device)
 
 - Phone on WiFi, gateway set to PC, CA installed.
