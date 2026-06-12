@@ -23,6 +23,12 @@ use crate::config::{
 use crate::db::DbState;
 use crate::rules::RulesEngine;
 
+/// Time window (in milliseconds) for DNS-to-connection correlation.
+/// A DNS query observed within this window of a captured request can be
+/// used to infer the request's app tag when SNI/Host does not match a
+/// rule directly. 5 minutes matches typical DNS TTLs for app CDNs.
+pub const CORRELATION_WINDOW_MS: u64 = 300_000;
+
 /// DNS upstream protocol type.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -225,8 +231,7 @@ impl DnsState {
     /// Find the most recent DNS query matching the given host within a time window.
     /// Returns app_name and app_icon if found within the window.
     pub fn correlate_app(&self, host: &str, request_timestamp_ms: u64) -> Option<(String, String)> {
-        // 5 second correlation window
-        let window_ms = 5000u64;
+        let window_ms = CORRELATION_WINDOW_MS;
 
         let entries = self.entries.lock().unwrap();
 
@@ -1367,5 +1372,46 @@ mod tests {
     fn test_correlate_app_returns_none_when_no_entries_match() {
         let state = DnsState::new();
         assert_eq!(state.correlate_app("unknown.com", 0), None);
+    }
+
+    #[test]
+    fn test_correlate_app_window_is_at_least_five_minutes() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Push a synthetic DNS entry: 4 minutes ago, classified as WeChat
+        let entry = DnsEntry {
+            domain: "weixin.qq.com".to_string(),
+            timestamp_ms: now_ms - 4 * 60 * 1000,
+            app_name: Some("WeChat".to_string()),
+            app_icon: Some("\u{1F4AC}".to_string()),
+            action: None,
+            resolved_ips: vec!["1.2.3.4".to_string()],
+        };
+        state.entries.lock().unwrap().push_back(entry);
+
+        // 4 minutes after the entry, the host should still correlate.
+        assert_eq!(
+            state.correlate_app("api.weixin.qq.com", now_ms),
+            Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_correlate_app_out_of_window_at_six_minutes() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Push a synthetic DNS entry: 6 minutes ago, classified as WeChat
+        let entry = DnsEntry {
+            domain: "weixin.qq.com".to_string(),
+            timestamp_ms: now_ms - 6 * 60 * 1000,
+            app_name: Some("WeChat".to_string()),
+            app_icon: Some("\u{1F4AC}".to_string()),
+            action: None,
+            resolved_ips: vec!["1.2.3.4".to_string()],
+        };
+        state.entries.lock().unwrap().push_back(entry);
+
+        // 6 minutes after the entry, the host should NOT correlate (window is 5 min).
+        assert_eq!(state.correlate_app("api.weixin.qq.com", now_ms), None);
     }
 }
