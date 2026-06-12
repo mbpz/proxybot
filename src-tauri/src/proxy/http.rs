@@ -233,13 +233,25 @@ pub(super) async fn handle_http(
             ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
 
             // Classify by direct domain match first, then fall back to DNS correlation
-            let app_info = app_rules::classify_host(host).or_else(|| {
+            // (host-string, then IP).
+            let resolved_ip: Option<String> = target_stream
+                .peer_addr()
+                .ok()
+                .map(|a| a.ip().to_string());
+            let app_info = {
                 let request_ts_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
                     .unwrap_or(0);
-                ctx.dns_state.correlate_app(host, request_ts_ms)
-            });
+                app_rules::classify_host(host).or_else(|| {
+                    ctx.dns_state.classify_connection(
+                        host,
+                        &client_addr.ip().to_string(),
+                        resolved_ip.as_deref(),
+                        request_ts_ms,
+                    )
+                })
+            };
             let (app_name, app_icon) = app_info
                 .map(|(n, i)| (Some(n), Some(i)))
                 .unwrap_or((None, None));
@@ -338,13 +350,24 @@ pub(super) async fn handle_http(
             let (_status, _resp_headers, _resp_body) =
                 parse_http_response(&response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
 
-            let app_info = app_rules::classify_host(host).or_else(|| {
+            // Classify by direct domain match first, then fall back to DNS correlation
+            // (host-string, then IP). MapRemote does not use a direct upstream
+            // TCP connection, so no resolved IP is available.
+            let resolved_ip: Option<String> = None;
+            let app_info = {
                 let request_ts_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
                     .unwrap_or(0);
-                ctx.dns_state.correlate_app(host, request_ts_ms)
-            });
+                app_rules::classify_host(host).or_else(|| {
+                    ctx.dns_state.classify_connection(
+                        host,
+                        &client_addr.ip().to_string(),
+                        resolved_ip.as_deref(),
+                        request_ts_ms,
+                    )
+                })
+            };
 
             let req = build_intercepted_request(
                 method,

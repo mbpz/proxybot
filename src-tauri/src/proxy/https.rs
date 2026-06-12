@@ -159,6 +159,11 @@ pub(super) async fn handle_https_connect(
         }
     };
 
+    // Capture the upstream's resolved IP before the TCP stream is moved
+    // into the TLS connector, so the DNS-correlation helper can use it
+    // for IP-literal classification.
+    let resolved_ip: Option<String> = upstream_tcp.peer_addr().ok().map(|a| a.ip().to_string());
+
     // Use SNI to tell the upstream server which host we're connecting to
     // Box::leak to get 'static lifetime for rustls ServerName requirement
     let target_host_static: &'static str = Box::leak(target_host.clone().into_boxed_str());
@@ -317,13 +322,21 @@ pub(super) async fn handle_https_connect(
     ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
 
     // Classify by direct domain match first, then fall back to DNS correlation
-    let app_info = app_rules::classify_host(&target_host).or_else(|| {
+    // (host-string, then IP).
+    let app_info = {
         let request_ts_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        ctx.dns_state.correlate_app(&target_host, request_ts_ms)
-    });
+        app_rules::classify_host(&target_host).or_else(|| {
+            ctx.dns_state.classify_connection(
+                &target_host,
+                &client_addr.ip().to_string(),
+                resolved_ip.as_deref(),
+                request_ts_ms,
+            )
+        })
+    };
     let (app_name, app_icon) = app_info
         .map(|(n, i)| (Some(n), Some(i)))
         .unwrap_or((None, None));
