@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { safeInvoke, safeInvokeOr } from "../../utils/safeInvoke";
 import { UpdateSettings } from "./UpdateSettings";
+import { DeviceQrPanel } from "./DeviceQrPanel";
 import { Smartphone, Monitor } from "lucide-react";
 
 interface ClientInfo {
@@ -43,6 +44,8 @@ export function ClientSetup() {
 
   return (
     <div className="p-6 max-w-2xl">
+      <DeviceQrPanel />
+
       <h1 className="text-2xl font-bold mb-2 flex items-center gap-2">
         <Monitor size={24} className="text-accent-blue" />
         Client Setup
