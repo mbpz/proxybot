@@ -55,14 +55,12 @@ pub fn build_ios_profile(
       <key>PayloadVersion</key><integer>1</integer>
       <key>DNSSettings</key>
       <dict>
-        <key>DNSProtocol</key><string>HTTPS</string>
+        <key>DNSProtocol</key><string>UDP</string>
         <key>ProhibitDOH</key><true/>
         <key>ServerName</key><string>{proxy_ip}</string>
         <key>ServerPort</key><integer>{dns_port}</integer>
         <key>SupplementalMatchDomains</key>
-        <array>
-          <string></string>
-        </array>
+        <array/>
       </dict>
     </dict>
     <dict>
@@ -119,6 +117,7 @@ mod tests {
         assert!(xml.contains("<key>DNSSettings</key>"));
         assert!(xml.contains("<key>ServerName</key><string>192.168.1.5</string>"));
         assert!(xml.contains("<key>ServerPort</key><integer>5300</integer>"));
+        assert!(xml.contains("<key>DNSProtocol</key><string>UDP</string>"));
     }
 
     #[test]
