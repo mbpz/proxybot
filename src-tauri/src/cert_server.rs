@@ -8,6 +8,7 @@
 use crate::cert::{mobileconfig, wizard};
 use crate::config;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 static SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -41,15 +42,30 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
         }
     };
 
-    // Bind succeeded; mark the server as running only now.
+    // Read the CA PEM once at bind time. The cert doesn't change while
+    // the server is running, so caching it avoids a disk read on every
+    // request to /ios.mobileconfig, /android-setup, or the catch-all
+    // CA download route.
+    let ca_pem = match std::fs::read_to_string(&cert_path) {
+        Ok(s) => Arc::new(s),
+        Err(e) => {
+            log::error!("Failed to read CA cert: {}", e);
+            // Bind succeeded but we can't serve cert-dependent routes.
+            // Leave SERVER_RUNNING=false so generate_device_qr fails
+            // gracefully instead of pointing phones at a broken server.
+            return server_url;
+        }
+    };
+
+    // Bind succeeded AND CA is readable; mark the server as running.
     SERVER_RUNNING.store(true, Ordering::SeqCst);
     log::info!("Cert server listening on {}", server_url);
-
-    let cert_path_clone = cert_path;
 
     std::thread::spawn(move || {
         let proxy_port = config::proxy_port();
         let dns_port = config::dns_port();
+        let ca_pem_arc = ca_pem.clone();
+        let ca_pem = ca_pem_arc.as_str();
 
         for request in server.incoming_requests() {
             // Extract path, stripping any query string
@@ -58,118 +74,70 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
 
             match path {
                 "/ios.mobileconfig" => {
-                    match std::fs::read_to_string(&cert_path_clone) {
-                        Ok(ca_pem) => {
-                            let body = mobileconfig::build_ios_profile(
-                                &ca_pem,
-                                &local_ip,
-                                proxy_port,
-                                dns_port,
-                            );
-                            let response = tiny_http::Response::from_string(body)
-                                .with_header(
-                                    tiny_http::Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/x-apple-aspen-config; charset=utf-8"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    tiny_http::Header::from_bytes(
-                                        &b"Content-Disposition"[..],
-                                        &b"attachment; filename=\"proxybot-ios.mobileconfig\""[..],
-                                    )
-                                    .unwrap(),
-                                );
-                            if let Err(e) = request.respond(response) {
-                                log::error!("Cert server respond error: {}", e);
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Cert server failed to read CA for mobileconfig: {}", e);
-                            let response = tiny_http::Response::from_string(
-                                "<h1>500</h1><p>CA certificate not found.</p>",
+                    let body = mobileconfig::build_ios_profile(
+                        ca_pem,
+                        &local_ip,
+                        proxy_port,
+                        dns_port,
+                    );
+                    let response = tiny_http::Response::from_string(body)
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/x-apple-aspen-config; charset=utf-8"[..],
                             )
-                            .with_status_code(500)
-                            .with_header(
-                                tiny_http::Header::from_bytes(
-                                    &b"Content-Type"[..],
-                                    &b"text/html; charset=utf-8"[..],
-                                )
-                                .unwrap(),
-                            );
-                            let _ = request.respond(response);
-                        }
+                            .unwrap(),
+                        )
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Disposition"[..],
+                                &b"attachment; filename=\"proxybot-ios.mobileconfig\""[..],
+                            )
+                            .unwrap(),
+                        );
+                    if let Err(e) = request.respond(response) {
+                        log::error!("Cert server respond error: {}", e);
                     }
                 }
                 "/android-setup" => {
-                    match std::fs::read_to_string(&cert_path_clone) {
-                        Ok(ca_pem) => {
-                            let body = wizard::build_android_wizard(
-                                &ca_pem,
-                                &local_ip,
-                                proxy_port,
-                                dns_port,
-                            );
-                            let response = tiny_http::Response::from_string(body)
-                                .with_header(
-                                    tiny_http::Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"text/html; charset=utf-8"[..],
-                                    )
-                                    .unwrap(),
-                                );
-                            if let Err(e) = request.respond(response) {
-                                log::error!("Cert server respond error: {}", e);
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Cert server failed to read CA for android wizard: {}", e);
-                            let response = tiny_http::Response::from_string(
-                                "<h1>500</h1><p>CA certificate not found.</p>",
+                    let body = wizard::build_android_wizard(
+                        ca_pem,
+                        &local_ip,
+                        proxy_port,
+                        dns_port,
+                    );
+                    let response = tiny_http::Response::from_string(body)
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"text/html; charset=utf-8"[..],
                             )
-                            .with_status_code(500)
-                            .with_header(
-                                tiny_http::Header::from_bytes(
-                                    &b"Content-Type"[..],
-                                    &b"text/html; charset=utf-8"[..],
-                                )
-                                .unwrap(),
-                            );
-                            let _ = request.respond(response);
-                        }
+                            .unwrap(),
+                        );
+                    if let Err(e) = request.respond(response) {
+                        log::error!("Cert server respond error: {}", e);
                     }
                 }
                 _ => {
                     // Default: serve the CA certificate (unchanged behavior)
-                    match std::fs::read(&cert_path_clone) {
-                        Ok(data) => {
-                            let response = tiny_http::Response::from_data(data)
-                                .with_header(
-                                    tiny_http::Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/x-x509-ca-cert"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    tiny_http::Header::from_bytes(
-                                        &b"Content-Disposition"[..],
-                                        &b"attachment; filename=\"ProxyBot_CA.crt\""[..],
-                                    )
-                                    .unwrap(),
-                                );
-                            if let Err(e) = request.respond(response) {
-                                log::error!("Cert server respond error: {}", e);
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Cert server failed to read cert: {}", e);
-                            let response =
-                                tiny_http::Response::from_string("Certificate not found")
-                                    .with_status_code(404);
-                            let _ = request.respond(response);
-                        }
+                    // Bytes are served from the cached PEM string.
+                    let response = tiny_http::Response::from_data(ca_pem.as_bytes().to_vec())
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Type"[..],
+                                &b"application/x-x509-ca-cert"[..],
+                            )
+                            .unwrap(),
+                        )
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                &b"Content-Disposition"[..],
+                                &b"attachment; filename=\"ProxyBot_CA.crt\""[..],
+                            )
+                            .unwrap(),
+                        );
+                    if let Err(e) = request.respond(response) {
+                        log::error!("Cert server respond error: {}", e);
                     }
                 }
             }
