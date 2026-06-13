@@ -15,6 +15,7 @@ import { AlertsPage } from "./components/alerts/AlertsPage";
 import { AiPage } from "./components/ai/AiPage";
 import { GenPage } from "./components/gen/GenPage";
 import { DeployPage } from "./components/deploy/DeployPage";
+import { SslBypassPage } from "./components/ssl-bypass/SslBypassPage";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import "./index.css";
 
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
           <Route path="gen" element={<GenPage />} />
           <Route path="deploy" element={<DeployPage />} />
           <Route path="ai" element={<AiPage />} />
+          <Route path="ssl-bypass" element={<SslBypassPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

@@ -17,6 +17,7 @@ import {
   Brain,
   Package,
   Settings,
+  Lock,
 } from "lucide-react";
 
 interface NavItem {
@@ -39,6 +40,7 @@ const navItems: NavItem[] = [
   { path: "/gen", label: "Gen", icon: <Wand2 size={20} /> },
   { path: "/deploy", label: "Deploy", icon: <Package size={20} /> },
   { path: "/ai", label: "AI", icon: <Brain size={20} /> },
+  { path: "/ssl-bypass", label: "SSL Bypass", icon: <Lock size={20} /> },
 ];
 
 export function Sidebar() {
