@@ -5,6 +5,7 @@ import { ProcessList } from "./ProcessList";
 import { ScriptList } from "./ScriptList";
 import { FridaStatus } from "./FridaStatus";
 import { ApkPatcher } from "./ApkPatcher";
+import { MessageLog } from "./MessageLog";
 import { Lock } from "lucide-react";
 
 export function SslBypassPage() {
@@ -38,6 +39,7 @@ function SslBypassPageInner() {
       <ProcessList />
       <ScriptList />
       <ApkPatcher />
+      <MessageLog />
     </div>
   );
 }
