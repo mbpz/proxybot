@@ -350,6 +350,7 @@ pub fn run() {
             commands::ssl_bypass::list_bypass_scripts,
             commands::ssl_bypass::check_java_installed,
             commands::ssl_bypass::check_adb_installed,
+            commands::ssl_bypass::patch_apk,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
