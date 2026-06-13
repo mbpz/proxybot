@@ -65,6 +65,13 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
                                         &b"application/x-apple-aspen-config; charset=utf-8"[..],
                                     )
                                     .unwrap(),
+                                )
+                                .with_header(
+                                    tiny_http::Header::from_bytes(
+                                        &b"Content-Disposition"[..],
+                                        &b"attachment; filename=\"proxybot-ios.mobileconfig\""[..],
+                                    )
+                                    .unwrap(),
                                 );
                             if let Err(e) = request.respond(response) {
                                 log::error!("Cert server respond error: {}", e);
