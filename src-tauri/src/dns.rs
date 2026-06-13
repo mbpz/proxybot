@@ -229,32 +229,39 @@ impl DnsState {
         None
     }
 
-    /// Find the most recent DNS query matching the given host within a time window.
-    /// Returns app_name and app_icon if found within the window.
-    pub fn correlate_app(&self, host: &str, request_timestamp_ms: u64) -> Option<(String, String)> {
-        let window_ms = CORRELATION_WINDOW_MS;
-
-        let entries = self.entries.lock().unwrap();
-
-        // Find DNS queries within the window that match the host
+    /// Scan entries once, returning the most recent entry that satisfies
+    /// `predicate` within the time window.
+    pub fn find_latest_matching<F>(
+        &self,
+        request_timestamp_ms: u64,
+        mut predicate: F,
+    ) -> Option<(String, String)>
+    where
+        F: FnMut(&DnsEntry) -> bool,
+    {
+        let entries = self.entries.lock().ok()?;
         for entry in entries.iter().rev() {
             if request_timestamp_ms < entry.timestamp_ms {
                 continue;
             }
-            if request_timestamp_ms - entry.timestamp_ms > window_ms {
+            if request_timestamp_ms - entry.timestamp_ms > CORRELATION_WINDOW_MS {
                 break;
             }
-
-            // Check if host matches the DNS query domain
-            let domain = &entry.domain;
-            if host == domain || host.ends_with(&format!(".{}", domain)) {
+            if predicate(entry) {
                 if let (Some(name), Some(icon)) = (&entry.app_name, &entry.app_icon) {
                     return Some((name.clone(), icon.clone()));
                 }
             }
         }
-
         None
+    }
+
+    /// Find the most recent DNS query matching the given host within a time window.
+    /// Returns app_name and app_icon if found within the window.
+    pub fn correlate_app(&self, host: &str, request_timestamp_ms: u64) -> Option<(String, String)> {
+        self.find_latest_matching(request_timestamp_ms, |e| {
+            host == e.domain || host.ends_with(&format!(".{}", e.domain))
+        })
     }
 
     /// Correlate a connection whose target is a literal IP (e.g. CDN
@@ -268,30 +275,10 @@ impl DnsState {
         resolved_ip: &str,
         request_timestamp_ms: u64,
     ) -> Option<(String, String)> {
-        let entries = self.entries.lock().unwrap();
-        for entry in entries.iter().rev() {
-            // Skip entries in the future (clock skew).
-            if request_timestamp_ms < entry.timestamp_ms {
-                continue;
-            }
-            // Entries are sorted by insertion; once we pass the window,
-            // older ones cannot match.
-            if request_timestamp_ms - entry.timestamp_ms > CORRELATION_WINDOW_MS {
-                break;
-            }
-            // Must be the same client.
-            if entry.client_ip.as_deref() != Some(client_ip) {
-                continue;
-            }
-            // Must include the resolved IP we're correlating against.
-            if !entry.resolved_ips.iter().any(|ip| ip == resolved_ip) {
-                continue;
-            }
-            if let (Some(name), Some(icon)) = (&entry.app_name, &entry.app_icon) {
-                return Some((name.clone(), icon.clone()));
-            }
-        }
-        None
+        self.find_latest_matching(request_timestamp_ms, |e| {
+            e.client_ip.as_deref() == Some(client_ip)
+                && e.resolved_ips.iter().any(|ip| ip == resolved_ip)
+        })
     }
 
     /// Two-step DNS-side classification for a captured connection.
@@ -1524,6 +1511,84 @@ mod tests {
 
         // 6 minutes after the entry, the host should NOT correlate (window is 5 min).
         assert_eq!(state.correlate_app("api.weixin.qq.com", now_ms), None);
+    }
+
+    // ------------------------------------------------------------------
+    // find_latest_matching tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_find_latest_matching_returns_most_recent() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Older entry that matches
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 2 * 60 * 1000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Newer entry that also matches
+        push_entry(
+            &state,
+            "alipay.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("Alipay"),
+            Some("\u{1F4AC}"),
+        );
+        // Predicate matches both — must return the most recent (Alipay).
+        let result = state.find_latest_matching(now_ms, |_| true);
+        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+    }
+
+    #[test]
+    fn test_find_latest_matching_respects_window() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Entry past the correlation window (6 minutes ago)
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms - 6 * 60 * 1000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        assert_eq!(state.find_latest_matching(now_ms, |_| true), None);
+    }
+
+    #[test]
+    fn test_find_latest_matching_skips_future_entries() {
+        let state = DnsState::new();
+        let now_ms: u64 = 1_000_000_000_000;
+        // Future entry (clock skew) — should be skipped
+        push_entry(
+            &state,
+            "weixin.qq.com",
+            now_ms + 60_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("WeChat"),
+            Some("\u{1F4AC}"),
+        );
+        // Past entry that matches
+        push_entry(
+            &state,
+            "alipay.com",
+            now_ms - 30_000,
+            Some("192.168.1.5"),
+            vec!["1.2.3.4"],
+            Some("Alipay"),
+            Some("\u{1F4AC}"),
+        );
+        let result = state.find_latest_matching(now_ms, |_| true);
+        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
     }
 
     // ------------------------------------------------------------------
