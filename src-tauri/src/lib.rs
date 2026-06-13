@@ -24,6 +24,7 @@ pub mod deploy;
 pub mod dns;
 pub mod error;
 pub mod filter;
+pub mod frida;
 pub mod graphql;
 pub mod har;
 pub mod history;
