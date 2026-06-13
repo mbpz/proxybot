@@ -20,10 +20,89 @@ pub mod session;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use frida::{DeviceManager, DeviceType as FridaDeviceType, Frida, ScriptOption};
+use frida::{
+    DeviceManager, DeviceType as FridaDeviceType, Frida, Message, MessageLogLevel, ScriptHandler,
+    ScriptOption,
+};
+use tauri::Emitter;
 
 use crate::frida::device::{DeviceInfo, DeviceType, ProcessInfo};
 use crate::frida::session::SessionHandle;
+
+/// A Frida script message streamed to the UI via the `frida:message`
+/// Tauri event.
+///
+/// Generated from frida 0.14 `Message` variants inside
+/// `FridaManager::attach_and_inject`. The frontend renders these in
+/// the live log panel.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FridaMessage {
+    /// The log level or category name. For `Message::Log` this is
+    /// "info" / "debug" / "warning" / "error". For `Message::Error`
+    /// it is always "error". For other variants it is "info".
+    pub level: String,
+    /// The text payload. For `Message::Error` this includes the
+    /// description and stack trace, joined by a newline.
+    pub payload: String,
+    /// Milliseconds since the Unix epoch when the message was
+    /// received from Frida.
+    pub timestamp_ms: u64,
+}
+
+/// Bridge between frida's `Message` signal and Tauri's event bus.
+///
+/// Implements `ScriptHandler` so it can be passed to
+/// `Script::handle_message`. Clones the `AppHandle` so each
+/// injection gets its own listener. The handler is `'static` and
+/// `Send` because frida 0.14's signal callbacks can run on a
+/// non-Tokio thread.
+struct FridaScriptMessageHandler {
+    app_handle: tauri::AppHandle,
+}
+
+impl ScriptHandler for FridaScriptMessageHandler {
+    fn on_message(&mut self, message: &Message) {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let msg = match message {
+            Message::Log(log) => FridaMessage {
+                level: log_level_to_string(&log.level).to_string(),
+                payload: log.payload.clone(),
+                timestamp_ms: now_ms,
+            },
+            Message::Error(err) => FridaMessage {
+                level: "error".to_string(),
+                payload: format!("{}\n{}", err.description, err.stack),
+                timestamp_ms: now_ms,
+            },
+            Message::Send(_) => {
+                // Send messages are RPC traffic; the spec only asks us
+                // to surface log/error to the UI. Skip to avoid
+                // noise from list_exports / call traffic.
+                return;
+            }
+            Message::Other(value) => FridaMessage {
+                level: "info".to_string(),
+                payload: value.to_string(),
+                timestamp_ms: now_ms,
+            },
+        };
+
+        let _ = self.app_handle.emit("frida:message", &msg);
+    }
+}
+
+fn log_level_to_string(level: &MessageLogLevel) -> &'static str {
+    match level {
+        MessageLogLevel::Info => "info",
+        MessageLogLevel::Debug => "debug",
+        MessageLogLevel::Warning => "warning",
+        MessageLogLevel::Error => "error",
+    }
+}
 
 /// Frida runtime manager.
 ///
@@ -102,11 +181,16 @@ impl FridaManager {
     ///
     /// Returns a [`SessionHandle`] with a freshly-generated UUID that
     /// the caller can use to refer to the session for later detach.
+    ///
+    /// `app_handle` is used to install a message handler that emits
+    /// each Frida `console.log` / runtime error to the UI as a
+    /// `frida:message` Tauri event (spec §9.4).
     pub fn attach_and_inject(
         &self,
         device_id: &str,
         pid: u32,
         script_content: &str,
+        app_handle: &tauri::AppHandle,
     ) -> Result<SessionHandle, String> {
         let mut script_option = ScriptOption::new();
         let mgr = self.device_manager();
@@ -116,9 +200,20 @@ impl FridaManager {
         let session = device
             .attach(pid)
             .map_err(|e| format!("failed to attach to pid {}: {}", pid, e))?;
-        let script = session
+        let mut script = session
             .create_script(script_content, &mut script_option)
             .map_err(|e| format!("failed to create script: {}", e))?;
+
+        // Wire up the message handler BEFORE loading the script so
+        // we do not miss the first log line emitted during startup.
+        // frida 0.14 uses `handle_message` with a `ScriptHandler`
+        // trait impl (not a closure-style `on_message`).
+        script
+            .handle_message(FridaScriptMessageHandler {
+                app_handle: app_handle.clone(),
+            })
+            .map_err(|e| format!("failed to attach message handler: {}", e))?;
+
         script
             .load()
             .map_err(|e| format!("failed to load script: {}", e))?;

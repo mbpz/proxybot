@@ -32,12 +32,15 @@ pub fn frida_inject_script(
     device_id: String,
     pid: u32,
     script_id: String,
+    app_handle: tauri::AppHandle,
     state: State<'_, FridaState>,
 ) -> Result<SessionHandle, String> {
     let script = bypass_scripts::get_script(&script_id)
         .or_else(|| custom_scripts::load_custom_scripts().into_iter().find(|s| s.id == script_id))
         .ok_or_else(|| format!("Script '{}' not found", script_id))?;
-    state.0.attach_and_inject(&device_id, pid, &script.script_content)
+    state
+        .0
+        .attach_and_inject(&device_id, pid, &script.script_content, &app_handle)
 }
 
 #[tauri::command]
