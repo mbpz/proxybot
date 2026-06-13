@@ -5,6 +5,7 @@
 //! reference them as `crate::proxy::<name>`.
 
 // Sub-modules
+mod classify;
 mod commands;
 mod forward;
 mod handler;
