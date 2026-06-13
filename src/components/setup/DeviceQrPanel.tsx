@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import DOMPurify from "dompurify";
 
 type Platform = "ios" | "android";
 
@@ -13,6 +14,8 @@ export function DeviceQrPanel() {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
+
+  const sanitizedSvg = useMemo(() => (svg ? DOMPurify.sanitize(svg) : ""), [svg]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +74,7 @@ export function DeviceQrPanel() {
       {svg && !error && (
         <div
           className="flex justify-center"
-          dangerouslySetInnerHTML={{ __html: svg }}
+          dangerouslySetInnerHTML={{ __html: sanitizedSvg }}
           data-testid="device-qr-svg"
         />
       )}
