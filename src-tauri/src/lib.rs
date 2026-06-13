@@ -43,6 +43,7 @@ pub mod replay;
 pub mod rules;
 pub mod scaffoldgen;
 pub mod scripting;
+pub mod ssl_bypass;
 pub mod state_machine;
 pub mod topology;
 pub mod transport;
