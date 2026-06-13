@@ -8,14 +8,13 @@
 ///
 /// The page guides the user through 4 steps: configure WiFi proxy,
 /// set DNS, install the ProxyBot CA, and verify. All CSS is inline.
-/// No external resources are loaded.
+/// No external resources are loaded. The CA is downloaded as a separate
+/// `/ca.crt` resource rather than embedded in the page.
 pub fn build_android_wizard(
-    ca_pem: &str,
     proxy_ip: &str,
     proxy_port: u16,
     dns_port: u16,
 ) -> String {
-    let _ = ca_pem; // Currently unused; kept in signature for future use (e.g. embedded install link)
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -92,20 +91,20 @@ mod tests {
 
     #[test]
     fn test_build_android_wizard_contains_proxy_ip_and_port() {
-        let html = build_android_wizard("CA_PEM", "192.168.1.5", 8088, 5300);
+        let html = build_android_wizard("192.168.1.5", 8088, 5300);
         assert!(html.contains("192.168.1.5"));
         assert!(html.contains("8088"));
     }
 
     #[test]
     fn test_build_android_wizard_contains_ca_download_link() {
-        let html = build_android_wizard("CA_PEM", "192.168.1.5", 8088, 5300);
+        let html = build_android_wizard("192.168.1.5", 8088, 5300);
         assert!(html.contains(r#"<a class="btn" href="/ca.crt" download>Download ProxyBot CA</a>"#));
     }
 
     #[test]
     fn test_build_android_wizard_contains_dns_step() {
-        let html = build_android_wizard("CA_PEM", "192.168.1.5", 8088, 5300);
+        let html = build_android_wizard("192.168.1.5", 8088, 5300);
         assert!(html.contains("DNS 1:"));
         assert!(html.contains("1.1.1.1"));
         assert!(html.contains("fallback"));
@@ -113,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_build_android_wizard_self_contained() {
-        let html = build_android_wizard("CA_PEM", "192.168.1.5", 8088, 5300);
+        let html = build_android_wizard("192.168.1.5", 8088, 5300);
         assert!(!html.contains(r#"href="http"#), "should not load external resources");
         assert!(!html.contains(r#"src="http"#), "should not load external images");
         assert!(!html.contains(r#"<link rel="stylesheet""#), "should not have external stylesheet");
@@ -121,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_build_android_wizard_contains_android7_warning() {
-        let html = build_android_wizard("CA_PEM", "192.168.1.5", 8088, 5300);
+        let html = build_android_wizard("192.168.1.5", 8088, 5300);
         assert!(html.contains("Android 7+"));
         assert!(html.contains("network_security_config.xml"));
     }

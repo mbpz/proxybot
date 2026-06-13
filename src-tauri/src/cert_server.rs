@@ -100,12 +100,8 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
                     }
                 }
                 "/android-setup" => {
-                    let body = wizard::build_android_wizard(
-                        ca_pem,
-                        &local_ip,
-                        proxy_port,
-                        dns_port,
-                    );
+                    let body =
+                        wizard::build_android_wizard(&local_ip, proxy_port, dns_port);
                     let response = tiny_http::Response::from_string(body)
                         .with_header(
                             tiny_http::Header::from_bytes(
