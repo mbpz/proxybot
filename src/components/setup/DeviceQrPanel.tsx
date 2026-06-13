@@ -21,6 +21,7 @@ export function DeviceQrPanel() {
     let cancelled = false;
     setLoading(true);
     setError("");
+    setSvg(""); // clear stale SVG when platform changes
     invoke<string>("generate_device_qr", { platform })
       .then((result) => {
         if (!cancelled) {
