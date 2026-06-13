@@ -285,10 +285,27 @@ mod tests {
     }
 
     #[test]
-    fn test_new_validates_apktool_exists() {
-        // Will fail because apktool.jar is not bundled yet
+    fn test_new_succeeds_with_resources_present() {
+        // apktool.jar and libfrida-gadget.so are bundled in src-tauri/resources/
+        // (dev mode path via CARGO_MANIFEST_DIR). ApkPatcher::new() should
+        // locate both resources and return Ok.
         let result = ApkPatcher::new();
-        assert!(result.is_err());
+        assert!(
+            result.is_ok(),
+            "ApkPatcher::new() should succeed when bundled resources are present, got: {:?}",
+            result.as_ref().err()
+        );
+
+        let patcher = result.unwrap();
+        assert!(
+            !patcher.temp_dir.as_os_str().is_empty(),
+            "temp_dir should be a valid PathBuf"
+        );
+        assert!(
+            patcher.temp_dir.exists(),
+            "temp_dir should exist on disk: {}",
+            patcher.temp_dir.display()
+        );
     }
 
     #[test]
