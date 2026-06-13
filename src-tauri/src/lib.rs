@@ -101,6 +101,12 @@ pub fn run() {
     let tun_state = Arc::new(TunState::new());
     let replay_state = Arc::new(ReplayState::default());
     let dashboard_server = Arc::new(dashboard::DashboardServer::new(9980));
+    let frida_manager = Arc::new(
+        frida::FridaManager::new()
+            .map_err(|e| format!("Failed to initialize Frida: {}", e))
+            .expect("Failed to initialize Frida runtime"),
+    );
+    let frida_state = commands::ssl_bypass::FridaState(frida_manager);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -115,6 +121,7 @@ pub fn run() {
         .manage(rules_engine.clone())
         .manage(replay_state.clone())
         .manage(dashboard_server.clone())
+        .manage(frida_state)
         .setup(move |app| {
             // Start file watcher in a dedicated thread with its own Tokio runtime
             // (notify's internal thread outlives the app's runtime)
@@ -336,6 +343,13 @@ pub fn run() {
             stop_dashboard,
             is_dashboard_running,
             get_dashboard_url,
+            commands::ssl_bypass::frida_list_devices,
+            commands::ssl_bypass::frida_list_processes,
+            commands::ssl_bypass::frida_inject_script,
+            commands::ssl_bypass::frida_detach,
+            commands::ssl_bypass::list_bypass_scripts,
+            commands::ssl_bypass::check_java_installed,
+            commands::ssl_bypass::check_adb_installed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

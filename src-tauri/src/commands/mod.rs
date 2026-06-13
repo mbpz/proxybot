@@ -7,4 +7,5 @@ pub mod device_setup;
 pub mod filter;
 pub mod graph;
 pub mod replay;
+pub mod ssl_bypass;
 pub mod ws_frames;
