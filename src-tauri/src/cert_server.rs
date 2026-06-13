@@ -9,7 +9,6 @@ use crate::cert::{mobileconfig, wizard};
 use crate::config;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const CERT_SERVER_PORT: u16 = 19876;
 static SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 /// Returns true if the CertServer is currently listening.
@@ -21,25 +20,34 @@ pub fn is_running() -> bool {
 /// Returns the LAN IP and port so mobile devices can download via browser.
 #[tauri::command]
 pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
-    if SERVER_RUNNING.swap(true, Ordering::SeqCst) {
-        return format!("http://{}:{}", local_ip, CERT_SERVER_PORT);
+    let port = config::cert_server_port();
+    let server_url = format!("http://{}:{}", local_ip, port);
+
+    if SERVER_RUNNING.load(Ordering::SeqCst) {
+        return server_url;
     }
 
-    let server_url = format!("http://{}:{}", local_ip, CERT_SERVER_PORT);
+    // Bind synchronously on the calling thread BEFORE marking the server
+    // as running. This avoids a race where a concurrent caller observes
+    // is_running()==true and builds a QR for a port that isn't bound yet
+    // (or has just failed to bind).
+    let server = match tiny_http::Server::http(format!("{}:{}", local_ip, port)) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("Failed to start cert server: {}", e);
+            // Do NOT set SERVER_RUNNING — is_running() must reflect the
+            // bind state so callers can surface the failure.
+            return server_url;
+        }
+    };
+
+    // Bind succeeded; mark the server as running only now.
+    SERVER_RUNNING.store(true, Ordering::SeqCst);
+    log::info!("Cert server listening on {}", server_url);
+
     let cert_path_clone = cert_path;
-    let server_url_clone = server_url.clone();
 
     std::thread::spawn(move || {
-        let server = match tiny_http::Server::http(format!("{}:{}", local_ip, CERT_SERVER_PORT)) {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("Failed to start cert server: {}", e);
-                SERVER_RUNNING.store(false, Ordering::SeqCst);
-                return;
-            }
-        };
-        log::info!("Cert server listening on {}", server_url_clone);
-
         let proxy_port = config::proxy_port();
         let dns_port = config::dns_port();
 
