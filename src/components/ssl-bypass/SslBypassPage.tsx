@@ -4,7 +4,6 @@ import { DeviceSelector } from "./DeviceSelector";
 import { ProcessList } from "./ProcessList";
 import { ScriptList } from "./ScriptList";
 import { FridaStatus } from "./FridaStatus";
-import { ApkPatcher } from "./ApkPatcher";
 import { Lock } from "lucide-react";
 
 export function SslBypassPage() {
@@ -37,7 +36,6 @@ function SslBypassPageInner() {
       <DeviceSelector />
       <ProcessList />
       <ScriptList />
-      <ApkPatcher />
     </div>
   );
 }
