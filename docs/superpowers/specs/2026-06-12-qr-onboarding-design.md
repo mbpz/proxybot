@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Author:** Claude
-**Status:** Approved (pending spec self-review)
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -307,4 +307,42 @@ Android 系统扫码 (或扫码 App)
 - 现有客户端指引：`src-tauri/src/commands/client_setup.rs` (文本指引, 本次不直接复用, 改用 QR)
 - 竞品参考：https://github.com/danieldev23/trafexia (IosBridgeDialog.vue, AndroidBridgeDialog.vue)
 - Apple 官方 mobileconfig 文档：https://developer.apple.com/documentation/devicemanagement
+
+---
+
+## 10. Implementation Notes (self-review, 2026-06-14)
+
+Spec self-review pass completed. Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| `cert::mobileconfig::build_ios_profile` (3 payloads: WiFi/DNS/CA) | ✅ done | `src-tauri/src/cert/mobileconfig.rs:19` |
+| `cert::wizard::build_android_wizard` (4-step HTML) | ✅ done | `src-tauri/src/cert/wizard.rs:13` |
+| 4 unique UUIDs per profile (root + 3 payloads) | ✅ done + tested | `mobileconfig.rs:25-28` + test `test_build_ios_profile_uuids_are_unique` |
+| DNS payload uses `DNSProtocol=UDP` + `ProhibitDOH=true` | ✅ done | `mobileconfig.rs:58-59` |
+| `SupplementalMatchDomains=[]` (match all domains) | ✅ done | `mobileconfig.rs:62-63` |
+| Android HTML wizard self-contained (no external CSS/JS) | ✅ done + tested | `wizard.rs:25-40` + test `test_build_android_wizard_self_contained` |
+| Android 7+ CA-trust warning included | ✅ done + tested | `wizard.rs:66-72` + test `test_build_android_wizard_contains_android7_warning` |
+| `commands::device_setup::generate_device_qr` Tauri command | ✅ done | `src-tauri/src/commands/device_setup.rs:16` |
+| URL routing: `/ios.mobileconfig` → mobileconfig handler | ✅ done | `src-tauri/src/cert_server.rs:76-101` |
+| URL routing: `/android-setup` → wizard handler | ✅ done | `src-tauri/src/cert_server.rs:102-116` |
+| URL routing: catch-all → existing `/ca.crt` (unchanged behavior) | ✅ done | `src-tauri/src/cert_server.rs:117-138` |
+| Content-Type headers (`application/x-apple-aspen-config` / `text/html`) | ✅ done | `cert_server.rs:87, 109` |
+| `DeviceQrPanel.tsx` UI with iOS/Android tabs | ✅ done | `src/components/setup/DeviceQrPanel.tsx` |
+| DOMPurify SVG sanitization (XSS hardening) | ✅ done | `DeviceQrPanel.tsx:18` |
+| iOS post-install CA-trust hint | ✅ done | `DeviceQrPanel.tsx:83-95` |
+| CertServer bind-race fix (sync bind before `is_running=true`) | ✅ done | `cert_server.rs:35-61` |
+| CertServer caches CA PEM in `Arc<String>` (avoid per-request disk read) | ✅ done | `cert_server.rs:49-58` |
+
+**Surface area actually touched:** 3 backend files (`cert/mobileconfig.rs` new, `cert/wizard.rs` new, `commands/device_setup.rs` new), 1 modified (`cert_server.rs` extended with 2 routes + bind-race fix), 1 frontend file (`setup/DeviceQrPanel.tsx` new). No new dependencies (`uuid`, `base64`, `qrcode` were already in `Cargo.toml` from prior QR work).
+
+**Test coverage:** 17 unit tests total — 7 mobileconfig (`uuid uniqueness`, `payload count`, `XML balance`, `CA base64`, etc.), 5 wizard (`self-contained`, `Android 7+ warning`, `CA download link`, etc.), 5 device_setup (`URL building` × 4 platforms + `SVG generation` × 2 platforms). All passing.
+
+**Manual verification still owed (per §8.3):**
+- iOS device scan → install profile → WiFi/DNS/CA wired (requires physical iOS device, not in CI).
+- Android device scan → 4-step HTML wizard renders + CA downloads (requires physical Android device).
+
+Both were deferred to the user as the plan acknowledges.
+
+**Validation:** `cargo test --lib cert::` → 12 passed. `cargo test --lib device_setup` → 5 passed.
 - Android 用户 CA 限制：https://developer.android.com/training/articles/security-config
