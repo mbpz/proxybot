@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HeadersView } from "./HeadersView";
 import { BodyView } from "./BodyView";
-import { WsFramesView } from "./WsFramesView";
+import { WsFramesView } from "../ws-frames/WsFramesView";
 import { CodeExport } from "../shared/CodeExport";
 import { MethodBadge, Badge } from "../ui/Badge";
 import { Tabs } from "../ui/Tabs";
@@ -17,6 +17,7 @@ interface InterceptedRequest {
   headers: Record<string, string>;
   body?: string;
   app_tag?: string;
+  is_websocket?: boolean;
 }
 
 interface RequestDetailProps {
@@ -27,11 +28,12 @@ type TabType = "headers" | "body" | "ws";
 
 export function RequestDetail({ request }: RequestDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>("headers");
+  const isWebSocket = request.is_websocket ?? false;
 
   const tabs = [
     { id: "headers", label: "Headers" },
     { id: "body", label: "Body" },
-    { id: "ws", label: "WS Frames" },
+    ...(isWebSocket ? [{ id: "ws", label: "WebSocket Frames" }] : []),
   ];
 
   const statusClass = getStatusTailwindClass(request.status);
@@ -82,7 +84,7 @@ export function RequestDetail({ request }: RequestDetailProps) {
       <div className="flex-1 overflow-auto">
         {activeTab === "headers" && <HeadersView headers={request.headers} />}
         {activeTab === "body" && <BodyView body={request.body} />}
-        {activeTab === "ws" && <WsFramesView requestId={request.id} />}
+        {activeTab === "ws" && isWebSocket && <WsFramesView requestId={request.id} />}
       </div>
     </div>
   );
