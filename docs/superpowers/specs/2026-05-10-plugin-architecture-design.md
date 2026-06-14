@@ -1,6 +1,14 @@
 # ProxyBot v0.11.0 集成插件架构设计
 
-## Status: Draft
+## Status: **Superseded by `2026-05-10-plugin-system-v2-design.md`**
+
+This spec proposed `ProxyPlugin` trait, `HooksRegistry` (with `HookOrder` priorities Earliest → Normal → Late → Last), a unified `PluginManager`, and a `WasmRuntime` powered by `wasmtime`. The implementation that shipped in v1.0 took a different direction — see the v2 spec for the actually-shipped architecture (declarative `PluginRule` routing + `RuleEngine` + hot reload + async hooks, no WASM runtime).
+
+The v2 spec was authored the same day and supersedes this one. This file is preserved for historical context only.
+
+---
+
+## 1. Context & Goals
 
 ## 1. Context & Goals
 
