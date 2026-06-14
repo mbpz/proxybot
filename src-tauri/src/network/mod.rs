@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 pub mod engine;
 pub mod profile;
-pub use engine::{ConditionEffect, NetworkConditionEngine};
+pub use engine::{ConditionEffect, ConditionRule, NetworkConditionEngine, NewConditionRule};
 pub use profile::NetworkProfile;
 
 /// Built-in presets

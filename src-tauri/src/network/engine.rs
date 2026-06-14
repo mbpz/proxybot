@@ -1,6 +1,9 @@
 use crate::network::builtin_presets;
 use crate::network::profile::NetworkProfile;
+use crate::rules::RulePattern;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 
 pub struct ConditionEffect {
@@ -8,9 +11,35 @@ pub struct ConditionEffect {
     pub drop: bool,
 }
 
+/// Per-host condition rule — matches a host pattern and applies a named profile.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConditionRule {
+    pub id: u64,
+    pub pattern: RulePattern,
+    pub value: String,
+    pub profile: String,
+    pub enabled: bool,
+}
+
+/// New condition-rule input from the API. `id` is assigned by the engine.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewConditionRule {
+    pub pattern: RulePattern,
+    pub value: String,
+    pub profile: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
 pub struct NetworkConditionEngine {
     profiles: RwLock<HashMap<String, NetworkProfile>>,
     active_profile: RwLock<Option<NetworkProfile>>,
+    rules: RwLock<Vec<ConditionRule>>,
+    next_rule_id: AtomicU64,
 }
 
 impl NetworkConditionEngine {
@@ -22,6 +51,8 @@ impl NetworkConditionEngine {
         Self {
             profiles: RwLock::new(profiles),
             active_profile: RwLock::new(None),
+            rules: RwLock::new(Vec::new()),
+            next_rule_id: AtomicU64::new(1),
         }
     }
 
@@ -51,6 +82,44 @@ impl NetworkConditionEngine {
             .write()
             .unwrap()
             .insert(profile.name.clone(), profile);
+    }
+
+    /// Add a new condition rule. Returns the assigned id.
+    pub fn add_rule(&self, new_rule: NewConditionRule) -> u64 {
+        let id = self.next_rule_id.fetch_add(1, Ordering::SeqCst);
+        let rule = ConditionRule {
+            id,
+            pattern: new_rule.pattern,
+            value: new_rule.value,
+            profile: new_rule.profile,
+            enabled: new_rule.enabled,
+        };
+        self.rules.write().unwrap().push(rule);
+        id
+    }
+
+    /// Remove a rule by id. Returns true if the rule existed.
+    pub fn remove_rule(&self, id: u64) -> bool {
+        let mut rules = self.rules.write().unwrap();
+        let before = rules.len();
+        rules.retain(|r| r.id != id);
+        rules.len() != before
+    }
+
+    /// Snapshot of all condition rules (enabled and disabled).
+    pub fn list_rules(&self) -> Vec<ConditionRule> {
+        self.rules.read().unwrap().clone()
+    }
+
+    /// Find the first enabled rule matching the given host, return its profile name.
+    pub fn match_profile_for_host(&self, host: &str) -> Option<String> {
+        let rules = self.rules.read().unwrap();
+        for rule in rules.iter().filter(|r| r.enabled) {
+            if host_matches(host, &rule.pattern, &rule.value) {
+                return Some(rule.profile.clone());
+            }
+        }
+        None
     }
 
     /// Compute condition effect for a read of N bytes
@@ -92,6 +161,29 @@ impl NetworkConditionEngine {
 impl Default for NetworkConditionEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Check whether a host matches a rule pattern/value. Mirrors the
+/// classification rules in `crate::rules`.
+fn host_matches(host: &str, pattern: &RulePattern, value: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    let value = value.to_ascii_lowercase();
+    match pattern {
+        RulePattern::Domain => host == value,
+        RulePattern::DomainSuffix => host == value || host.ends_with(&format!(".{}", value)),
+        RulePattern::DomainKeyword => host.contains(&value),
+        RulePattern::IpCidr => {
+            use std::str::FromStr;
+            if let Ok(net) = ipnetwork::IpNetwork::from_str(&value) {
+                if let Ok(ip) = std::net::IpAddr::from_str(&host) {
+                    return net.contains(ip);
+                }
+            }
+            false
+        }
+        // Geoip/RuleSet not implemented for conditions — treat as no-match.
+        RulePattern::Geoip | RulePattern::RuleSet => false,
     }
 }
 
@@ -161,5 +253,94 @@ mod tests {
         let effect = engine.apply(1024);
         // 1024 bytes * 8 bits / 8000 bps = 1.024s ≈ 1024ms
         assert!(effect.delay_ms >= 900);
+    }
+
+    #[test]
+    fn test_add_rule_increments_id() {
+        let engine = NetworkConditionEngine::new();
+        let id1 = engine.add_rule(NewConditionRule {
+            pattern: RulePattern::DomainSuffix,
+            value: "example.com".into(),
+            profile: "3G".into(),
+            enabled: true,
+        });
+        let id2 = engine.add_rule(NewConditionRule {
+            pattern: RulePattern::DomainSuffix,
+            value: "test.com".into(),
+            profile: "4G".into(),
+            enabled: true,
+        });
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+    }
+
+    #[test]
+    fn test_list_rules_returns_added() {
+        let engine = NetworkConditionEngine::new();
+        let id = engine.add_rule(NewConditionRule {
+            pattern: RulePattern::DomainKeyword,
+            value: "cdn".into(),
+            profile: "2G".into(),
+            enabled: true,
+        });
+        let rules = engine.list_rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, id);
+        assert_eq!(rules[0].profile, "2G");
+    }
+
+    #[test]
+    fn test_remove_rule_deletes_by_id() {
+        let engine = NetworkConditionEngine::new();
+        let id = engine.add_rule(NewConditionRule {
+            pattern: RulePattern::Domain,
+            value: "exact.example".into(),
+            profile: "Edge".into(),
+            enabled: true,
+        });
+        assert!(engine.remove_rule(id));
+        assert_eq!(engine.list_rules().len(), 0);
+        // Removing a non-existent id returns false
+        assert!(!engine.remove_rule(9999));
+    }
+
+    #[test]
+    fn test_match_profile_for_host() {
+        let engine = NetworkConditionEngine::new();
+        engine.add_rule(NewConditionRule {
+            pattern: RulePattern::DomainSuffix,
+            value: "example.com".into(),
+            profile: "3G".into(),
+            enabled: true,
+        });
+        engine.add_rule(NewConditionRule {
+            pattern: RulePattern::DomainKeyword,
+            value: "video".into(),
+            profile: "Edge".into(),
+            enabled: false, // disabled — should be ignored
+        });
+
+        assert_eq!(
+            engine.match_profile_for_host("api.example.com"),
+            Some("3G".to_string())
+        );
+        assert_eq!(engine.match_profile_for_host("unknown.test"), None);
+        // disabled rule is skipped even though it would match
+        assert_eq!(engine.match_profile_for_host("video.cdn.com"), None);
+    }
+
+    #[test]
+    fn test_rule_pattern_serialization() {
+        let r = NewConditionRule {
+            pattern: RulePattern::DomainKeyword,
+            value: "x".into(),
+            profile: "WiFi".into(),
+            enabled: true,
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        // DomainKeyword has rename = "DOMAIN-KEYWORD"
+        assert!(json.contains("DOMAIN-KEYWORD"));
+        let back: NewConditionRule = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.profile, "WiFi");
     }
 }
