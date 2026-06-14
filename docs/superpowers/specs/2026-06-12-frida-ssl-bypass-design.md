@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Author:** Claude
-**Status:** Approved (pending spec self-review)
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -301,4 +301,37 @@ Frida 脚本通过 `on_message` 回调发送日志到 ProxyBot。ProxyBot 通过
 - Trafexia SSL Bypass: https://github.com/danieldev23/trafexia (electron/ssl-bypass/)
 - Frida 官方文档: https://frida.re/docs/
 - apktool: https://ibotpeaches.github.io/Apktool/
+
+---
+
+## 11. Implementation Notes (self-review, 2026-06-14)
+
+Spec self-review pass completed. Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| Frida integration via `frida-rust` v0.17 | ✅ done | `src-tauri/src/frida/{device.rs, mod.rs, session.rs}` (4.5K combined) |
+| `DeviceInfo` / `ProcessInfo` structs | ✅ done | `frida/device.rs` |
+| `SessionHandle` struct | ✅ done | `frida/session.rs` |
+| FridaManager + FridaState via `.manage(...)` | ✅ done | `src-tauri/src/lib.rs:113, 118, 136` |
+| 6 built-in bypass scripts (OkHttp3 / Conscrypt / WebView / Flutter / React Native / Universal) | ✅ done | `src-tauri/src/ssl_bypass/bypass_scripts.rs` (7.2K, 25 script references) |
+| APK patching (apktool + jarsigner + frida-gadget.so) | ✅ done | `src-tauri/src/ssl_bypass/apk_patcher.rs` (24.7K, 15 tests) |
+| User custom scripts (`~/.proxybot/bypass-scripts/*.js`) | ✅ done | `src-tauri/src/ssl_bypass/custom_scripts.rs` (3.9K, 4 tests) |
+| Sidebar "SSL Bypass" entry + `/ssl-bypass` route | ✅ done | `src/components/layout/Sidebar.tsx:43`, `src/main.tsx:18, 40` |
+| UI components (Device / Process / Script / Log / Patcher / Status / Page) | ✅ done | `src/components/ssl-bypass/*.tsx` (7 components) |
+| 8 Tauri commands wired | ✅ done | `src-tauri/src/lib.rs:359-366` |
+| Frida messages stream via `frida:message` event | ✅ done | `src/components/ssl-bypass/MessageLog.tsx` (live log) |
+| E2E test for SSL Bypass page | ✅ done | `e2e/ssl-bypass.spec.ts` |
+| Frida devkit bundled for x86 + x86_64 (multi-arch) | ✅ done | `src-tauri/tauri.conf.json` resources block |
+| Total unit tests across `frida::`, `ssl_bypass::`, `commands::ssl_bypass` | 29 cases | all passing |
+
+**Surface area actually touched by this self-review pass:** No code changes. The feature shipped in v1.3.x via the existing commits (`b3379d0` `feat(frida): add device and process types with FridaManager stub`, `ef5ec59` `feat(frida): integrate frida-rust for device/session management`, `8973c83` `feat(frida): add SessionHandle tests`, `e457b90` `feat(frida): stream script messages via Tauri event`, `8d02b72` `build: bundle frida-gadget for x86 and x86_64`, `663ced8` `feat(ssl_bypass): support multi-arch frida-gadget injection`, `c14942d` `build: declare Frida SSL Bypass resources in tauri.conf.json`).
+
+**Validation:** `cargo test --lib` → 678 passed (2 suites). `npx playwright test e2e/ssl-bypass.spec.ts` → passes.
+
+**Manual verification still owed (per spec §3.1):**
+- Live Frida attach against a real Android device or emulator — exercises `frida-rust` end-to-end. The CI tests cover the bypass-script JS code and the APK patcher pipeline, but not the live injection runtime.
+- APK patching on a real APK file end-to-end (decompile → inject → recompile → sign → install → verify).
+
+**No deviations from spec.** Every goal in §2 has a corresponding implementation, and the non-goals in §2 (iOS, auto-deploy, marketplace, Xposed/Magisk, full root-evasion) were honoured.
 - Android SSL Pinning Bypass: https://httptoolkit.com/blog/android-ssl-pinning-bypass/
