@@ -3,7 +3,7 @@
 //! broadcast channels and the global PROXY_RUNNING flag.
 
 use super::handler::handle_client;
-use super::{BreakpointRequest, InterceptedRequest, PROXY_RUNNING};
+use super::{BreakpointRequest, InterceptedRequest, WsFrameEvent, PROXY_RUNNING};
 use crate::cert::CertManager;
 use crate::config::proxy_port;
 use crate::db::DbState;
@@ -24,6 +24,7 @@ use tokio::sync::broadcast;
 pub(super) async fn run_proxy(
     event_tx: broadcast::Sender<InterceptedRequest>,
     breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
+    ws_frame_tx: broadcast::Sender<(String, super::WsFrame)>,
     cert_manager: Arc<CertManager>,
     dns_state: Arc<DnsState>,
     db_state: Arc<DbState>,
@@ -54,6 +55,7 @@ pub(super) async fn run_proxy(
                         let ctx = ProxyContext {
                             event_tx: event_tx.clone(),
                             breakpoint_tx: breakpoint_tx.clone(),
+                            ws_frame_tx: ws_frame_tx.clone(),
                             cert_manager: cert_manager.clone(),
                             dns_state: dns_state.clone(),
                             db_state: db_state.clone(),
@@ -141,6 +143,11 @@ pub fn start_proxy(
     // Create broadcast channel for events
     let (event_tx, mut event_rx) = broadcast::channel::<InterceptedRequest>(100);
 
+    // Create broadcast channel for live WS frame events. Subscribed
+    // once below and forwarded as `ws-frame:new` Tauri events.
+    let (ws_frame_tx, mut ws_frame_rx) =
+        broadcast::channel::<(String, super::WsFrame)>(256);
+
     // Create empty plugin registry (stub - plugins not yet registered)
     let plugins = Arc::new(PluginRegistry::new());
 
@@ -165,6 +172,21 @@ pub fn start_proxy(
     tauri::async_runtime::spawn(async move {
         while let Ok(req) = event_rx.recv().await {
             let _ = app_handle_clone.emit("intercepted-request", &req);
+        }
+    });
+
+    // Spawn task to forward live WS frames to the frontend
+    // as `ws-frame:new` events. Payload shape: { request_id, frame }
+    let ws_app_handle = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Ok((request_id, frame)) = ws_frame_rx.recv().await {
+            let _ = ws_app_handle.emit(
+                "ws-frame:new",
+                WsFrameEvent {
+                    request_id,
+                    frame,
+                },
+            );
         }
     });
 
@@ -193,6 +215,7 @@ pub fn start_proxy(
         if let Err(e) = run_proxy(
             event_tx,
             bp_tx,
+            ws_frame_tx,
             cm,
             ds,
             db,
@@ -242,6 +265,8 @@ pub fn start_proxy_core(
     }
 
     let (event_tx, event_rx) = broadcast::channel::<InterceptedRequest>(100);
+    let (ws_frame_tx, _ws_frame_rx) =
+        broadcast::channel::<(String, super::WsFrame)>(256);
     let (bp_tx, bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
@@ -261,6 +286,7 @@ pub fn start_proxy_core(
             if let Err(e) = run_proxy(
                 event_tx,
                 bp_tx,
+                ws_frame_tx,
                 cm,
                 ds,
                 db,

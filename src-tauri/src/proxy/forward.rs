@@ -155,12 +155,14 @@ pub(super) async fn pipe_tcp_bidirectional(
 
 /// Run bidirectional WebSocket frame forwarding between client and upstream,
 /// capturing frames and recording them to the database.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn pipe_ws_bidirectional(
     mut client_stream: TcpStream,
     mut upstream_stream: TcpStream,
     request_id: String,
     db_state: &Arc<crate::db::DbState>,
     network: &NetworkConditionEngine,
+    ws_frame_tx: &tokio::sync::broadcast::Sender<(String, crate::proxy::WsFrame)>,
 ) -> Result<(), String> {
     use crate::db::{record_ws_frame, timestamp_now_for_ws};
     use super::protocol::{decode_ws_payload, parse_ws_frame_header};
@@ -194,6 +196,16 @@ pub(super) async fn pipe_ws_bidirectional(
                     if let Ok(conn) = db_state.conn.lock() {
                         let _ = record_ws_frame(&conn, &request_id, "outgoing", header.opcode, &text, None, header.payload_len, &ts);
                     }
+                    let truncated = header.payload_len > crate::ws_frames::MAX_PAYLOAD_SIZE;
+                    let frame = crate::proxy::WsFrame {
+                        direction: "outgoing".to_string(),
+                        timestamp: ts.clone(),
+                        payload: text,
+                        size: header.payload_len,
+                        opcode: header.opcode,
+                        truncated,
+                    };
+                    let _ = ws_frame_tx.send((request_id.clone(), frame));
                     client_remainder.drain(..total);
                 }
             }
@@ -213,6 +225,16 @@ pub(super) async fn pipe_ws_bidirectional(
                     if let Ok(conn) = db_state.conn.lock() {
                         let _ = record_ws_frame(&conn, &request_id, "incoming", header.opcode, &text, None, header.payload_len, &ts);
                     }
+                    let truncated = header.payload_len > crate::ws_frames::MAX_PAYLOAD_SIZE;
+                    let frame = crate::proxy::WsFrame {
+                        direction: "incoming".to_string(),
+                        timestamp: ts.clone(),
+                        payload: text,
+                        size: header.payload_len,
+                        opcode: header.opcode,
+                        truncated,
+                    };
+                    let _ = ws_frame_tx.send((request_id.clone(), frame));
                     upstream_remainder.drain(..total);
                 }
             }

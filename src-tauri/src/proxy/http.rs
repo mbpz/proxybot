@@ -196,6 +196,7 @@ pub(super) async fn handle_http(
                         req_id,
                         &ctx.db_state,
                         &ctx.network,
+                        &ctx.ws_frame_tx,
                     )
                     .await;
                 }

@@ -93,6 +93,13 @@ pub struct WsFrame {
     pub truncated: bool,
 }
 
+/// Wrapper emitted on the `ws-frame:new` Tauri event channel.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WsFrameEvent {
+    pub request_id: String,
+    pub frame: WsFrame,
+}
+
 /// Map a WebSocket frame opcode to a human-readable name.
 pub fn get_opcode_name(opcode: u8) -> &'static str {
     match opcode {
@@ -112,6 +119,7 @@ pub fn get_opcode_name(opcode: u8) -> &'static str {
 pub(super) struct ProxyContext {
     pub(super) event_tx: broadcast::Sender<InterceptedRequest>,
     pub(super) breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
+    pub(super) ws_frame_tx: broadcast::Sender<(String, WsFrame)>,
     #[allow(dead_code)]
     pub(super) cert_manager: Arc<CertManager>,
     pub(super) dns_state: Arc<DnsState>,
