@@ -2,6 +2,7 @@
 
 **Date:** 2026-06-07
 **Author:** Claude
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -407,3 +408,44 @@ These are explicitly out of scope to keep the first iteration focused and shippa
 ## 8. Approval
 
 This design is ready for implementation. Proceed to writing the implementation plan.
+
+---
+
+## 9. Implementation Notes (self-review, 2026-06-14)
+
+Spec self-review pass completed. The feature is fully implemented and shipped in v1.3.x; this pass only flips the status and documents the audit.
+
+Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| Backend module `topology/` (mod + types + builder + tests) | ✅ done | `src-tauri/src/topology/{mod.rs, types.rs, builder.rs, tests.rs}` |
+| `TopologyGraph` / `Node` / `Edge` / `Filter` types | ✅ done | `topology/types.rs` |
+| SQLite aggregation (traffic + devices + DNS log → `{nodes, edges}`) | ✅ done | `topology/builder.rs` (15.8K) |
+| 500-node cap + payload size guarantees (< 50KB worst case) | ✅ done (per spec §2.2 #1) | `topology/builder.rs` cap logic |
+| Tauri command `build_topology_graph(filter)` | ✅ done | `src-tauri/src/lib.rs:404-409` |
+| Tauri command `get_topology_node_detail(node_id, filter)` | ✅ done | `src-tauri/src/lib.rs:413-419` |
+| Unit tests for the backend aggregator | ✅ done (11 cases) | `topology/tests.rs` |
+| Route component `TopologyPage` | ✅ done | `src/components/topology/TopologyPage.tsx` (1.9K) |
+| `TopologyCanvas` with 3-view tab switcher | ✅ done | `src/components/topology/TopologyCanvas.tsx` (2.9K) |
+| `RadialView` / `LayeredView` / `GroupedView` | ✅ done (all three views) | `src/components/topology/views/{Radial,Layered,Grouped}View.tsx` |
+| `TopologyFilter` (Device + AppTag + HostSearch + SyncGlobal + Refresh) | ✅ done | `src/components/topology/TopologyFilter.tsx` (3.4K) |
+| `TopologyDetail` (right-side drill-down drawer) | ✅ done | `src/components/topology/TopologyDetail.tsx` (3.9K) |
+| `useTopologyGraph` hook (invoke + state management) | ✅ done | `src/components/topology/hooks/useTopologyGraph.ts` (1.5K) |
+| Cyberpunk theme compliance (`#00d4ff`, `#a855f7`, dark surfaces) | ✅ done | `nodeColor.ts` + CSS in components |
+| Manual refresh (not real-time animation) | ✅ done (per spec core principle #4) | `useTopologyGraph.ts` refresh handler |
+| Independent filtering with optional global sync | ✅ done | `TopologyFilter.tsx` `SyncGlobalToggle` |
+| Sidebar entry "Topology" + `/topology` route | ✅ done | `src/components/layout/Sidebar.tsx:38`, `src/main.tsx:13, 36` |
+| Vitest unit tests (4 components) | ✅ done | `src/components/topology/__tests__/{TopologyDetail, TopologyFilter, nodeColor, useTopologyGraph}.test.{ts,tsx}` |
+| E2E test for the Topology page | ✅ done | `e2e/topology.spec.ts` |
+| `vis-network` integration (Radial = hierarchical; Layered = LR; Grouped = physics + cluster) | ✅ done | per-view vis-network config |
+
+**Surface area actually touched by this self-review pass:** No code changes. The feature shipped in v1.3.x via existing commits (`157068b` family + topology builder/types wiring). The remaining work was a status flip and this implementation-notes section.
+
+**Validation:** `cargo test --lib` → 678 passed (2 suites). `npx vitest run` → 94 passed. `npx playwright test e2e/topology.spec.ts` → passes.
+
+**No deviations from spec.** Every goal in §1 (environment overview) is met by the three views, every architectural decision in §2.2 is honoured (backend-aggregates-frontend-renders, single Proxy node + App decorative middle node, full rebuild on refresh), and the explicitly-out-of-scope items in §7 (time-slider, PNG/SVG export, custom grouping rules) were honoured.
+
+**Manual verification still owed (per spec §3):**
+- The three views are exercised by the e2e test but visual correctness (layout, colour, drawer animation) requires a desktop-app smoke test.
+- 500-node cap behaviour under high-traffic conditions — unit tests cover the aggregation logic but not the UI rendering at scale.
