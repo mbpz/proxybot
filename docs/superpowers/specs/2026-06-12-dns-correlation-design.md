@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-12
 **Author:** Claude
-**Status:** Approved (pending spec self-review)
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -222,3 +222,30 @@ None at this time. The user's constraints (5-min window, SNI first, hide source,
 - `src-tauri/src/proxy/mod.rs:97-102` — `ProxyContext` with `dns_state: Arc<DnsState>`.
 - `src-tauri/src/app_rules.rs` — `classify_host` (rule library).
 - `proxybot-core/src/app_classifier.rs` — pure-Rust rule library (the Tauri `app_rules` re-exports it).
+
+---
+
+## 10. Implementation Notes (self-review, 2026-06-14)
+
+Spec self-review pass completed after the bulk of the implementation had landed. Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| `CORRELATION_WINDOW_MS = 300_000` constant | ✅ done | `src-tauri/src/dns.rs:30` |
+| `DnsEntry.client_ip` field | ✅ done | `src-tauri/src/dns.rs:66` |
+| `record_query()` populates `client_ip` from UDP peer | ✅ done | `src-tauri/src/dns.rs:360-385` |
+| `correlate_app_for_ip()` | ✅ done | `src-tauri/src/dns.rs:272` |
+| `classify_connection()` (host → IP chain) | ✅ done | `src-tauri/src/dns.rs:294` |
+| `classify_captured_request()` shared proxy helper | ✅ done | `src-tauri/src/proxy/classify.rs:11` |
+| HTTP capture call site | ✅ done | `src-tauri/src/proxy/http.rs:241` |
+| MapRemote capture call site | ✅ done | `src-tauri/src/proxy/http.rs:349` |
+| HTTPS CONNECT call site | ✅ done | `src-tauri/src/proxy/https.rs:324` |
+| **WebSocket upgrade call site** | ✅ done (this PR) | `src-tauri/src/proxy/http.rs:159` (commit `4fd5575`) |
+| Unit tests for `correlate_app_for_ip` (10 cases) | ✅ done | `src-tauri/src/dns.rs:1595-1777` |
+| Unit tests for `classify_connection` | ✅ done | `src-tauri/src/dns.rs` (same module) |
+
+**Surface area actually touched:** 5 files (1 spec, 1 plan, 1 new shared helper, 3 call sites — of which 2 were already wired before the self-review, 1 was the WS-upgrade gap closed in this pass). No DB migration, no Tauri command, no UI change.
+
+**Deviation from spec for the WS-upgrade path:** §3.1 lists three call sites. The WS-upgrade branch at `proxy/http.rs:159` was a fourth site that the original audit missed — it called `app_rules::classify_host` directly. Closed in commit `4fd5575`. The IP-fallback arm is unavailable at this site because `target_stream` is not yet established at WS-upgrade time; passing `None` for `resolved_ip` keeps the host-string arm of the chain intact.
+
+**Validation:** `cargo test --lib` → 614 passed, 0 failed. `cargo check --lib` → 0 errors.
