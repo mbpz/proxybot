@@ -77,12 +77,12 @@ export function FilterInput({
           {error}
         </span>
       )}
-      {presets.length > 0 && (
+      {(presets?.length ?? 0) > 0 && (
         <select
           value=""
           onChange={(e) => {
             const id = e.target.value;
-            const p = presets.find((x) => x.id === id);
+            const p = (presets ?? []).find((x) => x.id === id);
             if (p && onSelectPreset) onSelectPreset(p);
             e.currentTarget.value = "";
           }}

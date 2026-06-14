@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
+import { FilterInput } from "../filter/FilterInput";
+import { FilterPreset } from "../filter/types";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 import { Button } from "../ui/Button";
@@ -35,6 +37,8 @@ export function TrafficPage() {
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({});
+  const [dslExpr, setDslExpr] = useState("");
+  const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [harExporting, setHarExporting] = useState(false);
   const [harName, setHarName] = useState("");
@@ -44,6 +48,19 @@ export function TrafficPage() {
   const [normPage, setNormPage] = useState(1);
   const [normTotal, setNormTotal] = useState(0);
   const [normLoading, setNormLoading] = useState(false);
+
+  async function loadPresets() {
+    try {
+      const list = await invoke<FilterPreset[] | null>("list_filter_presets");
+      setPresets(list ?? []);
+    } catch (e) {
+      console.error("Failed to load presets:", e);
+    }
+  }
+
+  useEffect(() => {
+    loadPresets();
+  }, []);
 
   useEffect(() => {
     // Start with empty list - requests will come via events
@@ -85,6 +102,62 @@ export function TrafficPage() {
 
     return result;
   }, [requests, filters]);
+
+  // Apply DSL filter on top of the simple FilterBar result. When the
+  // DSL is empty, dslFilteredRequests == filteredRequests so behaviour
+  // is unchanged.
+  const [dslFilteredRequests, setDslFilteredRequests] =
+    useState<InterceptedRequest[]>(filteredRequests);
+
+  useEffect(() => {
+    if (!dslExpr.trim()) {
+      setDslFilteredRequests(filteredRequests);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const out: InterceptedRequest[] = [];
+      for (const r of filteredRequests) {
+        try {
+          const matches = await invoke<boolean>("evaluate_filter", {
+            expr: dslExpr,
+            request: {
+              id: r.id,
+              timestamp: String(r.timestamp ?? ""),
+              method: r.method,
+              host: r.host,
+              path: r.path,
+              query_params: undefined,
+              status: r.status,
+              latency_ms: r.duration_ms,
+              scheme: "https",
+              req_headers: Object.entries(r.headers ?? {}),
+              req_body: r.body,
+              resp_headers: [],
+              resp_body: undefined,
+              resp_size: r.size,
+              app_name: r.app_tag,
+              app_icon: undefined,
+              device_id: undefined,
+              device_name: undefined,
+              client_ip: undefined,
+              is_websocket: false,
+              ws_frames: undefined,
+              grpc_decoded: undefined,
+              graphql_op: undefined,
+            },
+          });
+          if (matches) out.push(r);
+        } catch {
+          // Skip rows that fail to evaluate (e.g. parse error mid-typing).
+        }
+      }
+      if (!cancelled) setDslFilteredRequests(out);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredRequests, dslExpr]);
 
   const selectedRequest = useMemo(
     () => requests.find((r) => r.id === selectedId),
@@ -151,11 +224,18 @@ export function TrafficPage() {
 
   return (
     <div className="flex flex-col h-screen">
+      <FilterInput
+        value={dslExpr}
+        onChange={setDslExpr}
+        presets={presets}
+        onSelectPreset={(p) => setDslExpr(p.expr)}
+        onPresetsChange={loadPresets}
+      />
       <FilterBar filters={filters} onChange={setFilters} />
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface-primary">
-        <span className="text-xs text-text-muted">{filteredRequests.length} requests</span>
+        <span className="text-xs text-text-muted">{dslFilteredRequests.length} requests</span>
         <div className="flex-1" />
         <Button variant="secondary" size="sm" onClick={loadHistory}>
           <FolderOpen size={14} /> Load
@@ -199,7 +279,7 @@ export function TrafficPage() {
                 <SkeletonTable rows={10} />
               ) : (
                 <RequestTable
-                  requests={normalizedView ? normalizedData : filteredRequests}
+                  requests={normalizedView ? normalizedData : dslFilteredRequests}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
                 />
