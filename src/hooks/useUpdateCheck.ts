@@ -9,7 +9,7 @@ interface UpdateInfo {
   error: string | null;
 }
 
-const CURRENT_VERSION = "1.2.0";
+export const CURRENT_VERSION = "1.3.0";
 const REPO_OWNER = "mbpz";
 const REPO_NAME = "proxybot";
 
