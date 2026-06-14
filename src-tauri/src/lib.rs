@@ -308,7 +308,7 @@ pub fn run() {
             commands::graph::get_graph_data,
             build_topology_graph,
             get_topology_node_detail,
-            commands::ws_frames::get_ws_frames,
+            proxy::get_ws_frames,
             infer::infer_api_semantics,
             infer::store_inference_result,
             infer::get_inferred_apis,

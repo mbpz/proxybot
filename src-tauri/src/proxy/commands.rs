@@ -161,6 +161,15 @@ pub fn load_history() -> Result<Vec<InterceptedRequest>, String> {
 }
 
 #[tauri::command]
+pub fn get_ws_frames(
+    db_state: State<'_, Arc<DbState>>,
+    request_id: String,
+) -> Result<Vec<super::WsFrame>, String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    crate::db::get_ws_frames(&conn, &request_id)
+}
+
+#[tauri::command]
 pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
     let store = HistoryStore::new();
     store.save(&requests)

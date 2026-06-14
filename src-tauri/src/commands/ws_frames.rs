@@ -34,8 +34,12 @@ fn parse_timestamp(ts: &str) -> i64 {
         .unwrap_or(0)
 }
 
-#[tauri::command]
-pub fn get_ws_frames(
+/// Legacy helper kept for backward compatibility. The Tauri command
+/// for fetching WS frames now lives at `proxy::commands::get_ws_frames`
+/// and returns `Vec<crate::proxy::WsFrame>` (with `opcode` and
+/// `truncated` fields) — see plan/spec for the WS Frame Viewer.
+#[allow(dead_code)]
+pub fn fetch_ws_frames(
     db_state: State<'_, Arc<DbState>>,
     request_id: String,
 ) -> Result<Vec<WsFrame>, String> {
