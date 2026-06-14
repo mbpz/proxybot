@@ -9,6 +9,7 @@
 //! - [`types`] — Shared data types (InterceptedRequest, Rule, DnsEntry, etc.)
 //! - [`config`] — Centralized configuration with env-var overrides
 //! - [`app_classifier`] — Domain-based app identification (WeChat, Douyin, etc.)
+//! - [`fingerprint`] — TLS ClientHello fingerprint types and the built-in signature library
 //! - [`cert_manager`] — Root CA and per-host leaf certificate management
 //! - [`rules_engine`] — Domain matching and priority-based rule evaluation
 //! - [`proxy_engine`] — HTTP/HTTPS proxy engine (core logic)
@@ -31,13 +32,21 @@ pub mod app_classifier;
 pub mod cert_manager;
 pub mod config;
 pub mod dns_state;
+pub mod fingerprint;
 pub mod proxy_engine;
 pub mod rules_engine;
 pub mod types;
 
 // Re-export key types for convenience
-pub use app_classifier::{classify_host, classify_host_name, get_default_rules, load_app_rules};
+pub use app_classifier::{
+    classify, classify_host, classify_host_name, get_default_rules, load_app_rules, AppClassifier,
+    AppMatchResult,
+};
 pub use cert_manager::CertManager;
+pub use fingerprint::{
+    default_fingerprint_set, get_default_signatures, glob_match, AppMatch, AppSignature,
+    CustomAppRule, HelloInfo, MatchSource, RuleCondition, TlsFingerprint,
+};
 pub use config::{proxy_port, dns_port, AppConfig};
 pub use dns_state::DnsState;
 pub use proxy_engine::ProxyEngine;

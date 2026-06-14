@@ -8,7 +8,17 @@
 //! - E-commerce: Taobao, JD, Pinduoduo, Meituan, Alipay
 //! - Services: Baidu, Didi, NetEase, Tencent Video, iQiyi
 //! - AI providers: OpenAI, Anthropic, Azure, Google, Cohere, Groq, DeepSeek, Moonshot, Zhipu, MiniMax
+//! - Plus (v0.9.0): TikTok, Instagram, Snapchat, Telegram, Netflix, Spotify,
+//!   Amazon, Microsoft, Apple, Twitter/X, Meta, PayPal, Stripe, GitHub, etc.
+//!
+//! In addition to domain matching this module exposes a TLS-aware
+//! [`AppClassifier`] that combines SNI patterns, ClientHello fingerprints,
+//! and user-defined custom rules — see [`classify`].
 
+use crate::fingerprint::{
+    get_default_signatures, glob_match, AppMatch, AppSignature, CustomAppRule, HelloInfo,
+    MatchSource, TlsFingerprint,
+};
 use crate::types::AppRule;
 
 /// Load app rules — first from `app_rules.json` if present, otherwise defaults.
@@ -349,12 +359,322 @@ pub fn get_default_rules() -> Vec<AppRule> {
             icon: "M".to_string(),
             domains: vec!["api.minimax.chat".to_string(), "minimax.chat".to_string()],
         },
+        // ─── v0.9.0: Short Video & Social (international) ──────────────
+        AppRule {
+            name: "TikTok".to_string(),
+            icon: "🎵".to_string(),
+            domains: vec![
+                "tiktok.com".to_string(),
+                "tiktokv.com".to_string(),
+                "byteoversea.com".to_string(),
+                "musical.ly".to_string(),
+                "snssdk.com".to_string(),
+                "amemv.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Instagram".to_string(),
+            icon: "📷".to_string(),
+            domains: vec![
+                "instagram.com".to_string(),
+                "cdninstagram.com".to_string(),
+                "ig.me".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Snapchat".to_string(),
+            icon: "👻".to_string(),
+            domains: vec![
+                "snapchat.com".to_string(),
+                "snapkit.com".to_string(),
+                "snap.com".to_string(),
+                "bitmoji.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Telegram".to_string(),
+            icon: "✈️".to_string(),
+            domains: vec![
+                "telegram.org".to_string(),
+                "t.me".to_string(),
+                "telegra.ph".to_string(),
+                "telegram.me".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Twitter".to_string(),
+            icon: "🐦".to_string(),
+            domains: vec![
+                "twitter.com".to_string(),
+                "x.com".to_string(),
+                "twimg.com".to_string(),
+                "t.co".to_string(),
+                "abs.twimg.com".to_string(),
+                "pbs.twimg.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Facebook".to_string(),
+            icon: "📘".to_string(),
+            domains: vec![
+                "facebook.com".to_string(),
+                "fb.com".to_string(),
+                "fb.me".to_string(),
+                "fbcdn.net".to_string(),
+                "fbsbx.com".to_string(),
+                "messenger.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "WhatsApp".to_string(),
+            icon: "💚".to_string(),
+            domains: vec![
+                "whatsapp.com".to_string(),
+                "whatsapp.net".to_string(),
+                "wa.me".to_string(),
+            ],
+        },
+        // ─── v0.9.0: Streaming & Media ──────────────────────────────────
+        AppRule {
+            name: "Netflix".to_string(),
+            icon: "🎬".to_string(),
+            domains: vec![
+                "netflix.com".to_string(),
+                "nflxvideo.net".to_string(),
+                "nflxso.net".to_string(),
+                "nflximg.net".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Spotify".to_string(),
+            icon: "🎧".to_string(),
+            domains: vec![
+                "spotify.com".to_string(),
+                "spotifycdn.com".to_string(),
+                "scdn.co".to_string(),
+                "spoti.fi".to_string(),
+            ],
+        },
+        AppRule {
+            name: "YouTube".to_string(),
+            icon: "📺".to_string(),
+            domains: vec![
+                "youtube.com".to_string(),
+                "youtu.be".to_string(),
+                "ytimg.com".to_string(),
+                "googlevideo.com".to_string(),
+                "youtube-nocookie.com".to_string(),
+                "youtube-ui.l.google.com".to_string(),
+            ],
+        },
+        // ─── v0.9.0: E-commerce (international) ────────────────────────
+        AppRule {
+            name: "Amazon".to_string(),
+            icon: "🛒".to_string(),
+            domains: vec![
+                "amazon.com".to_string(),
+                "amazonaws.com".to_string(),
+                "amazon.co.uk".to_string(),
+                "amazon.de".to_string(),
+                "amazon.co.jp".to_string(),
+                "amazonaws.com.cn".to_string(),
+                "cloudfront.net".to_string(),
+                "media-amazon.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "eBay".to_string(),
+            icon: "🏷️".to_string(),
+            domains: vec!["ebay.com".to_string(), "ebayimg.com".to_string(), "ebaystatic.com".to_string()],
+        },
+        // ─── v0.9.0: Tech / Cloud / Dev ────────────────────────────────
+        AppRule {
+            name: "Apple".to_string(),
+            icon: "🍎".to_string(),
+            domains: vec![
+                "apple.com".to_string(),
+                "icloud.com".to_string(),
+                "mzstatic.com".to_string(),
+                "apple-cloudkit.com".to_string(),
+                "apple-mapkit.com".to_string(),
+                "itunes.com".to_string(),
+                "me.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Microsoft".to_string(),
+            icon: "🪟".to_string(),
+            domains: vec![
+                "microsoft.com".to_string(),
+                "live.com".to_string(),
+                "outlook.com".to_string(),
+                "office.com".to_string(),
+                "office365.com".to_string(),
+                "office.net".to_string(),
+                "msn.com".to_string(),
+                "bing.com".to_string(),
+                "azure.com".to_string(),
+                "azureedge.net".to_string(),
+                "windows.com".to_string(),
+                "windowsupdate.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Google".to_string(),
+            icon: "🔎".to_string(),
+            domains: vec![
+                "google.com".to_string(),
+                "googleapis.com".to_string(),
+                "gstatic.com".to_string(),
+                "googleusercontent.com".to_string(),
+                "gmail.com".to_string(),
+                "googledrive.com".to_string(),
+                "docs.google.com".to_string(),
+                "ggpht.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "GitHub".to_string(),
+            icon: "🐙".to_string(),
+            domains: vec![
+                "github.com".to_string(),
+                "github.io".to_string(),
+                "githubusercontent.com".to_string(),
+                "githubassets.com".to_string(),
+            ],
+        },
+        // ─── v0.9.0: Finance / Payments ────────────────────────────────
+        AppRule {
+            name: "PayPal".to_string(),
+            icon: "💵".to_string(),
+            domains: vec![
+                "paypal.com".to_string(),
+                "paypalobjects.com".to_string(),
+            ],
+        },
+        AppRule {
+            name: "Stripe".to_string(),
+            icon: "💸".to_string(),
+            domains: vec!["stripe.com".to_string(), "stripe.network".to_string()],
+        },
     ]
 }
+
+// ─── AppClassifier (TLS-aware) ─────────────────────────────────────────────
+
+/// Classifier that combines the legacy domain rules with the v0.9.0
+/// TLS-fingerprint + custom-rule pipeline.
+///
+/// Cheap to construct — designed to be cloned into per-connection state
+/// or held in a `OnceCell`/read-only shared.
+#[derive(Debug, Clone)]
+pub struct AppClassifier {
+    signatures: Vec<AppSignature>,
+    custom_rules: Vec<CustomAppRule>,
+    /// Pre-built HashSet of every default fingerprint for O(1) `contains`.
+    default_fp_set: std::collections::HashSet<TlsFingerprint>,
+}
+
+impl AppClassifier {
+    /// Build a classifier from the default signature library and an
+    /// optional list of user-defined custom rules.
+    pub fn new(custom_rules: Vec<CustomAppRule>) -> Self {
+        let signatures = get_default_signatures();
+        let default_fp_set = signatures
+            .iter()
+            .flat_map(|s| s.fingerprints.iter().cloned())
+            .collect();
+        Self {
+            signatures,
+            custom_rules,
+            default_fp_set,
+        }
+    }
+
+    pub fn signatures(&self) -> &[AppSignature] {
+        &self.signatures
+    }
+
+    pub fn custom_rules(&self) -> &[CustomAppRule] {
+        &self.custom_rules
+    }
+
+    /// Run the priority chain:
+    /// 1. Exact TLS fingerprint match → confidence 1.0, source `Fingerprint`
+    /// 2. SNI pattern match → confidence 0.9, source `Sni`
+    /// 3. User custom rule → confidence from rule, source `Custom`
+    ///
+    /// Fingerprint is checked first because it's the most specific
+    /// signal — an exact fingerprint match is less likely to be a
+    /// coincidence than a wild-carded SNI.
+    pub fn classify(&self, hello: &HelloInfo) -> Option<AppMatch> {
+        // 1. TLS fingerprint (exact) — highest confidence
+        let fp = hello.fingerprint();
+        if !fp.cipher_suites.is_empty() && self.default_fp_set.contains(&fp) {
+            for sig in &self.signatures {
+                if sig.fingerprints.contains(&fp) {
+                    return Some(AppMatch {
+                        app_id: sig.app_id.clone(),
+                        app_name: sig.app_name.clone(),
+                        confidence: 1.0,
+                        source: MatchSource::Fingerprint,
+                    });
+                }
+            }
+        }
+
+        // 2. SNI patterns
+        if let Some(sni) = hello.sni.as_deref() {
+            for sig in &self.signatures {
+                for pattern in &sig.sni_patterns {
+                    if glob_match(pattern, sni) {
+                        return Some(AppMatch {
+                            app_id: sig.app_id.clone(),
+                            app_name: sig.app_name.clone(),
+                            confidence: 0.9,
+                            source: MatchSource::Sni,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 3. Custom user rules
+        for rule in &self.custom_rules {
+            if rule.matches(hello) {
+                return Some(AppMatch {
+                    app_id: rule.app_id.clone(),
+                    app_name: rule.app_name.clone(),
+                    confidence: rule.confidence,
+                    source: MatchSource::Custom,
+                });
+            }
+        }
+
+        None
+    }
+}
+
+impl Default for AppClassifier {
+    fn default() -> Self {
+        Self::new(Vec::new())
+    }
+}
+
+/// Convenience: classify a hello using the default signature library
+/// (no custom rules). Equivalent to `AppClassifier::default().classify(hello)`.
+pub fn classify(hello: &HelloInfo) -> Option<AppMatch> {
+    AppClassifier::default().classify(hello)
+}
+
+/// Backward-compat alias — `AppMatchResult == AppMatch`.
+pub type AppMatchResult = AppMatch;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::default_fingerprint_set;
+    use crate::fingerprint::RuleCondition;
 
     #[test]
     fn test_host_matches_domain_exact() {
@@ -445,7 +765,11 @@ mod tests {
     fn test_unknown_domain() {
         let rules = get_default_rules();
         assert_eq!(classify_host_with_rules("example.com", &rules), None);
-        assert_eq!(classify_host_with_rules("google.com", &rules), None);
+        // google.com is now a known rule — use a genuinely unknown host.
+        assert_eq!(
+            classify_host_with_rules("this-host-does-not-exist.test", &rules),
+            None
+        );
     }
 
     #[test]
@@ -460,5 +784,124 @@ mod tests {
             assert!(!rule.name.is_empty(), "App has empty name");
             assert!(!rule.icon.is_empty(), "App '{}' has empty icon", rule.name);
         }
+    }
+
+    // ─── v0.9.0 default rules + AppClassifier tests ──────────────────
+
+    #[test]
+    fn default_rules_include_v090_apps() {
+        let rules = get_default_rules();
+        let names: Vec<&str> = rules.iter().map(|r| r.name.as_str()).collect();
+        for required in [
+            "TikTok",
+            "Instagram",
+            "Snapchat",
+            "Telegram",
+            "Twitter",
+            "Netflix",
+            "Spotify",
+            "YouTube",
+            "Amazon",
+            "Apple",
+            "Microsoft",
+            "Google",
+            "GitHub",
+            "PayPal",
+            "Stripe",
+        ] {
+            assert!(
+                names.contains(&required),
+                "expected default rule for {} — got {:?}",
+                required,
+                names
+            );
+        }
+    }
+
+    #[test]
+    fn classify_sni_match_returns_sni_source() {
+        let c = AppClassifier::default();
+        let hello = HelloInfo {
+            sni: Some("api.tiktokv.com".into()),
+            ..Default::default()
+        };
+        let m = c.classify(&hello).expect("expected TikTok match");
+        assert_eq!(m.app_id, "tiktok");
+        assert_eq!(m.source, MatchSource::Sni);
+        assert!((m.confidence - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn classify_fingerprint_match_wins_over_sni() {
+        let c = AppClassifier::default();
+        // A hello whose fingerprint matches the built-in TikTok entry
+        let hello = HelloInfo {
+            sni: Some("api.tiktokv.com".into()),
+            cipher_suites: vec!["TLS_AES_128_GCM_SHA256".into()],
+            extensions: vec![
+                "server_name".into(),
+                "application_layer_protocol_negotiation".into(),
+            ],
+            elliptic_curves: vec!["x25519".into(), "secp256r1".into()],
+            alpn: vec!["h2".into(), "http/1.1".into()],
+            client_version: Some("TLS 1.3".into()),
+        };
+        let m = c.classify(&hello).expect("expected match");
+        assert_eq!(m.source, MatchSource::Fingerprint);
+        assert!((m.confidence - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn classify_no_match_returns_none() {
+        let c = AppClassifier::default();
+        let hello = HelloInfo {
+            sni: Some("example.com".into()),
+            cipher_suites: vec!["TLS_AES_128_GCM_SHA256".into()],
+            ..Default::default()
+        };
+        assert!(c.classify(&hello).is_none());
+    }
+
+    #[test]
+    fn classify_custom_rule_runs_last() {
+        let rule = CustomAppRule {
+            app_id: "internal".into(),
+            app_name: "Internal Tool".into(),
+            icon: "I".into(),
+            conditions: vec![RuleCondition::Sni {
+                pattern: "*.internal.corp".into(),
+            }],
+            confidence: 0.75,
+        };
+        let c = AppClassifier::new(vec![rule]);
+        let hello = HelloInfo {
+            sni: Some("api.internal.corp".into()),
+            ..Default::default()
+        };
+        let m = c.classify(&hello).expect("expected custom match");
+        assert_eq!(m.source, MatchSource::Custom);
+        assert_eq!(m.app_id, "internal");
+        assert!((m.confidence - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn classify_top_level_classify_function() {
+        // Mirror of classify_sni_match — uses the free function form.
+        let hello = HelloInfo {
+            sni: Some("api.weixin.qq.com".into()),
+            ..Default::default()
+        };
+        let m = classify(&hello).expect("expected WeChat match");
+        assert_eq!(m.app_id, "wechat");
+        assert_eq!(m.source, MatchSource::Sni);
+    }
+
+    #[test]
+    fn default_fingerprint_set_is_non_empty() {
+        let set = default_fingerprint_set();
+        assert!(
+            !set.is_empty(),
+            "default fingerprint set should include at least one entry"
+        );
     }
 }
