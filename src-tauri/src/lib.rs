@@ -352,6 +352,11 @@ pub fn run() {
             commands::ssl_bypass::check_java_installed,
             commands::ssl_bypass::check_adb_installed,
             commands::ssl_bypass::patch_apk,
+            commands::filter::parse_filter,
+            commands::filter::evaluate_filter,
+            commands::filter::list_filter_presets,
+            commands::filter::save_filter_preset,
+            commands::filter::delete_filter_preset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
