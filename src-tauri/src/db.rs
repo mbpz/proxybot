@@ -836,6 +836,39 @@ pub fn mark_request_websocket(conn: &Connection, request_id: &str) -> Result<(),
     Ok(())
 }
 
+/// Retrieve all WebSocket frames for a request, ordered by timestamp ascending.
+pub fn get_ws_frames(
+    conn: &Connection,
+    request_id: &str,
+) -> Result<Vec<crate::proxy::WsFrame>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT direction, opcode, payload, size, timestamp
+             FROM ws_frames WHERE request_id = ?1 ORDER BY timestamp ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([request_id], |row| {
+            let opcode: i32 = row.get(1)?;
+            let payload: String = row.get(2)?;
+            let size: i64 = row.get(3)?;
+            let timestamp: String = row.get(4)?;
+            let truncated = (size as usize) > crate::ws_frames::MAX_PAYLOAD_SIZE;
+            Ok(crate::proxy::WsFrame {
+                direction: row.get(0)?,
+                opcode: opcode as u8,
+                payload,
+                size: size as usize,
+                timestamp,
+                truncated,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
 /// Lightweight request struct for TUI list view.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RecentRequest {
@@ -1355,6 +1388,53 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM ws_frames WHERE request_id = ?1", ["req-1"], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1, "ws_frame row should be persisted");
+    }
+
+    #[test]
+    fn test_get_ws_frames_returns_in_timestamp_order() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let req_id = "req-frames-1";
+        record_ws_frame(
+            &conn,
+            req_id,
+            "outgoing",
+            0x01,
+            "first",
+            None,
+            5,
+            "2026-06-14 10:00:00",
+        )
+        .unwrap();
+        record_ws_frame(
+            &conn,
+            req_id,
+            "incoming",
+            0x01,
+            "second",
+            None,
+            6,
+            "2026-06-14 10:00:01",
+        )
+        .unwrap();
+
+        let frames = get_ws_frames(&conn, req_id).unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].payload, "first");
+        assert_eq!(frames[0].direction, "outgoing");
+        assert_eq!(frames[0].opcode, 0x01);
+        assert_eq!(frames[1].payload, "second");
+        assert_eq!(frames[1].direction, "incoming");
+    }
+
+    #[test]
+    fn test_get_ws_frames_empty_for_unknown_request() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let frames = get_ws_frames(&conn, "nonexistent").unwrap();
+        assert!(frames.is_empty());
     }
 
     #[test]
