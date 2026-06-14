@@ -89,6 +89,20 @@ pub struct WsFrame {
     pub timestamp: String,
     pub payload: String,
     pub size: usize,
+    pub opcode: u8,
+    pub truncated: bool,
+}
+
+/// Map a WebSocket frame opcode to a human-readable name.
+pub fn get_opcode_name(opcode: u8) -> &'static str {
+    match opcode {
+        0x01 => "Text",
+        0x02 => "Binary",
+        0x08 => "Close",
+        0x09 => "Ping",
+        0x0A => "Pong",
+        _ => "Unknown",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -179,5 +193,15 @@ mod tests_inner {
         assert!(!*state.keep_running.lock().unwrap());
         *state.keep_running.lock().unwrap() = true;
         assert!(*state.keep_running.lock().unwrap());
+    }
+
+    #[test]
+    fn test_get_opcode_name() {
+        assert_eq!(get_opcode_name(0x01), "Text");
+        assert_eq!(get_opcode_name(0x02), "Binary");
+        assert_eq!(get_opcode_name(0x08), "Close");
+        assert_eq!(get_opcode_name(0x09), "Ping");
+        assert_eq!(get_opcode_name(0x0A), "Pong");
+        assert_eq!(get_opcode_name(0x00), "Unknown");
     }
 }
