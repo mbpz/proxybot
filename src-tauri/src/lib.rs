@@ -357,6 +357,9 @@ pub fn run() {
             commands::filter::list_filter_presets,
             commands::filter::save_filter_preset,
             commands::filter::delete_filter_preset,
+            commands::app_fingerprint::get_app_signatures,
+            commands::app_fingerprint::add_custom_rule,
+            commands::app_fingerprint::remove_custom_rule,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,6 @@
 pub mod ai_pipeline;
 pub mod ai_stats;
+pub mod app_fingerprint;
 pub mod cdp_server;
 pub mod client_setup;
 pub mod compose;
