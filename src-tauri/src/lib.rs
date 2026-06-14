@@ -108,6 +108,9 @@ pub fn run() {
             .expect("Failed to initialize Frida runtime"),
     );
     let frida_state = commands::ssl_bypass::FridaState(frida_manager);
+    let network_conditions_engine = Arc::new(crate::network::NetworkConditionEngine::new());
+    let network_conditions_state =
+        commands::network_conditions::NetworkConditionsState(network_conditions_engine);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -123,6 +126,7 @@ pub fn run() {
         .manage(replay_state.clone())
         .manage(dashboard_server.clone())
         .manage(frida_state)
+        .manage(network_conditions_state)
         .setup(move |app| {
             // Start file watcher in a dedicated thread with its own Tokio runtime
             // (notify's internal thread outlives the app's runtime)
@@ -360,6 +364,12 @@ pub fn run() {
             commands::app_fingerprint::get_app_signatures,
             commands::app_fingerprint::add_custom_rule,
             commands::app_fingerprint::remove_custom_rule,
+            commands::network_conditions::get_network_profiles,
+            commands::network_conditions::set_active_profile,
+            commands::network_conditions::get_active_profile,
+            commands::network_conditions::add_condition_rule,
+            commands::network_conditions::remove_condition_rule,
+            commands::network_conditions::list_condition_rules,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

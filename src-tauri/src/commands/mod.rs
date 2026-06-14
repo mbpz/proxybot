@@ -7,6 +7,7 @@ pub mod compose;
 pub mod device_setup;
 pub mod filter;
 pub mod graph;
+pub mod network_conditions;
 pub mod replay;
 pub mod ssl_bypass;
 pub mod ws_frames;
