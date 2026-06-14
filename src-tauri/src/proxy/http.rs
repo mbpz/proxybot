@@ -14,7 +14,6 @@ use super::requests::{
 };
 use super::rules::{apply_request_rule, build_http_response, RuleApplication, RuleResponse};
 use super::{DeviceContext, ProxyContext};
-use crate::app_rules;
 use crate::db::record_http_request;
 use crate::plugin::InterceptedResponse;
 use std::net::SocketAddr;
@@ -156,7 +155,17 @@ pub(super) async fn handle_http(
                 // Record the upgrade request to DB and get the ID
                 let ws_request_id = {
                     let ts = timestamp_now();
-                    let app_info = app_rules::classify_host(host);
+                    // Run the standard classification chain (host → DNS correlation).
+                    // The IP-fallback arm cannot run here because target_stream is
+                    // not yet established at WS-upgrade time, so pass None for
+                    // resolved_ip — the host-string path still benefits from the
+                    // 5-minute correlation window.
+                    let app_info = crate::proxy::classify::classify_captured_request(
+                        host,
+                        &client_addr.ip().to_string(),
+                        None,
+                        &ctx.dns_state,
+                    );
                     if let Ok(conn) = ctx.db_state.conn.lock() {
                         match record_http_request(
                             &conn,
