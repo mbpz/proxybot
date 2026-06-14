@@ -10,6 +10,7 @@ use proxybot_lib::{
     replay::ReplayState,
     rules::RulesEngine,
     tun::TunState,
+    workspace::WorkspaceManager,
 };
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
@@ -38,6 +39,7 @@ fn main() {
     let anomaly_detector = Arc::new(AnomalyDetector::new());
     let tun_state = Arc::new(TunState::new());
     let replay_state = Arc::new(ReplayState::default());
+    let workspace_manager = Arc::new(WorkspaceManager::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -51,6 +53,7 @@ fn main() {
         .manage(tun_state.clone())
         .manage(rules_engine.clone())
         .manage(replay_state.clone())
+        .manage(workspace_manager.clone())
         .setup(|app| {
             let start_item = MenuItem::with_id(app, "start", "Start Proxy", true, None::<&str>)?;
             let stop_item = MenuItem::with_id(app, "stop", "Stop Proxy", true, None::<&str>)?;
@@ -93,6 +96,12 @@ fn main() {
             proxybot_lib::rules::save_rule,
             proxybot_lib::rules::delete_rule,
             proxybot_lib::db::get_db_stats,
+            proxybot_lib::init_workspace,
+            proxybot_lib::export_workspace,
+            proxybot_lib::import_workspace,
+            proxybot_lib::list_workspaces,
+            proxybot_lib::switch_workspace,
+            proxybot_lib::workspace_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

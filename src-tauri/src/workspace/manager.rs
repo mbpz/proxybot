@@ -261,12 +261,81 @@ impl WorkspaceManager {
             None => "No active workspace".to_string(),
         }
     }
+
+    /// Load a workspace by name from disk for re-export.
+    /// Reads `workspace.json` from the workspace directory and deserializes
+    /// it into the full `Workspace` struct (with rules, devices, requests).
+    pub fn load(&self, name: &str) -> Result<Workspace, String> {
+        let path = self.base_dir.join(name).join("workspace.json");
+        let json = fs::read_to_string(&path)
+            .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
+        serde_json::from_str(&json)
+            .map_err(|e| format!("failed to parse workspace.json: {}", e))
+    }
 }
 
 impl Default for WorkspaceManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tauri command wrappers
+//
+// Thin wrappers that delegate to WorkspaceManager. These exist so the desktop
+// UI (and future scripting hooks) can call workspace operations without
+// reaching into the module directly. Each wrapper is a one-line delegation
+// to the underlying API; the 13 existing unit tests cover the behaviour.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn init_workspace(
+    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
+    name: String,
+    description: Option<String>,
+) -> Result<Workspace, String> {
+    state.init(&name, description.as_deref().unwrap_or(""))
+}
+
+#[tauri::command]
+pub fn export_workspace(
+    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
+    name: String,
+    output_path: String,
+) -> Result<(), String> {
+    let ws = state.load(&name)?;
+    state.export(&ws, std::path::Path::new(&output_path))
+}
+
+#[tauri::command]
+pub fn import_workspace(
+    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
+    archive_path: String,
+) -> Result<Workspace, String> {
+    state.import(std::path::Path::new(&archive_path))
+}
+
+#[tauri::command]
+pub fn list_workspaces(
+    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
+) -> Vec<Workspace> {
+    state.list()
+}
+
+#[tauri::command]
+pub fn switch_workspace(
+    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
+    name: String,
+) -> Result<(), String> {
+    state.switch(&name)
+}
+
+#[tauri::command]
+pub fn workspace_status(
+    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
+) -> String {
+    state.status()
 }
 
 #[cfg(test)]
@@ -511,5 +580,27 @@ mod tests {
 
         manager.set_active(None);
         assert!(manager.active().is_none());
+    }
+
+    #[test]
+    fn test_load_roundtrips_after_init() {
+        // load() is the bridge between init() and export() when the desktop
+        // app calls export_workspace by name. Round-trip via load to confirm
+        // the persisted JSON is parseable and the name is preserved.
+        let tmp = tempdir().unwrap();
+        let base_dir = tmp.path().join("workspaces");
+        let manager = WorkspaceManager::with_base_dir(base_dir);
+
+        manager.init("rt", "roundtrip workspace").unwrap();
+        let loaded = manager.load("rt").expect("load must succeed after init");
+        assert_eq!(loaded.name, "rt");
+    }
+
+    #[test]
+    fn test_load_errors_for_unknown_workspace() {
+        let tmp = tempdir().unwrap();
+        let manager = WorkspaceManager::with_base_dir(tmp.path().join("workspaces"));
+        let err = manager.load("does-not-exist").unwrap_err();
+        assert!(err.contains("does-not-exist"), "error should mention the missing name: {}", err);
     }
 }

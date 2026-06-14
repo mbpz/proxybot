@@ -51,6 +51,14 @@ pub mod tun;
 pub mod vision;
 pub mod vpn;
 pub mod workspace;
+
+// Tauri command wrappers for the desktop app (workspace management).
+// Re-exported so the GUI binary can call them without reaching into the
+// module hierarchy.
+pub use workspace::manager::{
+    export_workspace, import_workspace, init_workspace, list_workspaces,
+    switch_workspace, workspace_status,
+};
 pub mod ws_frames;
 pub use classifier::*;
 pub use commands::client_setup::*;
