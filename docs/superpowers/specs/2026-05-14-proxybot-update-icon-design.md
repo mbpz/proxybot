@@ -1,7 +1,7 @@
 # ProxyBot 更新检测 + 图标设计
 
 **Date:** 2026-05-14
-**Status:** Approved
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -108,3 +108,31 @@ brew upgrade --cask mbpz/proxybot/proxybot
 - `@tauri-apps/api/core` - invoke (如需 Rust 端协助)
 - `semver` - 版本比较 (如需精确比较)
 - shadcn/ui - UI 组件
+
+---
+
+## 6. Implementation Notes (self-review, 2026-06-14)
+
+Spec self-review pass completed. Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| App icon (cyberpunk neon theme) | ✅ done | `src-tauri/icons/{icon.png, icon.icns, Square*Logo.png, 128x128.png}` + `tauri.conf.json:31-35` |
+| Manual "检查更新" button in Settings | ✅ done | `src/components/setup/UpdateSettings.tsx` (used in `AboutTab.tsx`, `ClientSetup.tsx`) |
+| `useUpdateCheck` hook | ✅ done | `src/hooks/useUpdateCheck.ts` |
+| GitHub Releases API integration | ✅ done | `useUpdateCheck.ts:30-37` (`api.github.com/repos/mbpz/proxybot/releases/latest`) |
+| Semver-style version comparison | ✅ done | `useUpdateCheck.ts:68-79` |
+| **App startup auto-check** (spec §2) | ✅ done (commit `f9df643`) | `src/components/layout/Layout.tsx` (one-shot `useEffect`) |
+| `CURRENT_VERSION` pinned to v1.3.x line | ✅ done (commit `f9df643`) | `useUpdateCheck.ts:12` |
+| Unit tests for the hook (7 cases) | ✅ done (commit `f9df643`) | `src/test/useUpdateCheck.test.ts` |
+
+**Surface area actually touched by this self-review pass:** 1 plan (new) + 2 code files (Layout.tsx + useUpdateCheck.ts) + 1 test file (new). No new dependencies — `semver` mentioned in §5 was never adopted (custom 12-line `compareVersions` is sufficient for `MAJOR.MINOR.PATCH` triples).
+
+**Validation:** `npx vitest run` → 94 passed (was 87 before this pass; +7 new). `npm run typecheck` → 0 errors.
+
+**Behaviour notes:**
+- The startup auto-check runs exactly once per app session because `Layout` is the always-mounted route container and the `useEffect` has `[]`-equivalent deps (only `checkForUpdates` which is `useCallback` with `[]` deps).
+- Failed auto-checks are silently swallowed — `hasUpdate` stays `false`, which is the safe default. Users still have the manual "检查更新" button in Settings.
+- The `error` field is only surfaced in the manual Settings UI, never in a global toast, per the spec's "后台" (background) framing.
+
+**Visual icon refresh (out of scope for this sprint):** The current icon assets pre-date this spec's cyberpunk-neon visual direction. A future PR can re-render them; this self-review does not block on iconography.
