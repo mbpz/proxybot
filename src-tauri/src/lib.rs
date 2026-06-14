@@ -51,6 +51,7 @@ pub mod tun;
 pub mod vision;
 pub mod vpn;
 pub mod workspace;
+pub mod ws_frames;
 pub use classifier::*;
 pub use commands::client_setup::*;
 pub use commands::compose::*;
