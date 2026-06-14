@@ -1,28 +1,7 @@
-#[derive(Debug, Clone)]
-pub enum FilterExpr {
-    Field {
-        field: String,
-        op: FilterOp,
-        value: String,
-    },
-    And(Box<FilterExpr>, Box<FilterExpr>),
-    Or(Box<FilterExpr>, Box<FilterExpr>),
-    Not(Box<FilterExpr>),
-    Group(Box<FilterExpr>),
-    /// Plain text search across multiple fields (host, path, body)
-    Text(String),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FilterOp {
-    Eq,    // :
-    Glob,  // :*
-    Regex, // :~
-    Gt,    // >
-    Lt,    // <
-    Gte,   // >=
-    Lte,   // <=
-}
+// Re-export AST types from the shared `expr` module so parser,
+// evaluator, preset storage, and Tauri commands all see one
+// representation.
+pub use crate::filter::expr::{FilterExpr, FilterOp};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
