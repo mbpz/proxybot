@@ -3,12 +3,20 @@
 //! Decompiles an APK, injects frida-gadget.so and a bypass script,
 //! recompiles, and signs with a temporary keystore.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Architectures supported by Frida 17.x (armv7 dropped).
+/// Order matters — `detect_apk_arch` picks the first match.
+const SUPPORTED_ARCHS: &[&str] = &["arm64-v8a", "x86_64", "x86"];
+
+/// Default arch when none can be detected (most common modern target).
+const DEFAULT_ARCH: &str = "arm64-v8a";
+
 pub struct ApkPatcher {
     apktool_path: PathBuf,
-    frida_gadget_path: PathBuf,
+    arch_to_gadget: HashMap<&'static str, PathBuf>,
     temp_dir: PathBuf,
 }
 
@@ -39,14 +47,35 @@ impl ApkPatcher {
             return Err(format!("apktool.jar not found (looked in {})", apktool_path.display()));
         }
 
-        let frida_gadget_path = if resource_dir.join("frida-gadget").exists() {
-            resource_dir.join("frida-gadget").join("arm64-v8a").join("libfrida-gadget.so")
+        // Locate the frida-gadget resource dir (dev or production)
+        let gadget_root = if resource_dir.join("frida-gadget").exists() {
+            resource_dir.join("frida-gadget")
         } else {
             let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("."));
-            manifest_dir.join("resources").join("frida-gadget").join("arm64-v8a").join("libfrida-gadget.so")
+            manifest_dir.join("resources").join("frida-gadget")
         };
+
+        // Populate the per-architecture gadget map. Only architectures whose
+        // bundled .so actually exists are kept — this lets builds with a
+        // subset of archs still work.
+        let mut arch_to_gadget: HashMap<&'static str, PathBuf> = HashMap::new();
+        for &arch in SUPPORTED_ARCHS {
+            let path = gadget_root.join(arch).join("libfrida-gadget.so");
+            if path.exists() {
+                arch_to_gadget.insert(arch, path);
+            }
+        }
+
+        if arch_to_gadget.is_empty() {
+            return Err(format!(
+                "No frida-gadget binaries found under {}. \
+                 Expected subdirs: {:?}",
+                gadget_root.display(),
+                SUPPORTED_ARCHS
+            ));
+        }
 
         let temp_dir = std::env::temp_dir().join("proxybot-apk-patcher");
         std::fs::create_dir_all(&temp_dir)
@@ -54,7 +83,7 @@ impl ApkPatcher {
 
         Ok(Self {
             apktool_path,
-            frida_gadget_path,
+            arch_to_gadget,
             temp_dir,
         })
     }
@@ -133,22 +162,44 @@ impl ApkPatcher {
         Ok(apk.clone())
     }
 
-    /// Inject the Frida Gadget .so into the decompiled APK's lib/ directory.
+    /// Detect the target architecture of a decompiled APK by scanning
+    /// the `lib/<arch>/` directory. Returns the first supported arch found,
+    /// or `DEFAULT_ARCH` (arm64-v8a) when none can be detected.
     ///
-    /// For arm64-v8a (the most common); other architectures can be added
-    /// later by extending this method.
+    /// Note: armv7 (armeabi-v7a) is intentionally unsupported — Frida 17.x
+    /// dropped 32-bit ARM gadgets. APKs that only ship armv7 .so files will
+    /// fall back to arm64-v8a and the injector will error at copy time.
+    pub fn detect_apk_arch(&self, work_dir: &PathBuf) -> &'static str {
+        let lib_dir = work_dir.join("lib");
+        for &arch in SUPPORTED_ARCHS {
+            if lib_dir.join(arch).exists() {
+                return arch;
+            }
+        }
+        DEFAULT_ARCH
+    }
+
+    /// Inject the Frida Gadget .so into the decompiled APK's lib/ directory,
+    /// picking the right binary for the APK's target architecture.
     pub fn inject_frida_gadget(&self, work_dir: &PathBuf) -> Result<(), String> {
-        let lib_dir = work_dir.join("lib").join("arm64-v8a");
+        let arch = self.detect_apk_arch(work_dir);
+        let gadget_src = self
+            .arch_to_gadget
+            .get(arch)
+            .ok_or_else(|| format!("No frida-gadget for architecture: {}", arch))?;
+
+        let lib_dir = work_dir.join("lib").join(arch);
         std::fs::create_dir_all(&lib_dir)
             .map_err(|e| format!("Failed to create lib dir: {}", e))?;
 
         let gadget_dest = lib_dir.join("libfrida-gadget.so");
-        std::fs::copy(&self.frida_gadget_path, &gadget_dest).map_err(|e| {
+        std::fs::copy(gadget_src, &gadget_dest).map_err(|e| {
             format!(
-                "Failed to copy frida-gadget from {} to {}: {}. \
+                "Failed to copy frida-gadget from {} to {} for arch {}: {}. \
                  The gadget .so may not be bundled — see docs on APK patching prerequisites.",
-                self.frida_gadget_path.display(),
+                gadget_src.display(),
                 gadget_dest.display(),
+                arch,
                 e
             )
         })?;
@@ -266,9 +317,22 @@ mod tests {
     /// Build an ApkPatcher with arbitrary paths for testing methods that
     /// don't shell out.
     fn test_patcher(work_dir: &std::path::Path) -> ApkPatcher {
+        let mut arch_to_gadget: HashMap<&'static str, PathBuf> = HashMap::new();
+        arch_to_gadget.insert(
+            "arm64-v8a",
+            PathBuf::from("/nonexistent/arm64-v8a/libfrida-gadget.so"),
+        );
+        arch_to_gadget.insert(
+            "x86",
+            PathBuf::from("/nonexistent/x86/libfrida-gadget.so"),
+        );
+        arch_to_gadget.insert(
+            "x86_64",
+            PathBuf::from("/nonexistent/x86_64/libfrida-gadget.so"),
+        );
         ApkPatcher {
             apktool_path: PathBuf::from("/nonexistent/apktool.jar"),
-            frida_gadget_path: PathBuf::from("/nonexistent/libfrida-gadget.so"),
+            arch_to_gadget,
             temp_dir: work_dir.to_path_buf(),
         }
     }
@@ -314,22 +378,99 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
-        // Create a dummy gadget .so to copy from
-        let gadget_src = tmp.join("gadget-src.so");
-        std::fs::write(&gadget_src, b"fake-gadget-bytes").unwrap();
+        // Create dummy gadget .so files for all supported archs
+        let mut patcher = test_patcher(&tmp);
+        for arch in ["arm64-v8a", "x86", "x86_64"] {
+            let src = tmp.join(format!("{}-gadget-src.so", arch));
+            std::fs::write(&src, format!("fake-gadget-{}", arch).as_bytes()).unwrap();
+            patcher.arch_to_gadget.insert(arch, src);
+        }
 
         let work_dir = tmp.join("work");
         std::fs::create_dir_all(&work_dir).unwrap();
 
-        let mut patcher = test_patcher(&tmp);
-        patcher.frida_gadget_path = gadget_src.clone();
-
+        // No lib/<arch>/ exists yet — falls back to DEFAULT_ARCH (arm64-v8a)
         patcher.inject_frida_gadget(&work_dir).unwrap();
 
         let dest = work_dir.join("lib").join("arm64-v8a").join("libfrida-gadget.so");
         assert!(dest.exists(), "gadget .so should be at {}", dest.display());
         let copied = std::fs::read(&dest).unwrap();
-        assert_eq!(copied, b"fake-gadget-bytes");
+        assert_eq!(copied, b"fake-gadget-arm64-v8a");
+    }
+
+    #[test]
+    fn test_detect_apk_arch_arm64() {
+        let tmp = std::env::temp_dir().join("test-detect-arch-arm64");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let work_dir = tmp.join("work");
+        std::fs::create_dir_all(work_dir.join("lib").join("arm64-v8a")).unwrap();
+
+        let patcher = test_patcher(&tmp);
+        assert_eq!(patcher.detect_apk_arch(&work_dir), "arm64-v8a");
+    }
+
+    #[test]
+    fn test_detect_apk_arch_x86() {
+        let tmp = std::env::temp_dir().join("test-detect-arch-x86");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let work_dir = tmp.join("work");
+        // Only x86 present — no arm64
+        std::fs::create_dir_all(work_dir.join("lib").join("x86")).unwrap();
+
+        let patcher = test_patcher(&tmp);
+        assert_eq!(patcher.detect_apk_arch(&work_dir), "x86");
+    }
+
+    #[test]
+    fn test_detect_apk_arch_default() {
+        let tmp = std::env::temp_dir().join("test-detect-arch-default");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        // No lib/ dir at all
+        let work_dir = tmp.join("work");
+        std::fs::create_dir_all(&work_dir).unwrap();
+
+        let patcher = test_patcher(&tmp);
+        assert_eq!(patcher.detect_apk_arch(&work_dir), "arm64-v8a");
+    }
+
+    #[test]
+    fn test_inject_frida_gadget_with_arch_detection() {
+        let tmp = std::env::temp_dir().join("test-inject-arch-detect");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Set up the patcher with real-ish gadget source files per arch
+        let mut patcher = test_patcher(&tmp);
+        for arch in ["arm64-v8a", "x86", "x86_64"] {
+            let src = tmp.join(format!("{}.so", arch));
+            std::fs::write(&src, format!("gadget-for-{}", arch).as_bytes()).unwrap();
+            patcher.arch_to_gadget.insert(arch, src);
+        }
+
+        // Case 1: APK with x86_64 lib/ — should pick x86_64
+        let work_x8664 = tmp.join("work-x8664");
+        std::fs::create_dir_all(work_x8664.join("lib").join("x86_64")).unwrap();
+        patcher.inject_frida_gadget(&work_x8664).unwrap();
+        let dest = work_x8664
+            .join("lib")
+            .join("x86_64")
+            .join("libfrida-gadget.so");
+        assert!(dest.exists(), "x86_64 gadget should be copied");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"gadget-for-x86_64");
+
+        // Case 2: APK with arm64-v8a lib/ — should pick arm64-v8a
+        let work_arm = tmp.join("work-arm64");
+        std::fs::create_dir_all(work_arm.join("lib").join("arm64-v8a")).unwrap();
+        patcher.inject_frida_gadget(&work_arm).unwrap();
+        let dest = work_arm
+            .join("lib")
+            .join("arm64-v8a")
+            .join("libfrida-gadget.so");
+        assert!(dest.exists(), "arm64 gadget should be copied");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"gadget-for-arm64-v8a");
     }
 
     #[test]
