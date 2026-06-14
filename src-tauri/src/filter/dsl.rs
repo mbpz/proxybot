@@ -277,6 +277,36 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_header_field() {
+        // `header:X` looks up header named X and matches if value contains.
+        let result = parse("header:content-type");
+        assert!(result.is_ok());
+        if let Ok(FilterExpr::Field { field, op, value }) = result {
+            assert_eq!(field, "header");
+            assert_eq!(op, FilterOp::Eq);
+            assert_eq!(value, "content-type");
+        } else {
+            panic!("Expected Field expr");
+        }
+    }
+
+    #[test]
+    fn test_parse_body_field() {
+        // body:*token* — lexer strips the first `*` (used as glob op
+        // marker) and the value scan consumes the rest, giving
+        // value="token*".
+        let result = parse("body:*token*");
+        assert!(result.is_ok());
+        if let Ok(FilterExpr::Field { field, op, value }) = result {
+            assert_eq!(field, "body");
+            assert_eq!(op, FilterOp::Glob);
+            assert_eq!(value, "token*");
+        } else {
+            panic!("Expected Field expr");
+        }
+    }
+
+    #[test]
     fn test_glob() {
         let result = parse("host:*example.com");
         assert!(result.is_ok());
