@@ -73,6 +73,35 @@ impl Lexer {
                     tokens.push(Token::Not);
                 } else if self.pos < self.input.len() && self.input[self.pos] == ':' {
                     self.pos += 1;
+                    // Special-case `header:NAME:VALUE` triple syntax:
+                    // after the first `:`, consume an IDENT for the header
+                    // name and a second `:`, then run the normal op+value
+                    // scan on the remainder. Plain `header:X` (no second
+                    // colon) keeps the old shape and the parser routes it
+                    // to the HeaderName variant with empty value.
+                    let mut header_name: Option<String> = None;
+                    if word == "header" {
+                        let nstart = self.pos;
+                        while self.pos < self.input.len()
+                            && (self.input[self.pos].is_alphanumeric()
+                                || self.input[self.pos] == '_'
+                                || self.input[self.pos] == '-')
+                        {
+                            self.pos += 1;
+                        }
+                        let candidate: String = self.input[nstart..self.pos].iter().collect();
+                        if !candidate.is_empty()
+                            && self.pos < self.input.len()
+                            && self.input[self.pos] == ':'
+                        {
+                            header_name = Some(candidate);
+                            self.pos += 1; // consume the second `:`
+                        } else {
+                            // Rewind: no triple form, treat the consumed
+                            // characters as the start of the value below.
+                            self.pos = nstart;
+                        }
+                    }
                     let op = if self.pos < self.input.len() && self.input[self.pos] == '*' {
                         self.pos += 1;
                         FilterOp::Glob
@@ -105,7 +134,13 @@ impl Lexer {
                     }
                     tokens.push(Token::Field(word));
                     tokens.push(Token::Op(op));
-                    tokens.push(Token::Value(value));
+                    if let Some(name) = header_name {
+                        // Encode the triple as a synthetic
+                        // `name\0value` so the parser can split it.
+                        tokens.push(Token::Value(format!("{}\0{}", name, value)));
+                    } else {
+                        tokens.push(Token::Value(value));
+                    }
                     continue;
                 } else {
                     // Bare word without colon = plain text search
@@ -244,6 +279,31 @@ impl Parser {
                     _ => return Err("Expected value".to_string()),
                 };
                 self.advance();
+                if name == "body" {
+                    return Ok(FilterExpr::BodyText { op, value });
+                }
+                if name == "header" {
+                    // Lexer may encode the `header:NAME:VALUE` triple
+                    // as `NAME\0VALUE`; split here so the evaluator
+                    // sees a clean HeaderName AST node.
+                    if let Some(idx) = value.find('\0') {
+                        let header_name = value[..idx].to_string();
+                        let header_value = value[idx + 1..].to_string();
+                        if header_name.is_empty() {
+                            return Err("Empty header name".to_string());
+                        }
+                        return Ok(FilterExpr::HeaderName {
+                            name: header_name,
+                            op,
+                            value: header_value,
+                        });
+                    }
+                    return Ok(FilterExpr::HeaderName {
+                        name: value.clone(),
+                        op,
+                        value: String::new(),
+                    });
+                }
                 Ok(FilterExpr::Field {
                     field: name,
                     op,
@@ -278,15 +338,32 @@ mod tests {
 
     #[test]
     fn test_parse_header_field() {
-        // `header:X` looks up header named X and matches if value contains.
+        // `header:NAME` (single arg) parses to HeaderName with the
+        // header name in the `name` slot and empty value — the
+        // evaluator treats it as "header is present".
         let result = parse("header:content-type");
         assert!(result.is_ok());
-        if let Ok(FilterExpr::Field { field, op, value }) = result {
-            assert_eq!(field, "header");
+        if let Ok(FilterExpr::HeaderName { name, op, value }) = result {
+            assert_eq!(name, "content-type");
             assert_eq!(op, FilterOp::Eq);
-            assert_eq!(value, "content-type");
+            assert_eq!(value, "");
         } else {
-            panic!("Expected Field expr");
+            panic!("Expected HeaderName expr, got: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_header_field_triple() {
+        // `header:NAME:VALUE` triple syntax parses to HeaderName with
+        // both name and value populated.
+        let result = parse("header:content-type:application/json");
+        assert!(result.is_ok());
+        if let Ok(FilterExpr::HeaderName { name, op, value }) = result {
+            assert_eq!(name, "content-type");
+            assert_eq!(op, FilterOp::Eq);
+            assert_eq!(value, "application/json");
+        } else {
+            panic!("Expected HeaderName expr, got: {:?}", result);
         }
     }
 
@@ -294,15 +371,14 @@ mod tests {
     fn test_parse_body_field() {
         // body:*token* — lexer strips the first `*` (used as glob op
         // marker) and the value scan consumes the rest, giving
-        // value="token*".
+        // value="token*". The parser emits a BodyText AST node.
         let result = parse("body:*token*");
         assert!(result.is_ok());
-        if let Ok(FilterExpr::Field { field, op, value }) = result {
-            assert_eq!(field, "body");
+        if let Ok(FilterExpr::BodyText { op, value }) = result {
             assert_eq!(op, FilterOp::Glob);
             assert_eq!(value, "token*");
         } else {
-            panic!("Expected Field expr");
+            panic!("Expected BodyText expr, got: {:?}", result);
         }
     }
 
