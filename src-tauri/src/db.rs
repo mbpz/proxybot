@@ -1438,6 +1438,135 @@ mod tests {
     }
 
     #[test]
+    fn test_get_ws_frames_filters_by_request_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        // 2 frames for req-A (different timestamps, opcodes, payloads)
+        record_ws_frame(
+            &conn,
+            "req-A",
+            "outgoing",
+            0x01,
+            "alpha-text",
+            None,
+            10,
+            "2026-06-15 10:00:00",
+        )
+        .unwrap();
+        record_ws_frame(
+            &conn,
+            "req-A",
+            "incoming",
+            0x02,
+            "alpha-binary",
+            None,
+            12,
+            "2026-06-15 10:00:01",
+        )
+        .unwrap();
+
+        // 2 frames for req-B
+        record_ws_frame(
+            &conn,
+            "req-B",
+            "outgoing",
+            0x01,
+            "beta-text",
+            None,
+            9,
+            "2026-06-15 10:00:00",
+        )
+        .unwrap();
+        record_ws_frame(
+            &conn,
+            "req-B",
+            "incoming",
+            0x09,
+            "beta-ping",
+            None,
+            9,
+            "2026-06-15 10:00:01",
+        )
+        .unwrap();
+
+        // Query req-A: must return exactly 2 frames, all from req-A only
+        let frames_a = get_ws_frames(&conn, "req-A").unwrap();
+        assert_eq!(frames_a.len(), 2, "req-A should return exactly 2 frames");
+        for f in &frames_a {
+            // All returned frames must be from req-A, not req-B
+            assert!(
+                f.payload == "alpha-text" || f.payload == "alpha-binary",
+                "req-A query should not return req-B payloads, got {}",
+                f.payload
+            );
+        }
+        // Confirm ordered by timestamp asc
+        assert_eq!(frames_a[0].payload, "alpha-text");
+        assert_eq!(frames_a[1].payload, "alpha-binary");
+
+        // Query req-B: must return exactly 2 frames from req-B
+        let frames_b = get_ws_frames(&conn, "req-B").unwrap();
+        assert_eq!(frames_b.len(), 2, "req-B should return exactly 2 frames");
+        for f in &frames_b {
+            assert!(
+                f.payload == "beta-text" || f.payload == "beta-ping",
+                "req-B query should not return req-A payloads, got {}",
+                f.payload
+            );
+        }
+        assert_eq!(frames_b[0].payload, "beta-text");
+        assert_eq!(frames_b[1].payload, "beta-ping");
+    }
+
+    #[test]
+    fn test_ws_frame_truncated_flag() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let req_id = "req-trunc";
+
+        // Frame A: small payload (size = 100) -> truncated = false
+        record_ws_frame(
+            &conn,
+            req_id,
+            "outgoing",
+            0x01,
+            "small",
+            None,
+            100,
+            "2026-06-15 11:00:00",
+        )
+        .unwrap();
+
+        // Frame B: payload larger than MAX_PAYLOAD_SIZE (64KB + 1) -> truncated = true
+        let big_size = crate::ws_frames::MAX_PAYLOAD_SIZE + 1;
+        record_ws_frame(
+            &conn,
+            req_id,
+            "incoming",
+            0x02,
+            "big",
+            None,
+            big_size,
+            "2026-06-15 11:00:01",
+        )
+        .unwrap();
+
+        let frames = get_ws_frames(&conn, req_id).unwrap();
+        assert_eq!(frames.len(), 2, "should retrieve both frames");
+
+        // Frame A: size=100, truncated = false
+        assert_eq!(frames[0].size, 100);
+        assert!(!frames[0].truncated, "small frame (size=100) should NOT be truncated");
+
+        // Frame B: size=MAX_PAYLOAD_SIZE+1, truncated = true
+        assert_eq!(frames[1].size, big_size);
+        assert_eq!(frames[1].size, crate::ws_frames::MAX_PAYLOAD_SIZE + 1);
+        assert!(frames[1].truncated, "frame exceeding MAX_PAYLOAD_SIZE must be truncated");
+    }
+
+    #[test]
     fn test_mark_request_websocket_sets_flag() {
         let conn = Connection::open_in_memory().unwrap();
         DbState::init_schema(&conn).unwrap();
