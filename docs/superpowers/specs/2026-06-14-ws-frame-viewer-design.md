@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14
 **Author:** Claude
-**Status:** Approved (pending spec self-review)
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -364,3 +364,55 @@ HexDump 把 string 字符当作 Latin-1 字节渲染（每行 16 字节，offset
 - Internal consistency：WsFrame opcode 字段在 Rust 和 TS 两边都有定义
 - Scope check：单一功能（WS frame viewer），1-2 天工作量
 - Ambiguity check：truncation 阈值明确（64KB），opcode 名明确（5 个标准值）
+
+## 12. Implementation Notes (self-review, 2026-06-15)
+
+Spec self-review pass completed. All §2 goals are met; the three missing unit tests in §8.1 were added in this pass.
+
+Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| `WsFrame` struct with `opcode: u8` + `truncated: bool` fields | ✅ done | `src-tauri/src/proxy/mod.rs:86-94` |
+| `get_opcode_name(opcode: u8)` for all 5 opcodes + Unknown | ✅ done | `src-tauri/src/proxy/mod.rs:104-113` |
+| `opcode INTEGER NOT NULL` column in `ws_frames` schema | ✅ done | `src-tauri/src/db.rs:332-346` (migration 3) |
+| `record_ws_frame` takes `opcode: u8` and persists it | ✅ done | `src-tauri/src/db.rs:800` |
+| `db::get_ws_frames(conn, request_id)` (timestamp ASC, `truncated = size > MAX_PAYLOAD_SIZE`) | ✅ done | `src-tauri/src/db.rs:840-870` |
+| `get_ws_frames` Tauri command | ✅ done | `src-tauri/src/proxy/commands.rs:163-170` (registered in `lib.rs:323`) |
+| Real-time event `ws-frame:new` emitted on `record_ws_frame` | ✅ done (broadcast pattern) | `src-tauri/src/proxy/forward.rs:165,208,237` + `src-tauri/src/proxy/listener.rs:181-191` |
+| Event payload wrapper `{ request_id, frame }` | ✅ done | `src-tauri/src/proxy/mod.rs:96-101` (`WsFrameEvent`) |
+| `MAX_PAYLOAD_SIZE = 64KB` + `PREVIEW_SIZE = 1KB` constants | ✅ done | `src-tauri/src/ws_frames/mod.rs:4,7` |
+| `truncate_payload(&[u8]) -> (String, bool)` | ✅ done | `src-tauri/src/ws_frames/mod.rs:13-22` (4 tests) |
+| `WsFramesView.tsx` (initial fetch + `listen("ws-frame:new")` + auto-append when `request_id` matches) | ✅ done | `src/components/ws-frames/WsFramesView.tsx` (92L) |
+| `FrameDetail.tsx` (text/hex toggle, metadata grid) | ✅ done | `src/components/ws-frames/FrameDetail.tsx` (75L) |
+| `HexDump.tsx` (16-byte rows, ASCII column, truncated warning) | ✅ done | `src/components/ws-frames/HexDump.tsx` (40L) |
+| `types.ts` with `WsFrame` interface + `getOpcodeName` helper | ✅ done | `src/components/ws-frames/types.ts` |
+| RequestDetail "WebSocket Frames" tab (gated by `is_websocket`) | ✅ done | `src/components/traffic/RequestDetail.tsx:4,36,87` |
+| Empty frames case (non-WS request or no frames yet) | ✅ done | `WsFramesView.tsx` empty state + `get_ws_frames` returns `Vec::new()` |
+| 0 frames display | ✅ done | `WsFramesView.tsx` |
+| Truncated binary frame hex warning | ✅ done | `HexDump.tsx` truncated banner |
+| Frontend follows `sslBypassStore` event-subscription pattern | ✅ done | `WsFramesView.tsx:29-35` uses `listen<WsFrameEvent>` from `@tauri-apps/api/event` |
+| DB unit tests (`test_get_ws_frames_returns_in_timestamp_order`, `test_get_ws_frames_filters_by_request_id`, `test_get_ws_frames_empty_for_unknown_request`, `test_ws_frame_truncated_flag`) | ✅ done (4 cases) | `src-tauri/src/db.rs:1394,1441,1432,1523` |
+| `test_record_ws_frame_persists` (pre-existing) | ✅ done | `src-tauri/src/db.rs:1367` |
+| `test_get_opcode_name` in `proxy/mod.rs` | ✅ done | `src-tauri/src/proxy/mod.rs:207-214` |
+| `test_get_ws_frames_tauri_command` in `proxy/commands.rs` | ✅ done (new) | `src-tauri/src/proxy/commands.rs:250-284` |
+| E2E tests for WS frame viewer (4 scenarios) | ✅ done | `e2e/ws-frames.spec.ts` |
+
+**Surface area touched by this self-review pass (1 commit):**
+- `5193fe1 test(ws-frames): add 3 missing unit tests from spec section 8.1` — 178 lines across `db.rs` (2 tests) and `proxy/commands.rs` (new `#[cfg(test)] mod tests` with 1 test)
+
+**Validation:**
+- `cargo test --lib` → 631 passed (0 failed)
+- `cargo check --lib` → 0 errors (1 pre-existing unrelated workspace-profile warning)
+- `npx playwright test e2e/ws-frames.spec.ts` → 4 passed
+
+**Known deviations from spec, accepted:**
+1. **Real-time event transport** — spec §5.2 / §9.3 listed two acceptable options: `Mutex<Option<AppHandle>>` or `broadcast::Sender`. The implementation chose `broadcast::Sender<(String, WsFrame)>` carried in `ProxyContext` (`proxy/mod.rs:122`) and bridged to `app_handle.emit()` in `listener.rs:181-191`. Functionally equivalent; cleaner separation between the proxy core (no Tauri dependency) and the Tauri event surface.
+2. **Event payload shape** — spec §3.4 / §5.2 sketched emitting a bare `WsFrame`; the implementation wraps it in `WsFrameEvent { request_id, frame }` so the frontend filter (`event.payload.request_id === requestId`) can decide whether to append without needing to thread the requestId through the WS frame struct. Frontend `types.ts` documents the wrapper.
+3. **E2E test name** — spec §8.2 used `ws_frames_view_renders_empty_for_non_ws_request`; implementation uses `ws_frames_view_shows_empty_for_non_ws_request` (line 108). Same scenario, arguably better name.
+4. **DB test name** — spec §8.1 used `test_get_ws_frames_returns_all_frames`; implementation uses `test_get_ws_frames_returns_in_timestamp_order` (line 1394). Same coverage, name emphasizes the ordering guarantee.
+
+**Manual verification still owed (per spec §8.3):**
+- Real WS traffic from a phone app, frames appearing in real-time without refresh
+- Binary frame hex dump visual correctness for arbitrary byte sequences
+- 64KB+ payload truncation behavior in the live UI (truncated banner shows)
