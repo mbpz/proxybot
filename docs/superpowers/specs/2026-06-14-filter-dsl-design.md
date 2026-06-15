@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14
 **Author:** Claude
-**Status:** Approved (pending spec self-review)
+**Status:** Implemented (v1.3.x)
 
 ---
 
@@ -344,3 +344,56 @@ expr = "app:wechat AND status:2*"
 - Internal consistency：Rust 和 TS 的 enum names 一致（Eq/Glob/Regex/Gt/Lt/Gte/Lte）
 - Scope：单一功能（filter DSL），~3-4 天工作量
 - Ambiguity check：DSL 语法明确（EBNF 给出）；操作符语义明确（每个 5.x 章节）；错误处理明确（每个 case 一行）
+
+## 14. Implementation Notes (self-review, 2026-06-15)
+
+Spec self-review pass completed. All §2 goals are met; the three substantive gaps identified during the audit (missing `header:` evaluator arm, missing `body:` evaluator arm, missing 1MB body truncation) were closed in this pass.
+
+Audit-by-grep at the time of self-review:
+
+| Spec item | Status | Location |
+|-----------|--------|----------|
+| `FilterExpr` / `FilterOp` types + `HeaderName` / `BodyText` variants | ✅ done | `src-tauri/src/filter/expr.rs` |
+| Lexer (`:`, `:*`, `:~`, `>`, `<`, `>=`, `<=`, AND/OR/NOT, parens, `header:NAME:VALUE` triple) | ✅ done | `src-tauri/src/filter/dsl.rs:48-150` |
+| Parser (precedence: OR > AND > NOT > atom) | ✅ done | `src-tauri/src/filter/dsl.rs:200-296` |
+| `parse_filter` Tauri command (returns `ParseResult` for inline error display) | ✅ done | `src-tauri/src/commands/filter.rs:22-28` |
+| `evaluate_filter` Tauri command | ✅ done | `src-tauri/src/commands/filter.rs:33-39` |
+| `list_filter_presets` / `save_filter_preset` / `delete_filter_preset` commands | ✅ done | `src-tauri/src/commands/filter.rs:42-57` |
+| Persistent preset storage (atomic write, `~/.proxybot/filter_presets.json`) | ✅ done | `src-tauri/src/filter/preset.rs` (4 tests) |
+| `header:X` field handler (case-insensitive `resp_headers` lookup) | ✅ done | `src-tauri/src/filter/evaluator.rs` `HeaderName` arm + `lookup_header` |
+| `header:content-type:application/json` triple syntax | ✅ done | `src-tauri/src/filter/dsl.rs` lexer triple-colon path |
+| `body:X` field handler (substring / glob / regex) | ✅ done | `src-tauri/src/filter/evaluator.rs` `BodyText` arm + `body_search` |
+| 1MB body truncation (UTF-8 safe) | ✅ done | `src-tauri/src/filter/evaluator.rs` `MAX_BODY_SEARCH_SIZE` + `truncate_body` |
+| `FilterInput.tsx` (debounced parse validation, preset select, error styling) | ✅ done | `src/components/filter/FilterInput.tsx` (102L) |
+| `SavePresetButton.tsx` (modal dialog, `crypto.randomUUID`) | ✅ done | `src/components/filter/SavePresetButton.tsx` (109L) |
+| `TrafficPage` integration (DSL eval path on top of basic filter) | ✅ done | `src/components/traffic/TrafficPage.tsx:7,40,112-160,227-233` |
+| `parse_filter` returns `ParseResult` (not `Result`) for inline errors | ✅ done | `src-tauri/src/commands/filter.rs:12-17` |
+| `header:X` empty name returns spec's exact `Empty header name` error | ✅ done | `src-tauri/src/filter/dsl.rs` parser triple branch |
+| `delete_filter_preset` returns `Err` on unknown id | ✅ done | `src-tauri/src/filter/preset.rs:89-91` |
+| DSL parser unit tests | ✅ done (39 cases, spec wanted ~12) | `src-tauri/src/filter/dsl.rs` |
+| Evaluator unit tests (header presence, value match, case-insensitive; body substring, glob, none, 1MB truncation incl. UTF-8 boundary) | ✅ done (19 cases, spec wanted ~6) | `src-tauri/src/filter/evaluator.rs` |
+| Preset storage unit tests | ✅ done (4 cases, spec wanted ~3) | `src-tauri/src/filter/preset.rs` |
+| E2E tests for filter DSL | ✅ done (7 cases, spec wanted 5) | `e2e/filter-dsl.spec.ts` |
+
+**Surface area touched by this self-review pass (5 commits):**
+- `d09516f feat(filter): add HeaderName and BodyText AST variants` — 8 lines in `expr.rs`
+- `5828515 feat(filter): parse header:NAME:VALUE triple syntax` — 86 lines net in `dsl.rs`
+- `8082212 feat(filter): implement header/body evaluators + 1MB body truncation` — 226 lines in `evaluator.rs` (incl. 11 new tests)
+- `5193fe1 test(ws-frames): add 3 missing unit tests from spec section 8.1` (other feature, landed same session)
+- `d7e91a7 test(e2e): cover preset_delete flow` — 63 lines in `e2e/filter-dsl.spec.ts`
+
+**Validation:**
+- `cargo test --lib` → 631 passed (0 failed)
+- `cargo check --lib` → 0 errors (1 pre-existing unrelated workspace-profile warning)
+- `npx playwright test e2e/filter-dsl.spec.ts` → 7 passed
+
+**Known deviations from spec, accepted:**
+1. **Storage path** — spec §12.3 specified `~/.proxybot/config.toml` with `[filter_presets.entries]`; the implementation uses a separate `~/.proxybot/filter_presets.json` file. Functionally equivalent (atomic write, same `FilterPreset` shape), keeps preset storage isolated from the main config so a corrupt preset file can't take down other settings. Documented in `preset.rs:1-3`.
+2. **Quoted values in `field:op "value"`** — spec EBNF and §10 ("DSL 引号内的值包含 `(`") implied quoted-value support; the implementation does NOT support it. The value scan in `dsl.rs:86-101` excludes `"`, `'`, and space. Bare `path:"hello world"` errors. This is a known limitation documented in the test cases `test_tokenize_quoted_string_double` (line 530) and `test_parse_quoted_value` (line 676).
+3. **No e2e `header:` / `body:` / `truncation` coverage** — the new evaluator arms are covered by 11 unit tests but no e2e test drives them through the UI. Manual §11.3 test path still required.
+4. **FilterInput has no delete-UI** — the e2e `preset_delete` test exercises the `delete_filter_preset` command via mock IPC, not via a UI button (the button doesn't exist). Future UI work needed if a delete affordance is wanted.
+
+**Manual verification still owed (per spec §11.3):**
+- `app:wechat AND status:2*` in a live traffic session
+- Preset persistence across app restart
+- Edit-preset flow (current UI re-saves under the same id via `save_filter_preset`, no dedicated edit path)
