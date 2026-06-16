@@ -97,7 +97,7 @@ pub struct SpecResult {
 pub enum SpecSource {
     Llm,        // 全部由 DeepSeek 生成
     Heuristic,  // 全部由 extract 启发式生成（LLM 不可用时降级）
-    Hybrid,     // LLM + extract 混合（部分接口 LLM 失败时回退启发式）
+    Hybrid,     // LLM + extract 混合（LLM 失败或产出不完整时，extract 补偿缺失路径）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -376,7 +376,7 @@ error = actual.is_none()  // 网络/超时/解析失败
 
 ### 7.1 位置
 
-`src/components/ai/SpecGenPanel.tsx`，挂在 `ApiInferenceTab.tsx` 内部（折叠展开）
+`src/components/ai/SpecGenPanel.tsx`，作为 AI 页面的第 5 个标签 "Spec Gen"（非嵌套在 Inference 标签内部），与 Token Usage、API Inference、Auth Flow、Vision 平级
 
 ### 7.2 布局（sniffnet Inspect 页模式）
 
@@ -437,7 +437,7 @@ error = actual.is_none()  // 网络/超时/解析失败
 | 流量为空 | 立即返回 `SpecError::EmptySession` | "当前 session 没有流量" |
 | Mock 启动失败 | 重放验证显示 error，不影响 spec 本身 | 重放报告区显示错误 |
 | 重放时网络错误 | 单条标记 fail/error，统计 error 数 | 重放报告中 `error` 列 |
-| API key 缺失 | 启动时检测，UI 提示用户配置 | 阻塞生成按钮，弹配置对话框 |
+| API key 缺失 | 用户首次点击"生成"按钮时检测，missing 则弹配置对话框 | 阻塞生成按钮，弹配置对话框 |
 
 ---
 
@@ -456,11 +456,11 @@ error = actual.is_none()  // 网络/超时/解析失败
 
 ### 9.1 Fixture 测试数据
 
-- `test/fixtures/specgen/wechat-session.json` — 50 个微信 API 请求
-- `test/fixtures/specgen/ws-chat-session.json` — 30 个 WS 帧
-- `test/fixtures/specgen/sse-feed-session.json` — 20 个 SSE 事件
-- `test/fixtures/specgen/expected-openapi.yaml` — golden file
-- `test/fixtures/specgen/expected-asyncapi.yaml` — golden file
+- `proxybot-core/tests/fixtures/specgen/wechat-session.json` — 50 个微信 API 请求
+- `proxybot-core/tests/fixtures/specgen/ws-chat-session.json` — 30 个 WS 帧
+- `proxybot-core/tests/fixtures/specgen/sse-feed-session.json` — 20 个 SSE 事件
+- `proxybot-core/tests/fixtures/specgen/expected-openapi.yaml` — golden file
+- `proxybot-core/tests/fixtures/specgen/expected-asyncapi.yaml` — golden file
 
 ### 9.2 Mock DeepSeek Server
 
