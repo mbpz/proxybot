@@ -93,6 +93,31 @@ pub struct SpecResult {
     pub source: SpecSource,  // Llm | Heuristic | Hybrid
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum SpecSource {
+    Llm,        // 全部由 DeepSeek 生成
+    Heuristic,  // 全部由 extract 启发式生成（LLM 不可用时降级）
+    Hybrid,     // LLM + extract 混合（部分接口 LLM 失败时回退启发式）
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverageReport {
+    pub total_requests: usize,           // 流量记录总数
+    pub covered_in_openapi: usize,       // 出现在 openapi paths 中的请求数
+    pub covered_in_asyncapi: usize,      // 出现在 asyncapi channels 中的请求数
+    pub uncovered_paths: Vec<String>,    // 未覆盖的 path + method
+    pub coverage_rate: f32,              // (openapi+asyncapi) / total
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecConfig {
+    pub deepseek_api_key: Option<String>,    // None → 从 env 读
+    pub max_traffic_records: usize,          // 默认 50
+    pub max_retry: u32,                      // 默认 2
+    pub enable_replay_validation: bool,      // 默认 true
+    pub mock_port: Option<u16>,              // None → 随机
+}
+
 // 公共入口
 pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecResult, SpecError>;
 
