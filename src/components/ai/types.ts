@@ -52,3 +52,49 @@ export interface VisionComponent {
   position: { x: number; y: number; width: number; height: number };
   children: VisionComponent[];
 }
+
+export type SpecSource = "Llm" | "Heuristic" | "Hybrid";
+
+export type SpecKind = "OpenApi" | "AsyncApi";
+
+export interface SpecOutput {
+  OpenApi?: string;
+  AsyncApi?: string;
+}
+
+export interface CoverageReport {
+  total_requests: number;
+  covered_in_openapi: number;
+  covered_in_asyncapi: number;
+  uncovered_paths: string[];
+  coverage_rate: number;
+}
+
+export interface ReplayFailure {
+  path: string;
+  method: string;
+  expected_status: number;
+  actual_status: number;
+  body_diff_summary: string | null;
+}
+
+export interface ReplayReport {
+  total: number;
+  pass: number;
+  fail: number;
+  error: number;
+  pass_rate: number;
+  failures: ReplayFailure[];
+  started_at: string;
+  finished_at: string;
+  mock_port: number;
+}
+
+export interface SpecResult {
+  openapi: SpecOutput | null;
+  asyncapi: SpecOutput | null;
+  coverage: CoverageReport;
+  replay: ReplayReport | null;
+  generated_at: string;
+  source: SpecSource;
+}
