@@ -73,8 +73,8 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
     if (!result?.openapi?.OpenApi) return;
     try {
       await navigator.clipboard.writeText(result.openapi.OpenApi);
-    } catch {
-      onError("Copy failed — clipboard access denied");
+    } catch (err) {
+      onError(`Copy failed: ${err}`);
     }
   }
 
