@@ -41,7 +41,11 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
 
   async function copyYaml() {
     if (!result?.openapi?.OpenApi) return;
-    await navigator.clipboard.writeText(result.openapi.OpenApi);
+    try {
+      await navigator.clipboard.writeText(result.openapi.OpenApi);
+    } catch {
+      onError("Copy failed — clipboard access denied");
+    }
   }
 
   async function download() {

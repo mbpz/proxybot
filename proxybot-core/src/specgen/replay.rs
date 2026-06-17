@@ -45,16 +45,29 @@ pub async fn run_replay(
         .map_err(|e| SpecError::ReplayFailed(e.to_string()))?;
 
     let mut routes = HashMap::new();
-    // Seed mock routes from the first example per (method, template).
+    // Seed mock routes from examples + response body schemas in the spec.
     let doc: serde_yaml::Value = serde_yaml::from_str(openapi_yaml)
         .map_err(|e| SpecError::ReplayFailed(e.to_string()))?;
-    if let Some(paths) = doc.get("paths").and_then(|p| p.as_mapping()) {
+    // Convert YAML value tree → JSON value tree for consistent access
+    let json_doc: serde_json::Value =
+        serde_json::to_value(&doc).map_err(|e| SpecError::ReplayFailed(e.to_string()))?;
+    if let Some(paths) = json_doc.get("paths").and_then(|p| p.as_object()) {
         for (tpl_key, item) in paths {
-            let tpl = tpl_key.as_str().unwrap_or("").to_string();
-            for (m, _op) in item.as_mapping().into_iter().flatten() {
-                let method = m.as_str().unwrap_or("").to_uppercase();
+            let tpl = tpl_key.clone();
+            for (m, op_val) in item.as_object().into_iter().flatten() {
+                let method = m.to_uppercase();
                 let key = format!("{} {}", method, tpl.trim_start_matches('/'));
-                routes.insert(key, serde_json::json!({}));
+
+                let example_body = extract_example(op_val);
+                let status_code = extract_status(op_val, records, &tpl, &method);
+
+                routes.insert(
+                    key,
+                    MockRoute {
+                        body: example_body,
+                        status: status_code,
+                    },
+                );
             }
         }
     }
@@ -168,6 +181,81 @@ fn shallow_eq(a: &Value, b: &Value) -> bool {
     }
 }
 
+/// Extract the first example body from an OpenAPI operation value.
+fn extract_example(op_val: &serde_json::Value) -> serde_json::Value {
+    if let Some(responses) = op_val.get("responses") {
+        // Try 200, 201, then first available status
+        for code in &["200", "201"] {
+            if let Some(example) = extract_from_response(responses, code) {
+                return example;
+            }
+        }
+        // Fallback: first response
+        if let Some(first) = responses.as_object().and_then(|r| r.values().next()) {
+            if let Some(example) = extract_from_response_val(first) {
+                return example;
+            }
+        }
+    }
+    serde_json::json!({})
+}
+
+fn extract_from_response(responses: &serde_json::Value, code: &str) -> Option<serde_json::Value> {
+    responses.get(code).and_then(extract_from_response_val)
+}
+
+fn extract_from_response_val(resp: &serde_json::Value) -> Option<serde_json::Value> {
+    // Try: content → application/json → examples → first → value
+    if let Some(example) = resp
+        .pointer("/content/application~1json/examples")
+        .and_then(|ex| ex.as_object())
+        .and_then(|ex| ex.values().next())
+        .and_then(|v| v.get("value"))
+    {
+        return Some(example.clone());
+    }
+    // Try: content → application/json → example
+    if let Some(example) = resp.pointer("/content/application~1json/example") {
+        return Some(example.clone());
+    }
+    // Try: content → application/json → schema → example
+    if let Some(example) = resp.pointer("/content/application~1json/schema/example") {
+        return Some(example.clone());
+    }
+    None
+}
+
+/// Extract the expected status code from an OpenAPI operation.
+/// Falls back to matching recorded responses for the same path+method template.
+fn extract_status(
+    op_val: &serde_json::Value,
+    records: &[crate::specgen::TrafficRecord],
+    tpl: &str,
+    method: &str,
+) -> u16 {
+    // Try to find a matching recorded response
+    for r in records {
+        if r.method.eq_ignore_ascii_case(method) {
+            let r_tpl = crate::specgen::extract::template_path(&r.path).template;
+            if r_tpl.trim_start_matches('/') == tpl.trim_start_matches('/') {
+                return r.response_status;
+            }
+        }
+    }
+    // Fallback: try to read from spec responses
+    if let Some(responses) = op_val.get("responses") {
+        if let Some(code) = responses.get("200").or(responses.get("201")) {
+            return 200;
+        }
+        if let Some(first_key) = responses.as_object().and_then(|r| r.keys().next()) {
+            if let Ok(c) = first_key.parse::<u16>() {
+                return c;
+            }
+        }
+    }
+    200
+}
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -178,9 +266,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// A mock route with its expected response body and status code.
+#[derive(Clone, Debug)]
+pub struct MockRoute {
+    pub body: serde_json::Value,
+    pub status: u16,
+}
+
 #[derive(Clone, Default)]
 pub struct MockState {
-    pub routes: Arc<Mutex<HashMap<String, Value>>>,
+    pub routes: Arc<Mutex<HashMap<String, MockRoute>>>,
 }
 
 pub fn build_mock_router(state: MockState) -> Router {
@@ -201,8 +296,9 @@ async fn echo_path(
 ) -> impl IntoResponse {
     let key = format!("{} /{}", method.as_str(), path);
     let routes = state.routes.lock().await;
-    if let Some(v) = routes.get(&key) {
-        return (StatusCode::OK, Json(v.clone())).into_response();
+    if let Some(route) = routes.get(&key) {
+        let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::OK);
+        return (status, Json(route.body.clone())).into_response();
     }
     (StatusCode::OK, Json(serde_json::json!({ "echoed_path": path }))).into_response()
 }

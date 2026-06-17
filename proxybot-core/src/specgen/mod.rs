@@ -243,20 +243,23 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
 const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
 
 fn build_user_payload(req: &SpecRequest) -> String {
-    let simplified: Vec<serde_json::Value> = req
-        .traffic_records
-        .iter()
-        .take(50)
-        .map(|r| {
+    let mut payload = serde_json::json!({
+        "traffic": req.traffic_records.iter().take(50).map(|r| {
             serde_json::json!({
                 "method": r.method,
                 "path": r.path,
                 "host": r.host,
                 "status": r.response_status,
             })
-        })
-        .collect();
-    serde_json::to_string(&simplified).unwrap_or_default()
+        }).collect::<Vec<_>>(),
+    });
+
+    // Include inferred semantics when available
+    if let Some(ref inferred) = req.inferred {
+        payload["inferred"] = serde_json::json!(inferred.interfaces);
+    }
+
+    serde_json::to_string(&payload).unwrap_or_default()
 }
 
 fn render_paths_as_openapi(paths_map: &serde_json::Value, session_id: &str) -> String {
@@ -268,10 +271,11 @@ fn render_paths_as_openapi(paths_map: &serde_json::Value, session_id: &str) -> S
             typed.insert(k.clone(), item);
         }
     }
-    render::render_openapi(
+    render::render_openapi_with_source(
         &format!("ProxyBot spec for {session_id}"),
         "https://api.example.com",
         typed,
+        "llm",
     )
 }
 
