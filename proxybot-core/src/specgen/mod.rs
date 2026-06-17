@@ -12,4 +12,5 @@ pub mod render;
 pub mod replay;
 pub mod validate;
 
+pub use config::SpecConfig;
 pub use error::SpecError;
