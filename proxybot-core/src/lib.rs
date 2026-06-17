@@ -35,6 +35,7 @@ pub mod dns_state;
 pub mod fingerprint;
 pub mod proxy_engine;
 pub mod rules_engine;
+pub mod specgen;
 pub mod types;
 
 // Re-export key types for convenience
