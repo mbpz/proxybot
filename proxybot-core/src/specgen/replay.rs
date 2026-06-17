@@ -263,7 +263,7 @@ fn extract_status(
     }
     // Fallback: try to read from spec responses
     if let Some(responses) = op_val.get("responses") {
-        if let Some(code) = responses.get("200").or(responses.get("201")) {
+        if responses.get("200").or(responses.get("201")).is_some() {
             return 200;
         }
         if let Some(first_key) = responses.as_object().and_then(|r| r.keys().next()) {
