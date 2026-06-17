@@ -1,7 +1,7 @@
 # OpenAPI/AsyncAPI Spec Generation — Design
 
 **Date:** 2026-06-16
-**Status:** Draft → Spec self-review pending
+**Status:** Implemented 2026-06-17 (per plan `docs/superpowers/plans/2026-06-16-openapi-asyncapi-generation.md`)
 **PRD Reference:** `tasks/prd-netmind-agent.md` FR-23 + SM-4
 **Author:** Three-Man Team (Arch / Bob / Richard)
 
@@ -524,5 +524,27 @@ error = actual.is_none()  // 网络/超时/解析失败
 5. **Step 5**: Tauri commands 暴露
 6. **Step 6**: `SpecGenPanel.tsx` UI 实现
 7. **Step 7**: E2E + 性能基准
+
+---
+
+## Self-Review Notes (2026-06-17)
+
+**Implementation status:** All 21 tasks completed in one Subagent-Driven Development cycle.
+
+**Tasks completed:**
+- Tasks 1-15: Rust `specgen` module skeleton, types, LLM client, mock server, replay engine, lib.rs re-exports
+- Task 16: Tauri commands (created `src-tauri/src/commands/specgen.rs` and `src-tauri/src/state.rs` from scratch)
+- Tasks 17-19: TypeScript types, SpecGenPanel component, mounted in ApiInferenceTab
+- Task 20: Fixture data + Playwright E2E test
+- Task 21: This entry
+
+**Test counts:** 89 unit tests passing in `proxybot-core`. Playwright E2E not run (requires dev server with seeded session).
+
+**Known limitations:**
+- `trafficRecords={[]}` in mounted SpecGenPanel (Task 19) — needs a follow-up `get_traffic_records` Tauri command to feed real records
+- AsyncAPI is heuristic-only (spec §4.4 noted this as future work)
+- Plan bugs caught and fixed by implementer subagents: rust 2021 prefix-literal conflict in raw strings, borrow-checker issue in `build_spec_heuristic`, `*tt.starts_with` deref-of-bool bug, missing `time` tokio feature in dev-deps
+
+**Reviewers:** Arch (design) / Bob (implementation via subagents) / Richard (review) — sign-off on the spec is recorded in commit history.
 
 每个 Step 由 Bob 实现，Richard review，Arch 验收。
