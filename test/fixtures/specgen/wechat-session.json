@@ -1,0 +1,9 @@
+{
+  "session_id": "wechat-2026-06-17",
+  "traffic_records": [
+    { "method": "GET",  "path": "/api/v3/user/profile",     "host": "api.weixin.qq.com",   "response_status": 200, "response_body": "{\"nickname\":\"张三\"}", "kind": "Http" },
+    { "method": "GET",  "path": "/api/v3/user/profile/42",  "host": "api.weixin.qq.com",   "response_status": 200, "response_body": "{\"nickname\":\"李四\"}", "kind": "Http" },
+    { "method": "POST", "path": "/api/v3/feed/list",        "host": "api.weixin.qq.com",   "response_status": 200, "response_body": "{\"items\":[]}",       "kind": "Http" },
+    { "method": "GET",  "path": "/ws/chat",                 "host": "longlink.weixin.qq.com", "response_status": 200, "response_body": "{\"type\":\"text\"}", "kind": "WebSocket" }
+  ]
+}
