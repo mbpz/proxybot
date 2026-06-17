@@ -12,6 +12,8 @@ pub mod render;
 pub mod replay;
 pub mod validate;
 
+use crate::specgen::llm::DeepSeekClient;
+use crate::specgen::validate::validate_paths_object;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -169,6 +171,109 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         generated_at: Utc::now(),
         source: SpecSource::Heuristic,
     })
+}
+
+/// End-to-end orchestrator. Calls DeepSeek for OpenAPI in sequence,
+/// validates responses, renders YAML, then optionally runs replay.
+pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecResult, SpecError> {
+    if req.traffic_records.is_empty() {
+        return Err(SpecError::EmptySession);
+    }
+
+    // Try LLM path; fall back to heuristic.
+    let api_key = config
+        .deepseek_api_key
+        .clone()
+        .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok())
+        .ok_or_else(|| SpecError::LlmUnavailable("DEEPSEEK_API_KEY not set".into()))?;
+
+    let client = DeepSeekClient::new(api_key);
+    let schema = serde_json::json!({
+        "type": "object",
+        "required": ["paths"],
+        "properties": {
+            "paths": { "type": "object", "additionalProperties": true }
+        }
+    });
+
+    let user_payload = build_user_payload(&req);
+    let llm_attempt = client
+        .call_with_schema(SYSTEM_PROMPT, &user_payload, &schema, config.max_retry)
+        .await;
+
+    let (openapi_yaml, source) = match llm_attempt {
+        Ok(v) => match validate_paths_object(&v) {
+            Ok(()) => {
+                let paths_map = v.get("paths").cloned().unwrap_or(serde_json::json!({}));
+                let rendered = render_paths_as_openapi(&paths_map, &req.session_id);
+                (rendered, SpecSource::Llm)
+            }
+            Err(_) => {
+                let r = build_spec_heuristic(&req)?;
+                (extract_openapi_yaml(&r), r.source)
+            }
+        },
+        Err(_) => {
+            let r = build_spec_heuristic(&req)?;
+            (extract_openapi_yaml(&r), r.source)
+        }
+    };
+
+    // AsyncAPI is always heuristic for now (LLM call is future work).
+    let mut result = build_spec_heuristic(&req)?;
+    result.source = source;
+    result.openapi = Some(SpecOutput::OpenApi(openapi_yaml));
+
+    if config.enable_replay_validation {
+        if let Some(SpecOutput::OpenApi(ref yaml)) = result.openapi {
+            let replay = replay::run_replay(yaml, &req.traffic_records, config.mock_port).await?;
+            result.replay = Some(replay);
+        }
+    }
+
+    Ok(result)
+}
+
+const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
+
+fn build_user_payload(req: &SpecRequest) -> String {
+    let simplified: Vec<serde_json::Value> = req
+        .traffic_records
+        .iter()
+        .take(50)
+        .map(|r| {
+            serde_json::json!({
+                "method": r.method,
+                "path": r.path,
+                "host": r.host,
+                "status": r.response_status,
+            })
+        })
+        .collect();
+    serde_json::to_string(&simplified).unwrap_or_default()
+}
+
+fn render_paths_as_openapi(paths_map: &serde_json::Value, session_id: &str) -> String {
+    use std::collections::BTreeMap;
+    let mut typed: BTreeMap<String, render::OpenApiPathItem> = BTreeMap::new();
+    if let Some(obj) = paths_map.as_object() {
+        for (k, v) in obj {
+            let item: render::OpenApiPathItem = serde_json::from_value(v.clone()).unwrap_or_default();
+            typed.insert(k.clone(), item);
+        }
+    }
+    render::render_openapi(
+        &format!("ProxyBot spec for {session_id}"),
+        "https://api.example.com",
+        typed,
+    )
+}
+
+fn extract_openapi_yaml(r: &SpecResult) -> String {
+    match r.openapi.as_ref() {
+        Some(SpecOutput::OpenApi(s)) => s.clone(),
+        _ => String::new(),
+    }
 }
 
 impl TrafficRecord {
