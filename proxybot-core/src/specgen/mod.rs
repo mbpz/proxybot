@@ -15,3 +15,4 @@ pub mod validate;
 pub use config::SpecConfig;
 pub use coverage::{CoverageReport, SpecSource};
 pub use error::SpecError;
+pub use extract::PathTemplate;
