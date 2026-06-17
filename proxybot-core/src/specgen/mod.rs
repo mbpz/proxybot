@@ -319,25 +319,28 @@ fn merge_paths(
     }
 }
 
-const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
+const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录和（可选的）已推断的接口语义，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n\n如果用户提供了 `inferred` 字段，优先采用其中的接口名、operationId 和 tags，不要自己重新命名。\n\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
 
 fn build_user_payload(req: &SpecRequest) -> String {
-    let mut payload = serde_json::json!({
-        "traffic": req.traffic_records.iter().take(50).map(|r| {
+    let mut payload = serde_json::Map::new();
+    payload.insert("session_id".into(), serde_json::json!(req.session_id));
+    if let Some(inferred) = &req.inferred {
+        payload.insert("inferred".into(), serde_json::json!(inferred.interfaces));
+    }
+    let simplified: Vec<serde_json::Value> = req
+        .traffic_records
+        .iter()
+        .take(50)
+        .map(|r| {
             serde_json::json!({
                 "method": r.method,
                 "path": r.path,
                 "host": r.host,
                 "status": r.response_status,
             })
-        }).collect::<Vec<_>>(),
-    });
-
-    // Include inferred semantics when available
-    if let Some(ref inferred) = req.inferred {
-        payload["inferred"] = serde_json::json!(inferred.interfaces);
-    }
-
+        })
+        .collect();
+    payload.insert("traffic".into(), serde_json::json!(simplified));
     serde_json::to_string(&payload).unwrap_or_default()
 }
 
@@ -431,5 +434,46 @@ mod tests {
         };
         let r = build_spec_heuristic(&req).unwrap();
         assert!(r.asyncapi.is_some());
+    }
+
+    #[test]
+    fn user_payload_includes_inferred_semantics() {
+        let inferred = InferredSemantics {
+            interfaces: vec![serde_json::json!({
+                "name": "userProfile",
+                "method": "GET",
+                "path": "/api/v3/user/profile",
+            })],
+        };
+        let req = SpecRequest {
+            session_id: "session-xyz".into(),
+            traffic_records: vec![rec("GET", "/api/v3/user/profile", TrafficKind::Http)],
+            inferred: Some(inferred),
+        };
+
+        let payload = build_user_payload(&req);
+        assert!(
+            payload.contains("\"inferred\""),
+            "payload missing inferred key: {payload}"
+        );
+        assert!(
+            payload.contains("userProfile"),
+            "payload missing inferred interface name: {payload}"
+        );
+        assert!(
+            payload.contains("session-xyz"),
+            "payload missing session_id: {payload}"
+        );
+
+        // Without inferred, the key should be absent.
+        let req_none = SpecRequest {
+            inferred: None,
+            ..req
+        };
+        let payload_none = build_user_payload(&req_none);
+        assert!(
+            !payload_none.contains("\"inferred\""),
+            "payload should not include inferred key when None: {payload_none}"
+        );
     }
 }
