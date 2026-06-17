@@ -9,5 +9,6 @@ pub mod filter;
 pub mod graph;
 pub mod network_conditions;
 pub mod replay;
+pub mod specgen;
 pub mod ssl_bypass;
 pub mod ws_frames;

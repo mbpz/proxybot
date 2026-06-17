@@ -44,6 +44,7 @@ pub mod rules;
 pub mod scaffoldgen;
 pub mod scripting;
 pub mod ssl_bypass;
+pub mod state;
 pub mod state_machine;
 pub mod topology;
 pub mod transport;
@@ -119,6 +120,7 @@ pub fn run() {
     let network_conditions_engine = Arc::new(crate::network::NetworkConditionEngine::new());
     let network_conditions_state =
         commands::network_conditions::NetworkConditionsState(network_conditions_engine);
+    let app_state = Arc::new(crate::state::AppState::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -135,6 +137,7 @@ pub fn run() {
         .manage(dashboard_server.clone())
         .manage(frida_state)
         .manage(network_conditions_state)
+        .manage(app_state)
         .setup(move |app| {
             // Start file watcher in a dedicated thread with its own Tokio runtime
             // (notify's internal thread outlives the app's runtime)
@@ -378,6 +381,11 @@ pub fn run() {
             commands::network_conditions::add_condition_rule,
             commands::network_conditions::remove_condition_rule,
             commands::network_conditions::list_condition_rules,
+            commands::specgen::generate_spec,
+            commands::specgen::export_spec,
+            commands::specgen::run_replay_validation,
+            commands::specgen::update_specgen_config,
+            commands::specgen::get_specgen_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
