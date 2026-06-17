@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { SpecGenPanel } from "./SpecGenPanel";
-import type { InferredApi, TrafficRecord } from "./types";
+import type { InferredApi } from "./types";
 
 export function ApiInferenceTab() {
   const [sessionId, setSessionId] = useState("");
@@ -201,7 +201,6 @@ export function ApiInferenceTab() {
 
       <SpecGenPanel
         sessionId={sessionId}
-        trafficRecords={[] as TrafficRecord[]}
         onError={setError}
       />
     </div>

@@ -16,10 +16,11 @@
 use tauri::State;
 
 use proxybot_core::{
-    build_spec, SpecConfig, SpecOutput, SpecRequest, SpecResult, TrafficRecord,
+    build_spec, SpecConfig, SpecOutput, SpecRequest, SpecResult, TrafficKind, TrafficRecord,
 };
 
 use crate::state::AppState;
+use crate::db::DbState;
 
 use proxybot_core::specgen::replay::run_replay as core_run_replay;
 use proxybot_core::ReplayReport;
@@ -137,6 +138,108 @@ pub fn get_specgen_config(
     Ok(state.specgen_config_snapshot())
 }
 
+/// Load captured traffic records for a given session from the SQLite
+/// `http_requests` table. Used by the SpecGenPanel to fetch the records
+/// it should hand to [`generate_spec`] / [`run_replay_validation`]
+/// without requiring the UI to pipe them through itself.
+///
+/// `session_id` matches the `session_id` column added by DB migration
+/// `v5` (see `src-tauri/src/db.rs`). Records that were never tagged
+/// with a session (column NULL) are returned when the caller asks for
+/// the empty-string session `""`.
+///
+/// The query is bounded by a sensible cap (500) so the UI can't
+/// accidentally request an unbounded blob from the database.
+#[tauri::command]
+pub fn get_traffic_records(
+    state: State<'_, DbState>,
+    session_id: String,
+) -> Result<Vec<TrafficRecord>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let limit: i64 = 500;
+
+    // For an empty session_id we surface untagged records; otherwise
+    // we filter by exact match. Index `idx_http_requests_session_id`
+    // (added in migration 5) covers the typical case.
+    let sql = if session_id.is_empty() {
+        r#"SELECT timestamp, method, host, path, req_body, resp_status, resp_body, is_websocket
+           FROM http_requests
+           WHERE session_id IS NULL OR session_id = ''
+           ORDER BY id ASC
+           LIMIT ?1"#
+    } else {
+        r#"SELECT timestamp, method, host, path, req_body, resp_status, resp_body, is_websocket
+           FROM http_requests
+           WHERE session_id = ?1
+           ORDER BY id ASC
+           LIMIT ?2"#
+    };
+
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+
+    let row_to_record = |row: &rusqlite::Row<'_>| -> rusqlite::Result<TrafficRecord> {
+        let timestamp_str: String = row.get(0)?;
+        let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .or_else(|_| {
+                // Fall back to SQLite's "YYYY-MM-DD HH:MM:SS" format used
+                // by `timestamp_now_for_ws` and most older rows.
+                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
+                    .map(|ndt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc))
+            })
+            .unwrap_or_else(|_| chrono::Utc::now());
+
+        let req_body: Option<Vec<u8>> = row.get(4)?;
+        let resp_body: Option<Vec<u8>> = row.get(6)?;
+        let is_websocket: i64 = row.get(7)?;
+
+        Ok(TrafficRecord {
+            method: row.get::<_, String>(1)?.to_uppercase(),
+            path: row.get::<_, String>(3)?,
+            host: row.get::<_, String>(2)?,
+            request_body: req_body.and_then(|b| decode_body(&b)),
+            response_status: row.get::<_, Option<i64>>(5)?.map(|s| s as u16).unwrap_or(0),
+            response_body: resp_body.and_then(|b| decode_body(&b)),
+            timestamp,
+            kind: if is_websocket != 0 {
+                TrafficKind::WebSocket
+            } else {
+                TrafficKind::Http
+            },
+        })
+    };
+
+    let rows = if session_id.is_empty() {
+        stmt.query_map([limit], row_to_record)
+    } else {
+        stmt.query_map(rusqlite::params![session_id, limit], row_to_record)
+    }
+    .map_err(|e| e.to_string())?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        match row {
+            Ok(r) => out.push(r),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+
+    Ok(out)
+}
+
+/// Decode a stored request/response body into a UTF-8 string when
+/// possible. Binary bodies come back as `None`; the spec generator
+/// handles `None` gracefully (it only inspects JSON-ish payloads).
+fn decode_body(bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => Some(s.to_string()),
+        Err(_) => Some(format!("[binary {} bytes]", bytes.len())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +290,16 @@ mod tests {
         let bytes = std::fs::read(&path).unwrap();
         let back: SpecResult = serde_json::from_slice(&bytes).unwrap();
         assert!(back.openapi.is_some());
+    }
+
+    /// Body decoder: UTF-8 round-trips, empty bytes are None, binary
+    /// blobs come back as a size-tagged placeholder.
+    #[test]
+    fn decode_body_handles_utf8_empty_and_binary() {
+        assert_eq!(decode_body(b""), None);
+        assert_eq!(decode_body(b"hello"), Some("hello".to_string()));
+        let binary = vec![0xff, 0xfe, 0xfd];
+        let decoded = decode_body(&binary).unwrap();
+        assert!(decoded.contains("3 bytes"), "got {decoded}");
     }
 }

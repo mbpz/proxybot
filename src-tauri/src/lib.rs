@@ -386,6 +386,7 @@ pub fn run() {
             commands::specgen::run_replay_validation,
             commands::specgen::update_specgen_config,
             commands::specgen::get_specgen_config,
+            commands::specgen::get_traffic_records,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

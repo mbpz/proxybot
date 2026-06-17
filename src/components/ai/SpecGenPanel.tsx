@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
@@ -6,7 +6,7 @@ import type { SpecResult, TrafficRecord, ReplayReport } from "./types";
 
 interface Props {
   sessionId: string;
-  trafficRecords: TrafficRecord[];
+  trafficRecords?: TrafficRecord[];
   onError: (msg: string) => void;
 }
 
@@ -16,6 +16,36 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [replay, setReplay] = useState<ReplayReport | null>(null);
   const [replayLoading, setReplayLoading] = useState(false);
+  const [records, setRecords] = useState<TrafficRecord[]>(trafficRecords ?? []);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+
+  // Load captured traffic for this session from the Rust side. We
+  // skip the fetch when the parent passed records in via props, so
+  // tests / fixtures can drive the component directly.
+  useEffect(() => {
+    if (!sessionId) return;
+    if (trafficRecords !== undefined) {
+      setRecords(trafficRecords);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setRecordsLoading(true);
+        const recs = await invoke<TrafficRecord[]>("get_traffic_records", {
+          sessionId,
+        });
+        if (!cancelled) setRecords(recs);
+      } catch (err) {
+        if (!cancelled) onError(String(err));
+      } finally {
+        if (!cancelled) setRecordsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, trafficRecords, onError]);
 
   async function generate() {
     if (!sessionId) {
@@ -28,7 +58,7 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
       setReplay(null);
       const r = await invoke<SpecResult>("generate_spec", {
         sessionId,
-        trafficRecords,
+        trafficRecords: records,
       });
       setResult(r);
       setReplay(r.replay);
@@ -64,7 +94,7 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
       setReplayLoading(true);
       const r = await invoke<ReplayReport>("run_replay_validation", {
         sessionId,
-        trafficRecords,
+        trafficRecords: records,
       });
       setReplay(r);
     } catch (err) {
@@ -85,6 +115,11 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-base font-semibold">OpenAPI / AsyncAPI 生成</h3>
         {result && <Badge variant={sourceBadge as any}>{result.source}</Badge>}
+        <span className="text-xs text-text-muted">
+          {recordsLoading
+            ? "正在加载流量记录..."
+            : `流量记录: ${records.length}`}
+        </span>
       </div>
       <div className="flex gap-2 mb-4">
         <Button onClick={generate} disabled={loading}>
