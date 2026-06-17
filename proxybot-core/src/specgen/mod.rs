@@ -130,6 +130,7 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         &format!("ProxyBot spec for {}", req.session_id),
         "https://api.example.com",
         paths,
+        SpecSource::Heuristic,
     );
 
     // --- AsyncAPI ---
@@ -210,9 +211,22 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
     let (openapi_yaml, source) = match llm_attempt {
         Ok(v) => match validate_paths_object(&v) {
             Ok(()) => {
-                let paths_map = v.get("paths").cloned().unwrap_or(serde_json::json!({}));
-                let rendered = render_paths_as_openapi(&paths_map, &req.session_id);
-                (rendered, SpecSource::Llm)
+                // LLM succeeded. Also run heuristic, then merge: LLM paths win,
+                // heuristic fills in any (method, template) the LLM missed.
+                let llm_paths_map = v.get("paths").cloned().unwrap_or(serde_json::json!({}));
+                let heuristic = build_spec_heuristic(&req)?;
+                let merged_map = merge_paths(&llm_paths_map, &heuristic);
+                let label = if merged_map.used_heuristic {
+                    SpecSource::Hybrid
+                } else {
+                    SpecSource::Llm
+                };
+                let rendered = render_paths_as_openapi(
+                    &merged_map.paths,
+                    &req.session_id,
+                    label,
+                );
+                (rendered, label)
             }
             Err(_) => {
                 let r = build_spec_heuristic(&req)?;
@@ -240,6 +254,71 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
     Ok(result)
 }
 
+/// Result of merging LLM-emitted paths with heuristic paths.
+struct MergedPaths {
+    /// JSON value shaped like `{ "<path>": { <path item> }, ... }`, suitable
+    /// for `render_paths_as_openapi`.
+    paths: serde_json::Value,
+    /// True if any path was filled in from the heuristic because the LLM
+    /// didn't include it. Used to decide between `SpecSource::Llm` and
+    /// `SpecSource::Hybrid`.
+    used_heuristic: bool,
+}
+
+/// Merge LLM paths with heuristic paths. LLM paths take precedence. Heuristic
+/// fills in any path template the LLM missed.
+fn merge_paths(
+    llm_paths: &serde_json::Value,
+    heuristic: &SpecResult,
+) -> MergedPaths {
+    use std::collections::BTreeMap;
+    // Convert the LLM's "paths" object into typed path items.
+    let mut typed: BTreeMap<String, render::OpenApiPathItem> = BTreeMap::new();
+    if let Some(obj) = llm_paths.as_object() {
+        for (k, v) in obj {
+            let item: render::OpenApiPathItem =
+                serde_json::from_value(v.clone()).unwrap_or_default();
+            typed.insert(k.clone(), item);
+        }
+    }
+    // Pull heuristic paths from the heuristic SpecResult.
+    let heuristic_paths = match heuristic.openapi.as_ref() {
+        Some(SpecOutput::OpenApi(yaml)) => {
+            // Re-parse the heuristic YAML to recover the typed path items.
+            let doc: serde_json::Value =
+                serde_json::to_value(serde_yaml::from_str::<serde_yaml::Value>(yaml).ok())
+                    .unwrap_or(serde_json::json!({}));
+            doc.get("paths").cloned().unwrap_or(serde_json::json!({}))
+        }
+        _ => serde_json::json!({}),
+    };
+
+    let mut used_heuristic = false;
+    if let Some(obj) = heuristic_paths.as_object() {
+        for (k, v) in obj {
+            if !typed.contains_key(k) {
+                let item: render::OpenApiPathItem =
+                    serde_json::from_value(v.clone()).unwrap_or_default();
+                typed.insert(k.clone(), item);
+                used_heuristic = true;
+            }
+        }
+    }
+
+    // Re-emit as a JSON object shaped like the LLM's paths input.
+    let mut out = serde_json::Map::new();
+    for (k, v) in &typed {
+        out.insert(
+            k.clone(),
+            serde_json::to_value(v).unwrap_or(serde_json::json!({})),
+        );
+    }
+    MergedPaths {
+        paths: serde_json::Value::Object(out),
+        used_heuristic,
+    }
+}
+
 const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
 
 fn build_user_payload(req: &SpecRequest) -> String {
@@ -262,7 +341,11 @@ fn build_user_payload(req: &SpecRequest) -> String {
     serde_json::to_string(&payload).unwrap_or_default()
 }
 
-fn render_paths_as_openapi(paths_map: &serde_json::Value, session_id: &str) -> String {
+fn render_paths_as_openapi(
+    paths_map: &serde_json::Value,
+    session_id: &str,
+    source: SpecSource,
+) -> String {
     use std::collections::BTreeMap;
     let mut typed: BTreeMap<String, render::OpenApiPathItem> = BTreeMap::new();
     if let Some(obj) = paths_map.as_object() {
@@ -271,11 +354,11 @@ fn render_paths_as_openapi(paths_map: &serde_json::Value, session_id: &str) -> S
             typed.insert(k.clone(), item);
         }
     }
-    render::render_openapi_with_source(
+    render::render_openapi(
         &format!("ProxyBot spec for {session_id}"),
         "https://api.example.com",
         typed,
-        "llm",
+        source,
     )
 }
 

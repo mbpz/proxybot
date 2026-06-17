@@ -31,8 +31,6 @@ pub async fn run_replay(
     records: &[crate::specgen::TrafficRecord],
     port: Option<u16>,
 ) -> Result<ReplayReport, SpecError> {
-    use crate::specgen::extract::template_path;
-
     let started_at = chrono::Utc::now();
 
     // Bind ephemeral port if not provided.
@@ -56,18 +54,39 @@ pub async fn run_replay(
             let tpl = tpl_key.clone();
             for (m, op_val) in item.as_object().into_iter().flatten() {
                 let method = m.to_uppercase();
-                let key = format!("{} {}", method, tpl.trim_start_matches('/'));
 
                 let example_body = extract_example(op_val);
+                // If the spec didn't carry an example, fall back to the first
+                // captured response body for this (method, template). Without
+                // this fallback, the mock returns `{}` and the body diff in
+                // replay will fail for any non-trivial spec.
+                let body = if example_body == serde_json::json!({}) {
+                    first_captured_body(records, &tpl, &method)
+                        .unwrap_or(example_body)
+                } else {
+                    example_body
+                };
                 let status_code = extract_status(op_val, records, &tpl, &method);
 
-                routes.insert(
-                    key,
-                    MockRoute {
-                        body: example_body,
-                        status: status_code,
-                    },
-                );
+                // The handler templates the incoming concrete path with the
+                // heuristic in `template_path`, which produces
+                // /api/users/{usersId} for /api/users/1. The spec template
+                // may use a different param name (e.g. /api/users/{id}). Seed
+                // under BOTH forms so the lookup succeeds regardless of which
+                // param naming the spec used.
+                let heuristic_tpl = heuristic_template(records, &tpl, &method)
+                    .unwrap_or_else(|| tpl.clone());
+                for key_tpl in std::iter::once(tpl.clone()).chain(
+                    std::iter::once(heuristic_tpl).filter(|h| h != &tpl),
+                ) {
+                    routes.insert(
+                        format!("{} {}", method, key_tpl),
+                        MockRoute {
+                            body: body.clone(),
+                            status: status_code,
+                        },
+                    );
+                }
             }
         }
     }
@@ -256,6 +275,87 @@ fn extract_status(
     200
 }
 
+/// Find the first captured response body for a (method, template) pair.
+/// Used as a fallback when the spec doesn't carry an example for an operation.
+/// Templates are normalized to the heuristic form (numeric/uuid segments →
+/// `{prevName}Id`) so that `/api/users/{id}` (spec) matches `/api/users/{usersId}`
+/// (heuristic on `/api/users/1`).
+fn first_captured_body(
+    records: &[crate::specgen::TrafficRecord],
+    tpl: &str,
+    method: &str,
+) -> Option<serde_json::Value> {
+    let target = normalize_template(tpl);
+    for r in records
+        .iter()
+        .filter(|r| r.kind == crate::specgen::TrafficKind::Http)
+    {
+        if !r.method.eq_ignore_ascii_case(method) {
+            continue;
+        }
+        let r_tpl = normalize_template(&template_path(&r.path).template);
+        if r_tpl == target {
+            if let Some(body) = r
+                .response_body
+                .as_deref()
+                .and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+            {
+                return Some(body);
+            }
+        }
+    }
+    None
+}
+
+/// Return the template the heuristic would produce for the first captured
+/// record that matches `(tpl, method)`. The spec's literal template and the
+/// heuristic's templated form can differ in param names (e.g. `{id}` vs
+/// `{usersId}`); the mock needs to seed under whichever form the request
+/// handler will compute, which is the heuristic's.
+fn heuristic_template(
+    records: &[crate::specgen::TrafficRecord],
+    tpl: &str,
+    method: &str,
+) -> Option<String> {
+    let target = normalize_template(tpl);
+    for r in records
+        .iter()
+        .filter(|r| r.kind == crate::specgen::TrafficKind::Http)
+    {
+        if !r.method.eq_ignore_ascii_case(method) {
+            continue;
+        }
+        let r_tpl = normalize_template(&template_path(&r.path).template);
+        if r_tpl == target {
+            return Some(template_path(&r.path).template);
+        }
+    }
+    None
+}
+
+/// Normalize a template to a comparable form: collapse any single-segment
+/// `{name}` placeholder to a canonical token so that `/api/users/{id}` and
+/// `/api/users/{usersId}` compare equal.
+fn normalize_template(tpl: &str) -> String {
+    let mut out = String::with_capacity(tpl.len());
+    let mut in_param = false;
+    for ch in tpl.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                out.push('#');
+            }
+            '}' => {
+                in_param = false;
+                out.push('#');
+            }
+            _ if in_param => {}
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -265,6 +365,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use crate::specgen::extract::template_path;
 
 /// A mock route with its expected response body and status code.
 #[derive(Clone, Debug)]
@@ -294,7 +396,9 @@ async fn echo_path(
     Path(path): Path<String>,
     method: axum::http::Method,
 ) -> impl IntoResponse {
-    let key = format!("{} /{}", method.as_str(), path);
+    // Concrete incoming path (e.g. "/api/users/1") → template (e.g. "/api/users/{usersId}")
+    let tpl = template_path(&format!("/{}", path.trim_start_matches('/'))).template;
+    let key = format!("{} {}", method.as_str(), tpl);
     let routes = state.routes.lock().await;
     if let Some(route) = routes.get(&key) {
         let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::OK);
@@ -356,5 +460,39 @@ paths:
         let report = run_replay(openapi, &records, Some(0)).await.unwrap();
         assert_eq!(report.total, 1);
         assert!(report.pass + report.fail + report.error == 1);
+    }
+
+    #[tokio::test]
+    async fn run_replay_seeds_mock_with_captured_bodies() {
+        // Spec has no examples, so the mock must fall back to the first
+        // captured response_body per (method, template) — otherwise every
+        // replay would fail the body diff.
+        let openapi = r#"
+openapi: 3.1.0
+info: { title: t, version: 1.0.0, description: d }
+servers: [{ url: "http://x" }]
+paths:
+  /api/users/{id}:
+    get:
+      operationId: getUser
+      summary: get user
+      tags: [auto]
+      responses: {}
+  /api/posts/{id}:
+    get:
+      operationId: getPost
+      summary: get post
+      tags: [auto]
+      responses: {}
+"#;
+        let mut a = rec("GET", "/api/users/1");
+        a.response_body = Some(r#"{"foo":"bar"}"#.into());
+        let mut b = rec("GET", "/api/posts/9");
+        b.response_body = Some(r#"{"baz":"qux"}"#.into());
+        let records = vec![a, b];
+        let report = run_replay(openapi, &records, Some(0)).await.unwrap();
+        assert_eq!(report.total, 2);
+        assert_eq!(report.pass, 2, "expected both replays to pass; failures={:?}", report.failures);
+        assert_eq!(report.fail, 0);
     }
 }
