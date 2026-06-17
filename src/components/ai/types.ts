@@ -98,3 +98,16 @@ export interface SpecResult {
   generated_at: string;
   source: SpecSource;
 }
+
+export type TrafficKind = "Http" | "WebSocket" | "Sse";
+
+export interface TrafficRecord {
+  method: string;
+  path: string;
+  host: string;
+  request_body: string | null;
+  response_status: number;
+  response_body: string | null;
+  timestamp: string;
+  kind: TrafficKind;
+}
