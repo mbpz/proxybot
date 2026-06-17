@@ -21,6 +21,12 @@ use std::collections::BTreeMap;
 pub use config::SpecConfig;
 pub use coverage::{CoverageReport, SpecSource};
 pub use error::SpecError;
+pub use render::{
+    AsyncApiChannel, AsyncApiDoc, AsyncApiExample, AsyncApiMessage, OpenApiDoc, OpenApiInfo,
+    OpenApiMediaType, OpenApiOperation, OpenApiParameter, OpenApiPathItem, OpenApiResponse,
+    OpenApiSchema, OpenApiServer,
+};
+pub use replay::{ReplayFailure, ReplayReport};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrafficRecord {

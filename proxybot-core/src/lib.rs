@@ -57,3 +57,10 @@ pub use types::{
     DnsUpstream, DnsUpstreamType, HostsEntry, InterceptedRequest, Rule, RuleAction, RuleEntry,
     RuleFile, RulePattern, WsFrame,
 };
+pub use specgen::{
+    build_spec, build_spec_heuristic, AsyncApiChannel, AsyncApiDoc, AsyncApiExample, AsyncApiMessage,
+    CoverageReport, OpenApiDoc, OpenApiInfo, OpenApiMediaType, OpenApiOperation, OpenApiParameter,
+    OpenApiPathItem, OpenApiResponse, OpenApiSchema, OpenApiServer, ReplayFailure, ReplayReport,
+    SpecConfig, SpecError, SpecOutput, SpecRequest, SpecResult, SpecSource, TrafficKind,
+    TrafficRecord,
+};
