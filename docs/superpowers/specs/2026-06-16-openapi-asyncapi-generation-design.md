@@ -376,7 +376,7 @@ error = actual.is_none()  // 网络/超时/解析失败
 
 ### 7.1 位置
 
-`src/components/ai/SpecGenPanel.tsx`，作为 AI 页面的第 5 个标签 "Spec Gen"（非嵌套在 Inference 标签内部），与 Token Usage、API Inference、Auth Flow、Vision 平级
+`src/components/ai/SpecGenPanel.tsx`，挂在 `ApiInferenceTab.tsx` 内部（接收 sessionId + trafficRecords Props），显示在 Inference 标签底部。需要 sessionId 上下文。不独立成 AI 页面标签。
 
 ### 7.2 布局（sniffnet Inspect 页模式）
 
