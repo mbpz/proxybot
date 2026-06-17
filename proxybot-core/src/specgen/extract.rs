@@ -1,5 +1,7 @@
 //! Heuristic extraction: turn concrete paths into templates and cluster params.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -88,5 +90,56 @@ mod tests {
     fn first_segment_numeric_uses_param() {
         let t = template_path("/42/details");
         assert_eq!(t.template, "/{param}/details");
+    }
+}
+
+/// Cluster a list of (method, path) records by templated path.
+/// Returns a map: template -> { method -> example_concrete_path }.
+pub fn cluster_paths(records: &[(String, String)]) -> BTreeMap<String, BTreeMap<String, String>> {
+    let mut out: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    for (method, path) in records {
+        let tpl = template_path(path);
+        let entry = out.entry(tpl.template).or_default();
+        entry.entry(method.to_uppercase()).or_insert_with(|| path.clone());
+    }
+    out
+}
+
+/// Pull request-body keys (top-level) from a JSON body string.
+pub fn body_keys(body: &str) -> Vec<String> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.as_object().map(|o| o.keys().cloned().collect()))
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod cluster_tests {
+    use super::*;
+
+    #[test]
+    fn clusters_same_template_together() {
+        let recs = vec![
+            ("GET".into(), "/api/users/1".into()),
+            ("GET".into(), "/api/users/2".into()),
+            ("POST".into(), "/api/users".into()),
+        ];
+        let out = cluster_paths(&recs);
+        assert_eq!(out.len(), 2);
+        assert!(out.contains_key("/api/users/{usersId}"));
+        assert!(out["/api/users/{usersId}"].contains_key("GET"));
+        assert!(out.contains_key("/api/users"));
+        assert!(out["/api/users"].contains_key("POST"));
+    }
+
+    #[test]
+    fn body_keys_returns_top_level_keys() {
+        let keys = body_keys(r#"{"name": "x", "age": 1}"#);
+        assert_eq!(keys, vec!["age".to_string(), "name".to_string()]);
+    }
+
+    #[test]
+    fn body_keys_handles_invalid_json() {
+        assert!(body_keys("not json").is_empty());
     }
 }
