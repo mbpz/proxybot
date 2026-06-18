@@ -1,7 +1,7 @@
 # OpenAPI/AsyncAPI Spec Generation — Design
 
 **Date:** 2026-06-16
-**Status:** Implemented 2026-06-17 (per plan `docs/superpowers/plans/2026-06-16-openapi-asyncapi-generation.md`)
+**Status:** Partially Implemented 2026-06-17 (FR-23 OpenAPI complete; AsyncAPI LLM, SM-4 automation, config persistence, typed errors deferred to Round 2 — see `docs/superpowers/plans/2026-06-18-specgen-round2.md`)
 **PRD Reference:** `tasks/prd-netmind-agent.md` FR-23 + SM-4
 **Author:** Three-Man Team (Arch / Bob / Richard)
 
