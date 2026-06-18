@@ -1,0 +1,102 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/v3/user/profile",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"id\":12345,\"nickname\":\"alice\",\"avatar\":\"https://wx.qlogo.cn/u/abc.png\"}",
+    "timestamp": "2026-06-17T08:00:00Z",
+    "kind": "Http"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v3/user/profile",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"id\":12345,\"nickname\":\"alice\",\"avatar\":\"https://wx.qlogo.cn/u/abc.png\"}",
+    "timestamp": "2026-06-17T08:00:01Z",
+    "kind": "Http"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v3/user/profile",
+    "host": "api.weixin.qq.com",
+    "request_body": "{\"nickname\":\"alice2\"}",
+    "response_status": 200,
+    "response_body": "{\"ok\":true}",
+    "timestamp": "2026-06-17T08:00:02Z",
+    "kind": "Http"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v3/contacts/42",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"id\":42,\"name\":\"bob\"}",
+    "timestamp": "2026-06-17T08:00:03Z",
+    "kind": "Http"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v3/contacts/99",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"id\":99,\"name\":\"carol\"}",
+    "timestamp": "2026-06-17T08:00:04Z",
+    "kind": "Http"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v3/contacts/99",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 204,
+    "response_body": null,
+    "timestamp": "2026-06-17T08:00:05Z",
+    "kind": "Http"
+  },
+  {
+    "method": "POST",
+    "path": "/api/v3/messages",
+    "host": "api.weixin.qq.com",
+    "request_body": "{\"to\":42,\"text\":\"hi\"}",
+    "response_status": 201,
+    "response_body": "{\"id\":\"msg-7\",\"status\":\"sent\"}",
+    "timestamp": "2026-06-17T08:00:06Z",
+    "kind": "Http"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v3/sessions/123e4567-e89b-12d3-a456-426614174000",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"session_id\":\"123e4567-e89b-12d3-a456-426614174000\",\"active\":true}",
+    "timestamp": "2026-06-17T08:00:07Z",
+    "kind": "Http"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v3/feed",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"items\":[{\"id\":1,\"text\":\"hello\"}]}",
+    "timestamp": "2026-06-17T08:00:08Z",
+    "kind": "Http"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v3/feed",
+    "host": "api.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "{\"items\":[{\"id\":2,\"text\":\"world\"}]}",
+    "timestamp": "2026-06-17T08:00:09Z",
+    "kind": "Http"
+  }
+]

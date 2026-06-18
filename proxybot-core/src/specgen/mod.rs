@@ -161,7 +161,17 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         None
     };
 
-    let all_paths: Vec<String> = http.iter().map(|r| r.path.clone()).collect();
+    // `all_paths` feeds the coverage check; it has to span every
+    // record (HTTP + WS + SSE), not just HTTP. If we only passed
+    // `http` here a mixed session of 10 HTTP + 3 WS records would
+    // report coverage_rate = 10/13 ≈ 0.77 even when the WS frames
+    // were channeled correctly — the AsyncAPI match column would
+    // see no concrete WS paths to count. Pull every kind in.
+    let all_paths: Vec<String> = req
+        .traffic_records
+        .iter()
+        .map(|r| r.path.clone())
+        .collect();
     let asyncapi_channels: Vec<String> = ws.iter().map(|r| r.path.clone()).collect();
     let coverage = CoverageReport::compute(
         req.traffic_records.len(),

@@ -1,0 +1,32 @@
+[
+  {
+    "method": "GET",
+    "path": "/ws/chat",
+    "host": "long.weixin.qq.com",
+    "request_body": null,
+    "response_status": 101,
+    "response_body": "{\"type\":\"hello\",\"user\":\"alice\"}",
+    "timestamp": "2026-06-17T08:01:00Z",
+    "kind": "WebSocket"
+  },
+  {
+    "method": "GET",
+    "path": "/ws/chat",
+    "host": "long.weixin.qq.com",
+    "request_body": null,
+    "response_status": 101,
+    "response_body": "{\"type\":\"message\",\"from\":\"alice\",\"text\":\"hi\"}",
+    "timestamp": "2026-06-17T08:01:01Z",
+    "kind": "WebSocket"
+  },
+  {
+    "method": "GET",
+    "path": "/sse/feed",
+    "host": "long.weixin.qq.com",
+    "request_body": null,
+    "response_status": 200,
+    "response_body": "data: {\"event\":\"new-post\",\"id\":42}",
+    "timestamp": "2026-06-17T08:01:02Z",
+    "kind": "Sse"
+  }
+]
