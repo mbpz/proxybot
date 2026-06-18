@@ -722,6 +722,7 @@ pub fn record_http_request(
     duration_ms: Option<u64>,
     device_id: Option<i64>,
     app_tag: Option<&str>,
+    session_id: Option<&str>,
 ) -> Result<i64, String> {
     let req_headers_json = serde_json::to_string(req_headers).map_err(|e| e.to_string())?;
     let resp_headers_json = serde_json::to_string(resp_headers).map_err(|e| e.to_string())?;
@@ -731,8 +732,9 @@ pub fn record_http_request(
     conn.execute(
         r#"INSERT INTO http_requests
            (timestamp, method, scheme, host, path, req_headers, req_body,
-            resp_status, resp_headers, resp_body, duration_ms, device_id, app_tag)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+            resp_status, resp_headers, resp_body, duration_ms, device_id, app_tag,
+            session_id)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
         rusqlite::params![
             timestamp,
             method,
@@ -747,6 +749,7 @@ pub fn record_http_request(
             duration_ms,
             device_id,
             app_tag,
+            session_id,
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -1294,6 +1297,7 @@ mod tests {
             Some(42),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1313,9 +1317,9 @@ mod tests {
         DbState::init_schema(&conn).unwrap();
 
         let empty_headers: Vec<(String, String)> = vec![];
-        let id1 = record_http_request(&conn, "2026-06-04 00:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
-        let id2 = record_http_request(&conn, "2026-06-04 00:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
-        let id3 = record_http_request(&conn, "2026-06-04 00:00:02", "GET", "https", "c.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        let id1 = record_http_request(&conn, "2026-06-04 00:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        let id2 = record_http_request(&conn, "2026-06-04 00:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        let id3 = record_http_request(&conn, "2026-06-04 00:00:02", "GET", "https", "c.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
 
         let recent = get_recent_requests(&conn, 10).unwrap();
         assert_eq!(recent.len(), 3);
@@ -1343,6 +1347,7 @@ mod tests {
             None,
             None,
             &empty_headers,
+            None,
             None,
             None,
             None,
@@ -1587,6 +1592,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1598,6 +1604,56 @@ mod tests {
             .query_row("SELECT is_websocket FROM http_requests WHERE id = ?1", [id], |row| row.get(0))
             .unwrap();
         assert_eq!(is_ws, 1, "is_websocket flag should be set to 1 after mark_request_websocket");
+    }
+
+    /// `session_id` is the missing link that ties captured rows to a
+    /// `SpecGenPanel` session. This test pins the round-trip:
+    /// `record_http_request(..., Some("s1"))` writes "s1" into the
+    /// `session_id` column, and a `None` record stays NULL.
+    /// Without this, the spec-generation flow would silently keep
+    /// returning empty record sets even after the column landed in
+    /// migration v5.
+    #[test]
+    fn test_record_http_request_persists_session_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        let empty: Vec<(String, String)> = vec![];
+
+        // With Some session id.
+        let id_tagged = record_http_request(
+            &conn, "2026-06-04 00:00:00", "GET", "https", "ex.com", "/a",
+            &empty, None, Some(200), &empty, None, None, None, None,
+            Some("session-7"),
+        )
+        .unwrap();
+
+        // With None session id (current capture path before the user
+        // selects anything in `SpecGenPanel`).
+        let id_untagged = record_http_request(
+            &conn, "2026-06-04 00:00:01", "GET", "https", "ex.com", "/b",
+            &empty, None, Some(200), &empty, None, None, None, None,
+            None,
+        )
+        .unwrap();
+
+        let tagged: Option<String> = conn
+            .query_row(
+                "SELECT session_id FROM http_requests WHERE id = ?1",
+                [id_tagged],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tagged.as_deref(), Some("session-7"));
+
+        let untagged: Option<String> = conn
+            .query_row(
+                "SELECT session_id FROM http_requests WHERE id = ?1",
+                [id_untagged],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(untagged.is_none(), "untagged row should have NULL session_id");
     }
 
     // ------------------------------------------------------------------

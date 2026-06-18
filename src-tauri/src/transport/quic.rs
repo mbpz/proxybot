@@ -138,6 +138,12 @@ async fn handle_http3_stream(
                     Some(0),
                     None,
                     Some("HTTP/3"),
+                    // QUIC entry point: this stub doesn't yet share the
+                    // proxy's `active_session_id` Arc. Stamp NULL so
+                    // captures land in the "untagged" bucket; wire
+                    // through ProxyContext if/when QUIC routes through
+                    // the same handler as HTTP/HTTPS.
+                    None,
                 );
             }
         }

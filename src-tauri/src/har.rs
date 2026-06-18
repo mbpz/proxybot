@@ -636,6 +636,7 @@ mod tests {
             Some(42),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -684,6 +685,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -719,6 +721,7 @@ mod tests {
             &resp_headers,
             Some(r#"{"ok":true}"#),
             Some(100),
+            None,
             None,
             None,
         )
@@ -760,6 +763,7 @@ mod tests {
             Some(50),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -798,6 +802,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -815,9 +820,9 @@ mod tests {
         let empty: Vec<(String, String)> = vec![];
 
         // Insert in reverse chronological order
-        record_http_request(&conn, "1704067202.000", "GET", "https", "c.com", "/", &empty, None, Some(200), &empty, None, None, None, None).unwrap();
-        record_http_request(&conn, "1704067200.000", "GET", "https", "a.com", "/", &empty, None, Some(200), &empty, None, None, None, None).unwrap();
-        record_http_request(&conn, "1704067201.000", "GET", "https", "b.com", "/", &empty, None, Some(200), &empty, None, None, None, None).unwrap();
+        record_http_request(&conn, "1704067202.000", "GET", "https", "c.com", "/", &empty, None, Some(200), &empty, None, None, None, None, None).unwrap();
+        record_http_request(&conn, "1704067200.000", "GET", "https", "a.com", "/", &empty, None, Some(200), &empty, None, None, None, None, None).unwrap();
+        record_http_request(&conn, "1704067201.000", "GET", "https", "b.com", "/", &empty, None, Some(200), &empty, None, None, None, None, None).unwrap();
 
         let har = export_har_internal(&conn).unwrap();
         assert_eq!(har.log.entries.len(), 3);
@@ -842,6 +847,7 @@ mod tests {
             Some("raw bytes"),
             Some(200),
             &empty,
+            None,
             None,
             None,
             None,
@@ -899,6 +905,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         }
@@ -915,6 +922,7 @@ mod tests {
             None,
             Some(418),
             &empty,
+            None,
             None,
             None,
             None,

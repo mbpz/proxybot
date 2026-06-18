@@ -191,6 +191,7 @@ pub fn run() {
                         app.state::<Arc<DnsState>>().clone(),
                         app.state::<Arc<DbState>>().clone(),
                         app.state::<Arc<RulesEngine>>().clone(),
+                        app.state::<Arc<crate::state::AppState>>().clone(),
                     ) {
                         Ok(_) => {
                             let _ = app
@@ -387,6 +388,8 @@ pub fn run() {
             commands::specgen::update_specgen_config,
             commands::specgen::get_specgen_config,
             commands::specgen::get_traffic_records,
+            commands::specgen::set_active_session,
+            commands::specgen::get_active_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

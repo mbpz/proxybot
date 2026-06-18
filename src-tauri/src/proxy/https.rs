@@ -366,6 +366,11 @@ pub(super) async fn handle_https_connect(
 
     // Record to database for TUI/persistence
     if let Ok(conn) = ctx.db_state.conn.lock() {
+        let session_id = ctx
+            .active_session_id
+            .lock()
+            .ok()
+            .and_then(|g| g.clone());
         let _ = record_http_request(
             &conn,
             &req.timestamp,
@@ -381,6 +386,7 @@ pub(super) async fn handle_https_connect(
             req.latency_ms,
             req.device_id,
             req.app_name.as_deref(),
+            session_id.as_deref(),
         );
     }
 

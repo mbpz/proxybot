@@ -22,8 +22,27 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
   // Load captured traffic for this session from the Rust side. We
   // skip the fetch when the parent passed records in via props, so
   // tests / fixtures can drive the component directly.
+  //
+  // We also push the sessionId down into the Rust `AppState` via
+  // `set_active_session` so the proxy capture pipeline starts
+  // tagging newly-recorded `http_requests` rows with this id.
+  // Without this call, `get_traffic_records(sessionId)` would
+  // always return zero rows for any non-empty sessionId because
+  // the column would stay NULL on every insert.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      // Clearing the field unbinds the proxy too, so subsequent
+      // captures land with NULL session_id.
+      invoke("set_active_session", { sessionId: null }).catch((err) =>
+        onError(`set_active_session failed: ${err}`)
+      );
+      return;
+    }
+    // Fire-and-forget: we don't block the records load on this.
+    invoke("set_active_session", { sessionId }).catch((err) =>
+      onError(`set_active_session failed: ${err}`)
+    );
+
     if (trafficRecords !== undefined) {
       setRecords(trafficRecords);
       return;

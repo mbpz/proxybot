@@ -13,6 +13,7 @@
 //! the LLM API key, retry count, and replay toggles at runtime without
 //! restarting the app.
 
+use std::sync::Arc;
 use tauri::State;
 
 use proxybot_core::{
@@ -33,7 +34,7 @@ use proxybot_core::ReplayReport;
 /// caller so the UI can display it without a second round-trip.
 #[tauri::command]
 pub async fn generate_spec(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     session_id: String,
     traffic_records: Vec<TrafficRecord>,
 ) -> Result<SpecResult, String> {
@@ -66,7 +67,7 @@ pub async fn generate_spec(
 /// is written.
 #[tauri::command]
 pub async fn export_spec(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     session_id: String,
     target_path: String,
 ) -> Result<(), String> {
@@ -98,7 +99,7 @@ pub async fn export_spec(
 /// check that status codes and response bodies still match.
 #[tauri::command]
 pub async fn run_replay_validation(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     session_id: String,
     traffic_records: Vec<TrafficRecord>,
 ) -> Result<ReplayReport, String> {
@@ -122,7 +123,7 @@ pub async fn run_replay_validation(
 /// Lets the UI set the DeepSeek API key, tune retry counts, toggle
 /// replay validation, and pick a mock port without restarting the app.
 #[tauri::command]
-pub fn update_specgen_config(state: State<'_, AppState>, config: SpecConfig) -> Result<(), String> {
+pub fn update_specgen_config(state: State<'_, Arc<AppState>>, config: SpecConfig) -> Result<(), String> {
     state.set_specgen_config(config);
     Ok(())
 }
@@ -133,9 +134,38 @@ pub fn update_specgen_config(state: State<'_, AppState>, config: SpecConfig) -> 
 /// exposing the actual key value.
 #[tauri::command]
 pub fn get_specgen_config(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
 ) -> Result<SpecConfig, String> {
     Ok(state.specgen_config_snapshot())
+}
+
+/// Mark a UI-selected `session_id` as the *active* session.
+///
+/// The proxy capture pipeline reads this value (via the cloned `Arc`
+/// inside `ProxyContext`) and stamps every newly-recorded
+/// `http_requests` row with it. Pass `None` to clear and have
+/// subsequent rows recorded with NULL `session_id`.
+///
+/// The UI calls this from `SpecGenPanel` whenever the user changes
+/// the session id field, so further captures land under the new
+/// session label without restarting the proxy.
+#[tauri::command]
+pub fn set_active_session(
+    state: State<'_, Arc<AppState>>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    // An empty string from the UI is treated the same as None so
+    // the on-disk session_id column stays NULL for "untagged".
+    let normalised = session_id.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    state.set_active_session_id(normalised);
+    Ok(())
+}
+
+/// Return the currently-active session id, or `None` when nothing
+/// is selected.
+#[tauri::command]
+pub fn get_active_session(state: State<'_, Arc<AppState>>) -> Result<Option<String>, String> {
+    Ok(state.active_session_id_snapshot())
 }
 
 /// Load captured traffic records for a given session from the SQLite
