@@ -75,9 +75,14 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
       setLoading(true);
       setResult(null);
       setReplay(null);
+      // We pass `null` for trafficRecords so the Rust side reads
+      // them straight out of SQLite. This avoids the round-trip
+      // serialization cost of (DB → Rust → JSON → JS → JSON →
+      // Rust). The `records` state is still kept for the count
+      // badge in the header.
       const r = await invoke<SpecResult>("generate_spec", {
         sessionId,
-        trafficRecords: records,
+        trafficRecords: null,
       });
       setResult(r);
       setReplay(r.replay);
@@ -111,9 +116,11 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
     if (!sessionId) return;
     try {
       setReplayLoading(true);
+      // Same record-source contract as `generate`: let Rust load
+      // straight from SQLite.
       const r = await invoke<ReplayReport>("run_replay_validation", {
         sessionId,
-        trafficRecords: records,
+        trafficRecords: null,
       });
       setReplay(r);
     } catch (err) {
@@ -154,6 +161,17 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
           {replayLoading ? "验证中..." : "▶ 重放验证"}
         </Button>
       </div>
+
+      {result?.degradation_reason && (
+        <div
+          className="mb-3 px-3 py-2 rounded text-xs border border-yellow-300 bg-yellow-50 text-yellow-900 dark:border-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-200"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="mr-1.5" aria-hidden="true">⚠</span>
+          {result.degradation_reason}
+        </div>
+      )}
 
       {result && (
         <div className="grid grid-cols-[240px_1fr] gap-3">

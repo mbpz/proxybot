@@ -683,4 +683,48 @@ mod tests {
         };
         assert!(build_asyncapi_with_llm(&req, &client, 0).await.is_none());
     }
+
+    /// Without a DeepSeek key, `build_spec` must not error — it
+    /// has to fall back to the heuristic and stamp a human-readable
+    /// `degradation_reason` so the UI can show a banner. Pre-fix
+    /// (round-1 spec gen) this returned `Err(LlmUnavailable)` and
+    /// the user got nothing.
+    #[tokio::test]
+    async fn build_spec_falls_back_to_heuristic_without_api_key() {
+        use std::sync::Mutex;
+        // Tests in this crate run in parallel; env var mutations
+        // need a process-wide guard or they race. Use a one-shot
+        // lock to serialise just this test's env touch.
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+        let prev = std::env::var("DEEPSEEK_API_KEY").ok();
+        std::env::remove_var("DEEPSEEK_API_KEY");
+
+        let req = SpecRequest {
+            session_id: "no-key".into(),
+            traffic_records: vec![rec("GET", "/api/users/1", TrafficKind::Http)],
+            inferred: None,
+        };
+        let cfg = SpecConfig {
+            deepseek_api_key: None,
+            // Replay would try to bind a port and run the mock —
+            // not what we're testing here. Disable for a fast path.
+            enable_replay_validation: false,
+            ..SpecConfig::default()
+        };
+
+        let result = build_spec(req, &cfg).await.expect("falls back, not errors");
+
+        // Restore env before asserting in case the assert panics.
+        if let Some(v) = prev {
+            std::env::set_var("DEEPSEEK_API_KEY", v);
+        }
+
+        assert_eq!(result.source, SpecSource::Heuristic);
+        let reason = result.degradation_reason.expect("reason populated");
+        assert!(
+            reason.contains("DEEPSEEK_API_KEY") && reason.contains("启发式"),
+            "reason should mention the missing key + fallback: {reason}"
+        );
+    }
 }

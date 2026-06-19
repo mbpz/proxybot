@@ -97,6 +97,16 @@ export interface SpecResult {
   replay: ReplayReport | null;
   generated_at: string;
   source: SpecSource;
+  /**
+   * Human-readable reason the LLM round was skipped or fell back
+   * to the heuristic. Absent (`undefined`) when the LLM run was
+   * clean. The panel renders this as a yellow banner above the
+   * path list so users understand why the source badge says
+   * `Heuristic` instead of `Llm`. The Rust side serialises this
+   * with `skip_serializing_if = "Option::is_none"` so older
+   * persisted specs deserialise back without the field.
+   */
+  degradation_reason?: string;
 }
 
 export type TrafficKind = "Http" | "WebSocket" | "Sse";
