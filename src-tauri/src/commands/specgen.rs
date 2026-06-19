@@ -68,37 +68,46 @@ pub async fn generate_spec(
     Ok(result)
 }
 
-/// Export a previously-generated spec to a user-supplied path on disk.
+/// Read a previously-generated spec back as YAML text.
 ///
-/// Reads the JSON for the session, pulls out the OpenAPI and AsyncAPI
-/// YAML blobs, concatenates them with a single newline, and writes the
-/// combined output. If only one of the two is present, just that one
-/// is written.
+/// Returns the OpenAPI YAML concatenated with the AsyncAPI YAML
+/// (separated by a single newline). When only one of the two is
+/// present in the persisted result, just that one is returned.
+///
+/// The frontend uses the returned string with the standard
+/// `<a download>` browser API to trigger a save dialog — keeping
+/// the file-system write entirely in the webview rather than
+/// having Rust write to a path the user can't easily pick. The
+/// previous shape took `target_path` and silently wrote to the
+/// Tauri process's cwd, which gave files an unpredictable home.
 #[tauri::command]
 pub async fn export_spec(
     state: State<'_, Arc<AppState>>,
     session_id: String,
-    target_path: String,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let path = state.specs_dir().join(format!("{session_id}.json"));
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let result: SpecResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
 
     let mut out = String::new();
-    if let Some(p) = &result.openapi {
-        if let SpecOutput::OpenApi(s) = p {
-            out.push_str(s);
+    if let Some(SpecOutput::OpenApi(s)) = result.openapi.as_ref() {
+        out.push_str(s);
+        if !s.ends_with('\n') {
             out.push('\n');
         }
     }
-    if let Some(p) = &result.asyncapi {
-        if let SpecOutput::AsyncApi(s) = p {
-            out.push_str(s);
+    if let Some(SpecOutput::AsyncApi(s)) = result.asyncapi.as_ref() {
+        // A YAML document separator marks the boundary so YAML
+        // parsers see two documents in one file. Without it the
+        // OpenAPI doc's last key would absorb the AsyncAPI top
+        // keys.
+        out.push_str("---\n");
+        out.push_str(s);
+        if !s.ends_with('\n') {
             out.push('\n');
         }
     }
-    std::fs::write(&target_path, out).map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(out)
 }
 
 /// Re-run replay validation against a previously-generated OpenAPI spec.

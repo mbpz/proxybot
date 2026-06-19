@@ -105,8 +105,23 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
   async function download() {
     if (!sessionId) return;
     try {
-      const target = `${sessionId}-openapi.yaml`;
-      await invoke("export_spec", { sessionId, targetPath: target });
+      // Rust hands back the concatenated YAML; we trigger the
+      // save through a hidden <a download> so the user picks the
+      // location via the OS save dialog. This avoids the prior
+      // behaviour of Rust writing to the process cwd, which
+      // landed files in an unpredictable spot.
+      const yaml = await invoke<string>("export_spec", { sessionId });
+      const blob = new Blob([yaml], { type: "application/yaml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sessionId || "session"}-spec.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Free the object URL on the next tick so the browser has
+      // a chance to start the download before we revoke it.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (err) {
       onError(String(err));
     }
