@@ -13,6 +13,17 @@ pub struct AppState {
     /// replay toggles, mock port). Wrapped in `Mutex` so commands can
     /// update it at runtime via `update_specgen_config`.
     pub specgen_config: Arc<Mutex<SpecConfig>>,
+    /// The session id the UI is currently focused on. The proxy
+    /// capture pipeline tags every newly-recorded `http_requests`
+    /// row with this value so `get_traffic_records(session_id)` in
+    /// `commands/specgen.rs` can later filter by it. `None` means
+    /// "no active session" — captured rows have NULL `session_id`
+    /// and are returned by `get_traffic_records("")`.
+    ///
+    /// Held as an `Arc` so the proxy hot path can clone it once
+    /// into `ProxyContext` and read without going through the
+    /// Tauri State map per request.
+    pub active_session_id: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
@@ -22,7 +33,29 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             specgen_config: Arc::new(Mutex::new(SpecConfig::default())),
+            active_session_id: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Snapshot the current active session id. Returns `None` when
+    /// no session is selected. Used by the proxy capture pipeline
+    /// (via the cloned Arc inside `ProxyContext`) and by the
+    /// `get_active_session` Tauri command.
+    pub fn active_session_id_snapshot(&self) -> Option<String> {
+        self.active_session_id
+            .lock()
+            .expect("active_session_id mutex poisoned")
+            .clone()
+    }
+
+    /// Replace the active session id. `None` clears it; subsequent
+    /// captures will be tagged with NULL.
+    pub fn set_active_session_id(&self, id: Option<String>) {
+        let mut guard = self
+            .active_session_id
+            .lock()
+            .expect("active_session_id mutex poisoned");
+        *guard = id;
     }
 
     /// Snapshot the current specgen config. Used by commands that
@@ -94,5 +127,32 @@ mod tests {
         let s = AppState::new();
         let p = s.specs_dir();
         assert!(p.ends_with("specs"));
+    }
+
+    #[test]
+    fn active_session_id_round_trips() {
+        let s = AppState::new();
+        // Defaults to None.
+        assert!(s.active_session_id_snapshot().is_none());
+
+        // Setting Some and reading it back returns the value.
+        s.set_active_session_id(Some("session-7".into()));
+        assert_eq!(s.active_session_id_snapshot().as_deref(), Some("session-7"));
+
+        // Setting None clears it.
+        s.set_active_session_id(None);
+        assert!(s.active_session_id_snapshot().is_none());
+    }
+
+    #[test]
+    fn active_session_id_arc_is_shared() {
+        // The Arc<Mutex<...>> is the contract used by ProxyContext;
+        // confirm a clone of the Arc sees mutations through the
+        // owner.
+        let s = AppState::new();
+        let shared = s.active_session_id.clone();
+        s.set_active_session_id(Some("abc".into()));
+        let observed = shared.lock().unwrap().clone();
+        assert_eq!(observed.as_deref(), Some("abc"));
     }
 }

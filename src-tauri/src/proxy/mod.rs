@@ -130,6 +130,14 @@ pub(super) struct ProxyContext {
     pub(super) network: Arc<NetworkConditionEngine>,
     pub(super) scripts: Arc<ScriptEngine>,
     pub(super) metrics: Arc<ProxyMetrics>,
+    /// Cloned `Arc<Mutex<Option<String>>>` from `AppState`. The
+    /// capture-side `record_http_request` calls in `proxy/{http,
+    /// https}.rs` lock this and stamp every newly-recorded
+    /// `http_requests` row with the current value (NULL when
+    /// nothing is selected). The TUI startup path
+    /// (`start_proxy_core`) creates a fresh empty `Arc` since
+    /// there's no UI to set it.
+    pub(super) active_session_id: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 /// Device context for tracking which device made a request.

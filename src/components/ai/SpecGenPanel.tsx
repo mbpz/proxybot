@@ -22,8 +22,27 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
   // Load captured traffic for this session from the Rust side. We
   // skip the fetch when the parent passed records in via props, so
   // tests / fixtures can drive the component directly.
+  //
+  // We also push the sessionId down into the Rust `AppState` via
+  // `set_active_session` so the proxy capture pipeline starts
+  // tagging newly-recorded `http_requests` rows with this id.
+  // Without this call, `get_traffic_records(sessionId)` would
+  // always return zero rows for any non-empty sessionId because
+  // the column would stay NULL on every insert.
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      // Clearing the field unbinds the proxy too, so subsequent
+      // captures land with NULL session_id.
+      invoke("set_active_session", { sessionId: null }).catch((err) =>
+        onError(`set_active_session failed: ${err}`)
+      );
+      return;
+    }
+    // Fire-and-forget: we don't block the records load on this.
+    invoke("set_active_session", { sessionId }).catch((err) =>
+      onError(`set_active_session failed: ${err}`)
+    );
+
     if (trafficRecords !== undefined) {
       setRecords(trafficRecords);
       return;
@@ -56,9 +75,14 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
       setLoading(true);
       setResult(null);
       setReplay(null);
+      // We pass `null` for trafficRecords so the Rust side reads
+      // them straight out of SQLite. This avoids the round-trip
+      // serialization cost of (DB → Rust → JSON → JS → JSON →
+      // Rust). The `records` state is still kept for the count
+      // badge in the header.
       const r = await invoke<SpecResult>("generate_spec", {
         sessionId,
-        trafficRecords: records,
+        trafficRecords: null,
       });
       setResult(r);
       setReplay(r.replay);
@@ -81,8 +105,23 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
   async function download() {
     if (!sessionId) return;
     try {
-      const target = `${sessionId}-openapi.yaml`;
-      await invoke("export_spec", { sessionId, targetPath: target });
+      // Rust hands back the concatenated YAML; we trigger the
+      // save through a hidden <a download> so the user picks the
+      // location via the OS save dialog. This avoids the prior
+      // behaviour of Rust writing to the process cwd, which
+      // landed files in an unpredictable spot.
+      const yaml = await invoke<string>("export_spec", { sessionId });
+      const blob = new Blob([yaml], { type: "application/yaml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sessionId || "session"}-spec.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Free the object URL on the next tick so the browser has
+      // a chance to start the download before we revoke it.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (err) {
       onError(String(err));
     }
@@ -92,9 +131,11 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
     if (!sessionId) return;
     try {
       setReplayLoading(true);
+      // Same record-source contract as `generate`: let Rust load
+      // straight from SQLite.
       const r = await invoke<ReplayReport>("run_replay_validation", {
         sessionId,
-        trafficRecords: records,
+        trafficRecords: null,
       });
       setReplay(r);
     } catch (err) {
@@ -135,6 +176,17 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
           {replayLoading ? "验证中..." : "▶ 重放验证"}
         </Button>
       </div>
+
+      {result?.degradation_reason && (
+        <div
+          className="mb-3 px-3 py-2 rounded text-xs border border-yellow-300 bg-yellow-50 text-yellow-900 dark:border-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-200"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="mr-1.5" aria-hidden="true">⚠</span>
+          {result.degradation_reason}
+        </div>
+      )}
 
       {result && (
         <div className="grid grid-cols-[240px_1fr] gap-3">

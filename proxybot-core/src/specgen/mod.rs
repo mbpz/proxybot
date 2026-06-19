@@ -73,6 +73,16 @@ pub struct SpecResult {
     pub replay: Option<crate::specgen::replay::ReplayReport>,
     pub generated_at: DateTime<Utc>,
     pub source: SpecSource,
+    /// Human-readable reason the LLM path was skipped or failed
+    /// when the result fell back to (or merged with) the heuristic.
+    /// `None` means the LLM round succeeded cleanly. The UI shows
+    /// this as a yellow banner above the path list so users
+    /// understand why the source badge says `Heuristic` instead of
+    /// `Llm`. Always `None` for the pure-heuristic entrypoint
+    /// (`build_spec_heuristic`) — that path has no LLM to degrade
+    /// from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degradation_reason: Option<String>,
 }
 
 /// Heuristic-only build: produces a spec from `traffic_records` with no LLM call.
@@ -104,11 +114,13 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         let mut item = render::OpenApiPathItem::default();
         for (m, _example_path) in methods {
             let op = render::OpenApiOperation {
-                operation_id: format!(
-                    "{}{}",
-                    m.to_lowercase(),
-                    tpl.replace(['/', '{', '}'], "_").trim_matches('_')
-                ),
+                // camelCase operationId so the heuristic's output
+                // also satisfies the LLM-validation schema's
+                // `^[a-z][a-zA-Z0-9]+$` pattern. Without this the
+                // heuristic emits `getapi_v3_users__usersId` which
+                // would be rejected if it ever round-tripped
+                // through `validate_paths_object`.
+                operation_id: heuristic_operation_id(m, tpl),
                 summary: format!("{m} {tpl}"),
                 tags: vec!["auto".into()],
                 parameters: vec![],
@@ -161,7 +173,17 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         None
     };
 
-    let all_paths: Vec<String> = http.iter().map(|r| r.path.clone()).collect();
+    // `all_paths` feeds the coverage check; it has to span every
+    // record (HTTP + WS + SSE), not just HTTP. If we only passed
+    // `http` here a mixed session of 10 HTTP + 3 WS records would
+    // report coverage_rate = 10/13 ≈ 0.77 even when the WS frames
+    // were channeled correctly — the AsyncAPI match column would
+    // see no concrete WS paths to count. Pull every kind in.
+    let all_paths: Vec<String> = req
+        .traffic_records
+        .iter()
+        .map(|r| r.path.clone())
+        .collect();
     let asyncapi_channels: Vec<String> = ws.iter().map(|r| r.path.clone()).collect();
     let coverage = CoverageReport::compute(
         req.traffic_records.len(),
@@ -177,6 +199,10 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         replay: None,
         generated_at: Utc::now(),
         source: SpecSource::Heuristic,
+        // Pure-heuristic path: there's no LLM round to degrade
+        // from, so leave the reason empty. `build_spec` overrides
+        // this when it falls back here.
+        degradation_reason: None,
     })
 }
 
@@ -187,12 +213,25 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
         return Err(SpecError::EmptySession);
     }
 
-    // Try LLM path; fall back to heuristic.
-    let api_key = config
+    // Try LLM path; fall back to heuristic. We track the reason
+    // for any degradation so the UI can surface it as a banner.
+    let api_key = match config
         .deepseek_api_key
         .clone()
         .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok())
-        .ok_or_else(|| SpecError::LlmUnavailable("DEEPSEEK_API_KEY not set".into()))?;
+    {
+        Some(k) => k,
+        None => {
+            // No key configured — go straight to heuristic with a
+            // friendly explanation rather than erroring out. This
+            // matches the design doc's §8 "downgrade gracefully"
+            // contract.
+            let mut result = build_spec_heuristic(&req)?;
+            result.degradation_reason =
+                Some("LLM 不可用：未设置 DEEPSEEK_API_KEY，已用启发式生成".into());
+            return finalise_with_replay(result, &req, config).await;
+        }
+    };
 
     let client = DeepSeekClient::new(api_key);
     let schema = serde_json::json!({
@@ -208,7 +247,8 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
         .call_with_schema(SYSTEM_PROMPT, &user_payload, &schema, config.max_retry)
         .await;
 
-    let (openapi_yaml, source) = match llm_attempt {
+    // (yaml, source, optional degradation_reason)
+    let (openapi_yaml, source, degradation): (String, SpecSource, Option<String>) = match llm_attempt {
         Ok(v) => match validate_paths_object(&v) {
             Ok(()) => {
                 // LLM succeeded. Also run heuristic, then merge: LLM paths win,
@@ -226,31 +266,74 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
                     &req.session_id,
                     label,
                 );
-                (rendered, label)
+                // Hybrid is "good enough" — no banner. Pure Llm
+                // also clean. We only flag a reason on Heuristic
+                // fallback below.
+                (rendered, label, None)
             }
-            Err(_) => {
+            Err(e) => {
                 let r = build_spec_heuristic(&req)?;
-                (extract_openapi_yaml(&r), r.source)
+                let reason = format!(
+                    "LLM 输出不符合 schema，已用启发式生成（覆盖度可能较低）: {}",
+                    truncate_reason(&e.to_string())
+                );
+                (extract_openapi_yaml(&r), r.source, Some(reason))
             }
         },
-        Err(_) => {
+        Err(e) => {
             let r = build_spec_heuristic(&req)?;
-            (extract_openapi_yaml(&r), r.source)
+            let reason = format!(
+                "LLM 调用失败，已用启发式生成: {}",
+                truncate_reason(&e.to_string())
+            );
+            (extract_openapi_yaml(&r), r.source, Some(reason))
         }
     };
 
-    // AsyncAPI is always heuristic for now (LLM call is future work).
+    // AsyncAPI: try LLM, fall back to heuristic on failure or no frames.
+    // Only attempt LLM if the OpenAPI source indicates LLM was reachable
+    // (Llm or Hybrid); on Heuristic fallback the LLM round already failed
+    // so a doomed AsyncAPI call would just add latency.
     let mut result = build_spec_heuristic(&req)?;
     result.source = source;
     result.openapi = Some(SpecOutput::OpenApi(openapi_yaml));
+    result.degradation_reason = degradation;
 
+    if matches!(source, SpecSource::Llm | SpecSource::Hybrid) {
+        if let Some(asyncapi_yaml) =
+            build_asyncapi_with_llm(&req, &client, config.max_retry).await
+        {
+            result.asyncapi = Some(SpecOutput::AsyncApi(asyncapi_yaml));
+        }
+    }
+
+    finalise_with_replay(result, &req, config).await
+}
+
+/// Truncate noisy error messages so the UI banner stays one line.
+fn truncate_reason(s: &str) -> String {
+    const MAX: usize = 200;
+    if s.len() <= MAX {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..MAX])
+    }
+}
+
+/// Run replay validation if enabled and stash the report on the
+/// result. Shared by every `build_spec` exit path so we don't
+/// duplicate the toggle check.
+async fn finalise_with_replay(
+    mut result: SpecResult,
+    req: &SpecRequest,
+    config: &SpecConfig,
+) -> Result<SpecResult, SpecError> {
     if config.enable_replay_validation {
         if let Some(SpecOutput::OpenApi(ref yaml)) = result.openapi {
             let replay = replay::run_replay(yaml, &req.traffic_records, config.mock_port).await?;
             result.replay = Some(replay);
         }
     }
-
     Ok(result)
 }
 
@@ -321,6 +404,88 @@ fn merge_paths(
 
 const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录和（可选的）已推断的接口语义，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n\n如果用户提供了 `inferred` 字段，优先采用其中的接口名、operationId 和 tags，不要自己重新命名。\n\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
 
+const ASYNCAPI_SYSTEM_PROMPT: &str = "你是 AsyncAPI 规范生成助手。根据用户提供的 WebSocket / SSE 流量，输出符合 JSON Schema 的 AsyncAPI 2.6 channels 对象。\n\n规则：\n- 路径用 {param} 模板化\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个 channel 给 description（中文）+ subscribe.message.payload\n- 至少 1 个 example（从流量帧 body 取）";
+
+fn asyncapi_user_payload(req: &SpecRequest) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("session_id".into(), serde_json::json!(req.session_id));
+    let frames: Vec<serde_json::Value> = req
+        .traffic_records
+        .iter()
+        .filter(|r| r.kind == TrafficKind::WebSocket || r.kind == TrafficKind::Sse)
+        .take(50)
+        .map(|r| {
+            serde_json::json!({
+                "kind": r.kind_str(),
+                "path": r.path,
+                "host": r.host,
+                "body": r.response_body,
+            })
+        })
+        .collect();
+    payload.insert("frames".into(), serde_json::json!(frames));
+    serde_json::to_string(&payload).unwrap_or_default()
+}
+
+fn asyncapi_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["channels"],
+        "properties": {
+            "channels": { "type": "object", "additionalProperties": true }
+        }
+    })
+}
+
+/// Optional LLM call for AsyncAPI. Returns rendered YAML if successful,
+/// `None` to signal "fall back to heuristic" (the orchestrator will then
+/// keep the heuristic AsyncAPI it already built). Returning `None` also
+/// covers no-frames sessions — the LLM call is short-circuited so we
+/// don't waste a network round-trip on HTTP-only traffic.
+async fn build_asyncapi_with_llm(
+    req: &SpecRequest,
+    client: &DeepSeekClient,
+    max_retry: u32,
+) -> Option<String> {
+    let frames_count = req
+        .traffic_records
+        .iter()
+        .filter(|r| r.kind == TrafficKind::WebSocket || r.kind == TrafficKind::Sse)
+        .count();
+    if frames_count == 0 {
+        return None;
+    }
+    let payload = asyncapi_user_payload(req);
+    let schema = asyncapi_schema();
+    let v = client
+        .call_with_schema(ASYNCAPI_SYSTEM_PROMPT, &payload, &schema, max_retry)
+        .await
+        .ok()?;
+    let channels_value = v.get("channels")?.clone();
+    Some(render_channels_as_asyncapi(&channels_value, &req.session_id))
+}
+
+fn render_channels_as_asyncapi(channels_map: &serde_json::Value, session_id: &str) -> String {
+    use std::collections::BTreeMap;
+    let mut typed: BTreeMap<String, render::AsyncApiChannel> = BTreeMap::new();
+    if let Some(obj) = channels_map.as_object() {
+        for (k, v) in obj {
+            let item: render::AsyncApiChannel = serde_json::from_value(v.clone())
+                .unwrap_or_else(|_| render::AsyncApiChannel {
+                    description: format!("LLM channel for {k}"),
+                    subscribe: None,
+                    publish: None,
+                });
+            typed.insert(k.clone(), item);
+        }
+    }
+    render::render_asyncapi(
+        &format!("ProxyBot AsyncAPI for {session_id}"),
+        "wss://api.example.com",
+        typed,
+    )
+}
+
 fn build_user_payload(req: &SpecRequest) -> String {
     let mut payload = serde_json::Map::new();
     payload.insert("session_id".into(), serde_json::json!(req.session_id));
@@ -370,6 +535,37 @@ fn extract_openapi_yaml(r: &SpecResult) -> String {
         Some(SpecOutput::OpenApi(s)) => s.clone(),
         _ => String::new(),
     }
+}
+
+/// Build a camelCase operationId from `(method, template)`.
+///
+/// `heuristic_operation_id("GET", "/api/v3/users/{usersId}")` →
+/// `"getApiV3UsersUsersId"`. The output matches the LLM
+/// validation schema's `^[a-z][a-zA-Z0-9]+$` pattern, so the
+/// heuristic's own path items are also schema-valid (the
+/// previous underscore-style ids would have been rejected if the
+/// hybrid merge ever fed them back through `validate_paths_object`).
+///
+/// Splits on `/`, `_`, `-`, `{`, `}` to preserve the boundaries
+/// between path segments and stripped param braces. Empty
+/// segments (consecutive separators, leading slash) are dropped.
+fn heuristic_operation_id(method: &str, template: &str) -> String {
+    let mut out = String::with_capacity(method.len() + template.len());
+    out.push_str(&method.to_ascii_lowercase());
+    for seg in template.split(['/', '_', '-', '{', '}']) {
+        if seg.is_empty() {
+            continue;
+        }
+        let mut chars = seg.chars();
+        if let Some(first) = chars.next() {
+            out.push(first.to_ascii_uppercase());
+            // Preserve the case of the rest of the segment so
+            // params like `{usersId}` keep their internal capital
+            // (`UsersId`, not `Usersid`).
+            out.extend(chars);
+        }
+    }
+    out
 }
 
 impl TrafficRecord {
@@ -474,6 +670,168 @@ mod tests {
         assert!(
             !payload_none.contains("\"inferred\""),
             "payload should not include inferred key when None: {payload_none}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_asyncapi_with_llm_renders_channels_on_success() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{
+                    "message": { "content": r#"{"channels":{"/ws/chat":{"description":"chat","subscribe":{"payload":{"type":"object"}}}}}"# }
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = DeepSeekClient {
+            api_key: "sk-test".into(),
+            endpoint: format!("{}/v1/chat/completions", server.uri()),
+            http: reqwest::Client::new(),
+        };
+        let req = SpecRequest {
+            session_id: "s".into(),
+            traffic_records: vec![rec("GET", "/ws/chat", TrafficKind::WebSocket)],
+            inferred: None,
+        };
+        let yaml = build_asyncapi_with_llm(&req, &client, 0)
+            .await
+            .expect("returns Some");
+        assert!(yaml.contains("/ws/chat"));
+        assert!(yaml.contains("asyncapi: 2.6.0"));
+    }
+
+    #[tokio::test]
+    async fn build_asyncapi_with_llm_returns_none_for_no_frames() {
+        // HTTP-only session: short-circuits before any network call.
+        let client = DeepSeekClient::new("sk-test".into());
+        let req = SpecRequest {
+            session_id: "s".into(),
+            traffic_records: vec![rec("GET", "/api/users/1", TrafficKind::Http)],
+            inferred: None,
+        };
+        assert!(build_asyncapi_with_llm(&req, &client, 0).await.is_none());
+    }
+
+    /// `heuristic_operation_id` must produce camelCase ids that
+    /// satisfy the schema's `^[a-z][a-zA-Z0-9]+$` pattern AND
+    /// preserve the case inside `{paramId}` placeholders. A
+    /// regression that drops the inner capital (returning
+    /// `getApiV3UsersUsersid`) would break operationId stability
+    /// for downstream tooling.
+    #[test]
+    fn heuristic_operation_id_camel_cases_and_keeps_param_capitals() {
+        // No params.
+        assert_eq!(
+            heuristic_operation_id("GET", "/api/v3/feed"),
+            "getApiV3Feed"
+        );
+        // Numeric-id template.
+        assert_eq!(
+            heuristic_operation_id("GET", "/api/v3/users/{usersId}"),
+            "getApiV3UsersUsersId"
+        );
+        // Hyphenated and underscored segments collapse cleanly.
+        assert_eq!(
+            heuristic_operation_id("POST", "/api/v3/user-profile/{userId}/_avatar"),
+            "postApiV3UserProfileUserIdAvatar"
+        );
+        // Method casing normalised.
+        assert_eq!(
+            heuristic_operation_id("delete", "/api/v3/messages/{id}"),
+            "deleteApiV3MessagesId"
+        );
+        // Empty template (defensive — the heuristic never
+        // produces this in practice but the helper shouldn't
+        // panic).
+        assert_eq!(heuristic_operation_id("GET", "/"), "get");
+    }
+
+    /// The whole point of switching the heuristic to camelCase
+    /// was so its output also passes the schema the LLM round
+    /// is validated against. Pin that invariant: a heuristic-only
+    /// build's path objects, fed back through `validate_paths_object`,
+    /// must return Ok(()).
+    #[test]
+    fn heuristic_output_satisfies_llm_validation_schema() {
+        let req = SpecRequest {
+            session_id: "schema-check".into(),
+            traffic_records: vec![
+                rec("GET", "/api/users/1", TrafficKind::Http),
+                rec("POST", "/api/users", TrafficKind::Http),
+                rec("DELETE", "/api/users/2", TrafficKind::Http),
+            ],
+            inferred: None,
+        };
+        let result = build_spec_heuristic(&req).expect("build");
+        let yaml = match result.openapi.as_ref().unwrap() {
+            SpecOutput::OpenApi(s) => s,
+            _ => unreachable!(),
+        };
+        // Re-parse YAML → JSON, extract `paths`, and feed back
+        // through the LLM validator. If `^[a-z][a-zA-Z0-9]+$`
+        // rejects any operationId we produced, this fails with
+        // the offending id in the error message.
+        let doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let mut as_json: serde_json::Value =
+            serde_json::to_value(doc).unwrap();
+        // The schema requires `paths` at the root + the field's
+        // own shape; we strip everything else to match the LLM
+        // wire format.
+        let paths = as_json
+            .get_mut("paths")
+            .unwrap()
+            .take();
+        let candidate = serde_json::json!({ "paths": paths });
+        validate_paths_object(&candidate)
+            .expect("heuristic output should pass the LLM schema");
+    }
+
+    /// Without a DeepSeek key, `build_spec` must not error — it
+    /// has to fall back to the heuristic and stamp a human-readable
+    /// `degradation_reason` so the UI can show a banner. Pre-fix
+    /// (round-1 spec gen) this returned `Err(LlmUnavailable)` and
+    /// the user got nothing.
+    #[tokio::test]
+    async fn build_spec_falls_back_to_heuristic_without_api_key() {
+        use std::sync::Mutex;
+        // Tests in this crate run in parallel; env var mutations
+        // need a process-wide guard or they race. Use a one-shot
+        // lock to serialise just this test's env touch.
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+        let prev = std::env::var("DEEPSEEK_API_KEY").ok();
+        std::env::remove_var("DEEPSEEK_API_KEY");
+
+        let req = SpecRequest {
+            session_id: "no-key".into(),
+            traffic_records: vec![rec("GET", "/api/users/1", TrafficKind::Http)],
+            inferred: None,
+        };
+        let cfg = SpecConfig {
+            deepseek_api_key: None,
+            // Replay would try to bind a port and run the mock —
+            // not what we're testing here. Disable for a fast path.
+            enable_replay_validation: false,
+            ..SpecConfig::default()
+        };
+
+        let result = build_spec(req, &cfg).await.expect("falls back, not errors");
+
+        // Restore env before asserting in case the assert panics.
+        if let Some(v) = prev {
+            std::env::set_var("DEEPSEEK_API_KEY", v);
+        }
+
+        assert_eq!(result.source, SpecSource::Heuristic);
+        let reason = result.degradation_reason.expect("reason populated");
+        assert!(
+            reason.contains("DEEPSEEK_API_KEY") && reason.contains("启发式"),
+            "reason should mention the missing key + fallback: {reason}"
         );
     }
 }

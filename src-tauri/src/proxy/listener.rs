@@ -34,6 +34,7 @@ pub(super) async fn run_proxy(
     network: Arc<NetworkConditionEngine>,
     scripts: Arc<ScriptEngine>,
     metrics: Arc<crate::metrics::ProxyMetrics>,
+    active_session_id: Arc<std::sync::Mutex<Option<String>>>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     use super::ProxyContext;
@@ -65,6 +66,7 @@ pub(super) async fn run_proxy(
                             network: network.clone(),
                             scripts: scripts.clone(),
                             metrics: metrics.clone(),
+                            active_session_id: active_session_id.clone(),
                         };
                         let m = metrics.clone();
                         tokio::spawn(async move {
@@ -129,6 +131,7 @@ pub fn start_proxy(
     dns_state: State<'_, Arc<DnsState>>,
     db_state: State<'_, Arc<DbState>>,
     rules_engine: State<'_, Arc<RulesEngine>>,
+    app_state: State<'_, Arc<crate::state::AppState>>,
 ) -> Result<String, String> {
     // Prevent starting proxy multiple times
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
@@ -139,6 +142,10 @@ pub fn start_proxy(
     let ds = dns_state.inner().clone();
     let db = db_state.inner().clone();
     let re = rules_engine.inner().clone();
+    // Share the AppState's active-session Arc so updates from the UI
+    // (`set_active_session` command) are visible to the capture path
+    // without restarting the proxy.
+    let active_session_id = app_state.inner().active_session_id.clone();
 
     // Create broadcast channel for events
     let (event_tx, mut event_rx) = broadcast::channel::<InterceptedRequest>(100);
@@ -225,6 +232,7 @@ pub fn start_proxy(
             network_engine,
             scripts,
             metrics,
+            active_session_id,
             shutdown_rx,
         )
         .await
@@ -275,6 +283,10 @@ pub fn start_proxy_core(
     let db = db_state.clone();
     let ne = network_engine.clone();
     let metrics = METRICS.clone();
+    // TUI startup has no UI to drive session switches — start with
+    // an empty Arc and leave it permanently None. Captures land
+    // with NULL `session_id` and surface via `get_traffic_records("")`.
+    let active_session_id = Arc::new(std::sync::Mutex::new(None));
 
     // Create scripting engine and load scripts from ~/.proxybot/scripts/
     let scripts = Arc::new(ScriptEngine::new());
@@ -296,6 +308,7 @@ pub fn start_proxy_core(
                 ne,
                 scripts,
                 metrics,
+                active_session_id,
                 shutdown_rx,
             )
             .await

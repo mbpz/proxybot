@@ -167,6 +167,11 @@ pub(super) async fn handle_http(
                         &ctx.dns_state,
                     );
                     if let Ok(conn) = ctx.db_state.conn.lock() {
+                        let session_id = ctx
+                            .active_session_id
+                            .lock()
+                            .ok()
+                            .and_then(|g| g.clone());
                         match record_http_request(
                             &conn,
                             &ts,
@@ -182,6 +187,7 @@ pub(super) async fn handle_http(
                             Some(latency),
                             device_ctx.as_ref().map(|d| d.device_id),
                             app_info.as_ref().map(|(n, _)| n.as_str()),
+                            session_id.as_deref(),
                         ) {
                             Ok(id) => {
                                 let _ = crate::db::mark_request_websocket(&conn, &id.to_string());
@@ -292,6 +298,11 @@ pub(super) async fn handle_http(
 
             // Record to database for TUI/persistence
             if let Ok(conn) = ctx.db_state.conn.lock() {
+                let session_id = ctx
+                    .active_session_id
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.clone());
                 let _ = record_http_request(
                     &conn,
                     &req.timestamp,
@@ -307,6 +318,7 @@ pub(super) async fn handle_http(
                     req.latency_ms,
                     req.device_id,
                     req.app_name.as_deref(),
+                    session_id.as_deref(),
                 );
             }
 

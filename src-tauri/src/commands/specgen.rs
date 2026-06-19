@@ -13,6 +13,7 @@
 //! the LLM API key, retry count, and replay toggles at runtime without
 //! restarting the app.
 
+use std::sync::Arc;
 use tauri::State;
 
 use proxybot_core::{
@@ -31,16 +32,25 @@ use proxybot_core::ReplayReport;
 /// embedded in the spec's `info.title`). The full result is persisted
 /// to `~/.proxybot/specs/<session_id>.json` and also returned to the
 /// caller so the UI can display it without a second round-trip.
+///
+/// `traffic_records` is optional: when omitted (or empty) the
+/// command pulls captured records straight out of `http_requests`
+/// using the same query as [`get_traffic_records`]. The UI normally
+/// passes `None` so we don't pay the cost of round-tripping every
+/// record through JSON twice; tests can still inject a synthetic
+/// record set by passing `Some(...)`.
 #[tauri::command]
 pub async fn generate_spec(
-    state: State<'_, AppState>,
+    app_state: State<'_, Arc<AppState>>,
+    db_state: State<'_, Arc<DbState>>,
     session_id: String,
-    traffic_records: Vec<TrafficRecord>,
+    traffic_records: Option<Vec<TrafficRecord>>,
 ) -> Result<SpecResult, String> {
-    let config = state.specgen_config_snapshot();
+    let config = app_state.specgen_config_snapshot();
+    let records = resolve_records(&db_state, &session_id, traffic_records)?;
     let req = SpecRequest {
         session_id: session_id.clone(),
-        traffic_records,
+        traffic_records: records,
         inferred: None,
     };
     let result = build_spec(req, &config)
@@ -49,7 +59,7 @@ pub async fn generate_spec(
 
     // Persist the full result to disk so export_spec and
     // run_replay_validation can read it back later.
-    let dir = state.specs_dir();
+    let dir = app_state.specs_dir();
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(format!("{session_id}.json"));
     let json = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
@@ -58,37 +68,46 @@ pub async fn generate_spec(
     Ok(result)
 }
 
-/// Export a previously-generated spec to a user-supplied path on disk.
+/// Read a previously-generated spec back as YAML text.
 ///
-/// Reads the JSON for the session, pulls out the OpenAPI and AsyncAPI
-/// YAML blobs, concatenates them with a single newline, and writes the
-/// combined output. If only one of the two is present, just that one
-/// is written.
+/// Returns the OpenAPI YAML concatenated with the AsyncAPI YAML
+/// (separated by a single newline). When only one of the two is
+/// present in the persisted result, just that one is returned.
+///
+/// The frontend uses the returned string with the standard
+/// `<a download>` browser API to trigger a save dialog — keeping
+/// the file-system write entirely in the webview rather than
+/// having Rust write to a path the user can't easily pick. The
+/// previous shape took `target_path` and silently wrote to the
+/// Tauri process's cwd, which gave files an unpredictable home.
 #[tauri::command]
 pub async fn export_spec(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     session_id: String,
-    target_path: String,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let path = state.specs_dir().join(format!("{session_id}.json"));
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let result: SpecResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
 
     let mut out = String::new();
-    if let Some(p) = &result.openapi {
-        if let SpecOutput::OpenApi(s) = p {
-            out.push_str(s);
+    if let Some(SpecOutput::OpenApi(s)) = result.openapi.as_ref() {
+        out.push_str(s);
+        if !s.ends_with('\n') {
             out.push('\n');
         }
     }
-    if let Some(p) = &result.asyncapi {
-        if let SpecOutput::AsyncApi(s) = p {
-            out.push_str(s);
+    if let Some(SpecOutput::AsyncApi(s)) = result.asyncapi.as_ref() {
+        // A YAML document separator marks the boundary so YAML
+        // parsers see two documents in one file. Without it the
+        // OpenAPI doc's last key would absorb the AsyncAPI top
+        // keys.
+        out.push_str("---\n");
+        out.push_str(s);
+        if !s.ends_with('\n') {
             out.push('\n');
         }
     }
-    std::fs::write(&target_path, out).map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(out)
 }
 
 /// Re-run replay validation against a previously-generated OpenAPI spec.
@@ -98,12 +117,13 @@ pub async fn export_spec(
 /// check that status codes and response bodies still match.
 #[tauri::command]
 pub async fn run_replay_validation(
-    state: State<'_, AppState>,
+    app_state: State<'_, Arc<AppState>>,
+    db_state: State<'_, Arc<DbState>>,
     session_id: String,
-    traffic_records: Vec<TrafficRecord>,
+    traffic_records: Option<Vec<TrafficRecord>>,
 ) -> Result<ReplayReport, String> {
-    let config = state.specgen_config_snapshot();
-    let path = state.specs_dir().join(format!("{session_id}.json"));
+    let config = app_state.specgen_config_snapshot();
+    let path = app_state.specs_dir().join(format!("{session_id}.json"));
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let result: SpecResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
 
@@ -112,9 +132,31 @@ pub async fn run_replay_validation(
         _ => return Err("no openapi spec".to_string()),
     };
     let port = config.mock_port;
-    core_run_replay(&openapi_yaml, &traffic_records, port)
+    let records = resolve_records(&db_state, &session_id, traffic_records)?;
+    core_run_replay(&openapi_yaml, &records, port)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Pull traffic records to feed into specgen. The UI sends `None`
+/// so we read the SQLite `http_requests` table ourselves; tests
+/// inject a synthetic vector via `Some(...)`. An empty `Some(vec![])`
+/// is treated the same as `None` because handing the heuristic a
+/// truly empty vector errors out with `EmptySession`, and the UI
+/// has no way to distinguish "I have nothing" from "I want you to
+/// look in the DB" via the JSON wire.
+fn resolve_records(
+    db_state: &State<'_, Arc<DbState>>,
+    session_id: &str,
+    provided: Option<Vec<TrafficRecord>>,
+) -> Result<Vec<TrafficRecord>, String> {
+    if let Some(recs) = provided {
+        if !recs.is_empty() {
+            return Ok(recs);
+        }
+    }
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    load_traffic_records(&conn, session_id)
 }
 
 /// Update the spec-generation configuration at runtime.
@@ -122,7 +164,7 @@ pub async fn run_replay_validation(
 /// Lets the UI set the DeepSeek API key, tune retry counts, toggle
 /// replay validation, and pick a mock port without restarting the app.
 #[tauri::command]
-pub fn update_specgen_config(state: State<'_, AppState>, config: SpecConfig) -> Result<(), String> {
+pub fn update_specgen_config(state: State<'_, Arc<AppState>>, config: SpecConfig) -> Result<(), String> {
     state.set_specgen_config(config);
     Ok(())
 }
@@ -133,9 +175,38 @@ pub fn update_specgen_config(state: State<'_, AppState>, config: SpecConfig) -> 
 /// exposing the actual key value.
 #[tauri::command]
 pub fn get_specgen_config(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
 ) -> Result<SpecConfig, String> {
     Ok(state.specgen_config_snapshot())
+}
+
+/// Mark a UI-selected `session_id` as the *active* session.
+///
+/// The proxy capture pipeline reads this value (via the cloned `Arc`
+/// inside `ProxyContext`) and stamps every newly-recorded
+/// `http_requests` row with it. Pass `None` to clear and have
+/// subsequent rows recorded with NULL `session_id`.
+///
+/// The UI calls this from `SpecGenPanel` whenever the user changes
+/// the session id field, so further captures land under the new
+/// session label without restarting the proxy.
+#[tauri::command]
+pub fn set_active_session(
+    state: State<'_, Arc<AppState>>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    // An empty string from the UI is treated the same as None so
+    // the on-disk session_id column stays NULL for "untagged".
+    let normalised = session_id.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    state.set_active_session_id(normalised);
+    Ok(())
+}
+
+/// Return the currently-active session id, or `None` when nothing
+/// is selected.
+#[tauri::command]
+pub fn get_active_session(state: State<'_, Arc<AppState>>) -> Result<Option<String>, String> {
+    Ok(state.active_session_id_snapshot())
 }
 
 /// Load captured traffic records for a given session from the SQLite
@@ -152,10 +223,22 @@ pub fn get_specgen_config(
 /// accidentally request an unbounded blob from the database.
 #[tauri::command]
 pub fn get_traffic_records(
-    state: State<'_, DbState>,
+    state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<Vec<TrafficRecord>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    load_traffic_records(&conn, &session_id)
+}
+
+/// Pure DB read used by both the public [`get_traffic_records`]
+/// command and the in-Rust fallback inside [`generate_spec`] /
+/// [`run_replay_validation`] for when the UI omits the records.
+/// Centralising the query keeps the SQL string + row decoder in
+/// one place, so a schema tweak only has to change one query.
+fn load_traffic_records(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> Result<Vec<TrafficRecord>, String> {
     let limit: i64 = 500;
 
     // For an empty session_id we surface untagged records; otherwise

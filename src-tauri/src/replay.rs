@@ -817,12 +817,12 @@ mod tests {
         let empty_headers: Vec<(String, String)> = vec![];
 
         // api.example.com: 3 requests, 2 distinct paths
-        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:02", "POST", "https", "api.example.com", "/v1/login", &empty_headers, None, Some(201), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:02", "POST", "https", "api.example.com", "/v1/login", &empty_headers, None, Some(201), &empty_headers, None, None, None, None, None).unwrap();
 
         // cdn.example.com: 1 request, 1 path
-        record_http_request(&conn, "2026-06-04 10:00:03", "GET", "https", "cdn.example.com", "/img.png", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:03", "GET", "https", "cdn.example.com", "/img.png", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
 
         let targets = get_replay_targets_internal(&conn).unwrap();
         assert_eq!(targets.len(), 2, "Should have 2 distinct hosts");
@@ -843,14 +843,14 @@ mod tests {
         let empty_headers: Vec<(String, String)> = vec![];
 
         // a.com: 1 row
-        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
         // b.com: 5 rows
         for i in 0..5 {
-            record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+            record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
         }
         // c.com: 3 rows
         for i in 0..3 {
-            record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "c.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+            record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "c.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
         }
 
         let targets = get_replay_targets_internal(&conn).unwrap();
@@ -896,6 +896,7 @@ mod tests {
             Some(50),
             None,
             Some("wechat"),
+            None,
         )
         .unwrap();
 
@@ -912,6 +913,7 @@ mod tests {
             &empty_headers,
             Some(r#"{"ok":true}"#),
             Some(120),
+            None,
             None,
             None,
         )
@@ -944,9 +946,9 @@ mod tests {
         let conn = seeded_db();
         let empty_headers: Vec<(String, String)> = vec![];
 
-        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "a.com", "/v2", &empty_headers, None, Some(200), &empty_headers, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "a.com", "/v2", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
 
         let a = get_requests_for_replay_internal(&conn, "a.com").unwrap();
         let b = get_requests_for_replay_internal(&conn, "b.com").unwrap();
@@ -1008,6 +1010,7 @@ mod tests {
             Some(42),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1024,6 +1027,7 @@ mod tests {
             &resp_headers,
             None,
             Some(11),
+            None,
             None,
             None,
         )
@@ -1057,6 +1061,7 @@ mod tests {
             None,
             Some(200),
             &empty_headers,
+            None,
             None,
             None,
             None,
@@ -1107,6 +1112,7 @@ mod tests {
             Some(200),
             &empty_headers,
             None, // body = None
+            None,
             None,
             None,
             None,
