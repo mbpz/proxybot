@@ -2,11 +2,29 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the 5 P0+P1 architectural gaps identified by Arch's review (2026-06-18) so FR-23 is genuinely complete: (1) AsyncAPI LLM call per spec §4.4, (2) SM-4 ≥80% pass rate automation, (3) DeepSeek API key persistence, (4) typed Tauri errors so UI can distinguish error categories, (5) wire `inferred` semantics into the Tauri command path.
+**Goal:** Close the 5 P0+P1 architectural gaps identified by Arch's review (2026-06-18) so FR-23 is genuinely complete.
 
-**Architecture:** Each task is independent and touches a small surface area. Tasks 1-2 deliver the spec promise (AsyncAPI LLM + SM-4). Tasks 3-5 finish the production-readiness loop (persistence, typed errors, inferred wiring). After Task 5, flip spec status to fully Implemented.
+## Status as of 2026-06-19
 
-**Tech Stack:** Same as Round 1 (Rust + Tauri + React). No new deps.
+After mid-flight independent work (commits `a8bd488` and `963aeb8`), several Round 2 items are already done. Re-baselined task list:
+
+| Task | Status | Resolved by |
+|---|---|---|
+| **Task 0: active_session_id wiring** (was outside plan) | ✅ Done | `a8bd488` — proxy capture path now tags every `http_requests` row with the active session id; UI pushes session id on change |
+| **Task 1: AsyncAPI LLM call (§4.4)** | ❌ Pending | — |
+| **Task 2: SM-4 ≥80% automation** | ✅ Done | `963aeb8` — 10-record + WS fixtures + `tests/specgen_fixture.rs` integration test that asserts coverage gate |
+| **Task 3: API key persistence to `~/.proxybot/config.toml`** | ❌ Pending | — |
+| **Task 4: Typed errors across Tauri boundary** | 🟡 Partial | `c41b34b` added `SpecResult.degradation_reason` for soft-failure UX. Hard errors (LlmUnavailable, Validation, Replay, Internal) still flatten to `String` — this remains pending |
+| **Task 5: Wire `inferred` into Tauri command** | 🟡 Partial | `c41b34b` added `resolve_records` (DB → traffic records). `inferred: None` is still hardcoded in `generate_spec` — DB load for inferred semantics remains pending |
+| **Task 6: Flip spec status to fully Implemented** | ❌ Pending | — |
+
+**Test count baseline:** 95 (91 lib + 3 fixture integration + 1 doctest) as of `c41b34b`.
+
+**Tasks remaining: 1, 3, 4-residual, 5-residual, 6.**
+
+**Architecture:** Each task is independent and touches a small surface area. Tasks 1 + 3 deliver the spec promise (AsyncAPI LLM + persistence). Tasks 4-residual + 5-residual finish the production-readiness loop. After Task 6, flip spec status to fully Implemented.
+
+**Tech Stack:** Same as Round 1 (Rust + Tauri + React). Add `toml` to src-tauri deps for Task 3.
 
 **Spec:** `docs/superpowers/specs/2026-06-16-openapi-asyncapi-generation-design.md` (Status: Partially Implemented)
 
