@@ -32,16 +32,25 @@ use proxybot_core::ReplayReport;
 /// embedded in the spec's `info.title`). The full result is persisted
 /// to `~/.proxybot/specs/<session_id>.json` and also returned to the
 /// caller so the UI can display it without a second round-trip.
+///
+/// `traffic_records` is optional: when omitted (or empty) the
+/// command pulls captured records straight out of `http_requests`
+/// using the same query as [`get_traffic_records`]. The UI normally
+/// passes `None` so we don't pay the cost of round-tripping every
+/// record through JSON twice; tests can still inject a synthetic
+/// record set by passing `Some(...)`.
 #[tauri::command]
 pub async fn generate_spec(
-    state: State<'_, Arc<AppState>>,
+    app_state: State<'_, Arc<AppState>>,
+    db_state: State<'_, Arc<DbState>>,
     session_id: String,
-    traffic_records: Vec<TrafficRecord>,
+    traffic_records: Option<Vec<TrafficRecord>>,
 ) -> Result<SpecResult, String> {
-    let config = state.specgen_config_snapshot();
+    let config = app_state.specgen_config_snapshot();
+    let records = resolve_records(&db_state, &session_id, traffic_records)?;
     let req = SpecRequest {
         session_id: session_id.clone(),
-        traffic_records,
+        traffic_records: records,
         inferred: None,
     };
     let result = build_spec(req, &config)
@@ -50,7 +59,7 @@ pub async fn generate_spec(
 
     // Persist the full result to disk so export_spec and
     // run_replay_validation can read it back later.
-    let dir = state.specs_dir();
+    let dir = app_state.specs_dir();
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(format!("{session_id}.json"));
     let json = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
@@ -99,12 +108,13 @@ pub async fn export_spec(
 /// check that status codes and response bodies still match.
 #[tauri::command]
 pub async fn run_replay_validation(
-    state: State<'_, Arc<AppState>>,
+    app_state: State<'_, Arc<AppState>>,
+    db_state: State<'_, Arc<DbState>>,
     session_id: String,
-    traffic_records: Vec<TrafficRecord>,
+    traffic_records: Option<Vec<TrafficRecord>>,
 ) -> Result<ReplayReport, String> {
-    let config = state.specgen_config_snapshot();
-    let path = state.specs_dir().join(format!("{session_id}.json"));
+    let config = app_state.specgen_config_snapshot();
+    let path = app_state.specs_dir().join(format!("{session_id}.json"));
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let result: SpecResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
 
@@ -113,9 +123,31 @@ pub async fn run_replay_validation(
         _ => return Err("no openapi spec".to_string()),
     };
     let port = config.mock_port;
-    core_run_replay(&openapi_yaml, &traffic_records, port)
+    let records = resolve_records(&db_state, &session_id, traffic_records)?;
+    core_run_replay(&openapi_yaml, &records, port)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Pull traffic records to feed into specgen. The UI sends `None`
+/// so we read the SQLite `http_requests` table ourselves; tests
+/// inject a synthetic vector via `Some(...)`. An empty `Some(vec![])`
+/// is treated the same as `None` because handing the heuristic a
+/// truly empty vector errors out with `EmptySession`, and the UI
+/// has no way to distinguish "I have nothing" from "I want you to
+/// look in the DB" via the JSON wire.
+fn resolve_records(
+    db_state: &State<'_, Arc<DbState>>,
+    session_id: &str,
+    provided: Option<Vec<TrafficRecord>>,
+) -> Result<Vec<TrafficRecord>, String> {
+    if let Some(recs) = provided {
+        if !recs.is_empty() {
+            return Ok(recs);
+        }
+    }
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    load_traffic_records(&conn, session_id)
 }
 
 /// Update the spec-generation configuration at runtime.
@@ -182,10 +214,22 @@ pub fn get_active_session(state: State<'_, Arc<AppState>>) -> Result<Option<Stri
 /// accidentally request an unbounded blob from the database.
 #[tauri::command]
 pub fn get_traffic_records(
-    state: State<'_, DbState>,
+    state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<Vec<TrafficRecord>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    load_traffic_records(&conn, &session_id)
+}
+
+/// Pure DB read used by both the public [`get_traffic_records`]
+/// command and the in-Rust fallback inside [`generate_spec`] /
+/// [`run_replay_validation`] for when the UI omits the records.
+/// Centralising the query keeps the SQL string + row decoder in
+/// one place, so a schema tweak only has to change one query.
+fn load_traffic_records(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> Result<Vec<TrafficRecord>, String> {
     let limit: i64 = 500;
 
     // For an empty session_id we surface untagged records; otherwise

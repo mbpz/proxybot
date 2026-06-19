@@ -73,6 +73,16 @@ pub struct SpecResult {
     pub replay: Option<crate::specgen::replay::ReplayReport>,
     pub generated_at: DateTime<Utc>,
     pub source: SpecSource,
+    /// Human-readable reason the LLM path was skipped or failed
+    /// when the result fell back to (or merged with) the heuristic.
+    /// `None` means the LLM round succeeded cleanly. The UI shows
+    /// this as a yellow banner above the path list so users
+    /// understand why the source badge says `Heuristic` instead of
+    /// `Llm`. Always `None` for the pure-heuristic entrypoint
+    /// (`build_spec_heuristic`) — that path has no LLM to degrade
+    /// from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degradation_reason: Option<String>,
 }
 
 /// Heuristic-only build: produces a spec from `traffic_records` with no LLM call.
@@ -187,6 +197,10 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         replay: None,
         generated_at: Utc::now(),
         source: SpecSource::Heuristic,
+        // Pure-heuristic path: there's no LLM round to degrade
+        // from, so leave the reason empty. `build_spec` overrides
+        // this when it falls back here.
+        degradation_reason: None,
     })
 }
 
@@ -197,12 +211,25 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
         return Err(SpecError::EmptySession);
     }
 
-    // Try LLM path; fall back to heuristic.
-    let api_key = config
+    // Try LLM path; fall back to heuristic. We track the reason
+    // for any degradation so the UI can surface it as a banner.
+    let api_key = match config
         .deepseek_api_key
         .clone()
         .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok())
-        .ok_or_else(|| SpecError::LlmUnavailable("DEEPSEEK_API_KEY not set".into()))?;
+    {
+        Some(k) => k,
+        None => {
+            // No key configured — go straight to heuristic with a
+            // friendly explanation rather than erroring out. This
+            // matches the design doc's §8 "downgrade gracefully"
+            // contract.
+            let mut result = build_spec_heuristic(&req)?;
+            result.degradation_reason =
+                Some("LLM 不可用：未设置 DEEPSEEK_API_KEY，已用启发式生成".into());
+            return finalise_with_replay(result, &req, config).await;
+        }
+    };
 
     let client = DeepSeekClient::new(api_key);
     let schema = serde_json::json!({
@@ -218,7 +245,8 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
         .call_with_schema(SYSTEM_PROMPT, &user_payload, &schema, config.max_retry)
         .await;
 
-    let (openapi_yaml, source) = match llm_attempt {
+    // (yaml, source, optional degradation_reason)
+    let (openapi_yaml, source, degradation): (String, SpecSource, Option<String>) = match llm_attempt {
         Ok(v) => match validate_paths_object(&v) {
             Ok(()) => {
                 // LLM succeeded. Also run heuristic, then merge: LLM paths win,
@@ -236,16 +264,27 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
                     &req.session_id,
                     label,
                 );
-                (rendered, label)
+                // Hybrid is "good enough" — no banner. Pure Llm
+                // also clean. We only flag a reason on Heuristic
+                // fallback below.
+                (rendered, label, None)
             }
-            Err(_) => {
+            Err(e) => {
                 let r = build_spec_heuristic(&req)?;
-                (extract_openapi_yaml(&r), r.source)
+                let reason = format!(
+                    "LLM 输出不符合 schema，已用启发式生成（覆盖度可能较低）: {}",
+                    truncate_reason(&e.to_string())
+                );
+                (extract_openapi_yaml(&r), r.source, Some(reason))
             }
         },
-        Err(_) => {
+        Err(e) => {
             let r = build_spec_heuristic(&req)?;
-            (extract_openapi_yaml(&r), r.source)
+            let reason = format!(
+                "LLM 调用失败，已用启发式生成: {}",
+                truncate_reason(&e.to_string())
+            );
+            (extract_openapi_yaml(&r), r.source, Some(reason))
         }
     };
 
@@ -253,14 +292,35 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
     let mut result = build_spec_heuristic(&req)?;
     result.source = source;
     result.openapi = Some(SpecOutput::OpenApi(openapi_yaml));
+    result.degradation_reason = degradation;
 
+    finalise_with_replay(result, &req, config).await
+}
+
+/// Truncate noisy error messages so the UI banner stays one line.
+fn truncate_reason(s: &str) -> String {
+    const MAX: usize = 200;
+    if s.len() <= MAX {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..MAX])
+    }
+}
+
+/// Run replay validation if enabled and stash the report on the
+/// result. Shared by every `build_spec` exit path so we don't
+/// duplicate the toggle check.
+async fn finalise_with_replay(
+    mut result: SpecResult,
+    req: &SpecRequest,
+    config: &SpecConfig,
+) -> Result<SpecResult, SpecError> {
     if config.enable_replay_validation {
         if let Some(SpecOutput::OpenApi(ref yaml)) = result.openapi {
             let replay = replay::run_replay(yaml, &req.traffic_records, config.mock_port).await?;
             result.replay = Some(replay);
         }
     }
-
     Ok(result)
 }
 
