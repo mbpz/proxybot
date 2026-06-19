@@ -288,11 +288,22 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
         }
     };
 
-    // AsyncAPI is always heuristic for now (LLM call is future work).
+    // AsyncAPI: try LLM, fall back to heuristic on failure or no frames.
+    // Only attempt LLM if the OpenAPI source indicates LLM was reachable
+    // (Llm or Hybrid); on Heuristic fallback the LLM round already failed
+    // so a doomed AsyncAPI call would just add latency.
     let mut result = build_spec_heuristic(&req)?;
     result.source = source;
     result.openapi = Some(SpecOutput::OpenApi(openapi_yaml));
     result.degradation_reason = degradation;
+
+    if matches!(source, SpecSource::Llm | SpecSource::Hybrid) {
+        if let Some(asyncapi_yaml) =
+            build_asyncapi_with_llm(&req, &client, config.max_retry).await
+        {
+            result.asyncapi = Some(SpecOutput::AsyncApi(asyncapi_yaml));
+        }
+    }
 
     finalise_with_replay(result, &req, config).await
 }
@@ -390,6 +401,88 @@ fn merge_paths(
 }
 
 const SYSTEM_PROMPT: &str = "你是 API 规范生成助手。根据用户提供的流量记录和（可选的）已推断的接口语义，输出符合 JSON Schema 的 OpenAPI 3.1 路径对象。\n\n如果用户提供了 `inferred` 字段，优先采用其中的接口名、operationId 和 tags，不要自己重新命名。\n\n规则：\n- 路径必须用 {param} 模板化（如 /api/user/123 → /api/user/{id}）\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个接口给 operationId (camelCase)、summary、tags\n- 至少 1 个 example（从流量 body 取）\n- 中文 summary";
+
+const ASYNCAPI_SYSTEM_PROMPT: &str = "你是 AsyncAPI 规范生成助手。根据用户提供的 WebSocket / SSE 流量，输出符合 JSON Schema 的 AsyncAPI 2.6 channels 对象。\n\n规则：\n- 路径用 {param} 模板化\n- 不臆造字段，只在流量中实际出现的字段才写\n- 每个 channel 给 description（中文）+ subscribe.message.payload\n- 至少 1 个 example（从流量帧 body 取）";
+
+fn asyncapi_user_payload(req: &SpecRequest) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("session_id".into(), serde_json::json!(req.session_id));
+    let frames: Vec<serde_json::Value> = req
+        .traffic_records
+        .iter()
+        .filter(|r| r.kind == TrafficKind::WebSocket || r.kind == TrafficKind::Sse)
+        .take(50)
+        .map(|r| {
+            serde_json::json!({
+                "kind": r.kind_str(),
+                "path": r.path,
+                "host": r.host,
+                "body": r.response_body,
+            })
+        })
+        .collect();
+    payload.insert("frames".into(), serde_json::json!(frames));
+    serde_json::to_string(&payload).unwrap_or_default()
+}
+
+fn asyncapi_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "required": ["channels"],
+        "properties": {
+            "channels": { "type": "object", "additionalProperties": true }
+        }
+    })
+}
+
+/// Optional LLM call for AsyncAPI. Returns rendered YAML if successful,
+/// `None` to signal "fall back to heuristic" (the orchestrator will then
+/// keep the heuristic AsyncAPI it already built). Returning `None` also
+/// covers no-frames sessions — the LLM call is short-circuited so we
+/// don't waste a network round-trip on HTTP-only traffic.
+async fn build_asyncapi_with_llm(
+    req: &SpecRequest,
+    client: &DeepSeekClient,
+    max_retry: u32,
+) -> Option<String> {
+    let frames_count = req
+        .traffic_records
+        .iter()
+        .filter(|r| r.kind == TrafficKind::WebSocket || r.kind == TrafficKind::Sse)
+        .count();
+    if frames_count == 0 {
+        return None;
+    }
+    let payload = asyncapi_user_payload(req);
+    let schema = asyncapi_schema();
+    let v = client
+        .call_with_schema(ASYNCAPI_SYSTEM_PROMPT, &payload, &schema, max_retry)
+        .await
+        .ok()?;
+    let channels_value = v.get("channels")?.clone();
+    Some(render_channels_as_asyncapi(&channels_value, &req.session_id))
+}
+
+fn render_channels_as_asyncapi(channels_map: &serde_json::Value, session_id: &str) -> String {
+    use std::collections::BTreeMap;
+    let mut typed: BTreeMap<String, render::AsyncApiChannel> = BTreeMap::new();
+    if let Some(obj) = channels_map.as_object() {
+        for (k, v) in obj {
+            let item: render::AsyncApiChannel = serde_json::from_value(v.clone())
+                .unwrap_or_else(|_| render::AsyncApiChannel {
+                    description: format!("LLM channel for {k}"),
+                    subscribe: None,
+                    publish: None,
+                });
+            typed.insert(k.clone(), item);
+        }
+    }
+    render::render_asyncapi(
+        &format!("ProxyBot AsyncAPI for {session_id}"),
+        "wss://api.example.com",
+        typed,
+    )
+}
 
 fn build_user_payload(req: &SpecRequest) -> String {
     let mut payload = serde_json::Map::new();
@@ -545,5 +638,49 @@ mod tests {
             !payload_none.contains("\"inferred\""),
             "payload should not include inferred key when None: {payload_none}"
         );
+    }
+
+    #[tokio::test]
+    async fn build_asyncapi_with_llm_renders_channels_on_success() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{
+                    "message": { "content": r#"{"channels":{"/ws/chat":{"description":"chat","subscribe":{"payload":{"type":"object"}}}}}"# }
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = DeepSeekClient {
+            api_key: "sk-test".into(),
+            endpoint: format!("{}/v1/chat/completions", server.uri()),
+            http: reqwest::Client::new(),
+        };
+        let req = SpecRequest {
+            session_id: "s".into(),
+            traffic_records: vec![rec("GET", "/ws/chat", TrafficKind::WebSocket)],
+            inferred: None,
+        };
+        let yaml = build_asyncapi_with_llm(&req, &client, 0)
+            .await
+            .expect("returns Some");
+        assert!(yaml.contains("/ws/chat"));
+        assert!(yaml.contains("asyncapi: 2.6.0"));
+    }
+
+    #[tokio::test]
+    async fn build_asyncapi_with_llm_returns_none_for_no_frames() {
+        // HTTP-only session: short-circuits before any network call.
+        let client = DeepSeekClient::new("sk-test".into());
+        let req = SpecRequest {
+            session_id: "s".into(),
+            traffic_records: vec![rec("GET", "/api/users/1", TrafficKind::Http)],
+            inferred: None,
+        };
+        assert!(build_asyncapi_with_llm(&req, &client, 0).await.is_none());
     }
 }
