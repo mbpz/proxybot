@@ -83,14 +83,18 @@ fn wechat_session_clusters_into_expected_paths() {
     }
 
     // Assert: same template, distinct methods both render. The
-    // heuristic's operationId scheme is `<method><tpl>` with `/`,
-    // `{`, `}` collapsed to `_` — known-not-camelCase; see Arch
-    // review. We pin the actual shape here so a future tightening
-    // (e.g. proper camelCase) breaks loudly and on purpose.
-    assert!(yaml.contains("getapi_v3_contacts__contactsId"));
-    assert!(yaml.contains("deleteapi_v3_contacts__contactsId"));
-    assert!(yaml.contains("getapi_v3_user_profile"));
-    assert!(yaml.contains("postapi_v3_user_profile"));
+    // heuristic's operationId scheme is camelCase
+    // (`<method><PascalSegments>`), produced by the
+    // `heuristic_operation_id` helper so the output also passes
+    // the LLM-validation schema's `^[a-z][a-zA-Z0-9]+$` regex —
+    // see `heuristic_output_satisfies_llm_validation_schema` in
+    // proxybot-core/src/specgen/mod.rs. Pin the actual shape so
+    // any further tightening (e.g. dropping `Api` from the
+    // prefix) breaks loudly and on purpose.
+    assert!(yaml.contains("getApiV3ContactsContactsId"));
+    assert!(yaml.contains("deleteApiV3ContactsContactsId"));
+    assert!(yaml.contains("getApiV3UserProfile"));
+    assert!(yaml.contains("postApiV3UserProfile"));
 
     // Assert: SM-4 coverage gate. Every concrete path must map back
     // to one of the emitted templates; the design doc's ≥ 80% bar is

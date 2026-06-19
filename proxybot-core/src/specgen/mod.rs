@@ -114,11 +114,13 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         let mut item = render::OpenApiPathItem::default();
         for (m, _example_path) in methods {
             let op = render::OpenApiOperation {
-                operation_id: format!(
-                    "{}{}",
-                    m.to_lowercase(),
-                    tpl.replace(['/', '{', '}'], "_").trim_matches('_')
-                ),
+                // camelCase operationId so the heuristic's output
+                // also satisfies the LLM-validation schema's
+                // `^[a-z][a-zA-Z0-9]+$` pattern. Without this the
+                // heuristic emits `getapi_v3_users__usersId` which
+                // would be rejected if it ever round-tripped
+                // through `validate_paths_object`.
+                operation_id: heuristic_operation_id(m, tpl),
                 summary: format!("{m} {tpl}"),
                 tags: vec!["auto".into()],
                 parameters: vec![],
@@ -535,6 +537,37 @@ fn extract_openapi_yaml(r: &SpecResult) -> String {
     }
 }
 
+/// Build a camelCase operationId from `(method, template)`.
+///
+/// `heuristic_operation_id("GET", "/api/v3/users/{usersId}")` →
+/// `"getApiV3UsersUsersId"`. The output matches the LLM
+/// validation schema's `^[a-z][a-zA-Z0-9]+$` pattern, so the
+/// heuristic's own path items are also schema-valid (the
+/// previous underscore-style ids would have been rejected if the
+/// hybrid merge ever fed them back through `validate_paths_object`).
+///
+/// Splits on `/`, `_`, `-`, `{`, `}` to preserve the boundaries
+/// between path segments and stripped param braces. Empty
+/// segments (consecutive separators, leading slash) are dropped.
+fn heuristic_operation_id(method: &str, template: &str) -> String {
+    let mut out = String::with_capacity(method.len() + template.len());
+    out.push_str(&method.to_ascii_lowercase());
+    for seg in template.split(['/', '_', '-', '{', '}']) {
+        if seg.is_empty() {
+            continue;
+        }
+        let mut chars = seg.chars();
+        if let Some(first) = chars.next() {
+            out.push(first.to_ascii_uppercase());
+            // Preserve the case of the rest of the segment so
+            // params like `{usersId}` keep their internal capital
+            // (`UsersId`, not `Usersid`).
+            out.extend(chars);
+        }
+    }
+    out
+}
+
 impl TrafficRecord {
     pub fn kind_str(&self) -> &'static str {
         match self.kind {
@@ -682,6 +715,80 @@ mod tests {
             inferred: None,
         };
         assert!(build_asyncapi_with_llm(&req, &client, 0).await.is_none());
+    }
+
+    /// `heuristic_operation_id` must produce camelCase ids that
+    /// satisfy the schema's `^[a-z][a-zA-Z0-9]+$` pattern AND
+    /// preserve the case inside `{paramId}` placeholders. A
+    /// regression that drops the inner capital (returning
+    /// `getApiV3UsersUsersid`) would break operationId stability
+    /// for downstream tooling.
+    #[test]
+    fn heuristic_operation_id_camel_cases_and_keeps_param_capitals() {
+        // No params.
+        assert_eq!(
+            heuristic_operation_id("GET", "/api/v3/feed"),
+            "getApiV3Feed"
+        );
+        // Numeric-id template.
+        assert_eq!(
+            heuristic_operation_id("GET", "/api/v3/users/{usersId}"),
+            "getApiV3UsersUsersId"
+        );
+        // Hyphenated and underscored segments collapse cleanly.
+        assert_eq!(
+            heuristic_operation_id("POST", "/api/v3/user-profile/{userId}/_avatar"),
+            "postApiV3UserProfileUserIdAvatar"
+        );
+        // Method casing normalised.
+        assert_eq!(
+            heuristic_operation_id("delete", "/api/v3/messages/{id}"),
+            "deleteApiV3MessagesId"
+        );
+        // Empty template (defensive — the heuristic never
+        // produces this in practice but the helper shouldn't
+        // panic).
+        assert_eq!(heuristic_operation_id("GET", "/"), "get");
+    }
+
+    /// The whole point of switching the heuristic to camelCase
+    /// was so its output also passes the schema the LLM round
+    /// is validated against. Pin that invariant: a heuristic-only
+    /// build's path objects, fed back through `validate_paths_object`,
+    /// must return Ok(()).
+    #[test]
+    fn heuristic_output_satisfies_llm_validation_schema() {
+        let req = SpecRequest {
+            session_id: "schema-check".into(),
+            traffic_records: vec![
+                rec("GET", "/api/users/1", TrafficKind::Http),
+                rec("POST", "/api/users", TrafficKind::Http),
+                rec("DELETE", "/api/users/2", TrafficKind::Http),
+            ],
+            inferred: None,
+        };
+        let result = build_spec_heuristic(&req).expect("build");
+        let yaml = match result.openapi.as_ref().unwrap() {
+            SpecOutput::OpenApi(s) => s,
+            _ => unreachable!(),
+        };
+        // Re-parse YAML → JSON, extract `paths`, and feed back
+        // through the LLM validator. If `^[a-z][a-zA-Z0-9]+$`
+        // rejects any operationId we produced, this fails with
+        // the offending id in the error message.
+        let doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let mut as_json: serde_json::Value =
+            serde_json::to_value(doc).unwrap();
+        // The schema requires `paths` at the root + the field's
+        // own shape; we strip everything else to match the LLM
+        // wire format.
+        let paths = as_json
+            .get_mut("paths")
+            .unwrap()
+            .take();
+        let candidate = serde_json::json!({ "paths": paths });
+        validate_paths_object(&candidate)
+            .expect("heuristic output should pass the LLM schema");
     }
 
     /// Without a DeepSeek key, `build_spec` must not error — it

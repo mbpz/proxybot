@@ -40,6 +40,11 @@ pub struct OpenApiPathItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenApiOperation {
+    /// camelCase on the wire so the serialized YAML/JSON matches
+    /// the OpenAPI 3.1 schema and the LLM validation regex
+    /// (`^[a-z][a-zA-Z0-9]+$`). The Rust-side field stays
+    /// snake_case for idiomatic access.
+    #[serde(rename = "operationId")]
     pub operation_id: String,
     pub summary: String,
     #[serde(default)]
