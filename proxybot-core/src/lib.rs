@@ -29,6 +29,7 @@
 //! ```
 
 pub mod app_classifier;
+pub mod body;
 pub mod cert_manager;
 pub mod config;
 pub mod dns_state;
