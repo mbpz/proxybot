@@ -36,6 +36,7 @@ pub mod fingerprint;
 pub mod proxy_engine;
 pub mod rules_engine;
 pub mod specgen;
+pub mod tls_rules;
 pub mod types;
 
 // Re-export key types for convenience
@@ -52,6 +53,7 @@ pub use config::{proxy_port, dns_port, AppConfig};
 pub use dns_state::DnsState;
 pub use proxy_engine::ProxyEngine;
 pub use rules_engine::{match_rule, host_matches_domain, RuleMatch, RulesEngine};
+pub use tls_rules::{TlsAction, TlsRule, TlsRuleSet};
 pub use types::{
     AppRule, BreakpointDecision, BreakpointRequest, BreakpointTarget, CaMetadata, DnsEntry,
     DnsUpstream, DnsUpstreamType, HostsEntry, InterceptedRequest, Rule, RuleAction, RuleEntry,

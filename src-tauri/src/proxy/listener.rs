@@ -35,6 +35,7 @@ pub(super) async fn run_proxy(
     scripts: Arc<ScriptEngine>,
     metrics: Arc<crate::metrics::ProxyMetrics>,
     active_session_id: Arc<std::sync::Mutex<Option<String>>>,
+    tls_rules: Arc<std::sync::RwLock<proxybot_core::TlsRuleSet>>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), String> {
     use super::ProxyContext;
@@ -67,6 +68,7 @@ pub(super) async fn run_proxy(
                             scripts: scripts.clone(),
                             metrics: metrics.clone(),
                             active_session_id: active_session_id.clone(),
+                            tls_rules: tls_rules.clone(),
                         };
                         let m = metrics.clone();
                         tokio::spawn(async move {
@@ -146,6 +148,10 @@ pub fn start_proxy(
     // (`set_active_session` command) are visible to the capture path
     // without restarting the proxy.
     let active_session_id = app_state.inner().active_session_id.clone();
+    // Same sharing trick for the per-host TLS policy: edits via the
+    // tls_rules commands rebuild this set so the HTTPS handler sees
+    // them without a proxy restart.
+    let tls_rules = app_state.inner().tls_rules.clone();
 
     // Create broadcast channel for events
     let (event_tx, mut event_rx) = broadcast::channel::<InterceptedRequest>(100);
@@ -233,6 +239,7 @@ pub fn start_proxy(
             scripts,
             metrics,
             active_session_id,
+            tls_rules,
             shutdown_rx,
         )
         .await
@@ -287,6 +294,9 @@ pub fn start_proxy_core(
     // an empty Arc and leave it permanently None. Captures land
     // with NULL `session_id` and surface via `get_traffic_records("")`.
     let active_session_id = Arc::new(std::sync::Mutex::new(None));
+    // TUI has no rule-editing UI either — start with an empty rule
+    // set so every host is decrypted (today's behaviour).
+    let tls_rules = Arc::new(std::sync::RwLock::new(proxybot_core::TlsRuleSet::default()));
 
     // Create scripting engine and load scripts from ~/.proxybot/scripts/
     let scripts = Arc::new(ScriptEngine::new());
@@ -309,6 +319,7 @@ pub fn start_proxy_core(
                 scripts,
                 metrics,
                 active_session_id,
+                tls_rules,
                 shutdown_rx,
             )
             .await

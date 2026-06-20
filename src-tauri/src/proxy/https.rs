@@ -68,6 +68,63 @@ pub(super) async fn handle_https_connect(
         return;
     }
 
+    // Per-host TLS policy: a Bypass/Passthrough host is tunnelled raw
+    // instead of MITM'd. This is the escape hatch for cert-pinned apps
+    // (which reject our leaf cert and crash) and noisy telemetry hosts.
+    // Default (no matching rule) is Decrypt, preserving prior behaviour.
+    let tls_action = ctx
+        .tls_rules
+        .read()
+        .map(|rs| rs.decide(&target_host))
+        .unwrap_or(proxybot_core::TlsAction::Decrypt);
+
+    if !tls_action.is_decrypt() {
+        log::info!(
+            "TLS rule: {:?} for {} — tunnelling without decryption",
+            tls_action,
+            target_host
+        );
+        // Record CONNECT metadata for Bypass (so the host still shows
+        // in the capture as a passthrough); Passthrough records nothing.
+        if tls_action.should_log() {
+            if let Ok(conn) = ctx.db_state.conn.lock() {
+                let session_id = ctx
+                    .active_session_id
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.clone());
+                let _ = record_http_request(
+                    &conn,
+                    &timestamp_now(),
+                    "CONNECT",
+                    "https",
+                    &target_host,
+                    "/",
+                    &[],
+                    None,
+                    Some(200),
+                    &[],
+                    None,
+                    None,
+                    device_ctx.as_ref().map(|d| d.device_id),
+                    None,
+                    session_id.as_deref(),
+                );
+            }
+        }
+        let upstream = match TcpStream::connect(&target_addr).await {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to connect to upstream {}: {}", target_addr, e);
+                return;
+            }
+        };
+        if let Err(e) = pipe_tcp_bidirectional(client_stream, upstream, &ctx.network).await {
+            log::error!("Bypass tunnel pipe failed: {}", e);
+        }
+        return;
+    }
+
     // Generate certificate for the target host signed by our CA
     let (cert_pem, key_pem) = match ctx.cert_manager.generate_host_cert(&target_host) {
         Ok(cert) => cert,

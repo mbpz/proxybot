@@ -371,6 +371,21 @@ impl DbState {
                 CREATE INDEX IF NOT EXISTS idx_http_requests_session_id ON http_requests(session_id);
                 "#,
             ),
+            (
+                6,
+                "Add tls_decryption_rules table for per-host MITM policy",
+                r#"
+                CREATE TABLE IF NOT EXISTS tls_decryption_rules (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern    TEXT NOT NULL UNIQUE,
+                    action     TEXT NOT NULL CHECK (action IN ('Decrypt', 'Bypass', 'Passthrough')),
+                    hit_count  INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_tls_rules_sort ON tls_decryption_rules(sort_order);
+                "#,
+            ),
         ];
 
         for (version, description, sql) in migrations {
@@ -971,6 +986,78 @@ pub fn get_deployment(
         Some(Err(e)) => Err(e.to_string()),
         None => Ok(None),
     }
+}
+
+/// A persisted per-host TLS decryption rule. `action` is one of
+/// `Decrypt` / `Bypass` / `Passthrough` (validated by the table's
+/// CHECK constraint and re-parsed into `TlsAction` by the command
+/// layer).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsRuleRow {
+    pub id: i64,
+    pub pattern: String,
+    pub action: String,
+    pub hit_count: i64,
+    pub sort_order: i64,
+}
+
+/// Load all TLS decryption rules ordered by `sort_order` (first match
+/// wins, so the UI controls precedence through this column).
+pub fn get_tls_rules(conn: &Connection) -> Result<Vec<TlsRuleRow>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, pattern, action, hit_count, sort_order
+             FROM tls_decryption_rules
+             ORDER BY sort_order ASC, id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(TlsRuleRow {
+                id: row.get(0)?,
+                pattern: row.get(1)?,
+                action: row.get(2)?,
+                hit_count: row.get(3)?,
+                sort_order: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+/// Insert a TLS rule. `sort_order` defaults to the current max + 1 so
+/// new rules land at the end (lowest precedence) unless the caller
+/// reorders them. Returns the new row id.
+pub fn add_tls_rule(
+    conn: &Connection,
+    pattern: &str,
+    action: &str,
+) -> Result<i64, String> {
+    let next_order: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tls_decryption_rules",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO tls_decryption_rules (pattern, action, hit_count, sort_order, created_at)
+         VALUES (?1, ?2, 0, ?3, ?4)",
+        rusqlite::params![pattern, action, next_order, chrono_lite_timestamp()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Delete a TLS rule by id.
+pub fn delete_tls_rule(conn: &Connection, id: i64) -> Result<(), String> {
+    conn.execute("DELETE FROM tls_decryption_rules WHERE id = ?1", [id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 impl DbState {

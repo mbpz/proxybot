@@ -1,9 +1,9 @@
 //! Global application state shared with Tauri commands.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
-use proxybot_core::SpecConfig;
+use proxybot_core::{SpecConfig, TlsRuleSet};
 
 /// Wrapper newtype so `AppState` can live in `tauri::State` even though
 /// the inner config is a plain data type. Following the pattern used by
@@ -24,6 +24,15 @@ pub struct AppState {
     /// into `ProxyContext` and read without going through the
     /// Tauri State map per request.
     pub active_session_id: Arc<Mutex<Option<String>>>,
+    /// Per-host TLS decryption policy. The proxy's HTTPS handler
+    /// reads this (via the cloned `Arc` in `ProxyContext`) before
+    /// deciding whether to MITM a connection. The DB is the source
+    /// of truth; commands that mutate the rules rebuild this cache
+    /// so changes take effect without a proxy restart.
+    ///
+    /// `RwLock` because the read path (every HTTPS CONNECT) is hot
+    /// and the write path (user edits a rule) is rare.
+    pub tls_rules: Arc<RwLock<TlsRuleSet>>,
 }
 
 impl AppState {
@@ -34,7 +43,16 @@ impl AppState {
         Self {
             specgen_config: Arc::new(Mutex::new(SpecConfig::default())),
             active_session_id: Arc::new(Mutex::new(None)),
+            tls_rules: Arc::new(RwLock::new(TlsRuleSet::default())),
         }
+    }
+
+    /// Replace the cached TLS rule set wholesale. Called after any
+    /// DB mutation so the proxy hot path sees the new policy without
+    /// a restart.
+    pub fn set_tls_rules(&self, rules: TlsRuleSet) {
+        let mut guard = self.tls_rules.write().expect("tls_rules rwlock poisoned");
+        *guard = rules;
     }
 
     /// Snapshot the current active session id. Returns `None` when

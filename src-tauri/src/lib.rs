@@ -139,6 +139,17 @@ pub fn run() {
         .manage(network_conditions_state)
         .manage(app_state)
         .setup(move |app| {
+            // Hydrate the per-host TLS rule cache from SQLite so the
+            // proxy sees persisted rules on the very first connection,
+            // before the user opens the Certs tab. Non-fatal: a fresh
+            // install simply has no rules and decrypts everything.
+            {
+                let db = app.state::<Arc<DbState>>().inner().clone();
+                let app_st = app.state::<Arc<crate::state::AppState>>().inner().clone();
+                if let Err(e) = commands::tls_rules::reload_tls_rules(&db, &app_st) {
+                    log::warn!("Failed to load TLS decryption rules at startup: {}", e);
+                }
+            }
             // Start file watcher in a dedicated thread with its own Tokio runtime
             // (notify's internal thread outlives the app's runtime)
             let rules_engine = rules_engine.clone();
@@ -390,6 +401,9 @@ pub fn run() {
             commands::specgen::get_traffic_records,
             commands::specgen::set_active_session,
             commands::specgen::get_active_session,
+            commands::tls_rules::get_tls_rules,
+            commands::tls_rules::add_tls_rule,
+            commands::tls_rules::delete_tls_rule,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
