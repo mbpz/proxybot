@@ -57,11 +57,17 @@ pub(super) async fn handle_http(
         client_addr,
     );
     call_on_request_hooks(&ctx.plugins, &ctx.plugin_rules, &mut request_ctx);
-    // Also run Rhai script hooks
-    if ctx.scripts.run_all_on_request(&request_ctx) == crate::scripting::engine::ScriptResult::Block
-    {
-        log::info!("Rhai script blocked HTTP request to {}", host);
-        return Ok(());
+    // Also run Rhai script hooks — can block or rewrite the body.
+    match ctx.scripts.run_all_on_request(&request_ctx) {
+        crate::scripting::engine::ScriptResult::Block => {
+            log::info!("Rhai script blocked HTTP request to {}", host);
+            return Ok(());
+        }
+        crate::scripting::engine::ScriptResult::RewriteBody(new_body) => {
+            log::info!("Rhai script rewrote request body for {} {}", request_ctx.method, request_ctx.host);
+            request_ctx.req_body = Some(new_body);
+        }
+        crate::scripting::engine::ScriptResult::Continue => {}
     }
 
     // Apply rules - check for MapRemote, Respond, or breakpoint modifications
@@ -246,7 +252,12 @@ pub(super) async fn handle_http(
                 &mut response_ctx,
                 &request_ctx,
             );
-            ctx.scripts.run_all_on_response(&response_ctx, &request_ctx);
+            match ctx.scripts.run_all_on_response(&response_ctx, &request_ctx) {
+                crate::scripting::engine::ScriptResult::RewriteBody(new_body) => {
+                    response_ctx.body = Some(new_body);
+                }
+                _ => {}
+            }
 
             // Classify by direct domain match first, then fall back to DNS correlation
             // (host-string, then IP).
