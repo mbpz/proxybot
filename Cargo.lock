@@ -4175,7 +4175,9 @@ name = "proxybot-core"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "brotli",
  "chrono",
+ "flate2",
  "ipnetwork",
  "jsonschema",
  "log",

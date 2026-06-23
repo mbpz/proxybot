@@ -138,6 +138,11 @@ pub(super) struct ProxyContext {
     /// (`start_proxy_core`) creates a fresh empty `Arc` since
     /// there's no UI to set it.
     pub(super) active_session_id: Arc<std::sync::Mutex<Option<String>>>,
+    /// Cloned `Arc<RwLock<TlsRuleSet>>` from `AppState`. The HTTPS
+    /// handler consults this before generating a leaf cert: a
+    /// `Bypass`/`Passthrough` host is tunnelled raw instead of
+    /// MITM'd. The TUI path starts with an empty set (decrypt all).
+    pub(super) tls_rules: Arc<std::sync::RwLock<proxybot_core::TlsRuleSet>>,
 }
 
 /// Device context for tracking which device made a request.

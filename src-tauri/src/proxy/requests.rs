@@ -1,7 +1,7 @@
 //! InterceptedRequest construction, persistence emission, and device lookup.
 
 use super::protocol::{
-    body_to_string, extract_query_params, parse_http_response, try_decode_graphql_body,
+    body_to_string, decompress_body, extract_query_params, parse_http_response, try_decode_graphql_body,
     try_decode_grpc_body,
 };
 use super::{DeviceContext, InterceptedRequest, ProxyContext};
@@ -69,7 +69,11 @@ pub(super) fn build_intercepted_request(
 ) -> InterceptedRequest {
     let (status, resp_headers, resp_body) =
         parse_http_response(response_buf).unwrap_or((0u16, Vec::new(), Vec::new()));
+    // Decompress gzip/deflate/brotli before stringifying — otherwise a
+    // compressed JSON body is non-UTF-8 and gets dropped to None.
+    // gRPC decoding still runs on the raw bytes (it has its own framing).
     let grpc_decoded = try_decode_grpc_body(&resp_headers, &resp_body);
+    let resp_body = decompress_body(&resp_headers, &resp_body);
     let graphql_op = try_decode_graphql_body(&headers, body_to_string(body).as_deref());
     let (app_name, app_icon) = app_info
         .map(|(n, i)| (Some(n), Some(i)))

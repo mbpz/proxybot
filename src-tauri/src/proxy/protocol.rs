@@ -98,6 +98,18 @@ pub(super) fn body_to_string(body: &[u8]) -> Option<String> {
     String::from_utf8(body.to_vec()).ok()
 }
 
+/// Decompress a response body according to its `Content-Encoding`.
+///
+/// Thin wrapper over [`proxybot_core::body::decompress`] that pulls
+/// the encoding token out of the response headers. Captured bodies
+/// arrive as raw wire bytes; gzip/deflate/brotli responses must be
+/// inflated before `body_to_string`, or the compressed bytes fail
+/// UTF-8 and the body is dropped to `None`.
+pub(super) fn decompress_body(headers: &[(String, String)], body: &[u8]) -> Vec<u8> {
+    let encoding = header_value(headers, "content-encoding").unwrap_or("");
+    proxybot_core::body::decompress(encoding, body)
+}
+
 pub(super) fn http_reason(status: u16) -> &'static str {
     match status {
         200 => "OK",

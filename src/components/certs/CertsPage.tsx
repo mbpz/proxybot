@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { safeInvoke } from "../../utils/safeInvoke";
 import { Download, RefreshCw, Key, AlertCircle, Server } from "lucide-react";
 import { Button } from "../ui/Button";
+import { DecryptionRules } from "./DecryptionRules";
 
 interface CaMetadata {
   created_at: number;
@@ -177,6 +178,8 @@ export function CertsPage() {
           </div>
         )}
       </div>
+
+      <DecryptionRules />
     </div>
   );
 }
