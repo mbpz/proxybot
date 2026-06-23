@@ -4,6 +4,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use proxybot_core::{SpecConfig, TlsRuleSet};
+use proxybot_core::types::InterceptedRequest;
+use crate::proxy::{BreakpointDecision, BreakpointTarget};
+use serde::Serialize;
+use std::collections::HashMap;
+use tokio::sync::oneshot;
 
 /// Wrapper newtype so `AppState` can live in `tauri::State` even though
 /// the inner config is a plain data type. Following the pattern used by
@@ -33,6 +38,36 @@ pub struct AppState {
     /// `RwLock` because the read path (every HTTPS CONNECT) is hot
     /// and the write path (user edits a rule) is rare.
     pub tls_rules: Arc<RwLock<TlsRuleSet>>,
+    /// Breakpoints awaiting a user decision. The bridge task
+    /// (`start_proxy` in `listener.rs`) reads from `bp_rx`, stashes
+    /// the oneshot sender here keyed by a generated id, and emits a
+    /// Tauri event. The UI fetches the request snapshots via
+    /// `get_pending_breakpoints` and resolves each via
+    /// `resolve_breakpoint(id, decision)`. The oneshot stays in the
+    /// map until resolved, so the proxy worker that's awaiting it
+    /// keeps the connection alive.
+    pub pending_breakpoints: Arc<Mutex<HashMap<String, PendingBreakpoint>>>,
+}
+
+/// One paused request waiting on a user decision. Held in
+/// [`AppState::pending_breakpoints`] until the UI calls
+/// `resolve_breakpoint(id, ...)` and we send through `decision_tx`.
+pub struct PendingBreakpoint {
+    pub id: String,
+    pub target: BreakpointTarget,
+    pub request: InterceptedRequest,
+    /// `None` once the decision has been delivered. The bridge task
+    /// holds the sender as `Some(...)` so resolve can take it out.
+    pub decision_tx: Option<oneshot::Sender<BreakpointDecision>>,
+}
+
+/// Wire-format snapshot of a pending breakpoint for the UI. Mirrors
+/// `PendingBreakpoint` minus the non-serialisable oneshot.
+#[derive(Debug, Clone, Serialize)]
+pub struct BreakpointSnapshot {
+    pub id: String,
+    pub target: BreakpointTarget,
+    pub request: InterceptedRequest,
 }
 
 impl AppState {
@@ -44,6 +79,7 @@ impl AppState {
             specgen_config: Arc::new(Mutex::new(SpecConfig::default())),
             active_session_id: Arc::new(Mutex::new(None)),
             tls_rules: Arc::new(RwLock::new(TlsRuleSet::default())),
+            pending_breakpoints: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -99,6 +135,72 @@ impl AppState {
     pub fn specs_dir(&self) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".proxybot").join("specs")
+    }
+}
+
+impl AppState {
+    /// Snapshot all pending breakpoints for the UI. The oneshots
+    /// stay in the map; only the request data is returned.
+    pub fn list_breakpoints(&self) -> Vec<BreakpointSnapshot> {
+        let guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+        guard
+            .values()
+            .map(|p| BreakpointSnapshot {
+                id: p.id.clone(),
+                target: p.target,
+                request: p.request.clone(),
+            })
+            .collect()
+    }
+
+    /// Stash a breakpoint (called by the bridge task). Generates an
+    /// id and returns it so the bridge can include it in the
+    /// `breakpoint:new` Tauri event payload.
+    pub fn insert_breakpoint(
+        &self,
+        target: BreakpointTarget,
+        request: InterceptedRequest,
+        decision_tx: oneshot::Sender<BreakpointDecision>,
+    ) -> String {
+        let id = format!("bp-{}", uuid::Uuid::new_v4().simple());
+        let mut guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+        guard.insert(
+            id.clone(),
+            PendingBreakpoint {
+                id: id.clone(),
+                target,
+                request,
+                decision_tx: Some(decision_tx),
+            },
+        );
+        id
+    }
+
+    /// Remove a breakpoint and take its decision sender. The caller
+    /// (`resolve_breakpoint` command) then sends the user's decision.
+    /// Returns None if the id is unknown or already resolved.
+    pub fn take_breakpoint_sender(
+        &self,
+        id: &str,
+    ) -> Option<oneshot::Sender<BreakpointDecision>> {
+        let mut guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+        let mut entry = guard.remove(id)?;
+        entry.decision_tx.take()
+    }
+
+    /// Cancel all pending breakpoints by resolving each to `Proceed`.
+    /// Called on proxy shutdown so we don't strand the suspended
+    /// connections.
+    pub fn cancel_all_breakpoints(&self) {
+        let drained: Vec<_> = {
+            let mut guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+            guard.drain().collect()
+        };
+        for (_id, mut bp) in drained {
+            if let Some(tx) = bp.decision_tx.take() {
+                let _ = tx.send(BreakpointDecision::Proceed);
+            }
+        }
     }
 }
 

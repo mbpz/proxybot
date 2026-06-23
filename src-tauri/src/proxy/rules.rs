@@ -226,7 +226,7 @@ pub(super) fn combine_remote_path(prefix: &str, path: &str) -> String {
 // Main rule-application entry point
 // ---------------------------------------------------------------------------
 
-pub(super) fn apply_request_rule(
+pub(super) async fn apply_request_rule(
     ctx: &ProxyContext,
     client_addr: SocketAddr,
     scheme: &str,
@@ -309,7 +309,7 @@ pub(super) fn apply_request_rule(
                 });
             }
 
-            match decision_rx.blocking_recv() {
+            match decision_rx.await {
                 Ok(BreakpointDecision::Drop) => Ok(RuleApplication::Respond {
                     status: 403,
                     headers: vec![(

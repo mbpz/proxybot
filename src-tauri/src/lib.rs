@@ -404,6 +404,9 @@ pub fn run() {
             commands::tls_rules::get_tls_rules,
             commands::tls_rules::add_tls_rule,
             commands::tls_rules::delete_tls_rule,
+            commands::breakpoint::get_pending_breakpoints,
+            commands::breakpoint::resolve_breakpoint,
+            commands::breakpoint::cancel_all_breakpoints,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

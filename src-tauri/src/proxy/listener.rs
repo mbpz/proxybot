@@ -177,14 +177,35 @@ pub fn start_proxy(
     let scripts = Arc::new(ScriptEngine::new());
     load_or_create_example_scripts(&scripts);
 
-    // Create breakpoint channel (receiver unused in Tauri mode, sender passed to run_proxy)
-    let (bp_tx, _bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
+    // Breakpoint channel: rules engine sends BreakpointRequest into
+    // bp_tx; the bridge task below routes them into AppState and
+    // notifies the UI.
+    let (bp_tx, mut bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
 
     // Spawn task to forward events to Tauri frontend
     let app_handle_clone = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         while let Ok(req) = event_rx.recv().await {
             let _ = app_handle_clone.emit("intercepted-request", &req);
+        }
+    });
+
+    // Bridge: read bp_rx, stash each in AppState, emit a Tauri event
+    // so the UI panel wakes up. The oneshot stays in AppState until
+    // resolve_breakpoint sends a decision through it.
+    let bp_app_handle = app_handle.clone();
+    let bp_state = app_state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(bp) = bp_rx.recv().await {
+            let id = bp_state.insert_breakpoint(bp.target, bp.request.clone(), bp.decision_tx);
+            let _ = bp_app_handle.emit(
+                "breakpoint:new",
+                serde_json::json!({
+                    "id": id,
+                    "target": bp.target,
+                    "request": bp.request,
+                }),
+            );
         }
     });
 

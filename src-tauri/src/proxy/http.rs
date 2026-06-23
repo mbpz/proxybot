@@ -78,7 +78,8 @@ pub(super) async fn handle_http(
             .as_deref()
             .unwrap_or_default()
             .as_bytes(),
-    )?;
+    )
+    .await?;
 
     match rule_result {
         RuleApplication::Continue {

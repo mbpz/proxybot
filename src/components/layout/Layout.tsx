@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useUpdateCheck } from "../../hooks/useUpdateCheck";
+import { BreakpointPanel } from "../breakpoint/BreakpointPanel";
 
 export function Layout() {
   const { checkForUpdates } = useUpdateCheck();
@@ -20,6 +21,7 @@ export function Layout() {
       <main className="flex-1 overflow-auto bg-surface-primary p-6">
         <Outlet />
       </main>
+      <BreakpointPanel />
     </div>
   );
 }
