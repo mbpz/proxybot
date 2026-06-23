@@ -3,7 +3,14 @@ use crate::proxy::InterceptedRequest;
 use rhai::{Dynamic, Engine, Scope, AST};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
+
+/// Per-script-call slot for body rewrites emitted by the
+/// `rewrite_request_body` / `rewrite_response_body` Rhai functions.
+/// The engine reads the slot after evaluation and surfaces it as
+/// `ScriptResult::RewriteBody`. Wrapped in `Arc<RwLock>` so a clone
+/// can be moved into the Rhai closure that writes it.
+type RewriteSlot = Arc<RwLock<Option<String>>>;
 
 /// A sandboxed Rhai scripting engine for intercepting and modifying
 /// HTTP requests and responses at runtime.
@@ -17,6 +24,10 @@ use std::sync::RwLock;
 pub struct ScriptEngine {
     engine: Engine,
     scripts: RwLock<HashMap<String, (PathBuf, AST)>>,
+    /// Side-channel slot the registered `rewrite_*_body` Rhai fns
+    /// write to. Set per call; consumed by `run_on_request` /
+    /// `run_on_response` to produce `ScriptResult::RewriteBody`.
+    rewrite_slot: RewriteSlot,
 }
 
 impl ScriptEngine {
@@ -27,6 +38,7 @@ impl ScriptEngine {
     /// to scripts.
     pub fn new() -> Self {
         let mut engine = Engine::new();
+        let rewrite_slot: RewriteSlot = Arc::new(RwLock::new(None));
 
         // Register logging API functions that scripts can call
         engine.register_fn("log", |msg: String| {
@@ -51,9 +63,31 @@ impl ScriptEngine {
                 .unwrap_or_default()
         });
 
+        // Rewrite hooks. Scripts call e.g.
+        //     rewrite_response_body(`{"mocked": true}`);
+        // and the engine surfaces the new body as
+        // `ScriptResult::RewriteBody(...)`. The runner then patches the
+        // captured request/response before forwarding. Both fns share
+        // one slot — a single script call should only rewrite one
+        // direction at a time; on_request and on_response are
+        // dispatched separately so this is safe.
+        let slot_req = rewrite_slot.clone();
+        engine.register_fn("rewrite_request_body", move |body: String| {
+            if let Ok(mut s) = slot_req.write() {
+                *s = Some(body);
+            }
+        });
+        let slot_resp = rewrite_slot.clone();
+        engine.register_fn("rewrite_response_body", move |body: String| {
+            if let Ok(mut s) = slot_resp.write() {
+                *s = Some(body);
+            }
+        });
+
         Self {
             engine,
             scripts: RwLock::new(HashMap::new()),
+            rewrite_slot,
         }
     }
 
@@ -115,11 +149,23 @@ impl ScriptEngine {
             "query_params",
             request.query_params.clone().unwrap_or_default(),
         );
+        // Expose the request body too so scripts can inspect what
+        // they're about to rewrite. Default to empty string when None
+        // (rather than a Rhai null) so `req_body == "..."` works.
+        scope.push("req_body", request.req_body.clone().unwrap_or_default());
 
         // Evaluate the script body. Rhai returns the last expression value.
         // Script convention: return true to continue, false to block.
+        // The rewrite slot is cleared before evaluation and inspected
+        // after — if the script called rewrite_request_body(...) we
+        // surface that as `ScriptResult::RewriteBody`, taking precedence
+        // over the bool return.
+        *self.rewrite_slot.write().unwrap() = None;
         match self.engine.eval_ast_with_scope::<Dynamic>(&mut scope, ast) {
             Ok(result) => {
+                if let Some(new_body) = self.rewrite_slot.write().unwrap().take() {
+                    return Ok(ScriptResult::RewriteBody(new_body));
+                }
                 if result.is_bool() {
                     if result.as_bool().unwrap() {
                         Ok(ScriptResult::Continue)
@@ -165,8 +211,13 @@ impl ScriptEngine {
         scope.push("status", response.status.unwrap_or(0) as i64);
         scope.push("resp_body", response.body.clone().unwrap_or_default());
 
+        // Same rewrite-slot dance as on_request — see above.
+        *self.rewrite_slot.write().unwrap() = None;
         match self.engine.eval_ast_with_scope::<Dynamic>(&mut scope, ast) {
             Ok(result) => {
+                if let Some(new_body) = self.rewrite_slot.write().unwrap().take() {
+                    return Ok(ScriptResult::RewriteBody(new_body));
+                }
                 if result.is_bool() {
                     if result.as_bool().unwrap() {
                         Ok(ScriptResult::Continue)
@@ -214,9 +265,11 @@ impl ScriptEngine {
     }
 
     /// Run on_request hooks for ALL loaded scripts against the given request.
-    /// Returns the first Block result, or Continue if all scripts allow it.
+    /// Block wins over Continue; a RewriteBody from any script wins over
+    /// later Continues (but Block from any subsequent script overrides).
     pub fn run_all_on_request(&self, request: &InterceptedRequest) -> ScriptResult {
         let names = self.list_scripts();
+        let mut rewrite: Option<String> = None;
         for name in &names {
             match self.run_on_request(name, request) {
                 Ok(ScriptResult::Block) => {
@@ -224,12 +277,19 @@ impl ScriptEngine {
                     return ScriptResult::Block;
                 }
                 Ok(ScriptResult::Continue) => continue,
+                Ok(ScriptResult::RewriteBody(body)) => {
+                    log::info!("Script '{}' rewrote request body", name);
+                    rewrite = Some(body);
+                }
                 Err(e) => {
                     log::error!("{}", e);
                 }
             }
         }
-        ScriptResult::Continue
+        match rewrite {
+            Some(body) => ScriptResult::RewriteBody(body),
+            None => ScriptResult::Continue,
+        }
     }
 
     /// Run on_response hooks for ALL loaded scripts.
@@ -239,6 +299,7 @@ impl ScriptEngine {
         request: &InterceptedRequest,
     ) -> ScriptResult {
         let names = self.list_scripts();
+        let mut rewrite: Option<String> = None;
         for name in &names {
             match self.run_on_response(name, response, request) {
                 Ok(ScriptResult::Block) => {
@@ -246,12 +307,19 @@ impl ScriptEngine {
                     return ScriptResult::Block;
                 }
                 Ok(ScriptResult::Continue) => continue,
+                Ok(ScriptResult::RewriteBody(body)) => {
+                    log::info!("Script '{}' rewrote response body", name);
+                    rewrite = Some(body);
+                }
                 Err(e) => {
                     log::error!("{}", e);
                 }
             }
         }
-        ScriptResult::Continue
+        match rewrite {
+            Some(body) => ScriptResult::RewriteBody(body),
+            None => ScriptResult::Continue,
+        }
     }
 
     /// List all loaded script names.
@@ -315,6 +383,10 @@ pub enum ScriptResult {
     Continue,
     /// Block the request/response.
     Block,
+    /// Continue, but with the body replaced by the given string.
+    /// Used by `rewrite_request_body` / `rewrite_response_body`
+    /// Rhai hooks.
+    RewriteBody(String),
 }
 
 impl Default for ScriptEngine {
@@ -630,5 +702,103 @@ mod tests {
         let result = engine.run_on_request("buggy", &req).unwrap();
         // Should fail open (continue) on error
         assert_eq!(result, ScriptResult::Continue);
+    }
+
+    #[test]
+    fn test_rewrite_request_body() {
+        let engine = ScriptEngine::new();
+        engine
+            .load_from_string(
+                "rewrite_req",
+                r#"
+                if req_body == "old" {
+                    rewrite_request_body("new");
+                }
+                true
+            "#,
+            )
+            .unwrap();
+
+        let req = InterceptedRequest {
+            method: "POST".into(),
+            host: "api.example.com".into(),
+            req_body: Some("old".into()),
+            ..Default::default()
+        };
+        let result = engine.run_on_request("rewrite_req", &req).unwrap();
+        assert_eq!(result, ScriptResult::RewriteBody("new".into()));
+    }
+
+    #[test]
+    fn test_rewrite_request_body_no_match() {
+        let engine = ScriptEngine::new();
+        engine
+            .load_from_string(
+                "rewrite_only_json",
+                r#"
+                if req_body.contains("\"key\"") {
+                    rewrite_request_body("{\"ok\":true}");
+                }
+                true
+            "#,
+            )
+            .unwrap();
+
+        let req = InterceptedRequest {
+            method: "POST".into(),
+            req_body: Some("plain text".into()),
+            ..Default::default()
+        };
+        let result = engine.run_on_request("rewrite_only_json", &req).unwrap();
+        // No rewrite triggered — body didn't match the condition.
+        assert_eq!(result, ScriptResult::Continue);
+    }
+
+    #[test]
+    fn test_rewrite_response_body() {
+        let engine = ScriptEngine::new();
+        engine
+            .load_from_string(
+                "mock_resp",
+                r#"
+                if status >= 500 {
+                    rewrite_response_body("{\"error\":\"mocked\"}");
+                }
+                true
+            "#,
+            )
+            .unwrap();
+
+        let req = InterceptedRequest::default();
+        let resp = InterceptedResponse {
+            status: Some(500),
+            body: Some("real error".into()),
+            ..Default::default()
+        };
+        let result = engine.run_on_response("mock_resp", &resp, &req).unwrap();
+        assert_eq!(result, ScriptResult::RewriteBody("{\"error\":\"mocked\"}".into()));
+    }
+
+    #[test]
+    fn test_rewrite_slot_not_leaked_between_calls() {
+        let engine = ScriptEngine::new();
+        // First call rewrites.
+        engine
+            .load_from_string("rewrite_once", r#"rewrite_request_body("new"); true"#)
+            .unwrap();
+        let req = InterceptedRequest {
+            req_body: Some("old".into()),
+            ..Default::default()
+        };
+        let r1 = engine.run_on_request("rewrite_once", &req).unwrap();
+        assert_eq!(r1, ScriptResult::RewriteBody("new".into()));
+
+        // Second call with a different script that does NOT rewrite
+        // must NOT see the leftover slot from the first call.
+        engine
+            .load_from_string("no_rewrite", "true")
+            .unwrap();
+        let r2 = engine.run_on_request("no_rewrite", &req).unwrap();
+        assert_eq!(r2, ScriptResult::Continue);
     }
 }
