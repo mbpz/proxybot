@@ -4,6 +4,7 @@ pub mod plugin_trait;
 pub mod registry;
 pub mod rule_engine;
 pub mod sandbox;
+pub mod wasm_host;
 pub use executor::HookExecutor;
 pub use plugin_trait::{ConnectDecision, InterceptedResponse, Plugin, PluginHooks};
 pub use registry::PluginRegistry;
