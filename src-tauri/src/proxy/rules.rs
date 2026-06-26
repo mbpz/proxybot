@@ -245,8 +245,8 @@ pub(super) async fn apply_request_rule(
         // local server without writing MapRemote rules. The target
         // is read from the global AppConfig (env var or future
         // Tauri command override), so no ProxyContext plumbing.
-        if let Some(ref target) = proxybot_core::config::reverse_target() {
-            let remote = parse_remote_target(target)?;
+        if let Some(target) = proxybot_core::config::reverse_target() {
+            let remote = parse_remote_target(&target)?;
             return Ok(RuleApplication::MapRemote {
                 target: remote,
                 method: method.to_string(),
@@ -399,6 +399,14 @@ mod tests {
             combine_remote_path("/api/", "/users"),
             "/api/users"
         );
+    }
+
+    #[test]
+    fn combine_remote_path_empty_prefix_passthrough() {
+        assert_eq!(combine_remote_path("", "/users"), "/users");
+        // Even a non-slash path is normalized because the proxied
+        // request always arrives with a leading slash.
+        assert_eq!(combine_remote_path("", "users"), "/users");
     }
 
     #[test]
