@@ -25,6 +25,31 @@ fn main() {
         return;
     }
 
+    // Reverse-proxy mode (v1.3 G-4 part 2): every unmatched request
+    // gets forwarded to the configured local backend. Set via flag
+    // for one-shot testing or PROXYBOT_REVERSE_TARGET for daemon
+    // mode. The env var is what `proxybot_core::config::reverse_target`
+    // reads; the flag is just a convenience for CLI users.
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--reverse-target" {
+            if let Some(url) = args.get(i + 1) {
+                // Safety: in practice, this CLI is single-threaded at
+                // startup, so the env mutation is benign.
+                unsafe {
+                    std::env::set_var("PROXYBOT_REVERSE_TARGET", url);
+                }
+                log::info!("Reverse-proxy mode enabled → {}", url);
+                i += 2;
+                continue;
+            } else {
+                eprintln!("--reverse-target requires a URL argument");
+                std::process::exit(2);
+            }
+        }
+        i += 1;
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     log::info!("Starting ProxyBot GUI");
 

@@ -239,6 +239,22 @@ pub(super) async fn apply_request_rule(
     use super::requests::build_request_context;
 
     let Some(action) = ctx.rules_engine.match_host(host, None) else {
+        // No rule matched. If reverse-proxy mode is on, route the
+        // unmatched request to the configured local backend instead
+        // of going to DNS. Lets frontend devs point ProxyBot at a
+        // local server without writing MapRemote rules. The target
+        // is read from the global AppConfig (env var or future
+        // Tauri command override), so no ProxyContext plumbing.
+        if let Some(target) = proxybot_core::config::reverse_target() {
+            let remote = parse_remote_target(&target)?;
+            return Ok(RuleApplication::MapRemote {
+                target: remote,
+                method: method.to_string(),
+                path: combine_remote_path(&remote.path_prefix, path),
+                headers: headers.to_vec(),
+                body: body.to_vec(),
+            });
+        }
         return Ok(RuleApplication::Continue {
             method: method.to_string(),
             path: path.to_string(),
@@ -334,3 +350,71 @@ pub(super) async fn apply_request_rule(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_localhost_target() {
+        // The most common reverse-mode form: local dev server on a
+        // custom port. Must round-trip the port, default to 80 for
+        // plain http, and strip the path prefix.
+        let r = parse_remote_target("http://localhost:3000").unwrap();
+        assert_eq!(r.scheme, "http");
+        assert_eq!(r.host, "localhost");
+        assert_eq!(r.port, 3000);
+        assert_eq!(r.path_prefix, "");
+    }
+
+    #[test]
+    fn parse_target_with_path_prefix() {
+        // Path prefix gets re-applied to every request via
+        // combine_remote_path so the local backend sees the
+        // expected mount point.
+        let r = parse_remote_target("http://localhost:8080/api").unwrap();
+        assert_eq!(r.path_prefix, "/api");
+    }
+
+    #[test]
+    fn parse_target_default_ports() {
+        let http = parse_remote_target("http://example.com").unwrap();
+        assert_eq!(http.port, 80);
+        let https = parse_remote_target("https://example.com").unwrap();
+        assert_eq!(https.port, 443);
+    }
+
+    #[test]
+    fn parse_target_rejects_garbage() {
+        assert!(parse_remote_target("not a url").is_err());
+        assert!(parse_remote_target("ftp://example.com").is_err());
+        assert!(parse_remote_target("http://").is_err());
+    }
+
+    #[test]
+    fn combine_remote_path_handles_trailing_slash() {
+        // Trailing slash on the prefix should not produce // in the
+        // joined path.
+        assert_eq!(
+            combine_remote_path("/api/", "/users"),
+            "/api/users"
+        );
+    }
+
+    #[test]
+    fn combine_remote_path_empty_prefix_passthrough() {
+        assert_eq!(combine_remote_path("", "/users"), "/users");
+        // Even a non-slash path is normalized because the proxied
+        // request always arrives with a leading slash.
+        assert_eq!(combine_remote_path("", "users"), "/users");
+    }
+
+    #[test]
+    fn combine_remote_path_empty_prefix_passthrough() {
+        assert_eq!(combine_remote_path("", "/users"), "/users");
+        // Even a non-slash path is normalized because the proxied
+        // request always arrives with a leading slash.
+        assert_eq!(combine_remote_path("", "users"), "/users");
+    }
+}
+

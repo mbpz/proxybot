@@ -53,6 +53,13 @@ pub struct AppConfig {
 
     // ─── Replay buffer ──────────────────────────────────────────────────────
     pub replay_buffer_size: usize,
+
+    // ─── Reverse proxy mode (v1.3 G-4 part 2) ─────────────────────────────
+    /// When `target.is_some()`, every unmatched request is forwarded
+    /// to this URL instead of being resolved via DNS. Lets a frontend
+    /// dev point ProxyBot at their local backend without writing
+    /// MapRemote rules for every endpoint.
+    pub reverse_target: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -116,6 +123,11 @@ impl AppConfig {
 
             // Replay
             replay_buffer_size: 8192,
+
+            // Reverse proxy mode: disabled by default. Set
+            // PROXYBOT_REVERSE_TARGET=http://localhost:3000 to enable
+            // without rebuilding.
+            reverse_target: std::env::var("PROXYBOT_REVERSE_TARGET").ok(),
         }
     }
 }
@@ -237,6 +249,12 @@ pub fn replay_buffer_size() -> usize {
     CONFIG.replay_buffer_size
 }
 
+/// Returns the reverse proxy target URL, or `None` when reverse mode
+/// is disabled.
+pub fn reverse_target() -> Option<String> {
+    CONFIG.reverse_target.clone()
+}
+
 /// Returns the base config directory.
 pub fn base_dir() -> PathBuf {
     CONFIG.base_dir.clone()
@@ -265,5 +283,17 @@ mod tests {
         assert_eq!(max_dns_entries(), 10000);
         assert_eq!(max_tokens(), 4096);
         assert_eq!(replay_buffer_size(), 8192);
+        // reverse_target defaults to None unless PROXYBOT_REVERSE_TARGET
+        // is set in the test environment. The default-config test
+        // doesn't assert on this because of that env coupling.
+    }
+
+    #[test]
+    fn test_reverse_target_accessor() {
+        // Just confirm the accessor returns whatever the global
+        // config holds. With no env override it should be None.
+        if std::env::var("PROXYBOT_REVERSE_TARGET").is_err() {
+            assert!(reverse_target().is_none());
+        }
     }
 }
