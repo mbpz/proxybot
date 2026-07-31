@@ -7,7 +7,7 @@
 use crate::normalize::{NormalizedRecord, TrafficPage};
 use crate::proxy::WsFrameEvent;
 use proxybot_core::desktop_contract::DesktopContractType;
-use proxybot_core::{InterceptedRequest, WsFrame};
+use proxybot_core::{BreakpointTarget, InterceptedRequest, Rule, RuleAction, RulePattern, WsFrame};
 use std::fmt::Write;
 
 pub const TRAFFIC_COMMANDS: &[&str] = &[
@@ -23,6 +23,15 @@ pub const TRAFFIC_COMMANDS: &[&str] = &[
 
 pub const TRAFFIC_EVENTS: &[&str] = &["intercepted-request", "ws-frame:new"];
 
+pub const RULE_COMMANDS: &[&str] = &[
+    "delete_rule",
+    "get_rules",
+    "list_rule_files",
+    "match_host",
+    "reorder_rules",
+    "save_rule",
+];
+
 /// Render the checked-in TypeScript contract deterministically.
 pub fn render_typescript() -> String {
     let mut output = String::from(
@@ -37,6 +46,10 @@ pub fn render_typescript() -> String {
         WsFrameEvent::type_script_declaration(),
         NormalizedRecord::type_script_declaration(),
         TrafficPage::type_script_declaration(),
+        BreakpointTarget::type_script_declaration(),
+        RulePattern::type_script_declaration(),
+        RuleAction::type_script_declaration(),
+        Rule::type_script_declaration(),
     ] {
         output.push_str(&declaration);
         output.push('\n');
@@ -49,14 +62,20 @@ pub fn render_typescript() -> String {
          \x20 expr: string;\n\
          }\n\n\
          export interface DesktopCommands {\n\
+         \x20 delete_rule: { args: { rule: Rule; filename: string }; result: undefined };\n\
          \x20 evaluate_filter: { args: { expr: string; request: InterceptedRequest }; result: boolean };\n\
          \x20 export_har: { args: { sessionName: string }; result: JsonValue };\n\
          \x20 get_traffic_page: { args: { page: number; pageSize: number }; result: TrafficPage };\n\
+         \x20 get_rules: { args: { filename: string }; result: Rule[] };\n\
          \x20 get_ws_frames: { args: { requestId: string }; result: WsFrame[] };\n\
          \x20 list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };\n\
+         \x20 list_rule_files: { args: Record<string, never>; result: string[] };\n\
          \x20 load_history: { args: Record<string, never>; result: InterceptedRequest[] };\n\
+         \x20 match_host: { args: { host: string; ip: string | null }; result: RuleAction | null };\n\
+         \x20 reorder_rules: { args: { fromIndex: number; toIndex: number; filename: string }; result: undefined };\n\
          \x20 save_har_file: { args: { harJson: string; sessionName: string }; result: string };\n\
          \x20 save_history: { args: { requests: InterceptedRequest[] }; result: undefined };\n\
+         \x20 save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };\n\
          }\n\n\
          export interface DesktopEvents {\n\
          \x20 \"intercepted-request\": InterceptedRequest;\n\
@@ -64,12 +83,17 @@ pub fn render_typescript() -> String {
          }\n\n",
     );
 
+    let command_names = TRAFFIC_COMMANDS
+        .iter()
+        .chain(RULE_COMMANDS)
+        .copied()
+        .collect::<Vec<_>>();
     write!(
         output,
         "export const desktopCommandNames = {} as const;\n\
          export const desktopEventNames = {} as const;\n\
-         export const unitCommandNames = [\"save_history\"] as const;\n",
-        json_string_array(TRAFFIC_COMMANDS),
+         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_history\",\"save_rule\"] as const;\n",
+        json_string_array(&command_names),
         json_string_array(TRAFFIC_EVENTS),
     )
     .expect("writing to a String cannot fail");
@@ -91,6 +115,8 @@ mod tests {
         assert_eq!(first, render_typescript());
         assert!(first.contains("export interface InterceptedRequest"));
         assert!(first.contains("get_traffic_page"));
+        assert!(first.contains("save_rule"));
+        assert!(first.contains("export type RuleAction"));
         assert!(first.contains("\"ws-frame:new\""));
     }
 }

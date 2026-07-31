@@ -10,6 +10,7 @@ const BASE_MOCKS = {
   get_ca_metadata: null,
   get_dns_log: [],
   get_dns_upstream: "8.8.8.8",
+  list_filter_presets: [],
   get_replay_targets: [],
   get_rules: [],
   get_devices: [],
@@ -39,6 +40,7 @@ test.describe("Sidebar navigation", () => {
   test("navigates to Rules page", async ({ page }) => {
     await page.getByRole("link", { name: "Rules" }).click();
     await expect(page).toHaveURL(/\/rules/);
+    await expect(page.getByText("No rules configured")).toBeVisible();
   });
 
   test("navigates to Certs page", async ({ page }) => {

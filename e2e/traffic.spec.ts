@@ -1,5 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { mockTauriIPC, mockTauriCommands } from "./fixtures/tauri-mock";
+import {
+  emitTauriEvent,
+  mockTauriIPC,
+  mockTauriCommands,
+} from "./fixtures/tauri-mock";
+import {
+  capturedRequest,
+  type InterceptedRequest,
+} from "./fixtures/desktop-contract";
 
 const BASE_MOCKS = {
   is_dashboard_running: false,
@@ -10,6 +18,7 @@ const BASE_MOCKS = {
   get_ca_metadata: null,
   get_dns_log: [],
   get_dns_upstream: "8.8.8.8",
+  list_filter_presets: [],
   get_replay_targets: [],
   get_rules: [],
   get_devices: [],
@@ -17,56 +26,45 @@ const BASE_MOCKS = {
 };
 
 const MOCK_REQUESTS = [
-  {
+  capturedRequest({
     id: "1",
     method: "GET",
     host: "api.weixin.qq.com",
     path: "/cgi-bin/micromsg-bin/getcontact",
     status: 200,
-    duration_ms: 42,
-    timestamp: Math.floor(Date.now() / 1000),
-    app_tag: "WeChat",
-    headers: { authorization: "Bearer token123", "content-type": "application/json" },
-    body: '{"contacts":[]}',
-    size: 128,
-  },
-  {
+    latency_ms: 42,
+    app_name: "WeChat",
+    req_headers: [["authorization", "Bearer token123"], ["content-type", "application/json"]],
+    req_body: '{"contacts":[]}',
+    resp_size: 128,
+  }),
+  capturedRequest({
     id: "2",
     method: "POST",
     host: "api.douyin.com",
     path: "/aweme/v1/feed/",
     status: 200,
-    duration_ms: 156,
-    timestamp: Math.floor(Date.now() / 1000),
-    app_tag: "Douyin",
-    headers: { "content-type": "application/json" },
-    body: '{"items":[]}',
-    size: 2048,
-  },
-  {
+    latency_ms: 156,
+    app_name: "Douyin",
+    req_headers: [["content-type", "application/json"]],
+    req_body: '{"items":[]}',
+    resp_size: 2048,
+  }),
+  capturedRequest({
     id: "3",
     method: "GET",
     host: "example.com",
     path: "/api/data",
     status: 404,
-    duration_ms: 12,
-    timestamp: Math.floor(Date.now() / 1000),
-    headers: {},
-    size: 64,
-  },
+    latency_ms: 12,
+    resp_size: 64,
+  }),
 ];
 
 /** Inject requests into the page via Tauri event callbacks */
-async function injectRequests(page: import("@playwright/test").Page, requests: typeof MOCK_REQUESTS) {
+async function injectRequests(page: import("@playwright/test").Page, requests: InterceptedRequest[]) {
   for (const req of requests) {
-    await page.evaluate((r) => {
-      const internals = window.__TAURI_INTERNALS__;
-      if (internals?.callbacks) {
-        for (const [, cb] of internals.callbacks) {
-          try { cb({ payload: r, event: "intercepted-request" }); } catch {}
-        }
-      }
-    }, req);
+    await emitTauriEvent(page, "intercepted-request", req);
   }
 }
 

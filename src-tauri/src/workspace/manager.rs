@@ -343,7 +343,7 @@ pub fn workspace_status(state: tauri::State<'_, std::sync::Arc<WorkspaceManager>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace::serialize::{Device, Rule, RuleAction};
+    use crate::workspace::serialize::{Device, RuleAction, WorkspaceRule};
     use tempfile::{tempdir, TempDir};
 
     fn create_test_workspace(tmp: &TempDir) -> Workspace {
@@ -358,13 +358,13 @@ mod tests {
             "test-workspace".to_string(),
             db_path,
             vec![
-                Rule::new(
+                WorkspaceRule::new(
                     "rule-1".to_string(),
                     RuleAction::Direct,
                     "*.example.com".to_string(),
                     true,
                 ),
-                Rule::new(
+                WorkspaceRule::new(
                     "rule-2".to_string(),
                     RuleAction::Proxy,
                     "api.example.com".to_string(),

@@ -94,7 +94,7 @@ pub(super) struct ProxyContext {
     pub(super) db_state: Arc<DbState>,
     pub(super) rules_engine: Arc<RulesEngine>,
     pub(super) plugins: Arc<PluginRegistry>,
-    pub(super) plugin_rules: Arc<RuleEngine>,
+    pub(super) plugin_rules: Arc<PluginDispatchEngine>,
     pub(super) network: Arc<NetworkConditionEngine>,
     pub(super) scripts: Arc<ScriptEngine>,
     pub(super) metrics: Arc<ProxyMetrics>,
@@ -175,7 +175,7 @@ use crate::dns::DnsState;
 use crate::metrics::ProxyMetrics;
 use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
-use crate::plugin::RuleEngine;
+use crate::plugin::PluginDispatchEngine;
 pub use crate::rules::BreakpointTarget;
 use crate::rules::RulesEngine;
 use crate::scripting::ScriptEngine;

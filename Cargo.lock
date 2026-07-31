@@ -4180,6 +4180,7 @@ dependencies = [
  "ipnetwork",
  "jsonschema",
  "log",
+ "notify",
  "rcgen",
  "reqwest 0.12.28",
  "serde",

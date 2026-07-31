@@ -63,6 +63,20 @@ pub enum BreakpointTarget {
     Both,
 }
 
+impl crate::desktop_contract::WireType for BreakpointTarget {
+    fn type_script_type() -> String {
+        "BreakpointTarget".to_owned()
+    }
+}
+
+impl crate::desktop_contract::DesktopContractType for BreakpointTarget {
+    const NAME: &'static str = "BreakpointTarget";
+
+    fn type_script_declaration() -> String {
+        "export type BreakpointTarget = \"REQUEST\" | \"RESPONSE\" | \"BOTH\";\n".to_owned()
+    }
+}
+
 // ─── Rules ─────────────────────────────────────────────────────────────────
 
 /// Rule action types.
@@ -80,6 +94,27 @@ pub enum RuleAction {
     Breakpoint(BreakpointTarget),
 }
 
+impl crate::desktop_contract::WireType for RuleAction {
+    fn type_script_type() -> String {
+        "RuleAction".to_owned()
+    }
+}
+
+impl crate::desktop_contract::DesktopContractType for RuleAction {
+    const NAME: &'static str = "RuleAction";
+
+    fn type_script_declaration() -> String {
+        "export type RuleAction =\n\
+         \x20 | { type: \"DIRECT\" }\n\
+         \x20 | { type: \"PROXY\" }\n\
+         \x20 | { type: \"REJECT\" }\n\
+         \x20 | { type: \"MAPREMOTE\"; target: string }\n\
+         \x20 | { type: \"MAPLOCAL\"; target: string }\n\
+         \x20 | { type: \"BREAKPOINT\"; target: BreakpointTarget };\n"
+            .to_owned()
+    }
+}
+
 impl std::fmt::Display for RuleAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -95,15 +130,33 @@ impl std::fmt::Display for RuleAction {
 
 /// Rule pattern types for matching.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RulePattern {
+    #[serde(rename = "DOMAIN")]
     Domain,
+    #[serde(rename = "DOMAIN-SUFFIX")]
     DomainSuffix,
     #[serde(rename = "DOMAIN-KEYWORD")]
     DomainKeyword,
+    #[serde(rename = "IP-CIDR")]
     IpCidr,
+    #[serde(rename = "GEOIP")]
     Geoip,
+    #[serde(rename = "RULE-SET")]
     RuleSet,
+}
+
+impl crate::desktop_contract::WireType for RulePattern {
+    fn type_script_type() -> String {
+        "RulePattern".to_owned()
+    }
+}
+
+impl crate::desktop_contract::DesktopContractType for RulePattern {
+    const NAME: &'static str = "RulePattern";
+
+    fn type_script_declaration() -> String {
+        "export type RulePattern = \"DOMAIN\" | \"DOMAIN-SUFFIX\" | \"DOMAIN-KEYWORD\" | \"IP-CIDR\" | \"GEOIP\" | \"RULE-SET\";\n".to_owned()
+    }
 }
 
 impl std::fmt::Display for RulePattern {
@@ -119,20 +172,22 @@ impl std::fmt::Display for RulePattern {
     }
 }
 
-/// A single routing rule.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Rule {
-    pub pattern: RulePattern,
-    pub value: String,
-    pub action: RuleAction,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default = "default_priority")]
-    pub priority: u8,
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default)]
-    pub comment: String,
+crate::desktop_contract_type! {
+    /// A single routing rule.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Rule {
+        pub pattern: RulePattern,
+        pub value: String,
+        pub action: RuleAction,
+        #[serde(default)]
+        pub name: String,
+        #[serde(default = "default_priority")]
+        pub priority: u8,
+        #[serde(default = "default_enabled")]
+        pub enabled: bool,
+        #[serde(default)]
+        pub comment: String,
+    }
 }
 
 fn default_priority() -> u8 {
@@ -211,6 +266,37 @@ impl RuleEntry {
             enabled: self.enabled,
             comment: self.comment.clone(),
         })
+    }
+}
+
+impl From<&Rule> for RuleEntry {
+    fn from(rule: &Rule) -> Self {
+        let (action, target) = match &rule.action {
+            RuleAction::Direct => ("DIRECT", None),
+            RuleAction::Proxy => ("PROXY", None),
+            RuleAction::Reject => ("REJECT", None),
+            RuleAction::MapRemote(target) => ("MAPREMOTE", Some(target.clone())),
+            RuleAction::MapLocal(target) => ("MAPLOCAL", Some(target.clone())),
+            RuleAction::Breakpoint(target) => {
+                let target = match target {
+                    BreakpointTarget::Request => "REQUEST",
+                    BreakpointTarget::Response => "RESPONSE",
+                    BreakpointTarget::Both => "BOTH",
+                };
+                ("BREAKPOINT", Some(target.to_owned()))
+            }
+        };
+
+        Self {
+            pattern: rule.pattern.to_string(),
+            value: rule.value.clone(),
+            action: action.to_owned(),
+            target,
+            name: rule.name.clone(),
+            priority: rule.priority,
+            enabled: rule.enabled,
+            comment: rule.comment.clone(),
+        }
     }
 }
 
@@ -303,6 +389,7 @@ pub enum BreakpointDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::desktop_contract::DesktopContractType;
 
     #[test]
     fn test_rule_entry_parsing() {
@@ -369,6 +456,61 @@ mod tests {
             RuleAction::MapRemote("https://x.com".to_string()).to_string(),
             "MAPREMOTE:https://x.com"
         );
+    }
+
+    #[test]
+    fn rule_wire_shape_uses_domain_terms_and_tagged_actions() {
+        let rule = Rule {
+            pattern: RulePattern::DomainSuffix,
+            value: "example.com".to_owned(),
+            action: RuleAction::MapRemote("https://mock.local".to_owned()),
+            name: "mock".to_owned(),
+            priority: 50,
+            enabled: true,
+            comment: String::new(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&rule).unwrap(),
+            serde_json::json!({
+                "pattern": "DOMAIN-SUFFIX",
+                "value": "example.com",
+                "action": { "type": "MAPREMOTE", "target": "https://mock.local" },
+                "name": "mock",
+                "priority": 50,
+                "enabled": true,
+                "comment": ""
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(RuleAction::Direct).unwrap(),
+            serde_json::json!({ "type": "DIRECT" })
+        );
+    }
+
+    #[test]
+    fn rule_types_render_the_desktop_contract() {
+        assert!(Rule::type_script_declaration().contains("pattern: RulePattern"));
+        assert!(RuleAction::type_script_declaration().contains("type: \"BREAKPOINT\""));
+        assert!(RulePattern::type_script_declaration().contains("\"IP-CIDR\""));
+    }
+
+    #[test]
+    fn rule_entry_round_trips_targeted_actions() {
+        let rule = Rule {
+            pattern: RulePattern::DomainKeyword,
+            value: "api".to_owned(),
+            action: RuleAction::Breakpoint(BreakpointTarget::Response),
+            name: "debug".to_owned(),
+            priority: 1,
+            enabled: true,
+            comment: String::new(),
+        };
+
+        let entry = RuleEntry::from(&rule);
+        assert_eq!(entry.action, "BREAKPOINT");
+        assert_eq!(entry.target.as_deref(), Some("RESPONSE"));
+        assert_eq!(entry.to_rule(), Some(rule));
     }
 
     #[test]

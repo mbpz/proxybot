@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mockTauriCommands } from "./fixtures/tauri-mock";
+import { emitTauriEvent, mockTauriCommands } from "./fixtures/tauri-mock";
+import {
+  capturedRequest,
+  type InterceptedRequest,
+  type WsFrame,
+} from "./fixtures/desktop-contract";
 
 const BASE_MOCKS = {
   is_dashboard_running: false,
@@ -10,6 +15,7 @@ const BASE_MOCKS = {
   get_ca_metadata: null,
   get_dns_log: [],
   get_dns_upstream: "8.8.8.8",
+  list_filter_presets: [],
   get_replay_targets: [],
   get_rules: [],
   get_devices: [],
@@ -19,45 +25,33 @@ const BASE_MOCKS = {
   get_traffic_baseline: null,
   get_graph_data: { requests: [] },
   get_replay_history: [],
-  get_traffic_page: { records: [], total: 0, has_more: false },
+  get_traffic_page: { records: [], total: 0, page: 0, page_size: 50, has_more: false },
 };
 
 /** A captured WebSocket upgrade — must have is_websocket: true so the
  *  WebSocket Frames tab is rendered in RequestDetail. */
-const WS_REQUEST = {
+const WS_REQUEST = capturedRequest({
   id: "ws-req-1",
   method: "GET",
   host: "echo.websocket.org",
   path: "/",
   status: 101,
-  duration_ms: 33,
-  timestamp: Math.floor(Date.now() / 1000),
-  headers: {
-    upgrade: "websocket",
-    connection: "Upgrade",
-    "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
-    "sec-websocket-version": "13",
-  },
-  body: "",
-  size: 0,
+  latency_ms: 33,
+  req_headers: [
+    ["upgrade", "websocket"],
+    ["connection", "Upgrade"],
+    ["sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="],
+    ["sec-websocket-version", "13"],
+  ],
+  req_body: "",
+  resp_size: 0,
   is_websocket: true,
-};
+});
 
 /** Inject a single captured request into the page via the Tauri event
  *  callback registered by the traffic page's listen("intercepted-request", …). */
-async function injectRequest(page: Page, req: typeof WS_REQUEST) {
-  await page.evaluate((r) => {
-    const internals = window.__TAURI_INTERNALS__;
-    if (internals?.callbacks) {
-      for (const [, cb] of internals.callbacks) {
-        try {
-          cb({ payload: r, event: "intercepted-request" });
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }, req);
+async function injectRequest(page: Page, req: InterceptedRequest) {
+  await emitTauriEvent(page, "intercepted-request", req);
 }
 
 /** Inject a WS frame via the ws-frame:new event callback registered by
@@ -65,36 +59,18 @@ async function injectRequest(page: Page, req: typeof WS_REQUEST) {
 async function injectWsFrame(
   page: Page,
   requestId: string,
-  frame: {
-    direction: "incoming" | "outgoing";
-    timestamp: string;
-    payload: string;
-    size: number;
-    opcode: number;
-    truncated: boolean;
-  },
+  frame: WsFrame,
 ) {
-  await page.evaluate(
-    ({ requestId, frame }) => {
-      const internals = window.__TAURI_INTERNALS__;
-      if (internals?.callbacks) {
-        for (const [, cb] of internals.callbacks) {
-          try {
-            cb({ payload: { request_id: requestId, frame }, event: "ws-frame:new" });
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    },
-    { requestId, frame },
-  );
+  await emitTauriEvent(page, "ws-frame:new", {
+    request_id: requestId,
+    frame,
+  });
 }
 
 /** Open the Traffic page, inject the WS request, click the row, and
  *  switch to the WebSocket Frames tab. Caller must have already called
  *  mockTauriCommands with the desired get_ws_frames mock. */
-async function openWsFramesTab(page: Page, req: typeof WS_REQUEST) {
+async function openWsFramesTab(page: Page, req: InterceptedRequest) {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await injectRequest(page, req);

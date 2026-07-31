@@ -8,7 +8,7 @@ pub mod wasm_host;
 pub use executor::HookExecutor;
 pub use plugin_trait::{ConnectDecision, InterceptedResponse, Plugin, PluginHooks};
 pub use registry::PluginRegistry;
-pub use rule_engine::{PluginRule, RuleEngine, RulePattern};
+pub use rule_engine::{PluginDispatchEngine, PluginDispatchPattern, PluginRule};
 
 #[cfg(test)]
 mod tests {

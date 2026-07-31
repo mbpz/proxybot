@@ -8,6 +8,7 @@ import type { Page } from "@playwright/test";
 export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void> {
   await page.addInitScript((fnBody) => {
     const cbMap = new Map<number, (data: unknown) => void>();
+    const eventListeners = new Map<string, Set<number>>();
     let nextId = 1;
 
     function transformCallback(callback: (data: unknown) => void, once = false): number {
@@ -30,9 +31,36 @@ export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void>
     // Build handler from string body
     const handler = new Function("cmd", "args", fnBody) as (cmd: string, args?: Record<string, unknown>) => unknown;
 
+    function handleEventPlugin(cmd: string, args?: Record<string, unknown>): unknown {
+      const event = String(args?.event ?? "");
+      if (cmd === "plugin:event|listen") {
+        const handlerId = Number(args?.handler);
+        const listeners = eventListeners.get(event) ?? new Set<number>();
+        listeners.add(handlerId);
+        eventListeners.set(event, listeners);
+        return handlerId;
+      }
+      if (cmd === "plugin:event|unlisten") {
+        const eventId = Number(args?.eventId);
+        eventListeners.get(event)?.delete(eventId);
+        unregisterCallback(eventId);
+        return null;
+      }
+      throw new Error(`Unhandled Tauri event command: ${cmd}`);
+    }
+
+    function emitEvent(event: string, payload: unknown): void {
+      for (const eventId of eventListeners.get(event) ?? []) {
+        runCallback(eventId, { event, id: eventId, payload });
+      }
+    }
+
     window.__TAURI_INTERNALS__ = {
       invoke: (cmd: string, args?: Record<string, unknown>) => {
         try {
+          if (cmd.startsWith("plugin:event|")) {
+            return Promise.resolve(handleEventPlugin(cmd, args));
+          }
           return Promise.resolve(handler(cmd, args));
         } catch (error) {
           return Promise.reject(error);
@@ -42,12 +70,33 @@ export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void>
       unregisterCallback,
       runCallback,
       callbacks: cbMap,
+      emitEvent,
     };
 
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
-      unregisterListener: () => {},
+      unregisterListener: (event: string, eventId: number) => {
+        eventListeners.get(event)?.delete(eventId);
+        unregisterCallback(eventId);
+      },
     };
   }, handlerFn);
+}
+
+/** Emit through the same event routing used by Tauri's event plugin. */
+export async function emitTauriEvent<T>(
+  page: Page,
+  event: string,
+  payload: T,
+): Promise<void> {
+  await page.evaluate(
+    ({ event, payload }) => {
+      const internals = window.__TAURI_INTERNALS__ as typeof window.__TAURI_INTERNALS__ & {
+        emitEvent?: (event: string, payload: unknown) => void;
+      };
+      internals.emitEvent?.(event, payload);
+    },
+    { event, payload },
+  );
 }
 
 /**

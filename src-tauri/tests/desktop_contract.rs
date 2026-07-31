@@ -10,7 +10,7 @@ use regex::Regex;
 fn frontend_literal_invocations_are_registered() {
     let frontend_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src");
     let invocation = Regex::new(
-        r#"(?:safeInvokeOr|safeInvoke|invoke)(?:\s*<[^;\n()]*>)?\s*\(\s*["']([A-Za-z0-9_]+)["']"#,
+        r#"(?:safeInvokeOr|safeInvoke|invoke|desktop\s*\.\s*call)(?:\s*<[^;\n()]*>)?\s*\(\s*["']([A-Za-z0-9_]+)["']"#,
     )
     .unwrap();
     let mut used_by_command: BTreeMap<String, BTreeSet<PathBuf>> = BTreeMap::new();
@@ -87,7 +87,7 @@ fn executable_is_a_thin_bootstrap_adapter() {
 }
 
 #[test]
-fn generated_tracer_contract_matches_rust_and_registered_commands() {
+fn generated_contract_matches_rust_and_registered_commands() {
     let manifest_path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/generated/desktop-contract.ts");
     let generated = fs::read_to_string(&manifest_path).unwrap();
@@ -102,6 +102,7 @@ fn generated_tracer_contract_matches_rust_and_registered_commands() {
         .collect();
     let missing: Vec<_> = proxybot_lib::desktop_contract::TRAFFIC_COMMANDS
         .iter()
+        .chain(proxybot_lib::desktop_contract::RULE_COMMANDS)
         .filter(|command| !registered.contains(**command))
         .collect();
     assert!(
@@ -111,11 +112,11 @@ fn generated_tracer_contract_matches_rust_and_registered_commands() {
 }
 
 #[test]
-fn migrated_traffic_slice_only_uses_the_desktop_adapter() {
+fn migrated_slices_only_use_the_desktop_adapter() {
     let frontend_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/components");
     let mut bypasses = Vec::new();
 
-    for directory in ["traffic", "ws-frames"] {
+    for directory in ["traffic", "ws-frames", "rules"] {
         let root = frontend_root.join(directory);
         visit_source_files(&root, &["ts", "tsx"], &mut |path, source| {
             if source.contains("@tauri-apps/api/core")
@@ -129,7 +130,7 @@ fn migrated_traffic_slice_only_uses_the_desktop_adapter() {
 
     assert!(
         bypasses.is_empty(),
-        "migrated Traffic/WS files bypass the desktop Adapter: {bypasses:?}"
+        "migrated frontend files bypass the desktop Adapter: {bypasses:?}"
     );
 }
 

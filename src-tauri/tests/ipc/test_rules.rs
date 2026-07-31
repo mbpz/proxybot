@@ -2,6 +2,7 @@
 
 use proxybot_lib::rules::{Rule, RuleAction, RulePattern, RulesEngine};
 use std::sync::Arc;
+use tempfile::tempdir;
 
 fn make_rule(pattern: RulePattern, value: &str, action: RuleAction) -> Rule {
     Rule {
@@ -92,14 +93,14 @@ fn test_rules_reload_does_not_panic() {
 }
 
 #[test]
-fn test_move_rule_empty_list() {
-    let engine = RulesEngine::new();
-    let rules = engine.get_rules();
+fn test_reorder_rule_empty_file_returns_error() {
+    let dir = tempdir().unwrap();
+    let engine = RulesEngine::with_dir(dir.path().to_path_buf());
 
-    if rules.is_empty() {
-        let result = engine.move_rule(0, proxybot_lib::rules::MoveDirection::Up);
-        assert!(!result);
-    }
+    assert!(matches!(
+        engine.reorder_rules(0, 0, "custom.yaml"),
+        Err(proxybot_lib::rules::RulesError::ReorderOutOfBounds { .. })
+    ));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use crate::network::builtin_presets;
 use crate::network::profile::NetworkProfile;
-use crate::rules::RulePattern;
+pub use proxybot_core::HostPattern as NetworkHostPattern;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,7 +15,7 @@ pub struct ConditionEffect {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConditionRule {
     pub id: u64,
-    pub pattern: RulePattern,
+    pub pattern: NetworkHostPattern,
     pub value: String,
     pub profile: String,
     pub enabled: bool,
@@ -24,7 +24,7 @@ pub struct ConditionRule {
 /// New condition-rule input from the API. `id` is assigned by the engine.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NewConditionRule {
-    pub pattern: RulePattern,
+    pub pattern: NetworkHostPattern,
     pub value: String,
     pub profile: String,
     #[serde(default = "default_enabled")]
@@ -115,7 +115,12 @@ impl NetworkConditionEngine {
     pub fn match_profile_for_host(&self, host: &str) -> Option<String> {
         let rules = self.rules.read().unwrap();
         for rule in rules.iter().filter(|r| r.enabled) {
-            if host_matches(host, &rule.pattern, &rule.value) {
+            if proxybot_core::match_host_pattern(
+                &rule.pattern,
+                &rule.value,
+                host,
+                host.parse().ok(),
+            ) {
                 return Some(rule.profile.clone());
             }
         }
@@ -161,29 +166,6 @@ impl NetworkConditionEngine {
 impl Default for NetworkConditionEngine {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Check whether a host matches a rule pattern/value. Mirrors the
-/// classification rules in `crate::rules`.
-fn host_matches(host: &str, pattern: &RulePattern, value: &str) -> bool {
-    let host = host.to_ascii_lowercase();
-    let value = value.to_ascii_lowercase();
-    match pattern {
-        RulePattern::Domain => host == value,
-        RulePattern::DomainSuffix => host == value || host.ends_with(&format!(".{}", value)),
-        RulePattern::DomainKeyword => host.contains(&value),
-        RulePattern::IpCidr => {
-            use std::str::FromStr;
-            if let Ok(net) = ipnetwork::IpNetwork::from_str(&value) {
-                if let Ok(ip) = std::net::IpAddr::from_str(&host) {
-                    return net.contains(ip);
-                }
-            }
-            false
-        }
-        // Geoip/RuleSet not implemented for conditions — treat as no-match.
-        RulePattern::Geoip | RulePattern::RuleSet => false,
     }
 }
 
@@ -259,13 +241,13 @@ mod tests {
     fn test_add_rule_increments_id() {
         let engine = NetworkConditionEngine::new();
         let id1 = engine.add_rule(NewConditionRule {
-            pattern: RulePattern::DomainSuffix,
+            pattern: NetworkHostPattern::DomainSuffix,
             value: "example.com".into(),
             profile: "3G".into(),
             enabled: true,
         });
         let id2 = engine.add_rule(NewConditionRule {
-            pattern: RulePattern::DomainSuffix,
+            pattern: NetworkHostPattern::DomainSuffix,
             value: "test.com".into(),
             profile: "4G".into(),
             enabled: true,
@@ -278,7 +260,7 @@ mod tests {
     fn test_list_rules_returns_added() {
         let engine = NetworkConditionEngine::new();
         let id = engine.add_rule(NewConditionRule {
-            pattern: RulePattern::DomainKeyword,
+            pattern: NetworkHostPattern::DomainKeyword,
             value: "cdn".into(),
             profile: "2G".into(),
             enabled: true,
@@ -293,7 +275,7 @@ mod tests {
     fn test_remove_rule_deletes_by_id() {
         let engine = NetworkConditionEngine::new();
         let id = engine.add_rule(NewConditionRule {
-            pattern: RulePattern::Domain,
+            pattern: NetworkHostPattern::Domain,
             value: "exact.example".into(),
             profile: "Edge".into(),
             enabled: true,
@@ -308,13 +290,13 @@ mod tests {
     fn test_match_profile_for_host() {
         let engine = NetworkConditionEngine::new();
         engine.add_rule(NewConditionRule {
-            pattern: RulePattern::DomainSuffix,
+            pattern: NetworkHostPattern::DomainSuffix,
             value: "example.com".into(),
             profile: "3G".into(),
             enabled: true,
         });
         engine.add_rule(NewConditionRule {
-            pattern: RulePattern::DomainKeyword,
+            pattern: NetworkHostPattern::DomainKeyword,
             value: "video".into(),
             profile: "Edge".into(),
             enabled: false, // disabled — should be ignored
@@ -332,7 +314,7 @@ mod tests {
     #[test]
     fn test_rule_pattern_serialization() {
         let r = NewConditionRule {
-            pattern: RulePattern::DomainKeyword,
+            pattern: NetworkHostPattern::DomainKeyword,
             value: "x".into(),
             profile: "WiFi".into(),
             enabled: true,

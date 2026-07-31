@@ -11,7 +11,7 @@ use crate::dns::DnsState;
 use crate::metrics::counters::METRICS;
 use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
-use crate::plugin::RuleEngine;
+use crate::plugin::PluginDispatchEngine;
 use crate::rules::RulesEngine;
 use crate::scripting::ScriptEngine;
 use std::path::PathBuf;
@@ -33,7 +33,7 @@ pub(super) async fn run_proxy(
     db_state: Arc<DbState>,
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
-    plugin_rules: Arc<RuleEngine>,
+    plugin_rules: Arc<PluginDispatchEngine>,
     network: Arc<NetworkConditionEngine>,
     scripts: Arc<ScriptEngine>,
     metrics: Arc<crate::metrics::ProxyMetrics>,
@@ -167,7 +167,7 @@ pub fn start_proxy(
     let plugins = Arc::new(PluginRegistry::new());
 
     // Create plugin rule engine (loads rules from config if available)
-    let plugin_rules = Arc::new(RuleEngine::new());
+    let plugin_rules = Arc::new(PluginDispatchEngine::new());
 
     // Create network condition engine
     let network_engine = Arc::new(NetworkConditionEngine::new());
@@ -289,7 +289,7 @@ pub fn start_proxy_core(
     db_state: Arc<DbState>,
     rules_engine: Arc<RulesEngine>,
     plugins: Arc<PluginRegistry>,
-    plugin_rules: Arc<RuleEngine>,
+    plugin_rules: Arc<PluginDispatchEngine>,
     network_engine: Arc<NetworkConditionEngine>,
 ) -> Result<ProxyCoreChannels, String> {
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {

@@ -18,13 +18,13 @@
 //! # Usage
 //!
 //! ```rust,no_run
-//! use proxybot_core::{CertManager, RulesEngine, classify_host};
+//! use proxybot_core::{CertManager, RulesEngine};
 //!
 //! let cert_mgr = CertManager::new(None).unwrap();
 //! let engine = RulesEngine::new();
 //!
-//! if let Some((app, icon)) = classify_host("api.weixin.qq.com") {
-//!     println!("Traffic from {} {}", icon, app);
+//! if let Some(action) = engine.match_host("api.example.com", None) {
+//!     println!("Routing action: {action}");
 //! }
 //! ```
 
@@ -54,7 +54,10 @@ pub use fingerprint::{
     CustomAppRule, HelloInfo, MatchSource, RuleCondition, TlsFingerprint,
 };
 pub use proxy_engine::ProxyEngine;
-pub use rules_engine::{host_matches_domain, match_rule, RuleMatch, RulesEngine};
+pub use rules_engine::{
+    host_matches_domain, match_host_pattern, match_pattern, match_rule, HostPattern, RulesEngine,
+    RulesError,
+};
 pub use specgen::{
     build_spec, build_spec_heuristic, AsyncApiChannel, AsyncApiDoc, AsyncApiExample,
     AsyncApiMessage, CoverageReport, OpenApiDoc, OpenApiInfo, OpenApiMediaType, OpenApiOperation,

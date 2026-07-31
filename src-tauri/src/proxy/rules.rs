@@ -246,7 +246,7 @@ pub(super) async fn apply_request_rule(
 ) -> Result<RuleApplication, String> {
     use super::requests::build_request_context;
 
-    let Some(action) = ctx.rules_engine.match_host(host, None) else {
+    let Some(action) = ctx.rules_engine.match_host(host, Some(client_addr.ip())) else {
         // No rule matched. If reverse-proxy mode is on, route the
         // unmatched request to the configured local backend instead
         // of going to DNS. Lets frontend devs point ProxyBot at a

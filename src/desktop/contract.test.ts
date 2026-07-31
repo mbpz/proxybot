@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DesktopError } from "./contract";
 import { BrowserMockAdapter } from "./testing";
-import type { InterceptedRequest, WsFrame } from "../generated/desktop-contract";
+import type { InterceptedRequest, Rule, WsFrame } from "../generated/desktop-contract";
 
 const frame: WsFrame = {
   direction: "incoming",
@@ -38,6 +38,16 @@ const request: InterceptedRequest = {
   graphql_op: null,
 };
 
+const rule: Rule = {
+  pattern: "DOMAIN-SUFFIX",
+  value: "example.com",
+  action: { type: "MAPREMOTE", target: "https://mock.local" },
+  name: "mock",
+  priority: 10,
+  enabled: true,
+  comment: "",
+};
+
 describe("Desktop contract Adapter conformance", () => {
   it("types, validates and records command calls", async () => {
     const adapter = new BrowserMockAdapter({
@@ -59,6 +69,27 @@ describe("Desktop contract Adapter conformance", () => {
 
     const invalid = new BrowserMockAdapter({ get_ws_frames: () => [request] as unknown as WsFrame[] });
     await expect(invalid.contract.call("get_ws_frames", { requestId: request.id })).rejects.toMatchObject({
+      kind: "contract",
+    });
+  });
+
+  it("validates tagged Rule actions and unit mutation results", async () => {
+    const adapter = new BrowserMockAdapter({
+      get_rules: ({ filename }) => (filename === "custom.yaml" ? [rule] : []),
+      save_rule: () => undefined,
+    });
+
+    await expect(adapter.contract.call("get_rules", { filename: "custom.yaml" })).resolves.toEqual([rule]);
+    await expect(adapter.contract.call("save_rule", {
+      rule,
+      filename: "custom.yaml",
+      originalRule: null,
+    })).resolves.toBeUndefined();
+
+    const invalid = new BrowserMockAdapter({
+      get_rules: () => [{ ...rule, action: "DIRECT" } as unknown as Rule],
+    });
+    await expect(invalid.contract.call("get_rules", { filename: "custom.yaml" })).rejects.toMatchObject({
       kind: "contract",
     });
   });

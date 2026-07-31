@@ -66,6 +66,28 @@ export interface TrafficPage {
   has_more: boolean;
 }
 
+export type BreakpointTarget = "REQUEST" | "RESPONSE" | "BOTH";
+
+export type RulePattern = "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "IP-CIDR" | "GEOIP" | "RULE-SET";
+
+export type RuleAction =
+  | { type: "DIRECT" }
+  | { type: "PROXY" }
+  | { type: "REJECT" }
+  | { type: "MAPREMOTE"; target: string }
+  | { type: "MAPLOCAL"; target: string }
+  | { type: "BREAKPOINT"; target: BreakpointTarget };
+
+export interface Rule {
+  pattern: RulePattern;
+  value: string;
+  action: RuleAction;
+  name: string;
+  priority: number;
+  enabled: boolean;
+  comment: string;
+}
+
 export interface FilterPreset {
   id: string;
   name: string;
@@ -73,14 +95,20 @@ export interface FilterPreset {
 }
 
 export interface DesktopCommands {
+  delete_rule: { args: { rule: Rule; filename: string }; result: undefined };
   evaluate_filter: { args: { expr: string; request: InterceptedRequest }; result: boolean };
   export_har: { args: { sessionName: string }; result: JsonValue };
   get_traffic_page: { args: { page: number; pageSize: number }; result: TrafficPage };
+  get_rules: { args: { filename: string }; result: Rule[] };
   get_ws_frames: { args: { requestId: string }; result: WsFrame[] };
   list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };
+  list_rule_files: { args: Record<string, never>; result: string[] };
   load_history: { args: Record<string, never>; result: InterceptedRequest[] };
+  match_host: { args: { host: string; ip: string | null }; result: RuleAction | null };
+  reorder_rules: { args: { fromIndex: number; toIndex: number; filename: string }; result: undefined };
   save_har_file: { args: { harJson: string; sessionName: string }; result: string };
   save_history: { args: { requests: InterceptedRequest[] }; result: undefined };
+  save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };
 }
 
 export interface DesktopEvents {
@@ -88,6 +116,6 @@ export interface DesktopEvents {
   "ws-frame:new": WsFrameEvent;
 }
 
-export const desktopCommandNames = ["evaluate_filter","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","save_har_file","save_history"] as const;
+export const desktopCommandNames = ["evaluate_filter","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","save_har_file","save_history","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule"] as const;
 export const desktopEventNames = ["intercepted-request","ws-frame:new"] as const;
-export const unitCommandNames = ["save_history"] as const;
+export const unitCommandNames = ["delete_rule","reorder_rules","save_history","save_rule"] as const;

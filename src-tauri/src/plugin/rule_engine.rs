@@ -6,9 +6,9 @@ use serde::Deserialize;
 
 use crate::proxy::InterceptedRequest;
 
-/// Rule pattern types for declarative plugin routing
+/// Request pattern types for declarative plugin dispatch.
 #[derive(Clone, Debug)]
-pub enum RulePattern {
+pub enum PluginDispatchPattern {
     /// Domain suffix match: *.weixin.qq.com
     DomainSuffix(String),
     /// Domain keyword match: contains "weixin"
@@ -64,17 +64,15 @@ fn wildcard_match(pattern: &str, value: &str) -> bool {
     pi == pattern_parts.len() && vi == value_parts.len()
 }
 
-impl RulePattern {
+impl PluginDispatchPattern {
     /// Match this pattern against an intercepted request
     pub fn matches(&self, request: &InterceptedRequest) -> bool {
         match self {
-            // Fix 2: strip "*. " prefix so DomainSuffix works with wildcard notation
-            RulePattern::DomainSuffix(suffix) => {
-                let stripped = suffix.strip_prefix("*.").unwrap_or(suffix);
-                request.host.ends_with(stripped)
+            PluginDispatchPattern::DomainSuffix(suffix) => {
+                proxybot_core::host_matches_domain(&request.host, suffix)
             }
-            RulePattern::DomainKeyword(keyword) => request.host.contains(keyword),
-            RulePattern::UrlPattern {
+            PluginDispatchPattern::DomainKeyword(keyword) => request.host.contains(keyword),
+            PluginDispatchPattern::UrlPattern {
                 method,
                 scheme,
                 host,
@@ -92,7 +90,7 @@ impl RulePattern {
                         .is_none_or(|p| wildcard_match(p, &request.path))
             }
             // Fix 3: case-insensitive header key matching per RFC 7230
-            RulePattern::Header { key, value } => request
+            PluginDispatchPattern::Header { key, value } => request
                 .req_headers
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(key) && glob_match(value, v)),
@@ -157,20 +155,26 @@ impl RuleFile {
             .enumerate()
             .map(|(i, entry)| {
                 let pattern = match entry.pattern {
-                    PatternEntry::DomainSuffix { value } => RulePattern::DomainSuffix(value),
-                    PatternEntry::DomainKeyword { value } => RulePattern::DomainKeyword(value),
+                    PatternEntry::DomainSuffix { value } => {
+                        PluginDispatchPattern::DomainSuffix(value)
+                    }
+                    PatternEntry::DomainKeyword { value } => {
+                        PluginDispatchPattern::DomainKeyword(value)
+                    }
                     PatternEntry::UrlPattern {
                         method,
                         scheme,
                         host,
                         path,
-                    } => RulePattern::UrlPattern {
+                    } => PluginDispatchPattern::UrlPattern {
                         method,
                         scheme,
                         host,
                         path,
                     },
-                    PatternEntry::Header { key, value } => RulePattern::Header { key, value },
+                    PatternEntry::Header { key, value } => {
+                        PluginDispatchPattern::Header { key, value }
+                    }
                 };
                 PluginRule {
                     id: start_id + i as u64,
@@ -185,23 +189,23 @@ impl RuleFile {
     }
 }
 
-// ── RuleEngine ──
+// ── PluginDispatchEngine ──
 #[derive(Clone, Debug)]
 pub struct PluginRule {
     pub id: u64,
     pub name: String,
-    pub pattern: RulePattern,
+    pub pattern: PluginDispatchPattern,
     pub plugin_name: String,
     pub priority: u16,
     pub enabled: bool,
 }
 
-/// Rule engine for pattern-matched plugin dispatch
-pub struct RuleEngine {
+/// Plugin Dispatch implementation for pattern-matched hooks.
+pub struct PluginDispatchEngine {
     rules: std::sync::RwLock<Vec<PluginRule>>,
 }
 
-impl RuleEngine {
+impl PluginDispatchEngine {
     pub fn new() -> Self {
         Self {
             rules: std::sync::RwLock::new(Vec::new()),
@@ -278,7 +282,7 @@ impl RuleEngine {
 
     /// Watch file for changes (auto-reload on modify).
     /// Takes `Arc<Self>` so the watcher thread holds a reference.
-    pub fn watch(engine: &Arc<RuleEngine>, path: &Path) -> Result<(), String> {
+    pub fn watch(engine: &Arc<PluginDispatchEngine>, path: &Path) -> Result<(), String> {
         let engine_clone = Arc::clone(engine);
         let path_owned = path.to_path_buf();
 
@@ -321,7 +325,7 @@ impl RuleEngine {
     }
 }
 
-impl Default for RuleEngine {
+impl Default for PluginDispatchEngine {
     fn default() -> Self {
         Self::new()
     }
@@ -350,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_domain_suffix_match() {
-        let pattern = RulePattern::DomainSuffix("weixin.qq.com".into());
+        let pattern = PluginDispatchPattern::DomainSuffix("weixin.qq.com".into());
         let request = make_request(
             "api.weixin.qq.com",
             "GET",
@@ -363,29 +367,42 @@ mod tests {
 
     #[test]
     fn test_domain_suffix_no_match() {
-        let pattern = RulePattern::DomainSuffix("weixin.qq.com".into());
+        let pattern = PluginDispatchPattern::DomainSuffix("weixin.qq.com".into());
         let request = make_request("api.douyin.com", "GET", "https", "/", vec![]);
         assert!(!pattern.matches(&request));
+    }
+
+    #[test]
+    fn test_domain_suffix_is_case_insensitive_and_boundary_safe() {
+        let pattern = PluginDispatchPattern::DomainSuffix("Example.COM".into());
+        assert!(pattern.matches(&make_request(
+            "API.example.com",
+            "GET",
+            "https",
+            "/",
+            vec![]
+        )));
+        assert!(!pattern.matches(&make_request("notexample.com", "GET", "https", "/", vec![])));
     }
 
     // Fix 2 test: DomainSuffix with "*. " wildcard prefix
     #[test]
     fn test_domain_suffix_with_wildcard_prefix() {
-        let pattern = RulePattern::DomainSuffix("*.weixin.qq.com".into());
+        let pattern = PluginDispatchPattern::DomainSuffix("*.weixin.qq.com".into());
         let request = make_request("api.weixin.qq.com", "GET", "https", "/", vec![]);
         assert!(pattern.matches(&request));
     }
 
     #[test]
     fn test_domain_keyword_match() {
-        let pattern = RulePattern::DomainKeyword("weixin".into());
+        let pattern = PluginDispatchPattern::DomainKeyword("weixin".into());
         let request = make_request("api.weixin.qq.com", "GET", "https", "/", vec![]);
         assert!(pattern.matches(&request));
     }
 
     #[test]
     fn test_url_pattern_match() {
-        let pattern = RulePattern::UrlPattern {
+        let pattern = PluginDispatchPattern::UrlPattern {
             method: Some("POST".into()),
             scheme: None,
             host: Some("api.example.com".into()),
@@ -403,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_header_match() {
-        let pattern = RulePattern::Header {
+        let pattern = PluginDispatchPattern::Header {
             key: "Authorization".into(),
             value: "Bearer *".into(),
         };
@@ -420,7 +437,7 @@ mod tests {
     // Fix 3 test: header keys must be case-insensitive per RFC 7230
     #[test]
     fn test_header_case_insensitive() {
-        let pattern = RulePattern::Header {
+        let pattern = PluginDispatchPattern::Header {
             key: "content-type".into(),
             value: "application/json".into(),
         };
@@ -442,15 +459,15 @@ mod tests {
         assert!(wildcard_match("/a/*/c", "/a/b/c"));
     }
 
-    // --- Task 2: PluginRule + RuleEngine ---
+    // --- Task 2: PluginRule + PluginDispatchEngine ---
 
     #[test]
     fn test_plugin_rule_priority_ordering() {
-        let engine = RuleEngine::new();
+        let engine = PluginDispatchEngine::new();
         engine.add_rule(PluginRule {
             id: 1,
             name: "A".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
             priority: 100,
             enabled: true,
@@ -458,7 +475,7 @@ mod tests {
         engine.add_rule(PluginRule {
             id: 2,
             name: "B".into(),
-            pattern: RulePattern::DomainSuffix("weixin.qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("weixin.qq.com".into()),
             plugin_name: "plugin-b".into(),
             priority: 50,
             enabled: true,
@@ -466,7 +483,7 @@ mod tests {
         engine.add_rule(PluginRule {
             id: 3,
             name: "C".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-c".into(),
             priority: 100,
             enabled: true,
@@ -481,11 +498,11 @@ mod tests {
 
     #[test]
     fn test_rule_engine_match_first() {
-        let engine = RuleEngine::new();
+        let engine = PluginDispatchEngine::new();
         engine.add_rule(PluginRule {
             id: 1,
             name: "A".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
             priority: 100,
             enabled: true,
@@ -493,7 +510,7 @@ mod tests {
         engine.add_rule(PluginRule {
             id: 2,
             name: "B".into(),
-            pattern: RulePattern::DomainSuffix("weixin.qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("weixin.qq.com".into()),
             plugin_name: "plugin-b".into(),
             priority: 50,
             enabled: true,
@@ -507,11 +524,11 @@ mod tests {
 
     #[test]
     fn test_rule_engine_disabled_rule_skipped() {
-        let engine = RuleEngine::new();
+        let engine = PluginDispatchEngine::new();
         engine.add_rule(PluginRule {
             id: 1,
             name: "A".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
             priority: 50,
             enabled: false,
@@ -519,7 +536,7 @@ mod tests {
         engine.add_rule(PluginRule {
             id: 2,
             name: "B".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-b".into(),
             priority: 100,
             enabled: true,
@@ -533,11 +550,11 @@ mod tests {
 
     #[test]
     fn test_rule_engine_remove_rule() {
-        let engine = RuleEngine::new();
+        let engine = PluginDispatchEngine::new();
         engine.add_rule(PluginRule {
             id: 1,
             name: "A".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
             priority: 100,
             enabled: true,
@@ -576,7 +593,7 @@ rules:
         let rule_file = temp_dir.path().join("rules.yaml");
         std::fs::write(&rule_file, yaml).unwrap();
 
-        let engine = RuleEngine::from_file(&rule_file).unwrap();
+        let engine = PluginDispatchEngine::from_file(&rule_file).unwrap();
         let rules = engine.list_rules();
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].name, "Upload"); // priority 50 first
@@ -588,7 +605,7 @@ rules:
         let temp_dir = tempfile::tempdir().unwrap();
         let rule_file = temp_dir.path().join("bad.yaml");
         std::fs::write(&rule_file, "not: valid: yaml: [").unwrap();
-        assert!(RuleEngine::from_file(&rule_file).is_err());
+        assert!(PluginDispatchEngine::from_file(&rule_file).is_err());
     }
 
     #[test]
@@ -613,7 +630,7 @@ rules:
         let rule_file = temp_dir.path().join("rules.yaml");
         std::fs::write(&rule_file, yaml_a).unwrap();
 
-        let engine = RuleEngine::from_file(&rule_file).unwrap();
+        let engine = PluginDispatchEngine::from_file(&rule_file).unwrap();
         assert_eq!(engine.list_rules()[0].name, "RuleA");
 
         std::fs::write(&rule_file, yaml_b).unwrap();
@@ -623,11 +640,11 @@ rules:
 
     #[test]
     fn test_rule_engine_match_all() {
-        let engine = RuleEngine::new();
+        let engine = PluginDispatchEngine::new();
         engine.add_rule(PluginRule {
             id: 1,
             name: "A".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-a".into(),
             priority: 100,
             enabled: true,
@@ -635,7 +652,7 @@ rules:
         engine.add_rule(PluginRule {
             id: 2,
             name: "B".into(),
-            pattern: RulePattern::DomainSuffix("qq.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("qq.com".into()),
             plugin_name: "plugin-b".into(),
             priority: 50,
             enabled: true,

@@ -9,29 +9,20 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Rule action types for serialization.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum RuleAction {
-    Direct,
-    Proxy,
-    Reject,
-    #[serde(rename = "MAPREMOTE")]
-    MapRemote(String),
-    #[serde(rename = "MAPLOCAL")]
-    MapLocal(String),
-}
+pub use proxybot_core::RuleAction;
 
-/// A serialized rule with ID for export.
+/// Legacy workspace metadata about a rule. This is deliberately named as an
+/// archive Adapter rather than pretending to be a complete Routing Rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Rule {
+pub struct WorkspaceRule {
     pub id: String,
+    #[serde(with = "workspace_rule_action")]
     pub action: RuleAction,
     pub pattern: String,
     pub enabled: bool,
 }
 
-impl Rule {
+impl WorkspaceRule {
     pub fn new(id: String, action: RuleAction, pattern: String, enabled: bool) -> Self {
         Self {
             id,
@@ -55,13 +46,18 @@ pub struct Device {
 pub struct Workspace {
     pub name: String,
     pub db_path: PathBuf,
-    pub rules: Vec<Rule>,
+    pub rules: Vec<WorkspaceRule>,
     pub devices: Vec<Device>,
     pub created_at: DateTime<Utc>,
 }
 
 impl Workspace {
-    pub fn new(name: String, db_path: PathBuf, rules: Vec<Rule>, devices: Vec<Device>) -> Self {
+    pub fn new(
+        name: String,
+        db_path: PathBuf,
+        rules: Vec<WorkspaceRule>,
+        devices: Vec<Device>,
+    ) -> Self {
         Self {
             name,
             db_path,
@@ -69,6 +65,67 @@ impl Workspace {
             devices,
             created_at: Utc::now(),
         }
+    }
+}
+
+/// Preserve the historical workspace wire shape while using the canonical
+/// Rule Action domain type in memory. Canonical tagged JSON is also accepted
+/// on import so archives can migrate forward without a flag day.
+mod workspace_rule_action {
+    use proxybot_core::{BreakpointTarget, RuleAction};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "UPPERCASE")]
+    enum LegacyAction {
+        Direct,
+        Proxy,
+        Reject,
+        #[serde(rename = "MAPREMOTE")]
+        MapRemote(String),
+        #[serde(rename = "MAPLOCAL")]
+        MapLocal(String),
+        #[serde(rename = "BREAKPOINT")]
+        Breakpoint(BreakpointTarget),
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum CompatibleAction {
+        Legacy(LegacyAction),
+        Canonical(RuleAction),
+    }
+
+    pub fn serialize<S>(action: &RuleAction, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let legacy = match action {
+            RuleAction::Direct => LegacyAction::Direct,
+            RuleAction::Proxy => LegacyAction::Proxy,
+            RuleAction::Reject => LegacyAction::Reject,
+            RuleAction::MapRemote(target) => LegacyAction::MapRemote(target.clone()),
+            RuleAction::MapLocal(target) => LegacyAction::MapLocal(target.clone()),
+            RuleAction::Breakpoint(target) => LegacyAction::Breakpoint(target.clone()),
+        };
+        legacy.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<RuleAction, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(match CompatibleAction::deserialize(deserializer)? {
+            CompatibleAction::Legacy(action) => match action {
+                LegacyAction::Direct => RuleAction::Direct,
+                LegacyAction::Proxy => RuleAction::Proxy,
+                LegacyAction::Reject => RuleAction::Reject,
+                LegacyAction::MapRemote(target) => RuleAction::MapRemote(target),
+                LegacyAction::MapLocal(target) => RuleAction::MapLocal(target),
+                LegacyAction::Breakpoint(target) => RuleAction::Breakpoint(target),
+            },
+            CompatibleAction::Canonical(action) => action,
+        })
     }
 }
 
@@ -92,13 +149,13 @@ mod tests {
             "test-workspace".to_string(),
             PathBuf::from("/tmp/test.db"),
             vec![
-                Rule::new(
+                WorkspaceRule::new(
                     "rule-1".to_string(),
                     RuleAction::Direct,
                     "*.example.com".to_string(),
                     true,
                 ),
-                Rule::new(
+                WorkspaceRule::new(
                     "rule-2".to_string(),
                     RuleAction::Proxy,
                     "api.example.com".to_string(),
@@ -136,5 +193,32 @@ mod tests {
             let parsed: RuleAction = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, action);
         }
+    }
+
+    #[test]
+    fn workspace_rule_preserves_legacy_actions_and_accepts_canonical_actions() {
+        let legacy = WorkspaceRule::new(
+            "legacy".to_owned(),
+            RuleAction::MapRemote("http://localhost:8080".to_owned()),
+            "*.example.com".to_owned(),
+            true,
+        );
+        let value = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(
+            value["action"],
+            serde_json::json!({ "MAPREMOTE": "http://localhost:8080" })
+        );
+
+        let canonical: WorkspaceRule = serde_json::from_value(serde_json::json!({
+            "id": "canonical",
+            "action": { "type": "BREAKPOINT", "target": "BOTH" },
+            "pattern": "debug.example.com",
+            "enabled": true
+        }))
+        .unwrap();
+        assert_eq!(
+            canonical.action,
+            RuleAction::Breakpoint(proxybot_core::BreakpointTarget::Both)
+        );
     }
 }

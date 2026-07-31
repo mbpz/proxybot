@@ -3,14 +3,14 @@
 use super::InterceptedRequest;
 use crate::metrics::counters::METRICS;
 use crate::plugin::registry::PluginRegistry;
-use crate::plugin::{HookExecutor, InterceptedResponse, RuleEngine};
+use crate::plugin::{HookExecutor, InterceptedResponse, PluginDispatchEngine};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// Call on_request hooks using rule-based dispatch
 pub(super) fn call_on_request_hooks(
     plugins: &Arc<PluginRegistry>,
-    rule_engine: &Arc<RuleEngine>,
+    rule_engine: &Arc<PluginDispatchEngine>,
     request: &mut InterceptedRequest,
 ) {
     let matched = rule_engine.match_all(request);
@@ -23,7 +23,7 @@ pub(super) fn call_on_request_hooks(
 /// responses do not carry a `Host` header.
 pub(super) fn call_on_response_hooks(
     plugins: &Arc<PluginRegistry>,
-    rule_engine: &Arc<RuleEngine>,
+    rule_engine: &Arc<PluginDispatchEngine>,
     response: &mut InterceptedResponse,
     request: &InterceptedRequest,
 ) {

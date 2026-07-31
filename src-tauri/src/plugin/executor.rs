@@ -139,7 +139,7 @@ impl HookExecutor {
 mod tests {
     use super::super::plugin_trait::{Plugin, PluginHooks};
     use super::super::registry::PluginRegistry;
-    use super::super::rule_engine::{PluginRule, RulePattern};
+    use super::super::rule_engine::{PluginDispatchPattern, PluginRule};
     use super::*;
     use crate::proxy::InterceptedRequest;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -185,7 +185,7 @@ mod tests {
         let rule = PluginRule {
             id: 1,
             name: "Test Rule".into(),
-            pattern: RulePattern::DomainSuffix("example.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("example.com".into()),
             plugin_name: "test-plugin".into(),
             priority: 100,
             enabled: true,
@@ -209,7 +209,7 @@ mod tests {
         let rule = PluginRule {
             id: 1,
             name: "Test Rule".into(),
-            pattern: RulePattern::DomainSuffix("example.com".into()),
+            pattern: PluginDispatchPattern::DomainSuffix("example.com".into()),
             plugin_name: "test-plugin".into(),
             priority: 100,
             enabled: false,

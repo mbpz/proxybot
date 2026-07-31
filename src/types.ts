@@ -1,4 +1,11 @@
-export type { InterceptedRequest, WsFrame } from "./generated/desktop-contract";
+export type {
+  BreakpointTarget,
+  InterceptedRequest,
+  Rule,
+  RuleAction,
+  RulePattern,
+  WsFrame,
+} from "./generated/desktop-contract";
 
 export type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
 
@@ -17,15 +24,6 @@ export interface DnsEntry {
 export interface CaMetadata {
   created_at: number;
   serial: string;
-}
-
-export type RulePattern = "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "IP-CIDR" | "GEOIP" | "RULE-SET";
-export type RuleAction = "DIRECT" | "PROXY" | "REJECT";
-
-export interface Rule {
-  pattern: RulePattern;
-  value: string;
-  action: RuleAction;
 }
 
 export interface DeviceInfo {

@@ -325,13 +325,9 @@ fn setup_desktop(
         log::warn!("Failed to load TLS decryption rules at startup: {error}");
     }
 
-    std::thread::spawn(move || {
-        let runtime = tokio::runtime::Runtime::new()
-            .expect("Failed to create Tokio runtime for file watcher");
-        runtime.block_on(async move {
-            rules_engine.start_watcher();
-        });
-    });
+    if let Err(error) = rules_engine.start_watcher() {
+        log::warn!("Failed to watch Rule Files: {error}");
+    }
 
     configure_tray(app)?;
     configure_close_to_tray(app);

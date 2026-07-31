@@ -8,6 +8,8 @@ import {
   type DesktopEvents,
   type InterceptedRequest,
   type JsonValue,
+  type Rule,
+  type RuleAction,
   type TrafficPage,
   type WsFrame,
   type WsFrameEvent,
@@ -165,6 +167,9 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "get_traffic_page":
       assertTrafficPage(value, command);
       return;
+    case "get_rules":
+      assertArray(value, command, assertRule);
+      return;
     case "get_ws_frames":
       assertArray(value, command, assertWsFrame);
       return;
@@ -176,14 +181,66 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
         assertString(preset.expr, `${path}.expr`);
       });
       return;
+    case "list_rule_files":
+      assertArray(value, command, assertString);
+      return;
     case "load_history":
       assertArray(value, command, assertInterceptedRequest);
+      return;
+    case "match_host":
+      if (value !== null) assertRuleAction(value, command);
       return;
     case "save_har_file":
       assertString(value, command);
       return;
     case "save_history":
       return;
+  }
+}
+
+function assertRule(value: unknown, path: string): asserts value is Rule {
+  assertRecord(value, path);
+  assert(
+    ["DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "IP-CIDR", "GEOIP", "RULE-SET"].includes(
+      value.pattern as string,
+    ),
+    `${path}.pattern`,
+    "must be a known rule pattern",
+  );
+  assertString(value.value, `${path}.value`);
+  assertRuleAction(value.action, `${path}.action`);
+  assertString(value.name, `${path}.name`);
+  assertNumber(value.priority, `${path}.priority`);
+  assert(
+    Number.isInteger(value.priority) && value.priority >= 0 && value.priority <= 255,
+    `${path}.priority`,
+    "must be an integer from 0 to 255",
+  );
+  assert(typeof value.enabled === "boolean", `${path}.enabled`, "must be a boolean");
+  assertString(value.comment, `${path}.comment`);
+}
+
+function assertRuleAction(value: unknown, path: string): asserts value is RuleAction {
+  assertRecord(value, path);
+  assertString(value.type, `${path}.type`);
+  switch (value.type) {
+    case "DIRECT":
+    case "PROXY":
+    case "REJECT":
+      return;
+    case "MAPREMOTE":
+    case "MAPLOCAL":
+      assertString(value.target, `${path}.target`);
+      return;
+    case "BREAKPOINT":
+      assert(
+        value.target === "REQUEST" || value.target === "RESPONSE" || value.target === "BOTH",
+        `${path}.target`,
+        "must be REQUEST, RESPONSE or BOTH",
+      );
+      return;
+    default:
+      assert(false, `${path}.type`, "must be a known rule action");
   }
 }
 
