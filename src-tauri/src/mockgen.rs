@@ -113,17 +113,14 @@ fn get_endpoint_fixtures(
             })
             .unwrap_or_else(|| "text".to_string());
 
-        fixtures_map
-            .entry(key)
-            .or_insert_with(Vec::new)
-            .push(ResponseFixture {
-                variant_id: format!("variant_{}", current_idx),
-                status: status.unwrap_or(200),
-                headers,
-                body: body_str,
-                body_type,
-                order_index: current_idx,
-            });
+        fixtures_map.entry(key).or_default().push(ResponseFixture {
+            variant_id: format!("variant_{}", current_idx),
+            status: status.unwrap_or(200),
+            headers,
+            body: body_str,
+            body_type,
+            order_index: current_idx,
+        });
     }
 
     Ok(fixtures_map)
@@ -183,10 +180,7 @@ fn extract_conditionals(
                             response_variant_id: format!("variant_{}", current_idx),
                         };
 
-                        conditionals_map
-                            .entry(key.clone())
-                            .or_insert_with(Vec::new)
-                            .push(cond);
+                        conditionals_map.entry(key.clone()).or_default().push(cond);
                         break;
                     }
                 }
@@ -222,8 +216,7 @@ fn generate_fastapi_main(endpoints: &[MockEndpoint]) -> String {
         let path_slug = endpoint
             .path
             .trim_start_matches('/')
-            .replace('/', "_")
-            .replace('-', "_");
+            .replace(['/', '-'], "_");
 
         // Build fixture file path (without format! to avoid {} issues)
         let fixture_file_name = format!("fixture_{}.json", path_slug);
@@ -598,11 +591,7 @@ pub fn write_mock_project(
         let conditionals = conditionals_map.get(&key).cloned().unwrap_or_default();
 
         // Write fixture file
-        let path_slug = api
-            .path
-            .trim_start_matches('/')
-            .replace('/', "_")
-            .replace('-', "_");
+        let path_slug = api.path.trim_start_matches('/').replace(['/', '-'], "_");
         let fixture_path = fixtures_dir.join(format!("fixture_{}.json", path_slug));
         let fixture_json = generate_fixture_json(
             &MockEndpoint {

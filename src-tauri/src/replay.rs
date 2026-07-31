@@ -305,63 +305,58 @@ pub async fn start_replay(
         }
         let listener = listener.unwrap();
 
-        loop {
-            match listener.accept().await {
-                Ok((mut stream, _)) => {
-                    let responses = mock_responses.clone();
-                    tokio::spawn(async move {
-                        let mut buf = [0u8; 8192];
-                        if let Ok(n) = stream.read(&mut buf).await {
-                            let request = String::from_utf8_lossy(&buf[..n]).to_string();
-                            let lines: Vec<&str> = request.lines().collect();
-                            if let Some(request_line) = lines.first() {
-                                let parts: Vec<&str> = request_line.split_whitespace().collect();
-                                if parts.len() >= 2 {
-                                    let _method = parts[0];
-                                    let path = parts[1];
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let responses = mock_responses.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 8192];
+                if let Ok(n) = stream.read(&mut buf).await {
+                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let lines: Vec<&str> = request.lines().collect();
+                    if let Some(request_line) = lines.first() {
+                        let parts: Vec<&str> = request_line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            let _method = parts[0];
+                            let path = parts[1];
 
-                                    // Find matching response by path
-                                    let mut response_body = String::new();
-                                    let mut response_status = 404;
-                                    let mut response_headers = Vec::new();
+                            // Find matching response by path
+                            let mut response_body = String::new();
+                            let mut response_status = 404;
+                            let mut response_headers = Vec::new();
 
-                                    for (_req_id, resp) in &responses {
-                                        // NOTE: BUG — the path check
-                                        //   `if path == "/" || path.starts_with("/")`
-                                        // is ALWAYS true (every HTTP path starts with
-                                        // "/"), so this loop always returns the FIRST
-                                        // response in the HashMap regardless of which
-                                        // path the client requested. Replay diffs will
-                                        // be incorrect when multiple distinct paths
-                                        // exist for the same host. See task #80.
-                                        if path == "/" || path.starts_with("/") {
-                                            response_status = resp.status;
-                                            response_headers = resp.headers.clone();
-                                            if let Some(ref body) = resp.body {
-                                                response_body = body.clone();
-                                            }
-                                            break;
-                                        }
+                            for resp in responses.values() {
+                                // NOTE: BUG — the path check
+                                //   `if path == "/" || path.starts_with("/")`
+                                // is ALWAYS true (every HTTP path starts with
+                                // "/"), so this loop always returns the FIRST
+                                // response in the HashMap regardless of which
+                                // path the client requested. Replay diffs will
+                                // be incorrect when multiple distinct paths
+                                // exist for the same host. See task #80.
+                                if path == "/" || path.starts_with("/") {
+                                    response_status = resp.status;
+                                    response_headers = resp.headers.clone();
+                                    if let Some(ref body) = resp.body {
+                                        response_body = body.clone();
                                     }
-
-                                    // Build HTTP response
-                                    let body_len = response_body.len();
-                                    let headers_str = response_headers
-                                        .iter()
-                                        .map(|(k, v)| format!("{}: {}\r\n", k, v))
-                                        .collect::<String>();
-                                    let response = format!(
-                                        "HTTP/1.1 {} OK\r\n{}Content-Length: {}\r\n\r\n{}",
-                                        response_status, headers_str, body_len, response_body
-                                    );
-                                    let _ = stream.write_all(response.as_bytes()).await;
+                                    break;
                                 }
                             }
+
+                            // Build HTTP response
+                            let body_len = response_body.len();
+                            let headers_str = response_headers
+                                .iter()
+                                .map(|(k, v)| format!("{}: {}\r\n", k, v))
+                                .collect::<String>();
+                            let response = format!(
+                                "HTTP/1.1 {} OK\r\n{}Content-Length: {}\r\n\r\n{}",
+                                response_status, headers_str, body_len, response_body
+                            );
+                            let _ = stream.write_all(response.as_bytes()).await;
                         }
-                    });
+                    }
                 }
-                Err(_) => break,
-            }
+            });
         }
     });
 
@@ -423,18 +418,16 @@ pub async fn start_replay(
                 };
 
                 // Compute diff
-                let diff = if let Some(recorded) = recorded {
-                    Some(compute_diff(
+                let diff = recorded.map(|recorded| {
+                    compute_diff(
                         &recorded.status,
                         &recorded.headers,
                         &recorded.body,
                         &mock_status,
                         &mock_headers,
                         &mock_body,
-                    ))
-                } else {
-                    None
-                };
+                    )
+                });
 
                 results.push(ReplayResult {
                     request_id: request.id,
@@ -624,18 +617,36 @@ mod tests {
         let recorded_body = Some(r#"{"key": "value"}"#.to_string());
         let mock_body = Some(r#"{"key": "different"}"#.to_string());
 
-        let diff = compute_diff(&200, &recorded_headers, &recorded_body, &200, &mock_headers, &mock_body);
+        let diff = compute_diff(
+            &200,
+            &recorded_headers,
+            &recorded_body,
+            &200,
+            &mock_headers,
+            &mock_body,
+        );
 
-        assert!(diff.has_changes, "modified header + modified body must set has_changes");
+        assert!(
+            diff.has_changes,
+            "modified header + modified body must set has_changes"
+        );
 
         // Two distinct header keys, both with values present on both sides.
         assert_eq!(diff.header_diffs.len(), 2);
 
         // Per-header: Content-Type unchanged, X-Custom modified.
-        let content_type = diff.header_diffs.iter().find(|h| h.header == "Content-Type").unwrap();
+        let content_type = diff
+            .header_diffs
+            .iter()
+            .find(|h| h.header == "Content-Type")
+            .unwrap();
         assert_eq!(content_type.diff_type, DiffType::Unchanged);
 
-        let x_custom = diff.header_diffs.iter().find(|h| h.header == "X-Custom").unwrap();
+        let x_custom = diff
+            .header_diffs
+            .iter()
+            .find(|h| h.header == "X-Custom")
+            .unwrap();
         assert_eq!(x_custom.diff_type, DiffType::Modified);
         assert_eq!(x_custom.recorded.as_deref(), Some("value1"));
         assert_eq!(x_custom.mock.as_deref(), Some("different"));
@@ -653,12 +664,18 @@ mod tests {
 
         let diff = compute_diff(&200, &headers, &body, &200, &headers, &body);
 
-        assert!(!diff.has_changes, "Identical inputs must NOT set has_changes");
+        assert!(
+            !diff.has_changes,
+            "Identical inputs must NOT set has_changes"
+        );
         assert_eq!(diff.header_diffs.len(), 1);
         assert_eq!(diff.header_diffs[0].diff_type, DiffType::Unchanged);
 
         let body = diff.body_diff.as_ref().unwrap();
-        assert!(body.line_diffs.iter().all(|l| l.diff_type == DiffType::Unchanged));
+        assert!(body
+            .line_diffs
+            .iter()
+            .all(|l| l.diff_type == DiffType::Unchanged));
     }
 
     #[test]
@@ -720,10 +737,20 @@ mod tests {
         let recorded_body = Some("a\nb\nc".to_string());
         let mock_body = Some("a\nB\nc".to_string());
 
-        let diff = compute_diff(&200, &recorded_headers, &recorded_body, &200, &mock_headers, &mock_body);
+        let diff = compute_diff(
+            &200,
+            &recorded_headers,
+            &recorded_body,
+            &200,
+            &mock_headers,
+            &mock_body,
+        );
 
         // Headers match; only body has a change.
-        assert!(diff.has_changes, "Body-only change must still set has_changes");
+        assert!(
+            diff.has_changes,
+            "Body-only change must still set has_changes"
+        );
         assert_eq!(diff.header_diffs.len(), 1);
         assert_eq!(diff.header_diffs[0].diff_type, DiffType::Unchanged);
     }
@@ -796,7 +823,10 @@ mod tests {
         let diff = compute_body_diff(&recorded, &None).expect("always Some");
         assert_eq!(diff.line_diffs.len(), 1);
         assert_eq!(diff.line_diffs[0].diff_type, DiffType::Removed);
-        assert_eq!(diff.line_diffs[0].recorded_text.as_deref(), Some("only-on-recorded"));
+        assert_eq!(
+            diff.line_diffs[0].recorded_text.as_deref(),
+            Some("only-on-recorded")
+        );
         assert_eq!(diff.line_diffs[0].mock_text, None);
     }
 
@@ -808,7 +838,10 @@ mod tests {
     fn test_get_replay_targets_internal_empty_db() {
         let conn = seeded_db();
         let targets = get_replay_targets_internal(&conn).unwrap();
-        assert!(targets.is_empty(), "Empty http_requests should yield no targets");
+        assert!(
+            targets.is_empty(),
+            "Empty http_requests should yield no targets"
+        );
     }
 
     #[test]
@@ -817,12 +850,80 @@ mod tests {
         let empty_headers: Vec<(String, String)> = vec![];
 
         // api.example.com: 3 requests, 2 distinct paths
-        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "api.example.com", "/v1/users", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:02", "POST", "https", "api.example.com", "/v1/login", &empty_headers, None, Some(201), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "api.example.com",
+            "/v1/users",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:01",
+            "GET",
+            "https",
+            "api.example.com",
+            "/v1/users",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:02",
+            "POST",
+            "https",
+            "api.example.com",
+            "/v1/login",
+            &empty_headers,
+            None,
+            Some(201),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         // cdn.example.com: 1 request, 1 path
-        record_http_request(&conn, "2026-06-04 10:00:03", "GET", "https", "cdn.example.com", "/img.png", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:03",
+            "GET",
+            "https",
+            "cdn.example.com",
+            "/img.png",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let targets = get_replay_targets_internal(&conn).unwrap();
         assert_eq!(targets.len(), 2, "Should have 2 distinct hosts");
@@ -830,7 +931,10 @@ mod tests {
         // ORDER BY cnt DESC → api.example.com first.
         assert_eq!(targets[0].host, "api.example.com");
         assert_eq!(targets[0].request_count, 3);
-        assert_eq!(targets[0].path_count, 2, "Two distinct paths under api.example.com");
+        assert_eq!(
+            targets[0].path_count, 2,
+            "Two distinct paths under api.example.com"
+        );
 
         assert_eq!(targets[1].host, "cdn.example.com");
         assert_eq!(targets[1].request_count, 1);
@@ -843,14 +947,65 @@ mod tests {
         let empty_headers: Vec<(String, String)> = vec![];
 
         // a.com: 1 row
-        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "a.com",
+            "/",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         // b.com: 5 rows
         for i in 0..5 {
-            record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+            record_http_request(
+                &conn,
+                "2026-06-04 10:00:01",
+                "GET",
+                "https",
+                "b.com",
+                &format!("/p{}", i),
+                &empty_headers,
+                None,
+                Some(200),
+                &empty_headers,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
         }
         // c.com: 3 rows
         for i in 0..3 {
-            record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "c.com", &format!("/p{}", i), &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+            record_http_request(
+                &conn,
+                "2026-06-04 10:00:02",
+                "GET",
+                "https",
+                "c.com",
+                &format!("/p{}", i),
+                &empty_headers,
+                None,
+                Some(200),
+                &empty_headers,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
         }
 
         let targets = get_replay_targets_internal(&conn).unwrap();
@@ -946,9 +1101,60 @@ mod tests {
         let conn = seeded_db();
         let empty_headers: Vec<(String, String)> = vec![];
 
-        record_http_request(&conn, "2026-06-04 10:00:00", "GET", "https", "a.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:01", "GET", "https", "b.com", "/", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
-        record_http_request(&conn, "2026-06-04 10:00:02", "GET", "https", "a.com", "/v2", &empty_headers, None, Some(200), &empty_headers, None, None, None, None, None).unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:00",
+            "GET",
+            "https",
+            "a.com",
+            "/",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:01",
+            "GET",
+            "https",
+            "b.com",
+            "/",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        record_http_request(
+            &conn,
+            "2026-06-04 10:00:02",
+            "GET",
+            "https",
+            "a.com",
+            "/v2",
+            &empty_headers,
+            None,
+            Some(200),
+            &empty_headers,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let a = get_requests_for_replay_internal(&conn, "a.com").unwrap();
         let b = get_requests_for_replay_internal(&conn, "b.com").unwrap();
@@ -1087,7 +1293,11 @@ mod tests {
         )
         .unwrap();
         let id: i64 = conn
-            .query_row("SELECT id FROM http_requests WHERE host='partial.com'", [], |row| row.get(0))
+            .query_row(
+                "SELECT id FROM http_requests WHERE host='partial.com'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
 
         let responses = get_recorded_responses_internal(&conn, &[id]).unwrap();
@@ -1129,9 +1339,15 @@ mod tests {
 
         let responses = get_recorded_responses_internal(&conn, &[id]).unwrap();
         let r = responses.get(&id).unwrap();
-        let body = r.body.as_ref().expect("body should be Some after raw bytes update");
+        let body = r
+            .body
+            .as_ref()
+            .expect("body should be Some after raw bytes update");
         // Body bytes are lossy-decoded; the result starts with U+FFFD replacements.
-        assert!(body.starts_with('\u{FFFD}'), "Non-UTF8 bytes must be lossy-decoded to replacement chars");
+        assert!(
+            body.starts_with('\u{FFFD}'),
+            "Non-UTF8 bytes must be lossy-decoded to replacement chars"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1142,8 +1358,14 @@ mod tests {
     fn test_replay_state_default_values() {
         let state = ReplayState::default();
         assert_eq!(state.mock_port, 19998, "Default mock_port should be 19998");
-        assert!(!*state.is_running.lock().unwrap(), "Default is_running should be false");
-        assert!(state.results.lock().unwrap().is_empty(), "Default results should be empty");
+        assert!(
+            !*state.is_running.lock().unwrap(),
+            "Default is_running should be false"
+        );
+        assert!(
+            state.results.lock().unwrap().is_empty(),
+            "Default results should be empty"
+        );
     }
 
     // ------------------------------------------------------------------

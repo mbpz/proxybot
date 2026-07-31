@@ -23,12 +23,14 @@ jobs:
         include:
           - runner: macos-latest
             arch: arm64
+            target: aarch64-apple-darwin
           - runner: macos-latest
             arch: x64
+            target: x86_64-apple-darwin
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get version
         id: version
@@ -41,34 +43,42 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          target: ${{ matrix.target }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare frontend and verified bundle resources
+        run: |
+          pnpm resources:fetch
+          pnpm build
 
       - name: Build macOS app bundle
         run: |
           echo "Building for ${{ matrix.arch }} on macOS"
           rustc --version
           cargo --version
-          # Build from workspace root - binary goes to target/release/
-          cargo build --release --bin proxybot -p proxybot
-          # Find the binary - it's at target/release/proxybot from workspace root
-          echo "=== Checking for binary ==="
-          ls -la target/release/proxybot || echo "Not at target/release/proxybot"
-          ls -la src-tauri/target/release/proxybot || echo "Not at src-tauri/target/release/proxybot"
-          find . -name "proxybot" -type f 2>/dev/null | head -5
-          # Determine correct binary path
-          if [ -f "target/release/proxybot" ]; then
-            BIN_PATH="target/release/proxybot"
-          elif [ -f "src-tauri/target/release/proxybot" ]; then
-            BIN_PATH="src-tauri/target/release/proxybot"
-          else
-            echo "ERROR: proxybot binary not found"
-            exit 1
-          fi
+          cargo build --release --locked --bin proxybot -p proxybot --target "${{ matrix.target }}"
+          BIN_PATH="target/${{ matrix.target }}/release/proxybot"
+          test -f "$BIN_PATH"
           echo "Using binary at: $BIN_PATH"
           # Create app bundle
           mkdir -p "ProxyBot.app/Contents/MacOS"
           mkdir -p "ProxyBot.app/Contents/Resources"
           cp "$BIN_PATH" "ProxyBot.app/Contents/MacOS/ProxyBot"
+          cp src-tauri/resources/apktool.jar "ProxyBot.app/Contents/Resources/apktool.jar"
+          cp -R src-tauri/resources/frida-gadget "ProxyBot.app/Contents/Resources/frida-gadget"
 
           # Copy icon if exists
           if [ -f icons/128x128.png ]; then
@@ -98,7 +108,7 @@ jobs:
 
           # Create zip
           zip -r "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" ProxyBot.app
-          shasum -a 256 "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" | awk '{print $1}'
+          shasum -a 256 "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip"
 
       - name: Upload release asset
         # Only run when: (1) pushing a tag, or (2) workflow_dispatch with version input
@@ -110,4 +120,3 @@ jobs:
           tag_name: ${{ inputs.version || github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

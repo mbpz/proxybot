@@ -15,7 +15,12 @@ pub fn estimate_tokens_for_text(text: &str) -> usize {
 }
 
 /// Calculate estimated cost in USD for a given token count.
-pub fn estimate_cost(provider: &str, model: &str, input_tokens: usize, output_tokens: usize) -> f64 {
+pub fn estimate_cost(
+    provider: &str,
+    model: &str,
+    input_tokens: usize,
+    output_tokens: usize,
+) -> f64 {
     // Pricing per 1M tokens (as of 2024)
     let (input_rate, output_rate) = get_pricing(provider, model);
     (input_tokens as f64 * input_rate / 1_000_000.0)
@@ -23,7 +28,10 @@ pub fn estimate_cost(provider: &str, model: &str, input_tokens: usize, output_to
 }
 
 fn get_pricing(provider: &str, model: &str) -> (f64, f64) {
-    match (provider.to_lowercase().as_str(), model.to_lowercase().as_str()) {
+    match (
+        provider.to_lowercase().as_str(),
+        model.to_lowercase().as_str(),
+    ) {
         // OpenAI
         ("openai", "gpt-4o") => (5.0, 15.0),
         ("openai", "gpt-4-turbo") => (10.0, 30.0),

@@ -5,8 +5,6 @@
 
 use crate::transport::types::DetectedProtocol;
 
-/// Buffer size for protocol detection (enough for TLS ClientHello + SNI).
-
 /// Detect protocol from initial stream bytes.
 ///
 /// Returns the detected protocol. For TLS connections, SNI is extracted
@@ -54,12 +52,21 @@ pub fn detect_protocol(data: &[u8]) -> DetectedProtocol {
 
 /// Detect HTTP request from raw bytes.
 fn detect_http(data: &[u8]) -> Option<DetectedProtocol> {
-    let methods: &[&[u8]] = &[b"GET ", b"POST ", b"PUT ", b"DELETE ", b"HEAD ",
-                    b"PATCH ", b"OPTIONS ", b"CONNECT "];
+    let methods: &[&[u8]] = &[
+        b"GET ",
+        b"POST ",
+        b"PUT ",
+        b"DELETE ",
+        b"HEAD ",
+        b"PATCH ",
+        b"OPTIONS ",
+        b"CONNECT ",
+    ];
 
     for method_bytes in methods.iter() {
         if data.len() >= method_bytes.len() && &data[0..method_bytes.len()] == *method_bytes {
-            let method = std::str::from_utf8(&method_bytes[0..method_bytes.len()-1]).unwrap_or("UNKNOWN");
+            let method =
+                std::str::from_utf8(&method_bytes[0..method_bytes.len() - 1]).unwrap_or("UNKNOWN");
             // Try to find the path (between method and HTTP version)
             let rest = &data[method_bytes.len()..];
             if let Some(path_end) = rest.iter().position(|&b| b == b' ') {
@@ -306,18 +313,18 @@ mod tests {
         data.extend_from_slice(&[0x03, 0x03]); // client_version
         data.extend_from_slice(&[0u8; 32]); // random
         data.push(0x00); // session_id_length = 0
-        // Cipher suites
+                         // Cipher suites
         data.extend_from_slice(&[0x00, 0x02]); // length = 2
         data.extend_from_slice(&[0x13, 0x01]); // TLS_AES_128_GCM_SHA256
-        // Compression
+                                               // Compression
         data.push(0x01); // length = 1
         data.push(0x00); // null compression
-        // Extensions
+                         // Extensions
         data.extend_from_slice(&extensions_len.to_be_bytes());
         // server_name extension
         data.extend_from_slice(&[0x00, 0x00]); // ext_type = server_name
         data.extend_from_slice(&(ext_data_len as u16).to_be_bytes()); // ext_length
-        // server_name_list
+                                                                      // server_name_list
         data.extend_from_slice(&(name_data_len as u16).to_be_bytes()); // list_length
         data.push(0x00); // name_type = host_name
         data.extend_from_slice(&(sni_len as u16).to_be_bytes()); // name_length

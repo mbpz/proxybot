@@ -2,8 +2,8 @@
 
 use super::InterceptedRequest;
 use crate::metrics::counters::METRICS;
-use crate::plugin::{HookExecutor, InterceptedResponse, RuleEngine};
 use crate::plugin::registry::PluginRegistry;
+use crate::plugin::{HookExecutor, InterceptedResponse, RuleEngine};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 

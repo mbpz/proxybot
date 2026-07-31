@@ -4,7 +4,7 @@
 //! recompiles, and signs with a temporary keystore.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Architectures supported by Frida 17.x (armv7 dropped).
@@ -26,36 +26,41 @@ impl ApkPatcher {
         // Tauri resources. For development (cargo run), we look in
         // src-tauri/resources/. For production builds, they're in
         // the Tauri bundle alongside the binary.
-        let resource_dir = std::env::current_exe()
+        let executable_dir = std::env::current_exe()
             .map_err(|e| format!("Failed to get exe path: {}", e))?
             .parent()
             .ok_or("Failed to get exe parent")?
-            .join("resources");
+            .to_path_buf();
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+        let resource_dirs = [
+            executable_dir.join("resources"),
+            executable_dir.join("../Resources"),
+            manifest_dir.join("resources"),
+        ];
 
-        // Fallback to source tree during development
-        let apktool_path = if resource_dir.join("apktool.jar").exists() {
-            resource_dir.join("apktool.jar")
-        } else {
-            // Dev: look relative to cargo manifest dir
-            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("."));
-            manifest_dir.join("resources").join("apktool.jar")
-        };
-
-        if !apktool_path.exists() {
-            return Err(format!("apktool.jar not found (looked in {})", apktool_path.display()));
+        let mut errors = Vec::new();
+        for resource_dir in resource_dirs {
+            match Self::from_resource_dir(&resource_dir) {
+                Ok(patcher) => return Ok(patcher),
+                Err(error) => errors.push(error),
+            }
         }
 
-        // Locate the frida-gadget resource dir (dev or production)
-        let gadget_root = if resource_dir.join("frida-gadget").exists() {
-            resource_dir.join("frida-gadget")
-        } else {
-            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("."));
-            manifest_dir.join("resources").join("frida-gadget")
-        };
+        Err(format!(
+            "APK patching resources are unavailable: {}. Run `pnpm resources:fetch` for development or use a bundled release.",
+            errors.join("; ")
+        ))
+    }
+
+    fn from_resource_dir(resource_dir: &Path) -> Result<Self, String> {
+        let apktool_path = resource_dir.join("apktool.jar");
+        if !apktool_path.is_file() {
+            return Err(format!("{} not found", apktool_path.display()));
+        }
+
+        let gadget_root = resource_dir.join("frida-gadget");
 
         // Populate the per-architecture gadget map. Only architectures whose
         // bundled .so actually exists are kept — this lets builds with a
@@ -63,7 +68,7 @@ impl ApkPatcher {
         let mut arch_to_gadget: HashMap<&'static str, PathBuf> = HashMap::new();
         for &arch in SUPPORTED_ARCHS {
             let path = gadget_root.join(arch).join("libfrida-gadget.so");
-            if path.exists() {
+            if path.is_file() {
                 arch_to_gadget.insert(arch, path);
             }
         }
@@ -93,7 +98,7 @@ impl ApkPatcher {
     }
 
     /// Decompile APK using apktool.
-    pub fn decompile(&self, apk: &PathBuf, output: &PathBuf) -> Result<(), String> {
+    pub fn decompile(&self, apk: &Path, output: &Path) -> Result<(), String> {
         let status = Command::new("java")
             .args(["-jar"])
             .arg(&self.apktool_path)
@@ -112,7 +117,7 @@ impl ApkPatcher {
     }
 
     /// Recompile APK using apktool.
-    pub fn recompile(&self, work_dir: &PathBuf, output: &PathBuf) -> Result<(), String> {
+    pub fn recompile(&self, work_dir: &Path, output: &Path) -> Result<(), String> {
         let status = Command::new("java")
             .args(["-jar"])
             .arg(&self.apktool_path)
@@ -130,16 +135,20 @@ impl ApkPatcher {
     }
 
     /// Sign APK with jarsigner.
-    pub fn sign(&self, apk: &PathBuf) -> Result<PathBuf, String> {
+    pub fn sign(&self, apk: &Path) -> Result<PathBuf, String> {
         let keystore = self.temp_dir.join("proxybot.keystore");
         if !keystore.exists() {
             let status = Command::new("keytool")
                 .args(["-genkey", "-v"])
-                .arg("-keystore").arg(&keystore)
+                .arg("-keystore")
+                .arg(&keystore)
                 .args(["-alias", "proxybot"])
                 .args(["-keyalg", "RSA", "-keysize", "2048", "-validity", "10000"])
                 .args(["-storepass", "proxybot", "-keypass", "proxybot"])
-                .args(["-dname", "CN=ProxyBot, OU=Dev, O=ProxyBot, L=Unknown, ST=Unknown, C=US"])
+                .args([
+                    "-dname",
+                    "CN=ProxyBot, OU=Dev, O=ProxyBot, L=Unknown, ST=Unknown, C=US",
+                ])
                 .status()
                 .map_err(|e| format!("Failed to generate keystore: {}", e))?;
             if !status.success() {
@@ -148,8 +157,15 @@ impl ApkPatcher {
         }
 
         let status = Command::new("jarsigner")
-            .args(["-verbose", "-sigalg", "SHA256withRSA", "-digestalg", "SHA-256"])
-            .arg("-keystore").arg(&keystore)
+            .args([
+                "-verbose",
+                "-sigalg",
+                "SHA256withRSA",
+                "-digestalg",
+                "SHA-256",
+            ])
+            .arg("-keystore")
+            .arg(&keystore)
             .args(["-storepass", "proxybot", "-keypass", "proxybot"])
             .arg(apk)
             .arg("proxybot")
@@ -159,7 +175,7 @@ impl ApkPatcher {
         if !status.success() {
             return Err("jarsigner failed".to_string());
         }
-        Ok(apk.clone())
+        Ok(apk.to_path_buf())
     }
 
     /// Detect the target architecture of a decompiled APK by scanning
@@ -169,7 +185,7 @@ impl ApkPatcher {
     /// Note: armv7 (armeabi-v7a) is intentionally unsupported — Frida 17.x
     /// dropped 32-bit ARM gadgets. APKs that only ship armv7 .so files will
     /// fall back to arm64-v8a and the injector will error at copy time.
-    pub fn detect_apk_arch(&self, work_dir: &PathBuf) -> &'static str {
+    pub fn detect_apk_arch(&self, work_dir: &Path) -> &'static str {
         let lib_dir = work_dir.join("lib");
         for &arch in SUPPORTED_ARCHS {
             if lib_dir.join(arch).exists() {
@@ -181,7 +197,7 @@ impl ApkPatcher {
 
     /// Inject the Frida Gadget .so into the decompiled APK's lib/ directory,
     /// picking the right binary for the APK's target architecture.
-    pub fn inject_frida_gadget(&self, work_dir: &PathBuf) -> Result<(), String> {
+    pub fn inject_frida_gadget(&self, work_dir: &Path) -> Result<(), String> {
         let arch = self.detect_apk_arch(work_dir);
         let gadget_src = self
             .arch_to_gadget
@@ -208,7 +224,7 @@ impl ApkPatcher {
     }
 
     /// Embed the bypass script into the decompiled APK's assets/ directory.
-    pub fn embed_script(&self, work_dir: &PathBuf, script_content: &str) -> Result<(), String> {
+    pub fn embed_script(&self, work_dir: &Path, script_content: &str) -> Result<(), String> {
         let assets_dir = work_dir.join("assets");
         std::fs::create_dir_all(&assets_dir)
             .map_err(|e| format!("Failed to create assets dir: {}", e))?;
@@ -226,7 +242,7 @@ impl ApkPatcher {
     /// The manifest is read as plain text (apktool's binary form is not
     /// used here because the format is well-defined for these specific
     /// insertions).
-    pub fn modify_manifest(&self, work_dir: &PathBuf) -> Result<(), String> {
+    pub fn modify_manifest(&self, work_dir: &Path) -> Result<(), String> {
         let manifest_path = work_dir.join("AndroidManifest.xml");
         let mut content = std::fs::read_to_string(&manifest_path)
             .map_err(|e| format!("Failed to read AndroidManifest.xml: {}", e))?;
@@ -322,10 +338,7 @@ mod tests {
             "arm64-v8a",
             PathBuf::from("/nonexistent/arm64-v8a/libfrida-gadget.so"),
         );
-        arch_to_gadget.insert(
-            "x86",
-            PathBuf::from("/nonexistent/x86/libfrida-gadget.so"),
-        );
+        arch_to_gadget.insert("x86", PathBuf::from("/nonexistent/x86/libfrida-gadget.so"));
         arch_to_gadget.insert(
             "x86_64",
             PathBuf::from("/nonexistent/x86_64/libfrida-gadget.so"),
@@ -349,14 +362,17 @@ mod tests {
     }
 
     #[test]
-    fn test_new_succeeds_with_resources_present() {
-        // apktool.jar and libfrida-gadget.so are bundled in src-tauri/resources/
-        // (dev mode path via CARGO_MANIFEST_DIR). ApkPatcher::new() should
-        // locate both resources and return Ok.
-        let result = ApkPatcher::new();
+    fn test_from_resource_dir_succeeds_with_resources_present() {
+        let resources = tempfile::tempdir().unwrap();
+        std::fs::write(resources.path().join("apktool.jar"), b"fake-apktool").unwrap();
+        let gadget_dir = resources.path().join("frida-gadget").join("arm64-v8a");
+        std::fs::create_dir_all(&gadget_dir).unwrap();
+        std::fs::write(gadget_dir.join("libfrida-gadget.so"), b"fake-gadget").unwrap();
+
+        let result = ApkPatcher::from_resource_dir(resources.path());
         assert!(
             result.is_ok(),
-            "ApkPatcher::new() should succeed when bundled resources are present, got: {:?}",
+            "resource-backed constructor should succeed, got: {:?}",
             result.as_ref().err()
         );
 
@@ -392,7 +408,10 @@ mod tests {
         // No lib/<arch>/ exists yet — falls back to DEFAULT_ARCH (arm64-v8a)
         patcher.inject_frida_gadget(&work_dir).unwrap();
 
-        let dest = work_dir.join("lib").join("arm64-v8a").join("libfrida-gadget.so");
+        let dest = work_dir
+            .join("lib")
+            .join("arm64-v8a")
+            .join("libfrida-gadget.so");
         assert!(dest.exists(), "gadget .so should be at {}", dest.display());
         let copied = std::fs::read(&dest).unwrap();
         assert_eq!(copied, b"fake-gadget-arm64-v8a");
@@ -505,7 +524,11 @@ mod tests {
         patcher.embed_script(&work_dir, script).unwrap();
 
         let dest = work_dir.join("assets").join("frida-bypass.js");
-        assert!(dest.exists(), "bypass script should be at {}", dest.display());
+        assert!(
+            dest.exists(),
+            "bypass script should be at {}",
+            dest.display()
+        );
         let written = std::fs::read_to_string(&dest).unwrap();
         assert_eq!(written, script);
     }

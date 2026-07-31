@@ -63,10 +63,7 @@ impl ApiAnalyzer {
     /// Returns a result with token/cost estimates.
     /// Note: Full LLM inference requires the run_ai_pipeline Tauri command
     /// which has access to the database state.
-    pub fn analyze(
-        &self,
-        candidates: Vec<crate::proxy::InterceptedRequest>,
-    ) -> ApiAnalysisResult {
+    pub fn analyze(&self, candidates: Vec<crate::proxy::InterceptedRequest>) -> ApiAnalysisResult {
         if candidates.is_empty() {
             return ApiAnalysisResult {
                 spec: serde_json::json!({"paths": {}, "info": {"title": "Empty API"}}),
@@ -118,16 +115,14 @@ mod tests {
     #[test]
     fn test_analyzer_with_candidates() {
         use crate::proxy::InterceptedRequest;
-        let candidates = vec![
-            InterceptedRequest {
-                id: "1".to_string(),
-                timestamp: "2024-01-01T00:00:00Z".to_string(),
-                method: "GET".to_string(),
-                host: "api.example.com".to_string(),
-                path: "/users".to_string(),
-                ..Default::default()
-            },
-        ];
+        let candidates = vec![InterceptedRequest {
+            id: "1".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            method: "GET".to_string(),
+            host: "api.example.com".to_string(),
+            path: "/users".to_string(),
+            ..Default::default()
+        }];
         let analyzer = ApiAnalyzer::new();
         let result = analyzer.analyze(candidates);
         assert_eq!(result.requests_analyzed, 1);

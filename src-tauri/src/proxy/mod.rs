@@ -39,7 +39,7 @@ pub struct BreakpointRequest {
 #[derive(Clone, Debug)]
 pub enum BreakpointDecision {
     Proceed,
-    Modify(InterceptedRequest),
+    Modify(Box<InterceptedRequest>),
     Drop,
 }
 
@@ -49,8 +49,9 @@ pub enum BreakpointDecision {
 
 pub(super) static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
 
-pub(super) static SHUTDOWN_TX: LazyLock<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
-    LazyLock::new(|| std::sync::Mutex::new(None));
+pub(super) static SHUTDOWN_TX: LazyLock<
+    std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+> = LazyLock::new(|| std::sync::Mutex::new(None));
 
 // ---------------------------------------------------------------------------
 // Public data types
@@ -164,6 +165,12 @@ pub struct ProxyState {
     pub local_ip: std::sync::Mutex<Option<String>>,
 }
 
+impl Default for ProxyState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProxyState {
     pub fn new() -> Self {
         Self {
@@ -175,6 +182,12 @@ impl ProxyState {
 
 pub struct KeepRunningState {
     pub keep_running: std::sync::Mutex<bool>,
+}
+
+impl Default for KeepRunningState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KeepRunningState {
@@ -196,9 +209,9 @@ use crate::metrics::ProxyMetrics;
 use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::RuleEngine;
+pub use crate::rules::BreakpointTarget;
 use crate::rules::RulesEngine;
 use crate::scripting::ScriptEngine;
-pub use crate::rules::BreakpointTarget;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::LazyLock;

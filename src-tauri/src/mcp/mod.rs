@@ -128,7 +128,8 @@ mod tests {
 
     #[test]
     fn test_jsonrpc_response_success() {
-        let resp = JsonRpcResponse::success(Some(serde_json::json!(1)), serde_json::json!({"tools": []}));
+        let resp =
+            JsonRpcResponse::success(Some(serde_json::json!(1)), serde_json::json!({"tools": []}));
         assert_eq!(resp.jsonrpc, "2.0");
         assert!(resp.result.is_some());
         assert!(resp.error.is_none());

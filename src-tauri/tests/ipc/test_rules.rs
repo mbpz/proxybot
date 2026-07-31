@@ -19,7 +19,7 @@ fn make_rule(pattern: RulePattern, value: &str, action: RuleAction) -> Rule {
 fn test_rules_engine_creation() {
     let engine = RulesEngine::new();
     let rules = engine.get_rules();
-    assert!(rules.len() >= 0);
+    drop(rules);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn test_rules_reload_does_not_panic() {
     let engine = Arc::new(RulesEngine::new());
     engine.reload();
     let rules = engine.get_rules();
-    assert!(rules.len() >= 0);
+    drop(rules);
 }
 
 #[test]

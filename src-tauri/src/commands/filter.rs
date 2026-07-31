@@ -22,8 +22,14 @@ pub struct ParseResult {
 #[tauri::command]
 pub fn parse_filter(expr: String) -> ParseResult {
     match dsl::parse(&expr) {
-        Ok(_) => ParseResult { ok: true, error: None },
-        Err(e) => ParseResult { ok: false, error: Some(e) },
+        Ok(_) => ParseResult {
+            ok: true,
+            error: None,
+        },
+        Err(e) => ParseResult {
+            ok: false,
+            error: Some(e),
+        },
     }
 }
 

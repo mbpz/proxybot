@@ -20,6 +20,9 @@ pub enum ClientType {
 }
 
 #[tauri::command]
+// Keeping a comment above each client makes this user-facing compatibility
+// list easier to audit than one large `vec!` expression.
+#[allow(clippy::vec_init_then_push)]
 pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
     let mut clients = Vec::new();
 

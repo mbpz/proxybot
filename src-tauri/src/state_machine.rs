@@ -302,7 +302,8 @@ impl AuthFlowExtractor {
             }
         }
         for (id, _timestamp, method, _host, path) in nodes {
-            self.request_paths.insert(*id, (method.clone(), path.clone()));
+            self.request_paths
+                .insert(*id, (method.clone(), path.clone()));
         }
 
         (states, transitions, anomalies)
@@ -802,10 +803,23 @@ mod tests {
     fn test_build_auth_state_machine_empty_nodes() {
         let machine = build_auth_state_machine(&[], &[], Some(1));
         // extract_auth_flow always seeds an "initial" state, so states == 1.
-        assert_eq!(machine.states.len(), 1, "empty input should yield just the initial state");
-        assert!(machine.transitions.is_empty(), "empty input should yield no transitions");
-        assert!(machine.anomalies.is_empty(), "empty input should yield no anomalies");
-        assert!(!machine.mermaid_md.is_empty(), "mermaid_md should still have the diagram header");
+        assert_eq!(
+            machine.states.len(),
+            1,
+            "empty input should yield just the initial state"
+        );
+        assert!(
+            machine.transitions.is_empty(),
+            "empty input should yield no transitions"
+        );
+        assert!(
+            machine.anomalies.is_empty(),
+            "empty input should yield no anomalies"
+        );
+        assert!(
+            !machine.mermaid_md.is_empty(),
+            "mermaid_md should still have the diagram header"
+        );
     }
 
     #[test]
@@ -851,8 +865,22 @@ mod tests {
 
         // Register a device so FK on alerts.device_id is satisfied.
         let d1 = register_device_only(&conn, "aa:bb:cc:dd:ee:01", "Phone").unwrap();
-        store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Info, &AlertType::NewDomain, "a1").unwrap();
-        store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Info, &AlertType::NewDomain, "a2").unwrap();
+        store_alert_internal(
+            &conn,
+            Some(d1.id),
+            &AlertSeverity::Info,
+            &AlertType::NewDomain,
+            "a1",
+        )
+        .unwrap();
+        store_alert_internal(
+            &conn,
+            Some(d1.id),
+            &AlertSeverity::Info,
+            &AlertType::NewDomain,
+            "a2",
+        )
+        .unwrap();
 
         // Filter by device_id only.
         let alerts = get_alerts_internal(&conn, Some(d1.id), None, 10).unwrap();
@@ -897,9 +925,30 @@ mod tests {
         DbState::init_schema(&conn).unwrap();
 
         let d1 = register_device_only(&conn, "aa:bb:cc:dd:ee:01", "Phone").unwrap();
-        store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Info, &AlertType::NewDomain, "info-1").unwrap();
-        store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Warning, &AlertType::NewDomain, "warn-1").unwrap();
-        store_alert_internal(&conn, Some(d1.id), &AlertSeverity::Warning, &AlertType::NewDomain, "warn-2").unwrap();
+        store_alert_internal(
+            &conn,
+            Some(d1.id),
+            &AlertSeverity::Info,
+            &AlertType::NewDomain,
+            "info-1",
+        )
+        .unwrap();
+        store_alert_internal(
+            &conn,
+            Some(d1.id),
+            &AlertSeverity::Warning,
+            &AlertType::NewDomain,
+            "warn-1",
+        )
+        .unwrap();
+        store_alert_internal(
+            &conn,
+            Some(d1.id),
+            &AlertSeverity::Warning,
+            &AlertType::NewDomain,
+            "warn-2",
+        )
+        .unwrap();
 
         // Filter by severity only.
         let alerts = get_alerts_internal(&conn, None, Some("warning"), 10).unwrap();
@@ -965,13 +1014,37 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         DbState::init_schema(&conn).unwrap();
 
-        let id1 = store_alert_internal(&conn, None, &AlertSeverity::Info, &AlertType::NewDomain, "a").unwrap();
-        store_alert_internal(&conn, None, &AlertSeverity::Info, &AlertType::NewDomain, "b").unwrap();
-        store_alert_internal(&conn, None, &AlertSeverity::Info, &AlertType::NewDomain, "c").unwrap();
+        let id1 = store_alert_internal(
+            &conn,
+            None,
+            &AlertSeverity::Info,
+            &AlertType::NewDomain,
+            "a",
+        )
+        .unwrap();
+        store_alert_internal(
+            &conn,
+            None,
+            &AlertSeverity::Info,
+            &AlertType::NewDomain,
+            "b",
+        )
+        .unwrap();
+        store_alert_internal(
+            &conn,
+            None,
+            &AlertSeverity::Info,
+            &AlertType::NewDomain,
+            "c",
+        )
+        .unwrap();
 
         acknowledge_alert_internal(&conn, id1).unwrap();
 
         let count = get_unacknowledged_alert_count_internal(&conn).unwrap();
-        assert_eq!(count, 2, "Should report 2 unacknowledged after acking 1 of 3");
+        assert_eq!(
+            count, 2,
+            "Should report 2 unacknowledged after acking 1 of 3"
+        );
     }
 }

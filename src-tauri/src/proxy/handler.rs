@@ -5,8 +5,8 @@
 //! parses the first line to decide between CONNECT (HTTPS) and plain HTTP,
 //! then hands off to the specialized handler in `https` or `http`.
 
-use super::https::handle_https_connect;
 use super::http::handle_http;
+use super::https::handle_https_connect;
 use super::protocol::{find_colon, parse_host_port, trim_bytes};
 use super::requests::get_or_create_device;
 use super::tls::{extract_sni_from_client_hello, get_original_dst_addr};
@@ -236,12 +236,12 @@ fn parse_host_from_headers(headers: &[(String, String)]) -> (String, u16) {
     headers
         .iter()
         .find(|(n, _)| n.eq_ignore_ascii_case("host"))
-        .and_then(|(_, v)| {
+        .map(|(_, v)| {
             let v = v.trim();
             if let Some((h, p)) = parse_host_port(v) {
-                Some((h.to_string(), p))
+                (h.to_string(), p)
             } else {
-                Some((v.to_string(), 80))
+                (v.to_string(), 80)
             }
         })
         .unwrap_or_else(|| ("localhost".to_string(), 80))

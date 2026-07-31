@@ -71,9 +71,8 @@ impl Default for AppConfig {
 impl AppConfig {
     /// Load configuration from environment / defaults.
     pub fn load() -> Self {
-        let home = std::env::var("PROXYBOT_HOME").unwrap_or_else(|_| {
-            std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
-        });
+        let home = std::env::var("PROXYBOT_HOME")
+            .unwrap_or_else(|_| std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
         let base = PathBuf::from(&home).join(".proxybot");
 
         let proxy_port = std::env::var("PROXYBOT_PORT")
@@ -270,10 +269,7 @@ mod tests {
         assert_eq!(config.proxy_port, 8088);
         assert_eq!(config.dns_port, 5300);
         assert_eq!(config.max_dns_entries, 10000);
-        assert!(config
-            .base_dir
-            .to_string_lossy()
-            .ends_with(".proxybot"));
+        assert!(config.base_dir.to_string_lossy().ends_with(".proxybot"));
     }
 
     #[test]

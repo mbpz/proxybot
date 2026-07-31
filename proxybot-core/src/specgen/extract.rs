@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PathTemplate {
-    pub template: String,   // e.g. "/api/users/{id}"
+    pub template: String, // e.g. "/api/users/{id}"
     pub method: String,
     pub param_names: Vec<String>,
 }
@@ -49,7 +49,7 @@ fn is_param_like(seg: &str) -> bool {
         return true;
     }
     if seg.len() == 32 || seg.len() == 36 {
-        return seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        return seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
     }
     false
 }
@@ -57,7 +57,13 @@ fn is_param_like(seg: &str) -> bool {
 fn sanitize_param_name(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("{}Id", cleaned)
 }
@@ -100,7 +106,9 @@ pub fn cluster_paths(records: &[(String, String)]) -> BTreeMap<String, BTreeMap<
     for (method, path) in records {
         let tpl = template_path(path);
         let entry = out.entry(tpl.template).or_default();
-        entry.entry(method.to_uppercase()).or_insert_with(|| path.clone());
+        entry
+            .entry(method.to_uppercase())
+            .or_insert_with(|| path.clone());
     }
     out
 }

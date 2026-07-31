@@ -3,9 +3,8 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
+use crate::proxy::{BreakpointDecision, BreakpointTarget, InterceptedRequest};
 use proxybot_core::{SpecConfig, TlsRuleSet};
-use proxybot_core::types::InterceptedRequest;
-use crate::proxy::{BreakpointDecision, BreakpointTarget};
 use serde::Serialize;
 use std::collections::HashMap;
 use tokio::sync::oneshot;
@@ -142,12 +141,15 @@ impl AppState {
     /// Snapshot all pending breakpoints for the UI. The oneshots
     /// stay in the map; only the request data is returned.
     pub fn list_breakpoints(&self) -> Vec<BreakpointSnapshot> {
-        let guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+        let guard = self
+            .pending_breakpoints
+            .lock()
+            .expect("breakpoints mutex poisoned");
         guard
             .values()
             .map(|p| BreakpointSnapshot {
                 id: p.id.clone(),
-                target: p.target,
+                target: p.target.clone(),
                 request: p.request.clone(),
             })
             .collect()
@@ -163,7 +165,10 @@ impl AppState {
         decision_tx: oneshot::Sender<BreakpointDecision>,
     ) -> String {
         let id = format!("bp-{}", uuid::Uuid::new_v4().simple());
-        let mut guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+        let mut guard = self
+            .pending_breakpoints
+            .lock()
+            .expect("breakpoints mutex poisoned");
         guard.insert(
             id.clone(),
             PendingBreakpoint {
@@ -179,11 +184,11 @@ impl AppState {
     /// Remove a breakpoint and take its decision sender. The caller
     /// (`resolve_breakpoint` command) then sends the user's decision.
     /// Returns None if the id is unknown or already resolved.
-    pub fn take_breakpoint_sender(
-        &self,
-        id: &str,
-    ) -> Option<oneshot::Sender<BreakpointDecision>> {
-        let mut guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+    pub fn take_breakpoint_sender(&self, id: &str) -> Option<oneshot::Sender<BreakpointDecision>> {
+        let mut guard = self
+            .pending_breakpoints
+            .lock()
+            .expect("breakpoints mutex poisoned");
         let mut entry = guard.remove(id)?;
         entry.decision_tx.take()
     }
@@ -193,7 +198,10 @@ impl AppState {
     /// connections.
     pub fn cancel_all_breakpoints(&self) {
         let drained: Vec<_> = {
-            let mut guard = self.pending_breakpoints.lock().expect("breakpoints mutex poisoned");
+            let mut guard = self
+                .pending_breakpoints
+                .lock()
+                .expect("breakpoints mutex poisoned");
             guard.drain().collect()
         };
         for (_id, mut bp) in drained {

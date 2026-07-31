@@ -74,12 +74,8 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
 
             match path {
                 "/ios.mobileconfig" => {
-                    let body = mobileconfig::build_ios_profile(
-                        ca_pem,
-                        &local_ip,
-                        proxy_port,
-                        dns_port,
-                    );
+                    let body =
+                        mobileconfig::build_ios_profile(ca_pem, &local_ip, proxy_port, dns_port);
                     let response = tiny_http::Response::from_string(body)
                         .with_header(
                             tiny_http::Header::from_bytes(
@@ -100,16 +96,14 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
                     }
                 }
                 "/android-setup" => {
-                    let body =
-                        wizard::build_android_wizard(&local_ip, proxy_port, dns_port);
-                    let response = tiny_http::Response::from_string(body)
-                        .with_header(
-                            tiny_http::Header::from_bytes(
-                                &b"Content-Type"[..],
-                                &b"text/html; charset=utf-8"[..],
-                            )
-                            .unwrap(),
-                        );
+                    let body = wizard::build_android_wizard(&local_ip, proxy_port, dns_port);
+                    let response = tiny_http::Response::from_string(body).with_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"text/html; charset=utf-8"[..],
+                        )
+                        .unwrap(),
+                    );
                     if let Err(e) = request.respond(response) {
                         log::error!("Cert server respond error: {}", e);
                     }

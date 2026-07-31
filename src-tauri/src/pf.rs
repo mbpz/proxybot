@@ -126,7 +126,11 @@ pub fn is_pf_enabled() -> bool {
 /// passes through or forwards to the HTTP MITM proxy.
 ///
 /// DNS (UDP 53) is also redirected as in standard mode.
-pub fn setup_pf_transport(interface: String, local_ip: String, transport_port: u16) -> Result<String, String> {
+pub fn setup_pf_transport(
+    interface: String,
+    local_ip: String,
+    transport_port: u16,
+) -> Result<String, String> {
     if !interface.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid interface name".to_string());
     }
@@ -166,7 +170,10 @@ pub fn setup_pf_transport(interface: String, local_ip: String, transport_port: u
         return Err(format!("pf transport setup failed: {}{}", stderr, stdout));
     }
 
-    log::info!("pf transport rules loaded: all TCP → port {}", transport_port);
+    log::info!(
+        "pf transport rules loaded: all TCP → port {}",
+        transport_port
+    );
     Ok(format!(
         "Transport proxy enabled. Redirecting {} all TCP traffic to port {}",
         interface, transport_port
@@ -204,7 +211,8 @@ pub fn setup_pf(_interface: String, _local_ip: String) -> Result<String, String>
     Err(
         "Windows transparent proxy via WFP is not yet implemented.\n\
          Use manual proxy mode: Settings → Network → Proxy → 127.0.0.1:8088\n\
-         WFP API integration requires windows-sys or winapi crate.".into(),
+         WFP API integration requires windows-sys or winapi crate."
+            .into(),
     )
 }
 

@@ -84,6 +84,23 @@ pub struct TrafficDag {
     pub adjacency_list: HashMap<i64, Vec<i64>>,
 }
 
+/// Database projection consumed by the DAG builder.
+pub type HttpRequestRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+);
+
+type NodeRequestData = (String, Option<String>, u16, String, Option<String>);
+
 // ============================================================================
 // Token Extraction Functions
 // ============================================================================
@@ -247,30 +264,27 @@ pub fn extract_tokens(
 // ============================================================================
 
 /// Build DAG from all HTTP requests in the database.
-pub fn build_dag_from_requests(
-    requests: &[(
-        i64,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-    )],
-) -> TrafficDag {
+pub fn build_dag_from_requests(requests: &[HttpRequestRow]) -> TrafficDag {
     let mut nodes: Vec<DagNode> = Vec::new();
     let mut node_by_id: HashMap<i64, usize> = HashMap::new();
 
     // Collect request data for token extraction
-    let mut node_request_data: HashMap<i64, (String, Option<String>, u16, String, Option<String>)> = HashMap::new();
+    let mut node_request_data: HashMap<i64, NodeRequestData> = HashMap::new();
 
     // First pass: create nodes and collect request data
-    for (id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id) in
-        requests
+    for (
+        id,
+        timestamp,
+        method,
+        host,
+        path,
+        req_headers,
+        req_body,
+        resp_status,
+        resp_headers,
+        resp_body,
+        device_id,
+    ) in requests
     {
         let node = DagNode {
             id: *id,
@@ -314,7 +328,8 @@ pub fn build_dag_from_requests(
     // First pass: identify token producers (responses that return tokens)
     for &idx in &node_indices {
         let node = &nodes[idx];
-        if let Some((req_headers_str, req_body_str, resp_status, resp_headers_str, resp_body_str)) = node_request_data.get(&node.id)
+        if let Some((req_headers_str, req_body_str, resp_status, resp_headers_str, resp_body_str)) =
+            node_request_data.get(&node.id)
         {
             let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
                 .ok()
@@ -373,10 +388,7 @@ pub fn build_dag_from_requests(
                             token_value: token.value.clone(),
                         });
 
-                        adjacency_list
-                            .entry(producer_id)
-                            .or_insert_with(Vec::new)
-                            .push(node.id);
+                        adjacency_list.entry(producer_id).or_default().push(node.id);
                     }
                 }
             }
@@ -480,7 +492,7 @@ fn get_stored_dag_internal(conn: &Connection) -> Result<TrafficDag, String> {
     for edge in &edges {
         adjacency_list
             .entry(edge.from_node_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(edge.to_node_id);
     }
 
@@ -496,24 +508,7 @@ fn get_stored_dag_internal(conn: &Connection) -> Result<TrafficDag, String> {
 // ============================================================================
 
 /// Get all HTTP requests for DAG building.
-fn get_all_requests(
-    conn: &rusqlite::Connection,
-) -> Result<
-    Vec<(
-        i64,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-    )>,
-    rusqlite::Error,
-> {
+fn get_all_requests(conn: &rusqlite::Connection) -> Result<Vec<HttpRequestRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id
          FROM http_requests ORDER BY timestamp",
@@ -564,19 +559,7 @@ pub fn get_device_dag(
     db_state: State<'_, Arc<DbState>>,
     device_id: i64,
 ) -> Result<TrafficDag, String> {
-    let requests: Vec<(
-        i64,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-    )> = {
+    let requests: Vec<HttpRequestRow> = {
         let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id
@@ -691,19 +674,16 @@ mod tests {
         let req_headers = serde_json::json!({
             "Authorization": "Bearer access_token=abc123def456ghi789"
         });
-        let (request_tokens, _) = extract_tokens(
-            &req_headers,
-            None,
-            200,
-            &serde_json::json!({}),
-            None,
-        );
+        let (request_tokens, _) =
+            extract_tokens(&req_headers, None, 200, &serde_json::json!({}), None);
         assert!(
             !request_tokens.is_empty(),
             "Expected at least one token extracted from the Authorization header"
         );
         assert!(
-            request_tokens.iter().any(|t| t.value == "abc123def456ghi789"),
+            request_tokens
+                .iter()
+                .any(|t| t.value == "abc123def456ghi789"),
             "Expected the token 'abc123def456ghi789' in request_tokens, got {:?}",
             request_tokens
         );
@@ -723,7 +703,9 @@ mod tests {
             Some(&resp_body),
         );
         assert!(
-            response_tokens.iter().any(|t| t.value == "xyz123abc456def789"),
+            response_tokens
+                .iter()
+                .any(|t| t.value == "xyz123abc456def789"),
             "Expected 'xyz123abc456def789' to be extracted from the response body, got {:?}",
             response_tokens
         );
@@ -737,13 +719,8 @@ mod tests {
         let req_headers = serde_json::json!({
             "Authorization": "Bearer access_token=ab"
         });
-        let (request_tokens, _) = extract_tokens(
-            &req_headers,
-            None,
-            200,
-            &serde_json::json!({}),
-            None,
-        );
+        let (request_tokens, _) =
+            extract_tokens(&req_headers, None, 200, &serde_json::json!({}), None);
         assert_eq!(
             request_tokens.len(),
             0,
@@ -766,8 +743,16 @@ mod tests {
             &serde_json::json!({}),
             Some(&resp_body),
         );
-        assert_eq!(request_tokens.len(), 0, "Clean request body should yield no tokens");
-        assert_eq!(response_tokens.len(), 0, "Clean response body should yield no tokens");
+        assert_eq!(
+            request_tokens.len(),
+            0,
+            "Clean request body should yield no tokens"
+        );
+        assert_eq!(
+            response_tokens.len(),
+            0,
+            "Clean response body should yield no tokens"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -779,7 +764,11 @@ mod tests {
         let dag = build_dag_from_requests(&[]);
         assert_eq!(dag.nodes.len(), 0, "Empty requests should produce no nodes");
         assert_eq!(dag.edges.len(), 0, "Empty requests should produce no edges");
-        assert_eq!(dag.adjacency_list.len(), 0, "Empty requests should produce empty adjacency_list");
+        assert_eq!(
+            dag.adjacency_list.len(),
+            0,
+            "Empty requests should produce empty adjacency_list"
+        );
     }
 
     #[test]
@@ -799,7 +788,11 @@ mod tests {
         )];
         let dag = build_dag_from_requests(&requests);
         assert_eq!(dag.nodes.len(), 1, "One request should produce one node");
-        assert_eq!(dag.edges.len(), 0, "A single request cannot produce any edges");
+        assert_eq!(
+            dag.edges.len(),
+            0,
+            "A single request cannot produce any edges"
+        );
     }
 
     #[test]
@@ -839,9 +832,19 @@ mod tests {
 
         let dag = build_dag_from_requests(&requests);
         assert_eq!(dag.nodes.len(), 2, "Should have 2 nodes");
-        assert_eq!(dag.edges.len(), 1, "Should have 1 edge linking the two requests via the shared token");
-        assert_eq!(dag.edges[0].from_node_id, 1, "Edge must originate from the token producer (request 1)");
-        assert_eq!(dag.edges[0].to_node_id, 2, "Edge must point to the token consumer (request 2)");
+        assert_eq!(
+            dag.edges.len(),
+            1,
+            "Should have 1 edge linking the two requests via the shared token"
+        );
+        assert_eq!(
+            dag.edges[0].from_node_id, 1,
+            "Edge must originate from the token producer (request 1)"
+        );
+        assert_eq!(
+            dag.edges[0].to_node_id, 2,
+            "Edge must point to the token consumer (request 2)"
+        );
         assert_eq!(
             dag.edges[0].token_value, "abc123token456def789",
             "Edge should carry the shared token value"
@@ -947,8 +950,15 @@ mod tests {
         store_dag_internal(&conn, &dag_b).unwrap();
 
         let loaded = get_stored_dag_internal(&conn).unwrap();
-        assert_eq!(loaded.nodes.len(), 1, "Second store must replace (not append) first");
-        assert_eq!(loaded.nodes[0].id, 99, "Loaded node must reflect the second dag, not the first");
+        assert_eq!(
+            loaded.nodes.len(),
+            1,
+            "Second store must replace (not append) first"
+        );
+        assert_eq!(
+            loaded.nodes[0].id, 99,
+            "Loaded node must reflect the second dag, not the first"
+        );
     }
 
     #[test]
@@ -959,6 +969,10 @@ mod tests {
         let loaded = get_stored_dag_internal(&conn).unwrap();
         assert_eq!(loaded.nodes.len(), 0, "Fresh DB should have no nodes");
         assert_eq!(loaded.edges.len(), 0, "Fresh DB should have no edges");
-        assert_eq!(loaded.adjacency_list.len(), 0, "Fresh DB should have empty adjacency list");
+        assert_eq!(
+            loaded.adjacency_list.len(),
+            0,
+            "Fresh DB should have empty adjacency list"
+        );
     }
 }

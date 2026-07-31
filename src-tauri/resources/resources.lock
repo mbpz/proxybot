@@ -1,0 +1,5 @@
+# destination|source URL|uncompressed SHA-256|compression
+apktool.jar|https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar|eee4669a704a14e0623407e6701b0b91887e61e1e4049cb7a82833e14ae8b5fd|none
+frida-gadget/arm64-v8a/libfrida-gadget.so|https://github.com/frida/frida/releases/download/17.12.0/frida-gadget-17.12.0-android-arm64.so.xz|07b3be9a951173c89bfe32f604ee144ae59486f63745818c9a03ce234dd7c4ab|xz
+frida-gadget/x86/libfrida-gadget.so|https://github.com/frida/frida/releases/download/17.12.0/frida-gadget-17.12.0-android-x86.so.xz|5164487b8ccce89b106573afff9249a198df616dfb20f701c7a8a1c94fcb828d|xz
+frida-gadget/x86_64/libfrida-gadget.so|https://github.com/frida/frida/releases/download/17.12.0/frida-gadget-17.12.0-android-x86_64.so.xz|f40dde43183b9a463a3428d9c18da765662c0e3f7cd61e4a933b8303e588e45b|xz

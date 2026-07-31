@@ -32,7 +32,10 @@ fn main() {
     if let Ok(custom_dir) = std::env::var("FRIDA_DEVKIT_DIR") {
         let dir = std::path::PathBuf::from(custom_dir);
         println!("cargo:rerun-if-env-changed=FRIDA_DEVKIT_DIR");
-        println!("cargo:rustc-link-search=native={}", dir.join("lib").display());
+        println!(
+            "cargo:rustc-link-search=native={}",
+            dir.join("lib").display()
+        );
         println!("cargo:rustc-link-lib=static=frida-core");
         println!("cargo:rustc-link-lib=static=frida-gum");
     }

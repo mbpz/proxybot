@@ -34,13 +34,19 @@ impl CoverageReport {
             .count();
         let covered_asyncapi = all_request_paths
             .iter()
-            .filter(|p| asyncapi_channels.iter().any(|t| path_template_matches(t, p)))
+            .filter(|p| {
+                asyncapi_channels
+                    .iter()
+                    .any(|t| path_template_matches(t, p))
+            })
             .count();
         let uncovered = all_request_paths
             .iter()
             .filter(|p| {
                 !openapi_paths.iter().any(|t| path_template_matches(t, p))
-                    && !asyncapi_channels.iter().any(|t| path_template_matches(t, p))
+                    && !asyncapi_channels
+                        .iter()
+                        .any(|t| path_template_matches(t, p))
             })
             .cloned()
             .collect();
@@ -66,7 +72,9 @@ fn path_template_matches(template: &str, concrete: &str) -> bool {
     if t.len() != c.len() {
         return false;
     }
-    t.iter().zip(c.iter()).all(|(tt, cc)| *tt == *cc || (tt.starts_with('{') && tt.ends_with('}')))
+    t.iter()
+        .zip(c.iter())
+        .all(|(tt, cc)| *tt == *cc || (tt.starts_with('{') && tt.ends_with('}')))
 }
 
 #[cfg(test)]
@@ -83,7 +91,10 @@ mod tests {
     fn path_template_matches_handles_params() {
         assert!(path_template_matches("/users/{id}", "/users/42"));
         assert!(!path_template_matches("/users/{id}", "/users/42/posts"));
-        assert!(path_template_matches("/api/v3/user/profile", "/api/v3/user/profile"));
+        assert!(path_template_matches(
+            "/api/v3/user/profile",
+            "/api/v3/user/profile"
+        ));
     }
 
     #[test]

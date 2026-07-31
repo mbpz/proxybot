@@ -585,7 +585,10 @@ mod tests {
         let mut lexer = Lexer::new("path:/api/v1/users?foo=bar&baz=qux");
         let tokens = lexer.tokenize().unwrap();
         assert_eq!(tokens.len(), 4);
-        assert_eq!(tokens[2], Token::Value("/api/v1/users?foo=bar&baz=qux".to_string()));
+        assert_eq!(
+            tokens[2],
+            Token::Value("/api/v1/users?foo=bar&baz=qux".to_string())
+        );
     }
 
     #[test]
@@ -635,12 +638,10 @@ mod tests {
         assert!(result.is_ok());
         if let Ok(expr) = result {
             match expr {
-                FilterExpr::Group(inner) => {
-                    match *inner {
-                        FilterExpr::Group(_) => {}
-                        _ => panic!("Expected nested Group"),
-                    }
-                }
+                FilterExpr::Group(inner) => match *inner {
+                    FilterExpr::Group(_) => {}
+                    _ => panic!("Expected nested Group"),
+                },
                 _ => panic!("Expected outer Group"),
             }
         }
@@ -662,13 +663,8 @@ mod tests {
         let result = parse("method:POST api");
         // Without explicit AND, the parser takes first token and ignores bare text
         assert!(result.is_ok());
-        if let Ok(expr) = result {
-            match expr {
-                FilterExpr::Field { field, .. } => {
-                    assert_eq!(field, "method");
-                }
-                _ => {}
-            }
+        if let Ok(FilterExpr::Field { field, .. }) = result {
+            assert_eq!(field, "method");
         }
     }
 

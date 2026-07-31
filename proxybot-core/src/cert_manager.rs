@@ -41,7 +41,7 @@ impl CertManager {
     /// CA files are stored in `ca_dir`. If an existing CA is found,
     /// it is loaded; otherwise a new one is generated.
     pub fn new(ca_dir: Option<PathBuf>) -> Result<Self, String> {
-        let dir = ca_dir.unwrap_or_else(|| crate::config::ca_dir());
+        let dir = ca_dir.unwrap_or_else(crate::config::ca_dir);
         fs::create_dir_all(&dir).map_err(|e| format!("Failed to create ca dir: {}", e))?;
 
         let (cert_pem, key_pem) = Self::load_or_generate_ca(&dir)?;
@@ -94,8 +94,7 @@ impl CertManager {
             .expect("date arithmetic overflow");
         params.not_after = not_after.into();
 
-        let key_pair =
-            KeyPair::generate().map_err(|e| format!("Failed to generate key: {}", e))?;
+        let key_pair = KeyPair::generate().map_err(|e| format!("Failed to generate key: {}", e))?;
         let cert = params
             .self_signed(&key_pair)
             .map_err(|e| format!("Failed to sign CA: {}", e))?;
@@ -106,10 +105,8 @@ impl CertManager {
         let ca_pem_path = ca_dir.join("ca.pem");
         let key_path = ca_dir.join("ca.key");
 
-        fs::write(&ca_pem_path, &cert_pem)
-            .map_err(|e| format!("Failed to write CA PEM: {}", e))?;
-        fs::write(&key_path, &key_pem)
-            .map_err(|e| format!("Failed to write CA key: {}", e))?;
+        fs::write(&ca_pem_path, &cert_pem).map_err(|e| format!("Failed to write CA PEM: {}", e))?;
+        fs::write(&key_path, &key_pem).map_err(|e| format!("Failed to write CA key: {}", e))?;
 
         // Write metadata
         let now = SystemTime::now()
@@ -183,8 +180,7 @@ impl CertManager {
     pub fn export_ca_pem(&self, dest: Option<PathBuf>) -> Result<String, String> {
         let cert_pem = self.ca_cert_pem.lock().unwrap();
         let dest = dest.unwrap_or_else(ca_cert_path);
-        fs::write(&dest, cert_pem.as_bytes())
-            .map_err(|e| format!("Failed to write CA: {}", e))?;
+        fs::write(&dest, cert_pem.as_bytes()).map_err(|e| format!("Failed to write CA: {}", e))?;
         log::info!("Exported CA certificate to {:?}", dest);
         dest.to_str()
             .map(|s| s.to_string())
@@ -232,8 +228,8 @@ impl CertManager {
         ];
 
         let ca_key_pem = self.ca_key_pem.lock().map_err(|e| e.to_string())?;
-        let ca_key_pair = KeyPair::from_pem(&ca_key_pem)
-            .map_err(|e| format!("Failed to parse CA key: {}", e))?;
+        let ca_key_pair =
+            KeyPair::from_pem(&ca_key_pem).map_err(|e| format!("Failed to parse CA key: {}", e))?;
 
         let issuer = Issuer::new(params.clone(), ca_key_pair);
         let cert = params

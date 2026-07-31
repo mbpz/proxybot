@@ -82,16 +82,14 @@ impl RulePattern {
             } => {
                 method
                     .as_ref()
-                    .map_or(true, |m| m == "*" || m == &request.method)
+                    .is_none_or(|m| m == "*" || m == &request.method)
                     && scheme
                         .as_ref()
-                        .map_or(true, |s| s == "*" || s == &request.scheme)
-                    && host
-                        .as_ref()
-                        .map_or(true, |h| h == "*" || h == &request.host)
+                        .is_none_or(|s| s == "*" || s == &request.scheme)
+                    && host.as_ref().is_none_or(|h| h == "*" || h == &request.host)
                     && path
                         .as_ref()
-                        .map_or(true, |p| wildcard_match(p, &request.path))
+                        .is_none_or(|p| wildcard_match(p, &request.path))
             }
             // Fix 3: case-insensitive header key matching per RFC 7230
             RulePattern::Header { key, value } => request

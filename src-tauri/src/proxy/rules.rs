@@ -1,7 +1,9 @@
 //! Rule application (MapLocal / MapRemote / Reject / Breakpoint) and the
 //! helpers used to build synthetic HTTP responses for those paths.
 
-use super::protocol::{expand_user_path, header_value, http_reason, infer_content_type, set_header};
+use super::protocol::{
+    expand_user_path, header_value, http_reason, infer_content_type, set_header,
+};
 use super::requests::generate_request_id;
 use super::ProxyContext;
 use super::{BreakpointDecision, BreakpointRequest, InterceptedRequest};
@@ -215,10 +217,14 @@ pub(super) fn parse_remote_target(target: &str) -> Result<RemoteTarget, String> 
 }
 
 pub(super) fn combine_remote_path(prefix: &str, path: &str) -> String {
+    let path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
     if prefix.is_empty() {
-        return path.to_string();
+        return path;
     }
-    let path = if path.starts_with('/') { path } else { "/" };
     format!("{}{}", prefix.trim_end_matches('/'), path)
 }
 
@@ -226,6 +232,8 @@ pub(super) fn combine_remote_path(prefix: &str, path: &str) -> String {
 // Main rule-application entry point
 // ---------------------------------------------------------------------------
 
+// Arguments mirror the request at the rule-engine boundary.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn apply_request_rule(
     ctx: &ProxyContext,
     client_addr: SocketAddr,
@@ -247,10 +255,11 @@ pub(super) async fn apply_request_rule(
         // Tauri command override), so no ProxyContext plumbing.
         if let Some(target) = proxybot_core::config::reverse_target() {
             let remote = parse_remote_target(&target)?;
+            let mapped_path = combine_remote_path(&remote.path_prefix, path);
             return Ok(RuleApplication::MapRemote {
                 target: remote,
                 method: method.to_string(),
-                path: combine_remote_path(&remote.path_prefix, path),
+                path: mapped_path,
                 headers: headers.to_vec(),
                 body: body.to_vec(),
             });
@@ -395,18 +404,7 @@ mod tests {
     fn combine_remote_path_handles_trailing_slash() {
         // Trailing slash on the prefix should not produce // in the
         // joined path.
-        assert_eq!(
-            combine_remote_path("/api/", "/users"),
-            "/api/users"
-        );
-    }
-
-    #[test]
-    fn combine_remote_path_empty_prefix_passthrough() {
-        assert_eq!(combine_remote_path("", "/users"), "/users");
-        // Even a non-slash path is normalized because the proxied
-        // request always arrives with a leading slash.
-        assert_eq!(combine_remote_path("", "users"), "/users");
+        assert_eq!(combine_remote_path("/api/", "/users"), "/api/users");
     }
 
     #[test]
@@ -417,4 +415,3 @@ mod tests {
         assert_eq!(combine_remote_path("", "users"), "/users");
     }
 }
-

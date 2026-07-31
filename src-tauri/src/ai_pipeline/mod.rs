@@ -11,7 +11,9 @@ pub mod cost;
 pub mod filter;
 
 pub use analyzer::{ApiAnalysisResult, ApiAnalyzer};
-pub use cost::{estimate_cost, estimate_pipeline_cost, estimate_tokens_for_spec, estimate_tokens_for_text};
+pub use cost::{
+    estimate_cost, estimate_pipeline_cost, estimate_tokens_for_spec, estimate_tokens_for_text,
+};
 pub use filter::{FilterResult, NoiseCategory, NoiseFilter, NoiseItem};
 
 use serde::Serialize;
@@ -53,7 +55,11 @@ impl AiPipeline {
     }
 
     /// Run both phases: filter noise, then analyze candidates
-    pub fn run(&self, requests: Vec<crate::proxy::InterceptedRequest>, session_id: &str) -> PipelineResult {
+    pub fn run(
+        &self,
+        requests: Vec<crate::proxy::InterceptedRequest>,
+        session_id: &str,
+    ) -> PipelineResult {
         // Phase 1: Filter noise
         let filter = NoiseFilter::new();
         let filter_result = filter.filter(requests);

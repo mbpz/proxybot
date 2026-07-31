@@ -99,11 +99,8 @@ fn topology_filter_narrows_results() {
         "2026-01-01 00:00:01",
     );
 
-    let full = topology::builder::build_topology_graph(
-        &db,
-        &topology::TopologyFilter::default(),
-    )
-    .unwrap();
+    let full =
+        topology::builder::build_topology_graph(&db, &topology::TopologyFilter::default()).unwrap();
     let filtered = topology::builder::build_topology_graph(
         &db,
         &topology::TopologyFilter {

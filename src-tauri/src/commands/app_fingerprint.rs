@@ -44,8 +44,7 @@ fn persist(rules: &[CustomAppRule]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
     }
-    let content = serde_json::to_string_pretty(rules)
-        .map_err(|e| format!("serialize: {e}"))?;
+    let content = serde_json::to_string_pretty(rules).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(&path, content).map_err(|e| format!("write {path:?}: {e}"))?;
     Ok(())
 }

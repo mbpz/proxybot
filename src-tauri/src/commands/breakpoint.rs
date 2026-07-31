@@ -10,14 +10,12 @@
 use std::sync::Arc;
 use tauri::State;
 
-use crate::proxy::{BreakpointDecision, BreakpointTarget};
+use crate::proxy::{BreakpointDecision, InterceptedRequest};
 use crate::state::{AppState, BreakpointSnapshot};
 
 /// Return all currently-pending breakpoints as serialisable snapshots.
 #[tauri::command]
-pub fn get_pending_breakpoints(
-    state: State<'_, Arc<AppState>>,
-) -> Vec<BreakpointSnapshot> {
+pub fn get_pending_breakpoints(state: State<'_, Arc<AppState>>) -> Vec<BreakpointSnapshot> {
     state.list_breakpoints()
 }
 
@@ -34,23 +32,28 @@ pub fn get_pending_breakpoints(
 ///
 /// Returns the remaining breakpoint count so the UI knows whether
 /// the panel can close.
+///
+/// `mutated` is only meaningful for `decision == "modify"`. The
+/// frontend may send the minimum request fields needed by its editor;
+/// the proxy forwards the editable request fields from that snapshot.
 #[tauri::command]
 pub fn resolve_breakpoint(
     state: State<'_, Arc<AppState>>,
     id: String,
     decision: String,
-    /// Optional mutated request — only meaningful when `decision ==
-    /// "modify"`. The frontend can send the bare minimum; the backend
-    /// merges into the current snapshot.
-    mutated: Option<proxybot_core::types::InterceptedRequest>,
+    mutated: Option<InterceptedRequest>,
 ) -> Result<usize, String> {
     let decision_val = match decision.as_str() {
         "proceed" => BreakpointDecision::Proceed,
         "drop" => BreakpointDecision::Drop,
-        "modify" => BreakpointDecision::Modify(
+        "modify" => BreakpointDecision::Modify(Box::new(
             mutated.ok_or_else(|| "mutated request required when decision='modify'".to_string())?,
-        ),
-        other => return Err(format!("invalid decision '{other}', expected proceed|drop|modify")),
+        )),
+        other => {
+            return Err(format!(
+                "invalid decision '{other}', expected proceed|drop|modify"
+            ))
+        }
     };
 
     let tx = state
@@ -60,7 +63,11 @@ pub fn resolve_breakpoint(
     tx.send(decision_val)
         .map_err(|_| "breakpoint receiver dropped — request already proceeding".to_string())?;
 
-    let remaining = state.pending_breakpoints.lock().map_err(|e| e.to_string())?.len();
+    let remaining = state
+        .pending_breakpoints
+        .lock()
+        .map_err(|e| e.to_string())?
+        .len();
     Ok(remaining)
 }
 

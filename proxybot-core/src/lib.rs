@@ -46,24 +46,24 @@ pub use app_classifier::{
     AppMatchResult,
 };
 pub use cert_manager::CertManager;
+pub use config::{dns_port, proxy_port, AppConfig};
+pub use dns_state::DnsState;
 pub use fingerprint::{
     default_fingerprint_set, get_default_signatures, glob_match, AppMatch, AppSignature,
     CustomAppRule, HelloInfo, MatchSource, RuleCondition, TlsFingerprint,
 };
-pub use config::{proxy_port, dns_port, AppConfig};
-pub use dns_state::DnsState;
 pub use proxy_engine::ProxyEngine;
-pub use rules_engine::{match_rule, host_matches_domain, RuleMatch, RulesEngine};
+pub use rules_engine::{host_matches_domain, match_rule, RuleMatch, RulesEngine};
+pub use specgen::{
+    build_spec, build_spec_heuristic, AsyncApiChannel, AsyncApiDoc, AsyncApiExample,
+    AsyncApiMessage, CoverageReport, OpenApiDoc, OpenApiInfo, OpenApiMediaType, OpenApiOperation,
+    OpenApiParameter, OpenApiPathItem, OpenApiResponse, OpenApiSchema, OpenApiServer,
+    ReplayFailure, ReplayReport, SpecConfig, SpecError, SpecOutput, SpecRequest, SpecResult,
+    SpecSource, TrafficKind, TrafficRecord,
+};
 pub use tls_rules::{TlsAction, TlsRule, TlsRuleSet};
 pub use types::{
     AppRule, BreakpointDecision, BreakpointRequest, BreakpointTarget, CaMetadata, DnsEntry,
     DnsUpstream, DnsUpstreamType, HostsEntry, InterceptedRequest, Rule, RuleAction, RuleEntry,
     RuleFile, RulePattern, WsFrame,
-};
-pub use specgen::{
-    build_spec, build_spec_heuristic, AsyncApiChannel, AsyncApiDoc, AsyncApiExample, AsyncApiMessage,
-    CoverageReport, OpenApiDoc, OpenApiInfo, OpenApiMediaType, OpenApiOperation, OpenApiParameter,
-    OpenApiPathItem, OpenApiResponse, OpenApiSchema, OpenApiServer, ReplayFailure, ReplayReport,
-    SpecConfig, SpecError, SpecOutput, SpecRequest, SpecResult, SpecSource, TrafficKind,
-    TrafficRecord,
 };

@@ -68,13 +68,11 @@ impl CdpServer {
     fn handle_text_message(text: &str) -> Option<String> {
         let msg: CdpMessage = serde_json::from_str(text).ok()?;
         let response = Self::dispatch(&msg)?;
-        Some(
-            serde_json::to_string(&response)
-                .map_err(|e| {
-                    eprintln!("CDP serialize error: {}", e);
-                })
-                .ok()?,
-        )
+        serde_json::to_string(&response)
+            .map_err(|e| {
+                eprintln!("CDP serialize error: {}", e);
+            })
+            .ok()
     }
 
     fn dispatch(msg: &CdpMessage) -> Option<CdpResponse> {

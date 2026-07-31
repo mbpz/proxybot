@@ -1,0 +1,19 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#1e1b4b" rx="200"/>
+  <circle cx="512" cy="180" r="80" fill="#f472b6" filter="url(#glow)" opacity="0.9"/>
+  <circle cx="512" cy="512" r="120" fill="#a855f7" filter="url(#glow)"/>
+  <circle cx="512" cy="844" r="70" fill="#22d3ee" filter="url(#glow)" opacity="0.8"/>
+  <line x1="512" y1="260" x2="512" y2="392" stroke="#22d3ee" stroke-width="16" stroke-dasharray="30,20"/>
+  <polygon points="512,392 480,440 544,440" fill="#22d3ee"/>
+  <line x1="512" y1="632" x2="512" y2="774" stroke="#f472b6" stroke-width="16" stroke-dasharray="30,20"/>
+  <polygon points="512,774 480,726 544,726" fill="#f472b6"/>
+</svg>

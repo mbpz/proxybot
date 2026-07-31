@@ -49,7 +49,10 @@ impl AiDecoder {
                 .unwrap_or(0);
 
             // Check for Anthropic format: { "usage": { "input_tokens": N, "output_tokens": M } }
-            let input = usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let input = usage
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             let output = usage
                 .get("output_tokens")
                 .and_then(|v| v.as_u64())
@@ -57,16 +60,8 @@ impl AiDecoder {
 
             if prompt > 0 || completion > 0 || total > 0 {
                 return Some(TokenUsage {
-                    prompt_tokens: if prompt > 0 {
-                        prompt
-                    } else {
-                        input
-                    },
-                    completion_tokens: if completion > 0 {
-                        completion
-                    } else {
-                        output
-                    },
+                    prompt_tokens: if prompt > 0 { prompt } else { input },
+                    completion_tokens: if completion > 0 { completion } else { output },
                     total_tokens: if total > 0 {
                         total
                     } else {
@@ -150,8 +145,7 @@ mod tests {
 
     #[test]
     fn test_extract_usage_openai() {
-        let body =
-            r#"{"model": "gpt-4o", "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}}"#;
+        let body = r#"{"model": "gpt-4o", "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}}"#;
         let usage = AiDecoder::extract_usage(body).unwrap();
         assert_eq!(usage.prompt_tokens, 100);
         assert_eq!(usage.completion_tokens, 50);

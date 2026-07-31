@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:tauri": "rm -rf src-tauri/target/release/bundle && tauri build",
+    "build:tauri": "tauri build --config src-tauri/tauri.bundle.conf.json",
     "preview": "vite preview",
     "tauri": "tauri",
+    "resources:fetch": "bash scripts/fetch-bundle-resources.sh",
+    "resources:check": "bash scripts/fetch-bundle-resources.sh --check",
     "typecheck": "tsc --noEmit",
     "test": "cargo test",
     "test:ui": "vitest run",
@@ -16,7 +18,7 @@
     "lint:rust": "cargo clippy -- -D warnings",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "ci:local": "cargo test && tsc --noEmit && cargo clippy -- -D warnings",
+    "ci:local": "cargo fmt --all -- --check && cargo test --workspace --locked && cargo clippy --workspace --locked -- -D warnings && pnpm typecheck && pnpm test:ui && pnpm build",
     "prepare": "if [ -d .git ]; then git config core.hooksPath .githooks 2>/dev/null || true; fi"
   },
   "dependencies": {

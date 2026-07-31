@@ -61,7 +61,9 @@ fn extract_referer_host(req_headers: &str) -> Option<String> {
     for (name, value) in &headers {
         if name.eq_ignore_ascii_case("referer") || name.eq_ignore_ascii_case("referrer") {
             // Parse host from URL like "https://example.com/path"
-            let rest = value.strip_prefix("https://").or_else(|| value.strip_prefix("http://"))?;
+            let rest = value
+                .strip_prefix("https://")
+                .or_else(|| value.strip_prefix("http://"))?;
             let host = rest.split('/').next()?;
             // Strip port if present
             let host = host.split(':').next()?;
@@ -112,7 +114,9 @@ pub fn get_graph_data(
     let mut host_path_to_id: HashMap<String, String> = HashMap::new();
     for r in &raw {
         let key = format!("{}{}", r.host, r.path);
-        host_path_to_id.entry(key).or_insert_with(|| r.id.to_string());
+        host_path_to_id
+            .entry(key)
+            .or_insert_with(|| r.id.to_string());
     }
 
     // Build nodes and edges
@@ -145,21 +149,21 @@ pub fn get_graph_data(
     for r in &raw {
         by_host.entry(r.host.clone()).or_default().push(r);
     }
-    for (_host, reqs) in &by_host {
+    for reqs in by_host.values() {
         if reqs.len() < 2 {
             continue;
         }
         // Connect sequential requests on the same host if no parent already assigned
         for window in reqs.windows(2) {
             let child_id = window[1].id.to_string();
-            if !parent_map.contains_key(&child_id) {
+            parent_map.entry(child_id.clone()).or_insert_with(|| {
                 let parent_id = window[0].id.to_string();
                 edges.push(Edge {
                     from: parent_id.clone(),
                     to: child_id.clone(),
                 });
-                parent_map.insert(child_id, Some(parent_id));
-            }
+                Some(parent_id)
+            });
         }
     }
 
@@ -181,4 +185,6 @@ pub fn get_graph_data(
 }
 
 // Non-command test function
-pub fn test_graph_helper() -> i32 { 42 }
+pub fn test_graph_helper() -> i32 {
+    42
+}

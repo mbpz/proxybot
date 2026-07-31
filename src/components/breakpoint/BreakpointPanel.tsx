@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Ban, Play, X as XIcon } from "lucide-react";
 import { Button } from "../ui/Button";
+import { safeInvoke } from "../../utils/safeInvoke";
 
 /** Wire mirror of `state::BreakpointSnapshot` on the Rust side. */
 interface BreakpointSnapshot {
@@ -49,18 +50,17 @@ export function BreakpointPanel() {
   }, []);
 
   async function refresh() {
-    try {
-      const list = await invoke<BreakpointSnapshot[]>(
-        "get_pending_breakpoints"
-      );
-      setPending(list);
-      // Keep the selection valid if it's still in the list.
-      if (selectedId && !list.some((b) => b.id === selectedId)) {
-        setSelectedId(null);
-      }
-    } catch {
-      // Proxy not running — silently ignore.
-    }
+    const result = await safeInvoke<unknown>("get_pending_breakpoints");
+    const list = Array.isArray(result)
+      ? (result as BreakpointSnapshot[])
+      : [];
+
+    setPending(list);
+    setSelectedId((current) =>
+      current && !list.some((breakpoint) => breakpoint.id === current)
+        ? null
+        : current
+    );
   }
 
   const resolve = useCallback(

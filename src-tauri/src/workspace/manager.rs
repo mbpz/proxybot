@@ -51,12 +51,8 @@ impl WorkspaceManager {
         let ws_dir = self.base_dir.join(name);
         fs::create_dir_all(&ws_dir).map_err(|e| e.to_string())?;
 
-        let workspace = Workspace::new(
-            name.to_string(),
-            ws_dir.join("requests.db"),
-            vec![],
-            vec![],
-        );
+        let workspace =
+            Workspace::new(name.to_string(), ws_dir.join("requests.db"), vec![], vec![]);
 
         // Write workspace.json
         let json = serde_json::to_string_pretty(&workspace).map_err(|e| e.to_string())?;
@@ -144,7 +140,10 @@ impl WorkspaceManager {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let temp_dir = self.base_dir.join(".tmp").join(format!("import-{}", timestamp));
+        let temp_dir = self
+            .base_dir
+            .join(".tmp")
+            .join(format!("import-{}", timestamp));
         fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
 
         // Extract all files
@@ -183,14 +182,20 @@ impl WorkspaceManager {
         for entry in archive.entries().map_err(|e| e.to_string())? {
             let mut entry = entry.map_err(|e| e.to_string())?;
             let entry_path = entry.path().map_err(|e| e.to_string())?;
-            if entry_path.file_name().map(|s| s == "workspace.json").unwrap_or(false) {
-                entry.read_to_string(&mut workspace_json).map_err(|e| e.to_string())?;
+            if entry_path
+                .file_name()
+                .map(|s| s == "workspace.json")
+                .unwrap_or(false)
+            {
+                entry
+                    .read_to_string(&mut workspace_json)
+                    .map_err(|e| e.to_string())?;
                 break;
             }
         }
 
-        let workspace: Workspace = serde_json::from_str(&workspace_json)
-            .map_err(|e| e.to_string())?;
+        let workspace: Workspace =
+            serde_json::from_str(&workspace_json).map_err(|e| e.to_string())?;
 
         let size_bytes = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
@@ -269,8 +274,7 @@ impl WorkspaceManager {
         let path = self.base_dir.join(name).join("workspace.json");
         let json = fs::read_to_string(&path)
             .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
-        serde_json::from_str(&json)
-            .map_err(|e| format!("failed to parse workspace.json: {}", e))
+        serde_json::from_str(&json).map_err(|e| format!("failed to parse workspace.json: {}", e))
     }
 }
 
@@ -332,9 +336,7 @@ pub fn switch_workspace(
 }
 
 #[tauri::command]
-pub fn workspace_status(
-    state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>,
-) -> String {
+pub fn workspace_status(state: tauri::State<'_, std::sync::Arc<WorkspaceManager>>) -> String {
     state.status()
 }
 
@@ -352,7 +354,7 @@ mod tests {
         // Create a dummy database file
         fs::write(&db_path, "dummy db content").unwrap();
 
-        let workspace = Workspace::new(
+        Workspace::new(
             "test-workspace".to_string(),
             db_path,
             vec![
@@ -369,16 +371,12 @@ mod tests {
                     false,
                 ),
             ],
-            vec![
-                Device {
-                    id: 1,
-                    name: "iPhone".to_string(),
-                    mac_address: "AA:BB:CC:DD:EE:FF".to_string(),
-                },
-            ],
-        );
-
-        workspace
+            vec![Device {
+                id: 1,
+                name: "iPhone".to_string(),
+                mac_address: "AA:BB:CC:DD:EE:FF".to_string(),
+            }],
+        )
     }
 
     #[test]
@@ -468,8 +466,15 @@ mod tests {
         assert_eq!(workspace.name, "test-workspace");
 
         // Verify workspace.json was created
-        let ws_json_path = tmp.path().join("workspaces").join("test-workspace").join("workspace.json");
-        assert!(ws_json_path.exists(), "workspace.json should be created by init");
+        let ws_json_path = tmp
+            .path()
+            .join("workspaces")
+            .join("test-workspace")
+            .join("workspace.json");
+        assert!(
+            ws_json_path.exists(),
+            "workspace.json should be created by init"
+        );
 
         // Verify its contents can be parsed
         let json_content = fs::read_to_string(&ws_json_path).unwrap();
@@ -484,7 +489,10 @@ mod tests {
         let manager = WorkspaceManager::with_base_dir(base_dir);
 
         let workspaces = manager.list();
-        assert!(workspaces.is_empty(), "list() should return empty when no workspaces exist");
+        assert!(
+            workspaces.is_empty(),
+            "list() should return empty when no workspaces exist"
+        );
     }
 
     #[test]
@@ -500,8 +508,14 @@ mod tests {
         let export_path = tmp.path().join("exported.proxybot");
         manager.export(&workspace, &export_path).unwrap();
 
-        assert!(export_path.exists(), "export() should create the .proxybot file");
-        assert!(export_path.extension().unwrap() == "proxybot", "file should have .proxybot extension");
+        assert!(
+            export_path.exists(),
+            "export() should create the .proxybot file"
+        );
+        assert!(
+            export_path.extension().unwrap() == "proxybot",
+            "file should have .proxybot extension"
+        );
     }
 
     #[test]
@@ -529,7 +543,10 @@ mod tests {
         let manager = WorkspaceManager::with_base_dir(base_dir);
 
         // Initially no active workspace
-        assert!(manager.active().is_none(), "should have no active workspace initially");
+        assert!(
+            manager.active().is_none(),
+            "should have no active workspace initially"
+        );
         assert_eq!(manager.status(), "No active workspace");
 
         // Create a workspace
@@ -549,7 +566,10 @@ mod tests {
         let manager = WorkspaceManager::with_base_dir(base_dir);
 
         let result = manager.switch("nonexistent-workspace");
-        assert!(result.is_err(), "switch() should return error for nonexistent workspace");
+        assert!(
+            result.is_err(),
+            "switch() should return error for nonexistent workspace"
+        );
         assert!(result.unwrap_err().contains("not found"));
     }
 
@@ -601,6 +621,10 @@ mod tests {
         let tmp = tempdir().unwrap();
         let manager = WorkspaceManager::with_base_dir(tmp.path().join("workspaces"));
         let err = manager.load("does-not-exist").unwrap_err();
-        assert!(err.contains("does-not-exist"), "error should mention the missing name: {}", err);
+        assert!(
+            err.contains("does-not-exist"),
+            "error should mention the missing name: {}",
+            err
+        );
     }
 }

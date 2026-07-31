@@ -62,13 +62,13 @@ pub fn setup_pf(
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "Network info not set. Call get_network_info first.")?;
+        .ok_or("Network info not set. Call get_network_info first.")?;
     let local_ip = proxy_state
         .local_ip
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "Network info not set. Call get_network_info first.")?;
+        .ok_or("Network info not set. Call get_network_info first.")?;
     let result = crate::pf::setup_pf(interface, local_ip);
     if result.is_ok() {
         // Start DNS server after pf setup succeeds
@@ -194,18 +194,27 @@ pub fn hide_window(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn replay_request(
-    db_state: State<'_, Arc<DbState>>,
-    id: i64,
-) -> Result<String, String> {
+pub fn replay_request(db_state: State<'_, Arc<DbState>>, id: i64) -> Result<String, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
     let (method, host, path, req_headers_json, req_body): (
-        String, String, String, String, Option<Vec<u8>>,
+        String,
+        String,
+        String,
+        String,
+        Option<Vec<u8>>,
     ) = conn
         .query_row(
             "SELECT method, host, path, req_headers, req_body FROM http_requests WHERE id = ?1",
             rusqlite::params![id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .map_err(|e| format!("Request not found: {}", e))?;
 
@@ -232,7 +241,13 @@ pub fn replay_request(
     let resp = req.send().map_err(|e| format!("Replay failed: {}", e))?;
     let status = resp.status().as_u16();
     let body = resp.text().unwrap_or_default();
-    Ok(format!("{} {} → {} ({} bytes)", method, url, status, body.len()))
+    Ok(format!(
+        "{} {} → {} ({} bytes)",
+        method,
+        url,
+        status,
+        body.len()
+    ))
 }
 
 #[cfg(test)]
@@ -276,7 +291,11 @@ mod tests {
         // This is exactly the line the Tauri command runs after locking
         // the connection: `crate::db::get_ws_frames(&conn, &request_id)`.
         let frames = get_ws_frames(&conn_ref, "req-cmd-1").unwrap();
-        assert_eq!(frames.len(), 1, "command path should return the inserted frame");
+        assert_eq!(
+            frames.len(),
+            1,
+            "command path should return the inserted frame"
+        );
         assert_eq!(frames[0].payload, "hello-cmd");
         assert_eq!(frames[0].direction, "outgoing");
         assert_eq!(frames[0].opcode, 0x01);

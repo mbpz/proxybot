@@ -300,7 +300,7 @@ fn validate_inference_result(result: &mut InferenceResult) {
             errors.push("Module has empty name".to_string());
         }
         for iface_id in &module.interface_ids {
-            if !interface_names.iter().any(|n| *n == iface_id.as_str()) {
+            if !interface_names.contains(&iface_id.as_str()) {
                 errors.push(format!(
                     "Module '{}' references unknown interface '{}'",
                     module.name, iface_id
@@ -406,7 +406,7 @@ pub async fn infer_api_semantics(
     let mut result: InferenceResult = serde_json::from_str(&llm_output).map_err(|e| {
         format!(
             "Failed to parse LLM output as JSON: {}. Output was: {}",
-            e, &llm_output
+            e, llm_output
         )
     })?;
 
@@ -612,7 +612,7 @@ pub async fn evaluate_inference(
     let mut eval_result: EvaluationResult = serde_json::from_str(&eval_output).map_err(|e| {
         format!(
             "Failed to parse evaluation result as JSON: {}. Output was: {}",
-            e, &eval_output
+            e, eval_output
         )
     })?;
 
@@ -767,7 +767,7 @@ fn chrono_lite_timestamp() -> String {
 }
 
 fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 #[cfg(test)]
@@ -903,8 +903,11 @@ mod tests {
             score: 0.0,
         };
         validate_inference_result(&mut result);
-        assert_eq!(result.valid, true, "Valid input should mark result as valid");
-        assert_eq!(result.errors.is_empty(), true, "Valid input should produce no errors");
+        assert!(result.valid, "Valid input should mark result as valid");
+        assert!(
+            result.errors.is_empty(),
+            "Valid input should produce no errors"
+        );
         assert_eq!(result.score, 1.0, "Valid input should have a score of 1.0");
     }
 
@@ -924,7 +927,7 @@ mod tests {
             score: 0.0,
         };
         validate_inference_result(&mut result);
-        assert_eq!(result.valid, false, "Empty method should mark result as invalid");
+        assert!(!result.valid, "Empty method should mark result as invalid");
         assert!(
             result.errors.iter().any(|e| e.contains("empty method")),
             "Errors should mention empty method, got: {:?}",
@@ -948,9 +951,15 @@ mod tests {
             score: 0.0,
         };
         validate_inference_result(&mut result);
-        assert_eq!(result.valid, false, "Path without leading / should mark result as invalid");
         assert!(
-            result.errors.iter().any(|e| e.contains("must start with /")),
+            !result.valid,
+            "Path without leading / should mark result as invalid"
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("must start with /")),
             "Errors should mention leading /, got: {:?}",
             result.errors
         );
@@ -981,9 +990,15 @@ mod tests {
             score: 0.0,
         };
         validate_inference_result(&mut result);
-        assert_eq!(result.valid, false, "Duplicate names should mark result as invalid");
         assert!(
-            result.errors.iter().any(|e| e.contains("Duplicate interface name")),
+            !result.valid,
+            "Duplicate names should mark result as invalid"
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("Duplicate interface name")),
             "Errors should mention duplicate name, got: {:?}",
             result.errors
         );
@@ -1009,9 +1024,15 @@ mod tests {
             score: 0.0,
         };
         validate_inference_result(&mut result);
-        assert_eq!(result.valid, false, "Unknown interface id should mark result as invalid");
         assert!(
-            result.errors.iter().any(|e| e.contains("references unknown interface")),
+            !result.valid,
+            "Unknown interface id should mark result as invalid"
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.contains("references unknown interface")),
             "Errors should mention unknown interface, got: {:?}",
             result.errors
         );
@@ -1061,7 +1082,12 @@ mod tests {
             score: 0.0,
         };
         validate_inference_result(&mut result);
-        assert_eq!(result.errors.len(), 2, "Empty name and empty method should produce 2 errors, got: {:?}", result.errors);
+        assert_eq!(
+            result.errors.len(),
+            2,
+            "Empty name and empty method should produce 2 errors, got: {:?}",
+            result.errors
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1090,7 +1116,11 @@ mod tests {
         assert_eq!(ids.len(), 1, "Should persist one row for one interface");
 
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM inferred_apis WHERE session_id = ?1", ["sess1"], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM inferred_apis WHERE session_id = ?1",
+                ["sess1"],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1, "Row should be persisted to inferred_apis table");
     }
@@ -1121,6 +1151,10 @@ mod tests {
         assert_eq!(sess1_apis[0].session_id, "sess1");
 
         let all_apis = get_inferred_apis_internal(&conn, None).unwrap();
-        assert_eq!(all_apis.len(), 2, "None filter should return all rows across sessions");
+        assert_eq!(
+            all_apis.len(),
+            2,
+            "None filter should return all rows across sessions"
+        );
     }
 }

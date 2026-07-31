@@ -17,8 +17,12 @@ use tauri::State;
 use tokio::sync::mpsc;
 
 /// Rule action types.
-fn default_priority() -> u8 { 100 }
-fn default_enabled() -> bool { true }
+fn default_priority() -> u8 {
+    100
+}
+fn default_enabled() -> bool {
+    true
+}
 
 /// Rule action types.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -537,8 +541,7 @@ fn match_rule(rule: &Rule, host: &str, ip: Option<IpAddr>) -> Option<RuleAction>
             }
         }
         RulePattern::DomainSuffix => {
-            if host.eq_ignore_ascii_case(&rule.value)
-                || host.ends_with(&format!(".{}", &rule.value))
+            if host.eq_ignore_ascii_case(&rule.value) || host.ends_with(&format!(".{}", rule.value))
             {
                 Some(rule.action.clone())
             } else {
@@ -581,9 +584,10 @@ fn match_rule(rule: &Rule, host: &str, ip: Option<IpAddr>) -> Option<RuleAction>
             // RULE-SET loads from external file at ~/.proxybot/rulesets/<name>.yaml
             let ruleset = load_ruleset(&rule.value);
             let ip_str = ip.map(|a| a.to_string());
-            ruleset.iter().any(|r| {
-                match_ip_pattern(r, host, ip_str.as_deref())
-            }).then(|| rule.action.clone())
+            ruleset
+                .iter()
+                .any(|r| match_ip_pattern(r, host, ip_str.as_deref()))
+                .then(|| rule.action.clone())
         }
     }
 }
@@ -753,12 +757,71 @@ fn geoip_lookup(ip: std::net::IpAddr) -> String {
     match ip {
         std::net::IpAddr::V4(v4) => {
             let o = v4.octets();
-            if o[0] == 10 || (o[0] == 172 && o[1] >= 16 && o[1] <= 31) || (o[0] == 192 && o[1] == 168) || o[0] == 127 { return "LAN".into(); }
-            if matches!(o[0], 3 | 8 | 18 | 20 | 23 | 34 | 40 | 51 | 52 | 54 | 65 | 70 | 104 | 130 | 137 | 146 | 157 | 191) { return "US".into(); }
-            if matches!(o[0], 47 | 101 | 106 | 114 | 118 | 120 | 121 | 139 | 149 | 182) { return "CN".into(); }
-            if matches!(o[0], 1 | 43 | 49 | 81 | 109 | 110 | 111 | 115 | 119 | 123 | 124 | 129 | 134 | 150 | 162 | 170 | 175 | 183 | 193 | 203) { return "CN".into(); }
-            if matches!(o[0], 63 | 176) { return "IE".into(); }
-            if matches!(o[0], 13 | 35 | 175) { return "JP".into(); }
+            if o[0] == 10
+                || (o[0] == 172 && o[1] >= 16 && o[1] <= 31)
+                || (o[0] == 192 && o[1] == 168)
+                || o[0] == 127
+            {
+                return "LAN".into();
+            }
+            if matches!(
+                o[0],
+                3 | 8
+                    | 18
+                    | 20
+                    | 23
+                    | 34
+                    | 40
+                    | 51
+                    | 52
+                    | 54
+                    | 65
+                    | 70
+                    | 104
+                    | 130
+                    | 137
+                    | 146
+                    | 157
+                    | 191
+            ) {
+                return "US".into();
+            }
+            if matches!(
+                o[0],
+                47 | 101 | 106 | 114 | 118 | 120 | 121 | 139 | 149 | 182
+            ) {
+                return "CN".into();
+            }
+            if matches!(
+                o[0],
+                1 | 43
+                    | 49
+                    | 81
+                    | 109
+                    | 110
+                    | 111
+                    | 115
+                    | 119
+                    | 123
+                    | 124
+                    | 129
+                    | 134
+                    | 150
+                    | 162
+                    | 170
+                    | 175
+                    | 183
+                    | 193
+                    | 203
+            ) {
+                return "CN".into();
+            }
+            if matches!(o[0], 63 | 176) {
+                return "IE".into();
+            }
+            if matches!(o[0], 13 | 35 | 175) {
+                return "JP".into();
+            }
         }
         std::net::IpAddr::V6(_) => {}
     }
@@ -767,18 +830,33 @@ fn geoip_lookup(ip: std::net::IpAddr) -> String {
 
 fn load_ruleset(name: &str) -> Vec<(String, String)> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let path = std::path::PathBuf::from(home).join(".proxybot").join("rulesets").join(format!("{}.yaml", name));
-    let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => return Vec::new() };
+    let path = std::path::PathBuf::from(home)
+        .join(".proxybot")
+        .join("rulesets")
+        .join(format!("{}.yaml", name));
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
     let yaml: Result<Vec<serde_yaml::Value>, _> = serde_yaml::from_str(&content);
     match yaml {
-        Ok(items) => items.iter().filter_map(|v| {
-            if let Some(s) = v.as_str() { Some(("DOMAIN-SUFFIX".into(), s.to_string())) }
-            else if let Some(m) = v.as_mapping() {
-                let typ = m.get("type").and_then(|t| t.as_str()).unwrap_or("DOMAIN-SUFFIX");
-                let val = m.get("value").and_then(|t| t.as_str()).unwrap_or("");
-                Some((typ.to_string(), val.to_string()))
-            } else { None }
-        }).collect(),
+        Ok(items) => items
+            .iter()
+            .filter_map(|v| {
+                if let Some(s) = v.as_str() {
+                    Some(("DOMAIN-SUFFIX".into(), s.to_string()))
+                } else if let Some(m) = v.as_mapping() {
+                    let typ = m
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("DOMAIN-SUFFIX");
+                    let val = m.get("value").and_then(|t| t.as_str()).unwrap_or("");
+                    Some((typ.to_string(), val.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect(),
         Err(_) => Vec::new(),
     }
 }
@@ -791,8 +869,17 @@ fn match_ip_pattern(pattern: &(String, String), host: &str, ip_addr: Option<&str
         "DOMAIN" => host == pval,
         "IP-CIDR" => {
             if let Some(ip) = ip_addr {
-                if let (Ok(a), Ok(n)) = (ip.parse::<std::net::IpAddr>(), pval.parse::<ipnetwork::IpNetwork>()) { n.contains(a) } else { false }
-            } else { false }
+                if let (Ok(a), Ok(n)) = (
+                    ip.parse::<std::net::IpAddr>(),
+                    pval.parse::<ipnetwork::IpNetwork>(),
+                ) {
+                    n.contains(a)
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         }
         _ => false,
     }
@@ -1036,9 +1123,15 @@ rules:
         let dir = tempdir().unwrap();
         let engine = RulesEngine::with_dir(dir.path().to_path_buf());
 
-        engine.save_rule_internal(make_rule("a.com", 1), "test.yaml").unwrap();
-        engine.save_rule_internal(make_rule("b.com", 2), "test.yaml").unwrap();
-        engine.save_rule_internal(make_rule("c.com", 3), "test.yaml").unwrap();
+        engine
+            .save_rule_internal(make_rule("a.com", 1), "test.yaml")
+            .unwrap();
+        engine
+            .save_rule_internal(make_rule("b.com", 2), "test.yaml")
+            .unwrap();
+        engine
+            .save_rule_internal(make_rule("c.com", 3), "test.yaml")
+            .unwrap();
 
         assert!(engine.move_rule(0, MoveDirection::Down));
 
@@ -1053,7 +1146,9 @@ rules:
     fn test_move_rule_at_top_cannot_go_up() {
         let dir = tempdir().unwrap();
         let engine = RulesEngine::with_dir(dir.path().to_path_buf());
-        engine.save_rule_internal(make_rule("only.com", 1), "test.yaml").unwrap();
+        engine
+            .save_rule_internal(make_rule("only.com", 1), "test.yaml")
+            .unwrap();
         assert!(!engine.move_rule(0, MoveDirection::Up));
     }
 
@@ -1061,8 +1156,12 @@ rules:
     fn test_move_rule_at_bottom_cannot_go_down() {
         let dir = tempdir().unwrap();
         let engine = RulesEngine::with_dir(dir.path().to_path_buf());
-        engine.save_rule_internal(make_rule("a.com", 1), "test.yaml").unwrap();
-        engine.save_rule_internal(make_rule("b.com", 2), "test.yaml").unwrap();
+        engine
+            .save_rule_internal(make_rule("a.com", 1), "test.yaml")
+            .unwrap();
+        engine
+            .save_rule_internal(make_rule("b.com", 2), "test.yaml")
+            .unwrap();
         let len = engine.get_rules().len();
         assert!(!engine.move_rule(len - 1, MoveDirection::Down));
     }
@@ -1071,7 +1170,9 @@ rules:
     fn test_move_rule_with_single_rule_returns_false() {
         let dir = tempdir().unwrap();
         let engine = RulesEngine::with_dir(dir.path().to_path_buf());
-        engine.save_rule_internal(make_rule("solo.com", 1), "test.yaml").unwrap();
+        engine
+            .save_rule_internal(make_rule("solo.com", 1), "test.yaml")
+            .unwrap();
         assert!(!engine.move_rule(0, MoveDirection::Up));
         assert!(!engine.move_rule(0, MoveDirection::Down));
     }
@@ -1081,9 +1182,15 @@ rules:
         let dir = tempdir().unwrap();
         let engine = RulesEngine::with_dir(dir.path().to_path_buf());
 
-        engine.save_rule_internal(make_rule("a.com", 1), "test.yaml").unwrap();
-        engine.save_rule_internal(make_rule("b.com", 2), "test.yaml").unwrap();
-        engine.save_rule_internal(make_rule("c.com", 3), "test.yaml").unwrap();
+        engine
+            .save_rule_internal(make_rule("a.com", 1), "test.yaml")
+            .unwrap();
+        engine
+            .save_rule_internal(make_rule("b.com", 2), "test.yaml")
+            .unwrap();
+        engine
+            .save_rule_internal(make_rule("c.com", 3), "test.yaml")
+            .unwrap();
 
         assert!(engine.move_rule_internal(0, MoveDirection::Down, "test.yaml"));
 
@@ -1163,7 +1270,9 @@ rules:
         let engine = RulesEngine::with_dir(dir.path().to_path_buf());
 
         let rule = make_rule("temp.com", 1);
-        engine.save_rule_internal(rule.clone(), "test.yaml").unwrap();
+        engine
+            .save_rule_internal(rule.clone(), "test.yaml")
+            .unwrap();
         assert_eq!(engine.get_rules().len(), 1);
 
         engine.delete_rule(&rule, "test.yaml").unwrap();

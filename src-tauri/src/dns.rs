@@ -92,6 +92,12 @@ pub struct BlocklistEntry {
     pub domain: String, // Exact match or suffix with leading dot
 }
 
+impl Default for DnsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DnsState {
     pub fn new() -> Self {
         Self {
@@ -162,10 +168,10 @@ impl DnsState {
                 }
 
                 // Remove hosts-style prefix (0.0.0.0 or 127.0.0.1)
-                let domain = if line.starts_with("0.0.0.0 ") {
-                    line[8..].trim().to_lowercase()
-                } else if line.starts_with("127.0.0.1 ") {
-                    line[10..].trim().to_lowercase()
+                let domain = if let Some(domain) = line.strip_prefix("0.0.0.0 ") {
+                    domain.trim().to_lowercase()
+                } else if let Some(domain) = line.strip_prefix("127.0.0.1 ") {
+                    domain.trim().to_lowercase()
                 } else {
                     line.to_lowercase()
                 };
@@ -509,7 +515,7 @@ pub fn parse_dns_query(buf: &[u8]) -> Option<String> {
         let label = &buf[pos..pos + label_len as usize];
 
         // Check for valid label characters (printable ASCII)
-        if !label.iter().all(|&b| b >= 0x21 && b <= 0x7E) {
+        if !label.iter().all(|&b| (0x21..=0x7E).contains(&b)) {
             return None;
         }
 
@@ -809,7 +815,13 @@ async fn handle_dns_query(
         }
 
         // Record the query with hosts IP
-        record_query(state, domain, &response_ips, &src.ip().to_string(), app_handle);
+        record_query(
+            state,
+            domain,
+            &response_ips,
+            &src.ip().to_string(),
+            app_handle,
+        );
         return;
     }
 
@@ -878,7 +890,13 @@ async fn handle_dns_query(
     }
 
     // Record the query with response IPs
-    record_query(state, domain, &response_ips, &src.ip().to_string(), app_handle);
+    record_query(
+        state,
+        domain,
+        &response_ips,
+        &src.ip().to_string(),
+        app_handle,
+    );
 }
 
 /// Build a DNS response with a hosts file IP.
@@ -1123,7 +1141,7 @@ mod tests {
         r.extend_from_slice(&(ips.len() as u16).to_be_bytes()); // ANCOUNT
         r.extend_from_slice(&[0x00, 0x00]); // NSCOUNT
         r.extend_from_slice(&[0x00, 0x00]); // ARCOUNT
-        // Question section
+                                            // Question section
         for label in qname {
             r.push(label.len() as u8);
             r.extend_from_slice(label.as_bytes());
@@ -1131,7 +1149,7 @@ mod tests {
         r.push(0x00);
         r.extend_from_slice(&[0x00, 0x01]); // QTYPE=A
         r.extend_from_slice(&[0x00, 0x01]); // QCLASS=IN
-        // Answer section
+                                            // Answer section
         for ip in ips {
             r.push(0xC0);
             r.push(0x0C); // pointer to question name
@@ -1225,10 +1243,7 @@ mod tests {
 
     #[test]
     fn test_parse_response_extracts_multiple_a_records() {
-        let r = build_response_with_a_records(
-            &["example", "com"],
-            &["1.2.3.4", "5.6.7.8"],
-        );
+        let r = build_response_with_a_records(&["example", "com"], &["1.2.3.4", "5.6.7.8"]);
         assert_eq!(
             parse_response_ips(&r),
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
@@ -1382,13 +1397,9 @@ mod tests {
     #[test]
     fn test_is_blocked_exact_match() {
         let state = DnsState::new();
-        state
-            .blocklist
-            .lock()
-            .unwrap()
-            .push(BlocklistEntry {
-                domain: "ads.example.com".to_string(),
-            });
+        state.blocklist.lock().unwrap().push(BlocklistEntry {
+            domain: "ads.example.com".to_string(),
+        });
         assert!(state.is_blocked("ads.example.com"));
         assert!(!state.is_blocked("other.example.com"));
     }
@@ -1396,13 +1407,9 @@ mod tests {
     #[test]
     fn test_is_blocked_suffix_match() {
         let state = DnsState::new();
-        state
-            .blocklist
-            .lock()
-            .unwrap()
-            .push(BlocklistEntry {
-                domain: ".example.com".to_string(),
-            });
+        state.blocklist.lock().unwrap().push(BlocklistEntry {
+            domain: ".example.com".to_string(),
+        });
         // Suffix matching means both subdomains AND the bare domain are matched.
         assert!(state.is_blocked("www.example.com"));
         assert!(state.is_blocked("example.com"));
@@ -1415,13 +1422,9 @@ mod tests {
     #[test]
     fn test_is_blocked_returns_false_when_disabled() {
         let state = DnsState::new();
-        state
-            .blocklist
-            .lock()
-            .unwrap()
-            .push(BlocklistEntry {
-                domain: "ads.example.com".to_string(),
-            });
+        state.blocklist.lock().unwrap().push(BlocklistEntry {
+            domain: "ads.example.com".to_string(),
+        });
         state.blocklist_enabled.store(false, Ordering::SeqCst);
         assert!(!state.is_blocked("ads.example.com"));
     }
@@ -1429,15 +1432,14 @@ mod tests {
     #[test]
     fn test_check_hosts_returns_ip_for_known_domain() {
         let state = DnsState::new();
-        state
-            .hosts
-            .lock()
-            .unwrap()
-            .push(HostsEntry {
-                domain: "example.com".to_string(),
-                ip: "10.0.0.5".to_string(),
-            });
-        assert_eq!(state.check_hosts("example.com"), Some("10.0.0.5".to_string()));
+        state.hosts.lock().unwrap().push(HostsEntry {
+            domain: "example.com".to_string(),
+            ip: "10.0.0.5".to_string(),
+        });
+        assert_eq!(
+            state.check_hosts("example.com"),
+            Some("10.0.0.5".to_string())
+        );
     }
 
     #[test]
@@ -1543,7 +1545,10 @@ mod tests {
         );
         // Predicate matches both — must return the most recent (Alipay).
         let result = state.find_latest_matching(now_ms, |_| true);
-        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+        assert_eq!(
+            result,
+            Some(("Alipay".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     #[test]
@@ -1588,7 +1593,10 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         let result = state.find_latest_matching(now_ms, |_| true);
-        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+        assert_eq!(
+            result,
+            Some(("Alipay".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1630,7 +1638,10 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
-        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+        assert_eq!(
+            result,
+            Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     #[test]
@@ -1646,7 +1657,10 @@ mod tests {
             Some("WeChat"),
             Some("\u{1F4AC}"),
         );
-        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+        assert_eq!(
+            state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms),
+            None
+        );
     }
 
     #[test]
@@ -1674,7 +1688,10 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
-        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+        assert_eq!(
+            result,
+            Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     #[test]
@@ -1691,7 +1708,10 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         // Query for a different IP
-        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "5.6.7.8", now_ms), None);
+        assert_eq!(
+            state.correlate_app_for_ip("192.168.1.5", "5.6.7.8", now_ms),
+            None
+        );
     }
 
     #[test]
@@ -1708,13 +1728,19 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         // Phone 1.5 queries — should not see 1.6's tag
-        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+        assert_eq!(
+            state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms),
+            None
+        );
     }
 
     #[test]
     fn test_correlate_app_for_ip_empty_state() {
         let state = DnsState::new();
-        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", 0), None);
+        assert_eq!(
+            state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", 0),
+            None
+        );
     }
 
     #[test]
@@ -1742,7 +1768,10 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
-        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+        assert_eq!(
+            result,
+            Some(("Alipay".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     #[test]
@@ -1758,7 +1787,10 @@ mod tests {
             Some("WeChat"),
             None, // app_icon is None
         );
-        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+        assert_eq!(
+            state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms),
+            None
+        );
     }
 
     #[test]
@@ -1774,7 +1806,10 @@ mod tests {
             None, // app_name is None
             Some("\u{1F4AC}"),
         );
-        assert_eq!(state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms), None);
+        assert_eq!(
+            state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms),
+            None
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1798,7 +1833,10 @@ mod tests {
         // Connection to api.alipay.com (host-string match should win)
         let result =
             state.classify_connection("api.alipay.com", "192.168.1.5", Some("1.2.3.4"), now_ms);
-        assert_eq!(result, Some(("Alipay".to_string(), "\u{1F4AC}".to_string())));
+        assert_eq!(
+            result,
+            Some(("Alipay".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     #[test]
@@ -1816,9 +1854,11 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         // Connection target is the IP literal directly
-        let result =
-            state.classify_connection("1.2.3.4", "192.168.1.5", Some("1.2.3.4"), now_ms);
-        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+        let result = state.classify_connection("1.2.3.4", "192.168.1.5", Some("1.2.3.4"), now_ms);
+        assert_eq!(
+            result,
+            Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     #[test]
@@ -1845,9 +1885,11 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         // Connection without a known peer IP (None) — host path still works
-        let result =
-            state.classify_connection("api.weixin.qq.com", "192.168.1.5", None, now_ms);
-        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+        let result = state.classify_connection("api.weixin.qq.com", "192.168.1.5", None, now_ms);
+        assert_eq!(
+            result,
+            Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1887,8 +1929,10 @@ mod tests {
         );
         // IP literal target — should not match the host-string path,
         // but should match via correlate_app_for_ip since resolved_ip matches
-        let result =
-            state.classify_connection("1.2.3.4", "192.168.1.5", Some("1.2.3.4"), now_ms);
-        assert_eq!(result, Some(("WeChat".to_string(), "\u{1F4AC}".to_string())));
+        let result = state.classify_connection("1.2.3.4", "192.168.1.5", Some("1.2.3.4"), now_ms);
+        assert_eq!(
+            result,
+            Some(("WeChat".to_string(), "\u{1F4AC}".to_string()))
+        );
     }
 }

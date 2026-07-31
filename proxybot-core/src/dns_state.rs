@@ -9,7 +9,7 @@
 //! The actual DNS server loop lives in `src-tauri/src/dns.rs`
 //! because it depends on Tauri's async runtime and event system.
 
-use crate::types::{DnsEntry, HostsEntry, DnsUpstream};
+use crate::types::{DnsEntry, DnsUpstream, HostsEntry};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -94,16 +94,14 @@ impl DnsState {
         let mut queries = self.queries_by_ip.lock().unwrap();
         queries
             .entry(client_ip.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(query);
     }
 
     /// Record a DNS response (IP resolved for domain).
     pub fn record_response(&self, domain: &str, ip: &str) {
         let mut domains = self.domains_by_ip.lock().unwrap();
-        let entry = domains
-            .entry(domain.to_string())
-            .or_insert_with(Vec::new);
+        let entry = domains.entry(domain.to_string()).or_default();
         if !entry.contains(&ip.to_string()) {
             entry.push(ip.to_string());
         }
@@ -130,10 +128,7 @@ impl DnsState {
     /// Get all IPs a domain resolved to.
     pub fn get_ips_for_domain(&self, domain: &str) -> Vec<String> {
         let domains = self.domains_by_ip.lock().unwrap();
-        domains
-            .get(domain)
-            .cloned()
-            .unwrap_or_default()
+        domains.get(domain).cloned().unwrap_or_default()
     }
 
     /// Push a display entry into the ring buffer.
@@ -164,9 +159,9 @@ impl DnsState {
             return false;
         }
         let blocklist = self.blocklist.lock().unwrap();
-        blocklist.iter().any(|entry| {
-            domain == entry.as_str() || domain.ends_with(&format!(".{}", entry))
-        })
+        blocklist
+            .iter()
+            .any(|entry| domain == entry.as_str() || domain.ends_with(&format!(".{}", entry)))
     }
 
     /// Check hosts file for a domain.
@@ -201,7 +196,10 @@ mod tests {
         let state = DnsState::new();
         state.record_query("192.168.1.100", "example.com".to_string());
         state.record_response("example.com", "93.184.216.34");
-        assert_eq!(state.get_ips_for_domain("example.com"), vec!["93.184.216.34"]);
+        assert_eq!(
+            state.get_ips_for_domain("example.com"),
+            vec!["93.184.216.34"]
+        );
     }
 
     #[test]
@@ -242,7 +240,9 @@ mod tests {
     fn test_blocklist_disabled() {
         let state = DnsState::new();
         state.blocklist.lock().unwrap().push("evil.com".to_string());
-        state.blocklist_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+        state
+            .blocklist_enabled
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         assert!(!state.is_blocked("evil.com"));
     }
 
@@ -253,7 +253,10 @@ mod tests {
             domain: "local.dev".to_string(),
             ip: "127.0.0.1".to_string(),
         });
-        assert_eq!(state.lookup_hosts("local.dev"), Some("127.0.0.1".to_string()));
+        assert_eq!(
+            state.lookup_hosts("local.dev"),
+            Some("127.0.0.1".to_string())
+        );
         assert_eq!(state.lookup_hosts("unknown.dev"), None);
     }
 
@@ -267,6 +270,9 @@ mod tests {
             upstream_type: DnsUpstreamType::PlainUdp,
             address: "8.8.8.8:53".to_string(),
         });
-        assert_eq!(state.get_upstream().upstream_type, DnsUpstreamType::PlainUdp);
+        assert_eq!(
+            state.get_upstream().upstream_type,
+            DnsUpstreamType::PlainUdp
+        );
     }
 }

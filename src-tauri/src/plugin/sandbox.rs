@@ -86,8 +86,12 @@ mod tests {
     fn test_sandbox_accepts_native_formats() {
         let sandbox = WasmSandbox::new();
         let mut req = InterceptedRequest::default();
-        assert!(sandbox.execute(std::path::Path::new("plugin.dylib"), &mut req).is_ok());
-        assert!(sandbox.execute(std::path::Path::new("plugin.so"), &mut req).is_ok());
+        assert!(sandbox
+            .execute(std::path::Path::new("plugin.dylib"), &mut req)
+            .is_ok());
+        assert!(sandbox
+            .execute(std::path::Path::new("plugin.so"), &mut req)
+            .is_ok());
     }
 
     #[test]

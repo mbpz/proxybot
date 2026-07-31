@@ -37,7 +37,8 @@ where
 
         // Write response
         let response_json = serde_json::to_string(&response).unwrap_or_else(|_| {
-            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Serialization error"}}"#.to_string()
+            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Serialization error"}}"#
+                .to_string()
         });
         writeln!(stdout, "{}", response_json)?;
     }
@@ -50,6 +51,5 @@ pub fn start_stdio_mode() {
     use super::{McpServer, McpState};
     let state: std::sync::Arc<McpState> = std::sync::Arc::new(McpState::new_insecure());
     let server = McpServer::new(state);
-    run_stdio_server(move |req| server.handle_request(req))
-        .expect("Stdio server error");
+    run_stdio_server(move |req| server.handle_request(req)).expect("Stdio server error");
 }

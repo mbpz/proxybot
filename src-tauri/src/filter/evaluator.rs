@@ -41,8 +41,16 @@ impl Evaluator {
         let search_lower = search.to_lowercase();
         req.host.to_lowercase().contains(&search_lower)
             || req.path.to_lowercase().contains(&search_lower)
-            || req.req_body.as_ref().map(|b| b.to_lowercase().contains(&search_lower)).unwrap_or(false)
-            || req.resp_body.as_ref().map(|b| b.to_lowercase().contains(&search_lower)).unwrap_or(false)
+            || req
+                .req_body
+                .as_ref()
+                .map(|b| b.to_lowercase().contains(&search_lower))
+                .unwrap_or(false)
+            || req
+                .resp_body
+                .as_ref()
+                .map(|b| b.to_lowercase().contains(&search_lower))
+                .unwrap_or(false)
     }
 
     fn get_field_value<'a>(req: &'a InterceptedRequest, field: &str) -> Cow<'a, str> {
@@ -64,13 +72,9 @@ impl Evaluator {
                 }
                 Cow::Owned(String::new())
             }
-            "app" | "app_name" => {
-                Cow::Owned(req.app_name.clone().unwrap_or_default())
-            }
+            "app" | "app_name" => Cow::Owned(req.app_name.clone().unwrap_or_default()),
             "scheme" => Cow::Borrowed(&req.scheme),
-            "ip" | "client_ip" => {
-                Cow::Owned(req.client_ip.clone().unwrap_or_default())
-            }
+            "ip" | "client_ip" => Cow::Owned(req.client_ip.clone().unwrap_or_default()),
             _ => {
                 // Check headers
                 for (k, v) in &req.req_headers {
@@ -166,7 +170,9 @@ impl Evaluator {
 }
 
 fn regex_match(pattern: &str, value: &str) -> bool {
-    Regex::new(pattern).map(|re| re.is_match(value)).unwrap_or(false)
+    Regex::new(pattern)
+        .map(|re| re.is_match(value))
+        .unwrap_or(false)
 }
 
 /// Like `glob_match` but unanchored — the pattern matches anywhere
@@ -336,8 +342,7 @@ mod tests {
         let mut r = req("GET", "h", "/p");
         // The evaluator's `_` branch looks up request_headers by field
         // name (case-insensitive) and returns the header's value.
-        r.req_headers
-            .push(("x-trace-id".into(), "abc-123".into()));
+        r.req_headers.push(("x-trace-id".into(), "abc-123".into()));
         let expr = FilterExpr::Field {
             field: "x-trace-id".into(),
             op: FilterOp::Eq,
@@ -368,10 +373,8 @@ mod tests {
     #[test]
     fn test_header_name_present_matches() {
         let mut r = req("GET", "h", "/p");
-        r.resp_headers.push((
-            "content-type".into(),
-            "application/json".into(),
-        ));
+        r.resp_headers
+            .push(("content-type".into(), "application/json".into()));
         // Triple syntax: `header:NAME:VALUE` — matches when the named
         // response header equals the given value.
         assert!(eval_str("header:content-type:application/json", &r));
@@ -382,10 +385,7 @@ mod tests {
         let mut r = req("GET", "h", "/p");
         r.resp_headers
             .push(("content-type".into(), "text/html".into()));
-        assert!(!eval_str(
-            "header:content-type:application/json",
-            &r
-        ));
+        assert!(!eval_str("header:content-type:application/json", &r));
     }
 
     #[test]
@@ -489,7 +489,7 @@ mod tests {
         // Fill close to the limit with ASCII, then put a 4-byte
         // codepoint straddling the boundary.
         body.push_str(&"a".repeat(MAX_BODY_SEARCH_SIZE - 2));
-        body.push_str("\u{1F600}"); // 4-byte emoji
+        body.push('\u{1F600}'); // 4-byte emoji
         body.push_str(&"b".repeat(200));
 
         let truncated = Evaluator::truncate_body(&body);

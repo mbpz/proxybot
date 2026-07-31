@@ -282,10 +282,7 @@ mod tests {
 
     #[test]
     fn map_device_type_remote() {
-        assert_eq!(
-            map_device_type(FridaDeviceType::Remote),
-            DeviceType::Remote
-        );
+        assert_eq!(map_device_type(FridaDeviceType::Remote), DeviceType::Remote);
     }
 
     #[test]

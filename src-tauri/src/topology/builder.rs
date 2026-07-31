@@ -115,38 +115,42 @@ pub fn build_topology_graph(
         let host_id = format!("host:{}", host);
 
         // Aggregate app node
-        let app_entry = app_nodes.entry(app_id.clone()).or_insert_with(|| TopologyNode {
-            id: app_id.clone(),
-            kind: NodeKind::App,
-            label: app_tag.clone(),
-            app_tag: Some(app_tag.clone()),
-            device_id: None,
-            request_count: 0,
-            total_bytes: 0,
-            avg_latency_ms: 0.0,
-            error_count: 0,
-            error_rate: 0.0,
-            last_seen: 0,
-        });
+        let app_entry = app_nodes
+            .entry(app_id.clone())
+            .or_insert_with(|| TopologyNode {
+                id: app_id.clone(),
+                kind: NodeKind::App,
+                label: app_tag.clone(),
+                app_tag: Some(app_tag.clone()),
+                device_id: None,
+                request_count: 0,
+                total_bytes: 0,
+                avg_latency_ms: 0.0,
+                error_count: 0,
+                error_rate: 0.0,
+                last_seen: 0,
+            });
         app_entry.request_count += row.req_count as u64;
         app_entry.total_bytes += row.total_bytes as u64;
         app_entry.error_count += row.err_count as u64;
         app_entry.last_seen = app_entry.last_seen.max(row.last_seen);
 
         // Aggregate host node
-        let host_entry = host_nodes.entry(host_id.clone()).or_insert_with(|| TopologyNode {
-            id: host_id.clone(),
-            kind: NodeKind::Host,
-            label: host.clone(),
-            app_tag: None,
-            device_id: None,
-            request_count: 0,
-            total_bytes: 0,
-            avg_latency_ms: 0.0,
-            error_count: 0,
-            error_rate: 0.0,
-            last_seen: 0,
-        });
+        let host_entry = host_nodes
+            .entry(host_id.clone())
+            .or_insert_with(|| TopologyNode {
+                id: host_id.clone(),
+                kind: NodeKind::Host,
+                label: host.clone(),
+                app_tag: None,
+                device_id: None,
+                request_count: 0,
+                total_bytes: 0,
+                avg_latency_ms: 0.0,
+                error_count: 0,
+                error_rate: 0.0,
+                last_seen: 0,
+            });
         host_entry.request_count += row.req_count as u64;
         host_entry.total_bytes += row.total_bytes as u64;
         host_entry.error_count += row.err_count as u64;
@@ -172,7 +176,10 @@ pub fn build_topology_graph(
     }
 
     // Compute per-node error_rate averages
-    for n in app_nodes.values_mut().chain(host_nodes.iter_mut().map(|(_, v)| v)) {
+    for n in app_nodes
+        .values_mut()
+        .chain(host_nodes.iter_mut().map(|(_, v)| v))
+    {
         if n.request_count > 0 {
             n.error_rate = n.error_count as f64 / n.request_count as f64;
         }
@@ -203,9 +210,15 @@ pub fn build_topology_graph(
     let meta = TopologyMeta {
         total_requests,
         total_bytes,
-        device_count: all_nodes.iter().filter(|n| n.kind == NodeKind::Device).count() as u32,
+        device_count: all_nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Device)
+            .count() as u32,
         app_count: all_nodes.iter().filter(|n| n.kind == NodeKind::App).count() as u32,
-        host_count: all_nodes.iter().filter(|n| n.kind == NodeKind::Host).count() as u32,
+        host_count: all_nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Host)
+            .count() as u32,
         time_range: (start_ts, end_ts),
         built_at: now_unix_ms(),
     };
@@ -378,7 +391,13 @@ pub fn get_topology_node_detail(
     let mut s_stmt = conn.prepare(&counts_sql).map_err(|e| e.to_string())?;
     let counts: (Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64) = s_stmt
         .query_row(rusqlite::params_from_iter(all_params.iter()), |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })
         .unwrap_or((None, None, None, None, 0));
     drop(s_stmt);

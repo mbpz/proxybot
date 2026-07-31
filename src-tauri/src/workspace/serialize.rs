@@ -105,13 +105,11 @@ mod tests {
                     false,
                 ),
             ],
-            vec![
-                Device {
-                    id: 1,
-                    name: "iPhone".to_string(),
-                    mac_address: "AA:BB:CC:DD:EE:FF".to_string(),
-                },
-            ],
+            vec![Device {
+                id: 1,
+                name: "iPhone".to_string(),
+                mac_address: "AA:BB:CC:DD:EE:FF".to_string(),
+            }],
         );
 
         let json = serde_json::to_string_pretty(&workspace).unwrap();

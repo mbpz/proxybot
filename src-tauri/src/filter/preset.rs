@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::filter::expr::FilterExpr;
 
@@ -29,7 +29,7 @@ fn presets_path() -> PathBuf {
         .join("filter_presets.json")
 }
 
-fn ensure_parent(path: &PathBuf) -> Result<(), String> {
+fn ensure_parent(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create_dir_all: {}", e))?;
     }
@@ -52,8 +52,7 @@ fn write_all(presets: &[FilterPreset]) -> Result<(), String> {
     let path = presets_path();
     ensure_parent(&path)?;
     let tmp = path.with_extension("json.tmp");
-    let json = serde_json::to_string_pretty(presets)
-        .map_err(|e| format!("serialize: {}", e))?;
+    let json = serde_json::to_string_pretty(presets).map_err(|e| format!("serialize: {}", e))?;
     fs::write(&tmp, json).map_err(|e| format!("write tmp: {}", e))?;
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
     Ok(())
@@ -107,9 +106,13 @@ mod tests {
         let path = dir.path().to_path_buf();
         // SAFETY: tests are serialized via HOME_LOCK; no other threads
         // read HOME concurrently.
-        unsafe { env::set_var("HOME", &path); }
+        unsafe {
+            env::set_var("HOME", &path);
+        }
         f(&path);
-        unsafe { env::remove_var("HOME"); }
+        unsafe {
+            env::remove_var("HOME");
+        }
     }
 
     fn preset(id: &str, name: &str, expr: &str) -> FilterPreset {

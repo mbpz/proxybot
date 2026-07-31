@@ -1,7 +1,7 @@
 //! Integration tests for database operations.
 //! Tests the DbState schema and query functions.
 
-use proxybot_lib::db::{DbState, DeviceInfo};
+use proxybot_lib::db::DbState;
 use std::sync::{Arc, Mutex};
 
 fn make_db() -> Arc<DbState> {

@@ -776,7 +776,10 @@ mod tests {
             ..Default::default()
         };
         let result = engine.run_on_response("mock_resp", &resp, &req).unwrap();
-        assert_eq!(result, ScriptResult::RewriteBody("{\"error\":\"mocked\"}".into()));
+        assert_eq!(
+            result,
+            ScriptResult::RewriteBody("{\"error\":\"mocked\"}".into())
+        );
     }
 
     #[test]
@@ -795,9 +798,7 @@ mod tests {
 
         // Second call with a different script that does NOT rewrite
         // must NOT see the leftover slot from the first call.
-        engine
-            .load_from_string("no_rewrite", "true")
-            .unwrap();
+        engine.load_from_string("no_rewrite", "true").unwrap();
         let r2 = engine.run_on_request("no_rewrite", &req).unwrap();
         assert_eq!(r2, ScriptResult::Continue);
     }

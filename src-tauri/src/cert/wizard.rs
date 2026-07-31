@@ -10,11 +10,7 @@
 /// set DNS, install the ProxyBot CA, and verify. All CSS is inline.
 /// No external resources are loaded. The CA is downloaded as a separate
 /// `/ca.crt` resource rather than embedded in the page.
-pub fn build_android_wizard(
-    proxy_ip: &str,
-    proxy_port: u16,
-    dns_port: u16,
-) -> String {
+pub fn build_android_wizard(proxy_ip: &str, proxy_port: u16, dns_port: u16) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -113,9 +109,18 @@ mod tests {
     #[test]
     fn test_build_android_wizard_self_contained() {
         let html = build_android_wizard("192.168.1.5", 8088, 5300);
-        assert!(!html.contains(r#"href="http"#), "should not load external resources");
-        assert!(!html.contains(r#"src="http"#), "should not load external images");
-        assert!(!html.contains(r#"<link rel="stylesheet""#), "should not have external stylesheet");
+        assert!(
+            !html.contains(r#"href="http"#),
+            "should not load external resources"
+        );
+        assert!(
+            !html.contains(r#"src="http"#),
+            "should not load external images"
+        );
+        assert!(
+            !html.contains(r#"<link rel="stylesheet""#),
+            "should not have external stylesheet"
+        );
     }
 
     #[test]

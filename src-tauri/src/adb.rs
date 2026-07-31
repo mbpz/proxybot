@@ -71,6 +71,7 @@ pub fn parse_adb_ps_output(output: &str) -> Vec<ProcessInfo> {
 }
 
 /// ADB state managing devices and reverse tunnels.
+#[derive(Default)]
 pub struct AdbState {
     /// List of connected ADB devices.
     pub devices: Vec<AdbDevice>,
@@ -78,16 +79,6 @@ pub struct AdbState {
     pub reverse_tunnels: HashMap<String, bool>,
     /// Whether ADB mode is enabled globally.
     pub enabled: bool,
-}
-
-impl Default for AdbState {
-    fn default() -> Self {
-        Self {
-            devices: Vec::new(),
-            reverse_tunnels: HashMap::new(),
-            enabled: false,
-        }
-    }
 }
 
 /// Check if ADB is available on the system.
@@ -208,7 +199,7 @@ u0_a456        7890  com.another.app"#;
             model: None,
         };
         // The shell method should be available (test passes if it compiles)
-        let _ = device.shell("echo test");
+        drop(device.shell("echo test"));
     }
 
     #[test]
@@ -220,6 +211,6 @@ u0_a456        7890  com.another.app"#;
             model: None,
         };
         // The list_processes method should be available (test passes if it compiles)
-        let _ = device.list_processes();
+        drop(device.list_processes());
     }
 }

@@ -3,9 +3,7 @@
 
 use crate::cert::CertManager;
 use rustls::client::danger as rustls_danger;
-use rustls::{
-    pki_types::ServerName, ClientConfig, DigitallySignedStruct, SignatureScheme,
-};
+use rustls::{pki_types::ServerName, ClientConfig, DigitallySignedStruct, SignatureScheme};
 use std::fs::OpenOptions;
 use std::net::{IpAddr, SocketAddr};
 use std::os::fd::AsRawFd;
@@ -138,7 +136,10 @@ pub(super) fn extract_sni_from_client_hello(data: &[u8]) -> Option<String> {
 ///
 /// Recovers the original destination address/port from a pf rdr redirect.
 /// This is the correct method for macOS - SO_ORIGINAL_DST does not exist on macOS.
-pub(super) fn get_original_dst(peer_addr: SocketAddr, local_addr: SocketAddr) -> Option<SocketAddr> {
+pub(super) fn get_original_dst(
+    peer_addr: SocketAddr,
+    local_addr: SocketAddr,
+) -> Option<SocketAddr> {
     // Open /dev/pf for DIOCNATLOOK ioctl (O_RDWR required for _IOWR ioctls)
     let fd = match OpenOptions::new().read(true).write(true).open("/dev/pf") {
         Ok(f) => f,

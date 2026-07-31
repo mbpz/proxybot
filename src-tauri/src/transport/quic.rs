@@ -19,7 +19,7 @@ use crate::db::DbState;
 
 /// Configuration for the QUIC proxy.
 pub struct QuicProxyConfig {
-    pub listen_addr: String,   // e.g. "0.0.0.0:443"
+    pub listen_addr: String, // e.g. "0.0.0.0:443"
     pub cert_manager: Arc<CertManager>,
     pub db_state: Arc<DbState>,
 }
@@ -45,11 +45,10 @@ pub async fn run_quic_proxy(config: QuicProxyConfig) -> Result<(), String> {
         .map_err(|e| format!("Failed to generate QUIC cert: {}", e))?;
 
     // Parse PEM certificates and key
-    let cert_chain: Vec<rustls::pki_types::CertificateDer> = rustls_pemfile::certs(
-        &mut cert_pem.as_bytes()
-    )
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| format!("Failed to parse cert PEM: {}", e))?;
+    let cert_chain: Vec<rustls::pki_types::CertificateDer> =
+        rustls_pemfile::certs(&mut cert_pem.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to parse cert PEM: {}", e))?;
 
     let key = rustls_pemfile::private_key(&mut key_pem.as_bytes())
         .map_err(|e| format!("Failed to parse key PEM: {}", e))?
@@ -88,10 +87,7 @@ pub async fn run_quic_proxy(config: QuicProxyConfig) -> Result<(), String> {
 }
 
 #[cfg(feature = "http3")]
-async fn handle_quic_connection(
-    conn: quinn::Connection,
-    db: Arc<DbState>,
-) {
+async fn handle_quic_connection(conn: quinn::Connection, db: Arc<DbState>) {
     loop {
         match conn.accept_bi().await {
             Ok((send, recv)) => {
@@ -159,7 +155,10 @@ async fn handle_http3_stream(
 // Non-feature stub — compiles without http3 feature
 #[cfg(not(feature = "http3"))]
 pub async fn run_quic_proxy(_config: QuicProxyConfig) -> Result<(), String> {
-    Err("HTTP/3 QUIC proxy requires 'http3' feature. Enable with: cargo build --features http3".into())
+    Err(
+        "HTTP/3 QUIC proxy requires 'http3' feature. Enable with: cargo build --features http3"
+            .into(),
+    )
 }
 
 #[cfg(test)]

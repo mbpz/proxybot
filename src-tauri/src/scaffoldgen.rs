@@ -111,12 +111,7 @@ pub(crate) fn infer_route(path: &str) -> String {
 pub(crate) fn group_by_prefix(apis: &[InferredApi]) -> HashMap<String, Vec<usize>> {
     let mut map: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, api) in apis.iter().enumerate() {
-        let part = api
-            .path
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .nth(0)
-            .unwrap_or("api");
+        let part = api.path.split('/').find(|s| !s.is_empty()).unwrap_or("api");
         map.entry(part.to_string()).or_default().push(i);
     }
     map
@@ -305,12 +300,7 @@ pub(crate) fn vision_style(pos: &crate::vision::VisionPosition) -> String {
 }
 
 /// Render a VisionComponent as a React TSX string.
-fn vision_element(
-    vc: &VisionComponent,
-    api_method: &str,
-    _api_name: &str,
-    hook_name_str: &str,
-) -> String {
+fn vision_element(vc: &VisionComponent, api_method: &str, _api_name: &str) -> String {
     let ctype = vc.component_type.to_lowercase();
     let text = vc.text.as_deref().unwrap_or("");
     let style = vision_style(&vc.position);
@@ -319,7 +309,7 @@ fn vision_element(
     let children_rendering: Vec<String> = vc
         .children
         .iter()
-        .map(|child| vision_element(child, api_method, _api_name, hook_name_str))
+        .map(|child| vision_element(child, api_method, _api_name))
         .collect();
 
     match ctype.as_str() {
@@ -432,7 +422,7 @@ fn render_vision_page(
 
     let elements_str = components
         .iter()
-        .map(|vc| vision_element(vc, api_method, _api_name, hook_name_str))
+        .map(|vc| vision_element(vc, api_method, _api_name))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -568,7 +558,7 @@ pub fn generate_scaffold_project(
             });
             routes.push((cn, infer_route(&a.path)));
         }
-        let mirs: Vec<&InferredApi> = mas.iter().map(|&a| a).collect();
+        let mirs: Vec<&InferredApi> = mas.to_vec();
         let sc = store(mn, &mirs);
         stores.push(ScaffoldStore {
             module_name: mn.clone(),
@@ -681,7 +671,7 @@ pub fn generate_scaffold_with_vision(
             routes.push((cn, infer_route(&a.path)));
         }
 
-        let mirs: Vec<&InferredApi> = mas.iter().map(|a| *a).collect();
+        let mirs: Vec<&InferredApi> = mas.to_vec();
         let sc = store(mn, &mirs);
         stores.push(ScaffoldStore {
             module_name: mn.clone(),
@@ -774,7 +764,7 @@ pub fn write_scaffold_project(
             fs::write(pages.join(format!("{}.tsx", cn)), &pc).map_err(|e| e.to_string())?;
             routes.push((cn, infer_route(&a.path)));
         }
-        let mirs: Vec<&InferredApi> = mas.iter().map(|&a| a).collect();
+        let mirs: Vec<&InferredApi> = mas.to_vec();
         fs::write(stores.join(format!("{}Store.ts", mn)), store(mn, &mirs))
             .map_err(|e| e.to_string())?;
     }
@@ -993,12 +983,7 @@ async fn run_playwright_tests(scaffold_path: &str) -> (usize, usize, Vec<String>
                     let errors: Vec<String> = results
                         .iter()
                         .filter(|r| r.status != "passed")
-                        .flat_map(|r| {
-                            r.errors
-                                .iter()
-                                .cloned()
-                                .map(|e| format!("{}: {}", r.title, e))
-                        })
+                        .flat_map(|r| r.errors.iter().map(|e| format!("{}: {}", r.title, e)))
                         .collect();
                     (passed, failed, errors)
                 }
@@ -1291,8 +1276,8 @@ mod tests {
     #[test]
     fn test_pkg_json_is_valid_json_with_expected_keys() {
         let s = pkg_json("test-app");
-        let parsed: serde_json::Value = serde_json::from_str(&s)
-            .expect("pkg_json output should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&s).expect("pkg_json output should be valid JSON");
         assert_eq!(parsed["name"], "test-app");
         assert!(parsed["dependencies"].is_object());
         assert!(parsed["devDependencies"].is_object());
@@ -1316,8 +1301,8 @@ mod tests {
     #[test]
     fn test_tsconfig_has_strict_mode() {
         let s = tsconfig();
-        let parsed: serde_json::Value = serde_json::from_str(&s)
-            .expect("tsconfig output should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&s).expect("tsconfig output should be valid JSON");
         assert_eq!(parsed["compilerOptions"]["strict"], true);
     }
 
@@ -1350,7 +1335,11 @@ mod tests {
     #[test]
     fn test_css_includes_container_class() {
         let s = css();
-        assert!(s.contains(".container"), "expected .container class in: {}", s);
+        assert!(
+            s.contains(".container"),
+            "expected .container class in: {}",
+            s
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1366,7 +1355,11 @@ mod tests {
         // Follow-up: gate the import on `routes.is_empty()` so we don't ship
         // a dead import for empty-route scaffolds.
         let s = app_tsx(&[]);
-        assert!(s.contains("function App()"), "expected function App() in: {}", s);
+        assert!(
+            s.contains("function App()"),
+            "expected function App() in: {}",
+            s
+        );
         // Lock in the current (buggy) behavior: Route is imported even with
         // no routes. Remove this assertion when the follow-up lands.
         assert!(
@@ -1425,8 +1418,8 @@ mod tests {
     #[test]
     fn test_pw_config_is_valid_json() {
         let s = pw_config();
-        let parsed: serde_json::Value = serde_json::from_str(&s)
-            .expect("pw_config output should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&s).expect("pw_config output should be valid JSON");
         assert_eq!(parsed["testDir"], "./e2e");
     }
 

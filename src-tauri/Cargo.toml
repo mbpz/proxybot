@@ -2,9 +2,12 @@
 name = "proxybot"
 version = "0.1.0"
 description = "HTTPS MITM Proxy"
-authors = ["you"]
+authors = ["ProxyBot Contributors"]
 edition = "2021"
 default-run = "proxybot"
+license = "MIT"
+repository = "https://github.com/mbpz/proxybot"
+homepage = "https://mbpz.github.io/proxybot/"
 
 [lib]
 name = "proxybot_lib"
@@ -36,7 +39,10 @@ log = "0.4"
 rand = "0.8"
 env_logger = "0.11"
 time = "0.3"
-rusqlite = { version = "0.32", features = ["bundled"] }
+# Frida's macOS devkit already contains SQLite. Linking rusqlite's bundled
+# amalgamation as well produces hundreds of duplicate symbols, so use the
+# platform SQLite library instead.
+rusqlite = "0.32"
 serde_yaml = "0.9"
 notify = "8"
 ipnetwork = "0.20"
@@ -85,9 +91,3 @@ path = "src/bin/proxybot-gui.rs"
 [features]
 default = []
 http3 = ["quinn", "h3", "h3-quinn"]
-
-[profile.release]
-strip = true
-lto = false
-codegen-units = 1
-panic = "abort"

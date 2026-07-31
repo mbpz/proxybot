@@ -113,7 +113,8 @@ pub fn get_all_builtin_scripts() -> Vec<BypassScript> {
         BypassScript {
             id: "okhttp3".to_string(),
             name: "OkHttp3 CertificatePinner".to_string(),
-            description: "Bypasses OkHttp3 certificate pinning by hooking CertificatePinner.check".to_string(),
+            description: "Bypasses OkHttp3 certificate pinning by hooking CertificatePinner.check"
+                .to_string(),
             target_framework: vec!["okhttp3".to_string()],
             script_content: OKHTTP3_SCRIPT.to_string(),
             is_builtin: true,
@@ -192,7 +193,11 @@ mod tests {
     #[test]
     fn test_script_content_not_empty() {
         for script in get_all_builtin_scripts() {
-            assert!(!script.script_content.is_empty(), "{} has empty content", script.id);
+            assert!(
+                !script.script_content.is_empty(),
+                "{} has empty content",
+                script.id
+            );
         }
     }
 
@@ -204,7 +209,11 @@ mod tests {
                 || content.contains("Interceptor.attach")
                 || content.contains("implementation =")
                 || content.contains("Module.findExportByName");
-            assert!(has_hook, "{} script content has no recognizable hook", script.id);
+            assert!(
+                has_hook,
+                "{} script content has no recognizable hook",
+                script.id
+            );
         }
     }
 }

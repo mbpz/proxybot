@@ -178,12 +178,8 @@ impl RuleEntry {
             "DIRECT" => RuleAction::Direct,
             "PROXY" => RuleAction::Proxy,
             "REJECT" => RuleAction::Reject,
-            "MAPREMOTE" => RuleAction::MapRemote(
-                self.target.clone().unwrap_or_default(),
-            ),
-            "MAPLOCAL" => RuleAction::MapLocal(
-                self.target.clone().unwrap_or_default(),
-            ),
+            "MAPREMOTE" => RuleAction::MapRemote(self.target.clone().unwrap_or_default()),
+            "MAPLOCAL" => RuleAction::MapLocal(self.target.clone().unwrap_or_default()),
             "BREAKPOINT" => {
                 let target = match self.target.as_deref() {
                     Some("RESPONSE") => BreakpointTarget::Response,
@@ -292,7 +288,7 @@ pub struct BreakpointRequest {
 #[derive(Clone, Debug)]
 pub enum BreakpointDecision {
     Proceed,
-    Modify(InterceptedRequest),
+    Modify(Box<InterceptedRequest>),
     Drop,
 }
 

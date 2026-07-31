@@ -74,15 +74,27 @@ fn test_aggregate_single_device_single_host() {
 
     let graph = build_topology_graph(&db, &TopologyFilter::default()).unwrap();
     assert_eq!(
-        graph.nodes.iter().filter(|n| n.kind == NodeKind::Device).count(),
+        graph
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Device)
+            .count(),
         1
     );
     assert_eq!(
-        graph.nodes.iter().filter(|n| n.kind == NodeKind::Host).count(),
+        graph
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Host)
+            .count(),
         1
     );
     assert_eq!(
-        graph.nodes.iter().filter(|n| n.kind == NodeKind::App).count(),
+        graph
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::App)
+            .count(),
         1
     );
     assert_eq!(graph.edges.len(), 1);
@@ -156,7 +168,11 @@ fn test_aggregate_filter_by_app_tag() {
         ..Default::default()
     };
     let graph = build_topology_graph(&db, &filter).unwrap();
-    let app_count = graph.nodes.iter().filter(|n| n.kind == NodeKind::App).count();
+    let app_count = graph
+        .nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::App)
+        .count();
     assert_eq!(app_count, 1);
 }
 
@@ -190,7 +206,11 @@ fn test_aggregate_filter_by_host_contains() {
         ..Default::default()
     };
     let graph = build_topology_graph(&db, &filter).unwrap();
-    let host_count = graph.nodes.iter().filter(|n| n.kind == NodeKind::Host).count();
+    let host_count = graph
+        .nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::Host)
+        .count();
     assert_eq!(host_count, 1);
 }
 
@@ -265,10 +285,42 @@ fn test_get_node_detail_for_host() {
     let db = make_in_memory_db();
     let conn = db.conn.lock().unwrap();
     let dev = seed_device(&conn, "Phone");
-    seed_request(&conn, dev, "target.com", "wechat", 200, 50, "2026-01-01 00:00:00");
-    seed_request(&conn, dev, "target.com", "wechat", 404, 50, "2026-01-01 00:00:01");
-    seed_request(&conn, dev, "target.com", "wechat", 301, 50, "2026-01-01 00:00:02");
-    seed_request(&conn, dev, "target.com", "wechat", 503, 50, "2026-01-01 00:00:03");
+    seed_request(
+        &conn,
+        dev,
+        "target.com",
+        "wechat",
+        200,
+        50,
+        "2026-01-01 00:00:00",
+    );
+    seed_request(
+        &conn,
+        dev,
+        "target.com",
+        "wechat",
+        404,
+        50,
+        "2026-01-01 00:00:01",
+    );
+    seed_request(
+        &conn,
+        dev,
+        "target.com",
+        "wechat",
+        301,
+        50,
+        "2026-01-01 00:00:02",
+    );
+    seed_request(
+        &conn,
+        dev,
+        "target.com",
+        "wechat",
+        503,
+        50,
+        "2026-01-01 00:00:03",
+    );
     drop(conn);
 
     let detail =

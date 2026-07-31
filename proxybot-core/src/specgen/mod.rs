@@ -112,7 +112,7 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
     let clustered = extract::cluster_paths(&rec_pairs);
     for (tpl, methods) in &clustered {
         let mut item = render::OpenApiPathItem::default();
-        for (m, _example_path) in methods {
+        for m in methods.keys() {
             let op = render::OpenApiOperation {
                 // camelCase operationId so the heuristic's output
                 // also satisfies the LLM-validation schema's
@@ -168,7 +168,11 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
         );
     }
     let asyncapi_yaml = if !channels.is_empty() {
-        Some(render::render_asyncapi("WS", "wss://api.example.com", channels))
+        Some(render::render_asyncapi(
+            "WS",
+            "wss://api.example.com",
+            channels,
+        ))
     } else {
         None
     };
@@ -179,11 +183,7 @@ pub fn build_spec_heuristic(req: &SpecRequest) -> Result<SpecResult, SpecError> 
     // report coverage_rate = 10/13 ≈ 0.77 even when the WS frames
     // were channeled correctly — the AsyncAPI match column would
     // see no concrete WS paths to count. Pull every kind in.
-    let all_paths: Vec<String> = req
-        .traffic_records
-        .iter()
-        .map(|r| r.path.clone())
-        .collect();
+    let all_paths: Vec<String> = req.traffic_records.iter().map(|r| r.path.clone()).collect();
     let asyncapi_channels: Vec<String> = ws.iter().map(|r| r.path.clone()).collect();
     let coverage = CoverageReport::compute(
         req.traffic_records.len(),
@@ -215,11 +215,18 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
 
     // Try LLM path; fall back to heuristic. We track the reason
     // for any degradation so the UI can surface it as a banner.
-    let api_key = match config
-        .deepseek_api_key
-        .clone()
-        .or_else(|| std::env::var("DEEPSEEK_API_KEY").ok())
-    {
+    // An explicitly configured empty key disables the environment fallback.
+    // This gives callers (and tests) a deterministic way to request the
+    // heuristic path even when the process happens to have a key set.
+    let configured_key = config.deepseek_api_key.as_ref().map(|key| key.trim());
+    let api_key = match configured_key {
+        Some("") => None,
+        Some(key) => Some(key.to_owned()),
+        None => std::env::var("DEEPSEEK_API_KEY")
+            .ok()
+            .filter(|key| !key.trim().is_empty()),
+    };
+    let api_key = match api_key {
         Some(k) => k,
         None => {
             // No key configured — go straight to heuristic with a
@@ -248,47 +255,45 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
         .await;
 
     // (yaml, source, optional degradation_reason)
-    let (openapi_yaml, source, degradation): (String, SpecSource, Option<String>) = match llm_attempt {
-        Ok(v) => match validate_paths_object(&v) {
-            Ok(()) => {
-                // LLM succeeded. Also run heuristic, then merge: LLM paths win,
-                // heuristic fills in any (method, template) the LLM missed.
-                let llm_paths_map = v.get("paths").cloned().unwrap_or(serde_json::json!({}));
-                let heuristic = build_spec_heuristic(&req)?;
-                let merged_map = merge_paths(&llm_paths_map, &heuristic);
-                let label = if merged_map.used_heuristic {
-                    SpecSource::Hybrid
-                } else {
-                    SpecSource::Llm
-                };
-                let rendered = render_paths_as_openapi(
-                    &merged_map.paths,
-                    &req.session_id,
-                    label,
-                );
-                // Hybrid is "good enough" — no banner. Pure Llm
-                // also clean. We only flag a reason on Heuristic
-                // fallback below.
-                (rendered, label, None)
-            }
+    let (openapi_yaml, source, degradation): (String, SpecSource, Option<String>) =
+        match llm_attempt {
+            Ok(v) => match validate_paths_object(&v) {
+                Ok(()) => {
+                    // LLM succeeded. Also run heuristic, then merge: LLM paths win,
+                    // heuristic fills in any (method, template) the LLM missed.
+                    let llm_paths_map = v.get("paths").cloned().unwrap_or(serde_json::json!({}));
+                    let heuristic = build_spec_heuristic(&req)?;
+                    let merged_map = merge_paths(&llm_paths_map, &heuristic);
+                    let label = if merged_map.used_heuristic {
+                        SpecSource::Hybrid
+                    } else {
+                        SpecSource::Llm
+                    };
+                    let rendered =
+                        render_paths_as_openapi(&merged_map.paths, &req.session_id, label);
+                    // Hybrid is "good enough" — no banner. Pure Llm
+                    // also clean. We only flag a reason on Heuristic
+                    // fallback below.
+                    (rendered, label, None)
+                }
+                Err(e) => {
+                    let r = build_spec_heuristic(&req)?;
+                    let reason = format!(
+                        "LLM 输出不符合 schema，已用启发式生成（覆盖度可能较低）: {}",
+                        truncate_reason(&e.to_string())
+                    );
+                    (extract_openapi_yaml(&r), r.source, Some(reason))
+                }
+            },
             Err(e) => {
                 let r = build_spec_heuristic(&req)?;
                 let reason = format!(
-                    "LLM 输出不符合 schema，已用启发式生成（覆盖度可能较低）: {}",
+                    "LLM 调用失败，已用启发式生成: {}",
                     truncate_reason(&e.to_string())
                 );
                 (extract_openapi_yaml(&r), r.source, Some(reason))
             }
-        },
-        Err(e) => {
-            let r = build_spec_heuristic(&req)?;
-            let reason = format!(
-                "LLM 调用失败，已用启发式生成: {}",
-                truncate_reason(&e.to_string())
-            );
-            (extract_openapi_yaml(&r), r.source, Some(reason))
-        }
-    };
+        };
 
     // AsyncAPI: try LLM, fall back to heuristic on failure or no frames.
     // Only attempt LLM if the OpenAPI source indicates LLM was reachable
@@ -300,8 +305,7 @@ pub async fn build_spec(req: SpecRequest, config: &SpecConfig) -> Result<SpecRes
     result.degradation_reason = degradation;
 
     if matches!(source, SpecSource::Llm | SpecSource::Hybrid) {
-        if let Some(asyncapi_yaml) =
-            build_asyncapi_with_llm(&req, &client, config.max_retry).await
+        if let Some(asyncapi_yaml) = build_asyncapi_with_llm(&req, &client, config.max_retry).await
         {
             result.asyncapi = Some(SpecOutput::AsyncApi(asyncapi_yaml));
         }
@@ -350,10 +354,7 @@ struct MergedPaths {
 
 /// Merge LLM paths with heuristic paths. LLM paths take precedence. Heuristic
 /// fills in any path template the LLM missed.
-fn merge_paths(
-    llm_paths: &serde_json::Value,
-    heuristic: &SpecResult,
-) -> MergedPaths {
+fn merge_paths(llm_paths: &serde_json::Value, heuristic: &SpecResult) -> MergedPaths {
     use std::collections::BTreeMap;
     // Convert the LLM's "paths" object into typed path items.
     let mut typed: BTreeMap<String, render::OpenApiPathItem> = BTreeMap::new();
@@ -462,7 +463,10 @@ async fn build_asyncapi_with_llm(
         .await
         .ok()?;
     let channels_value = v.get("channels")?.clone();
-    Some(render_channels_as_asyncapi(&channels_value, &req.session_id))
+    Some(render_channels_as_asyncapi(
+        &channels_value,
+        &req.session_id,
+    ))
 }
 
 fn render_channels_as_asyncapi(channels_map: &serde_json::Value, session_id: &str) -> String {
@@ -470,8 +474,8 @@ fn render_channels_as_asyncapi(channels_map: &serde_json::Value, session_id: &st
     let mut typed: BTreeMap<String, render::AsyncApiChannel> = BTreeMap::new();
     if let Some(obj) = channels_map.as_object() {
         for (k, v) in obj {
-            let item: render::AsyncApiChannel = serde_json::from_value(v.clone())
-                .unwrap_or_else(|_| render::AsyncApiChannel {
+            let item: render::AsyncApiChannel =
+                serde_json::from_value(v.clone()).unwrap_or_else(|_| render::AsyncApiChannel {
                     description: format!("LLM channel for {k}"),
                     subscribe: None,
                     publish: None,
@@ -518,7 +522,8 @@ fn render_paths_as_openapi(
     let mut typed: BTreeMap<String, render::OpenApiPathItem> = BTreeMap::new();
     if let Some(obj) = paths_map.as_object() {
         for (k, v) in obj {
-            let item: render::OpenApiPathItem = serde_json::from_value(v.clone()).unwrap_or_default();
+            let item: render::OpenApiPathItem =
+                serde_json::from_value(v.clone()).unwrap_or_default();
             typed.insert(k.clone(), item);
         }
     }
@@ -777,18 +782,13 @@ mod tests {
         // rejects any operationId we produced, this fails with
         // the offending id in the error message.
         let doc: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
-        let mut as_json: serde_json::Value =
-            serde_json::to_value(doc).unwrap();
+        let mut as_json: serde_json::Value = serde_json::to_value(doc).unwrap();
         // The schema requires `paths` at the root + the field's
         // own shape; we strip everything else to match the LLM
         // wire format.
-        let paths = as_json
-            .get_mut("paths")
-            .unwrap()
-            .take();
+        let paths = as_json.get_mut("paths").unwrap().take();
         let candidate = serde_json::json!({ "paths": paths });
-        validate_paths_object(&candidate)
-            .expect("heuristic output should pass the LLM schema");
+        validate_paths_object(&candidate).expect("heuristic output should pass the LLM schema");
     }
 
     /// Without a DeepSeek key, `build_spec` must not error — it
@@ -798,22 +798,15 @@ mod tests {
     /// the user got nothing.
     #[tokio::test]
     async fn build_spec_falls_back_to_heuristic_without_api_key() {
-        use std::sync::Mutex;
-        // Tests in this crate run in parallel; env var mutations
-        // need a process-wide guard or they race. Use a one-shot
-        // lock to serialise just this test's env touch.
-        static LOCK: Mutex<()> = Mutex::new(());
-        let _guard = LOCK.lock().unwrap();
-        let prev = std::env::var("DEEPSEEK_API_KEY").ok();
-        std::env::remove_var("DEEPSEEK_API_KEY");
-
         let req = SpecRequest {
             session_id: "no-key".into(),
             traffic_records: vec![rec("GET", "/api/users/1", TrafficKind::Http)],
             inferred: None,
         };
         let cfg = SpecConfig {
-            deepseek_api_key: None,
+            // Empty is an explicit opt-out, so this test remains
+            // deterministic even when the developer has an env key.
+            deepseek_api_key: Some(String::new()),
             // Replay would try to bind a port and run the mock —
             // not what we're testing here. Disable for a fast path.
             enable_replay_validation: false,
@@ -821,11 +814,6 @@ mod tests {
         };
 
         let result = build_spec(req, &cfg).await.expect("falls back, not errors");
-
-        // Restore env before asserting in case the assert panics.
-        if let Some(v) = prev {
-            std::env::set_var("DEEPSEEK_API_KEY", v);
-        }
 
         assert_eq!(result.source, SpecSource::Heuristic);
         let reason = result.degradation_reason.expect("reason populated");

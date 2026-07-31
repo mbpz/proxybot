@@ -13,9 +13,7 @@ use crate::ssl_bypass::custom_scripts;
 pub struct FridaState(pub Arc<FridaManager>);
 
 #[tauri::command]
-pub fn frida_list_devices(
-    state: State<'_, FridaState>,
-) -> Result<Vec<DeviceInfo>, String> {
+pub fn frida_list_devices(state: State<'_, FridaState>) -> Result<Vec<DeviceInfo>, String> {
     state.0.list_devices()
 }
 
@@ -36,7 +34,11 @@ pub fn frida_inject_script(
     state: State<'_, FridaState>,
 ) -> Result<SessionHandle, String> {
     let script = bypass_scripts::get_script(&script_id)
-        .or_else(|| custom_scripts::load_custom_scripts().into_iter().find(|s| s.id == script_id))
+        .or_else(|| {
+            custom_scripts::load_custom_scripts()
+                .into_iter()
+                .find(|s| s.id == script_id)
+        })
         .ok_or_else(|| format!("Script '{}' not found", script_id))?;
     state
         .0
@@ -44,10 +46,7 @@ pub fn frida_inject_script(
 }
 
 #[tauri::command]
-pub fn frida_detach(
-    session_id: String,
-    state: State<'_, FridaState>,
-) -> Result<(), String> {
+pub fn frida_detach(session_id: String, state: State<'_, FridaState>) -> Result<(), String> {
     state.0.detach(&session_id)
 }
 

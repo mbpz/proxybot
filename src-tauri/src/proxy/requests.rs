@@ -1,8 +1,8 @@
 //! InterceptedRequest construction, persistence emission, and device lookup.
 
 use super::protocol::{
-    body_to_string, decompress_body, extract_query_params, parse_http_response, try_decode_graphql_body,
-    try_decode_grpc_body,
+    body_to_string, decompress_body, extract_query_params, parse_http_response,
+    try_decode_graphql_body, try_decode_grpc_body,
 };
 use super::{DeviceContext, InterceptedRequest, ProxyContext};
 use crate::db::{record_http_request, DbState};
@@ -28,11 +28,7 @@ pub(super) fn emit_and_record(ctx: &ProxyContext, req: InterceptedRequest) {
     let _ = ctx.event_tx.send(req.clone());
 
     if let Ok(conn) = ctx.db_state.conn.lock() {
-        let session_id = ctx
-            .active_session_id
-            .lock()
-            .ok()
-            .and_then(|g| g.clone());
+        let session_id = ctx.active_session_id.lock().ok().and_then(|g| g.clone());
         let _ = record_http_request(
             &conn,
             &req.timestamp,
@@ -54,6 +50,8 @@ pub(super) fn emit_and_record(ctx: &ProxyContext, req: InterceptedRequest) {
 }
 
 /// Build an InterceptedRequest from a captured request and buffered response.
+// This constructor mirrors the complete captured request record.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_intercepted_request(
     method: String,
     scheme: String,

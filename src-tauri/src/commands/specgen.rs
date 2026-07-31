@@ -20,8 +20,8 @@ use proxybot_core::{
     build_spec, SpecConfig, SpecOutput, SpecRequest, SpecResult, TrafficKind, TrafficRecord,
 };
 
-use crate::state::AppState;
 use crate::db::DbState;
+use crate::state::AppState;
 
 use proxybot_core::specgen::replay::run_replay as core_run_replay;
 use proxybot_core::ReplayReport;
@@ -53,9 +53,7 @@ pub async fn generate_spec(
         traffic_records: records,
         inferred: None,
     };
-    let result = build_spec(req, &config)
-        .await
-        .map_err(|e| e.to_string())?;
+    let result = build_spec(req, &config).await.map_err(|e| e.to_string())?;
 
     // Persist the full result to disk so export_spec and
     // run_replay_validation can read it back later.
@@ -164,7 +162,10 @@ fn resolve_records(
 /// Lets the UI set the DeepSeek API key, tune retry counts, toggle
 /// replay validation, and pick a mock port without restarting the app.
 #[tauri::command]
-pub fn update_specgen_config(state: State<'_, Arc<AppState>>, config: SpecConfig) -> Result<(), String> {
+pub fn update_specgen_config(
+    state: State<'_, Arc<AppState>>,
+    config: SpecConfig,
+) -> Result<(), String> {
     state.set_specgen_config(config);
     Ok(())
 }
@@ -174,9 +175,7 @@ pub fn update_specgen_config(state: State<'_, Arc<AppState>>, config: SpecConfig
 /// Mostly useful for the UI to show "is the API key set?" without
 /// exposing the actual key value.
 #[tauri::command]
-pub fn get_specgen_config(
-    state: State<'_, Arc<AppState>>,
-) -> Result<SpecConfig, String> {
+pub fn get_specgen_config(state: State<'_, Arc<AppState>>) -> Result<SpecConfig, String> {
     Ok(state.specgen_config_snapshot())
 }
 
@@ -197,7 +196,7 @@ pub fn set_active_session(
 ) -> Result<(), String> {
     // An empty string from the UI is treated the same as None so
     // the on-disk session_id column stays NULL for "untagged".
-    let normalised = session_id.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    let normalised = session_id.filter(|s| !s.is_empty());
     state.set_active_session_id(normalised);
     Ok(())
 }
@@ -267,8 +266,11 @@ fn load_traffic_records(
             .or_else(|_| {
                 // Fall back to SQLite's "YYYY-MM-DD HH:MM:SS" format used
                 // by `timestamp_now_for_ws` and most older rows.
-                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S")
-                    .map(|ndt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc))
+                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S").map(
+                    |ndt| {
+                        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc)
+                    },
+                )
             })
             .unwrap_or_else(|_| chrono::Utc::now());
 
@@ -326,8 +328,8 @@ fn decode_body(bytes: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proxybot_core::TrafficKind;
     use chrono::Utc;
+    use proxybot_core::TrafficKind;
 
     fn rec(method: &str, path: &str, kind: TrafficKind) -> TrafficRecord {
         TrafficRecord {

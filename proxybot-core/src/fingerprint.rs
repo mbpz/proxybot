@@ -180,7 +180,10 @@ pub fn get_default_signatures() -> Vec<AppSignature> {
             fingerprints: vec![TlsFingerprint::new(
                 "TLS 1.3".into(),
                 vec!["TLS_AES_128_GCM_SHA256".into()],
-                vec!["server_name".into(), "application_layer_protocol_negotiation".into()],
+                vec![
+                    "server_name".into(),
+                    "application_layer_protocol_negotiation".into(),
+                ],
                 vec!["x25519".into(), "secp256r1".into()],
                 vec!["h2".into(), "http/1.1".into()],
             )],
@@ -354,8 +357,12 @@ mod tests {
             app_name: "My App".into(),
             icon: "M".into(),
             conditions: vec![
-                RuleCondition::Sni { pattern: "*.mycompany.com".into() },
-                RuleCondition::CipherSuite { value: "TLS_AES_128_GCM_SHA256".into() },
+                RuleCondition::Sni {
+                    pattern: "*.mycompany.com".into(),
+                },
+                RuleCondition::CipherSuite {
+                    value: "TLS_AES_128_GCM_SHA256".into(),
+                },
             ],
             confidence: 0.8,
         };

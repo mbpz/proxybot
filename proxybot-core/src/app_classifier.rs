@@ -485,7 +485,11 @@ pub fn get_default_rules() -> Vec<AppRule> {
         AppRule {
             name: "eBay".to_string(),
             icon: "🏷️".to_string(),
-            domains: vec!["ebay.com".to_string(), "ebayimg.com".to_string(), "ebaystatic.com".to_string()],
+            domains: vec![
+                "ebay.com".to_string(),
+                "ebayimg.com".to_string(),
+                "ebaystatic.com".to_string(),
+            ],
         },
         // ─── v0.9.0: Tech / Cloud / Dev ────────────────────────────────
         AppRule {
@@ -547,10 +551,7 @@ pub fn get_default_rules() -> Vec<AppRule> {
         AppRule {
             name: "PayPal".to_string(),
             icon: "💵".to_string(),
-            domains: vec![
-                "paypal.com".to_string(),
-                "paypalobjects.com".to_string(),
-            ],
+            domains: vec!["paypal.com".to_string(), "paypalobjects.com".to_string()],
         },
         AppRule {
             name: "Stripe".to_string(),
@@ -693,7 +694,10 @@ mod tests {
         // Must NOT match look-alike domains
         assert!(!host_matches_domain("qq.com.evil.com", "qq.com"));
         assert!(!host_matches_domain("douyin.com.fake.com", "douyin.com"));
-        assert!(!host_matches_domain("alipay.com.phishing.com", "alipay.com"));
+        assert!(!host_matches_domain(
+            "alipay.com.phishing.com",
+            "alipay.com"
+        ));
     }
 
     #[test]

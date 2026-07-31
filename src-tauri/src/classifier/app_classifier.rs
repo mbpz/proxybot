@@ -60,6 +60,12 @@ pub enum RuleCondition {
     Alpn { value: String },
 }
 
+impl Default for AppClassifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppClassifier {
     pub fn new() -> Self {
         Self {

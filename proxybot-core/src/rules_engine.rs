@@ -76,7 +76,7 @@ impl RulesEngine {
     pub fn add_app_rule(&mut self, app: &str, domains: Vec<String>) {
         self.app_rules
             .entry(app.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .extend(domains);
     }
 
@@ -138,8 +138,7 @@ pub fn host_matches_domain(host: &str, domain: &str) -> bool {
     let host = host.to_lowercase();
     let domain = domain.to_lowercase();
 
-    if domain.starts_with("*.") {
-        let suffix = &domain[2..];
+    if let Some(suffix) = domain.strip_prefix("*.") {
         if host == suffix {
             return true;
         }
@@ -218,12 +217,45 @@ fn geoip_match(host: &str, country: &str) -> bool {
     let detected = match ip {
         std::net::IpAddr::V4(v4) => {
             let o = v4.octets();
-            if o[0] == 10 || (o[0] == 172 && o[1] >= 16 && o[1] <= 31) || (o[0] == 192 && o[1] == 168) || o[0] == 127 { "LAN" }
-            else if matches!(o[0], 3 | 8 | 18 | 20 | 23 | 34 | 40 | 51 | 52 | 54 | 65 | 70 | 104 | 130 | 137 | 146 | 157 | 191) { "US" }
-            else if matches!(o[0], 47 | 101 | 106 | 114 | 118 | 120 | 121 | 139 | 149 | 182) { "CN" }
-            else if matches!(o[0], 63 | 176) { "IE" }
-            else if matches!(o[0], 13 | 35 | 175) { "JP" }
-            else { "XX" }
+            if o[0] == 10
+                || (o[0] == 172 && o[1] >= 16 && o[1] <= 31)
+                || (o[0] == 192 && o[1] == 168)
+                || o[0] == 127
+            {
+                "LAN"
+            } else if matches!(
+                o[0],
+                3 | 8
+                    | 18
+                    | 20
+                    | 23
+                    | 34
+                    | 40
+                    | 51
+                    | 52
+                    | 54
+                    | 65
+                    | 70
+                    | 104
+                    | 130
+                    | 137
+                    | 146
+                    | 157
+                    | 191
+            ) {
+                "US"
+            } else if matches!(
+                o[0],
+                47 | 101 | 106 | 114 | 118 | 120 | 121 | 139 | 149 | 182
+            ) {
+                "CN"
+            } else if matches!(o[0], 63 | 176) {
+                "IE"
+            } else if matches!(o[0], 13 | 35 | 175) {
+                "JP"
+            } else {
+                "XX"
+            }
         }
         std::net::IpAddr::V6(_) => "XX",
     };
@@ -246,7 +278,10 @@ mod tests {
     fn test_wildcard_match() {
         assert!(host_matches_domain("api.weixin.qq.com", "*.weixin.qq.com"));
         assert!(host_matches_domain("weixin.qq.com", "*.weixin.qq.com"));
-        assert!(!host_matches_domain("evil.weixin.qq.com.evil.com", "*.weixin.qq.com"));
+        assert!(!host_matches_domain(
+            "evil.weixin.qq.com.evil.com",
+            "*.weixin.qq.com"
+        ));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Tauri command for generating device-onboarding QR codes.
 
-use qrcode::QrCode;
 use qrcode::render::svg;
+use qrcode::QrCode;
 
 use crate::proxy::ProxyState;
 use std::sync::Arc;
@@ -32,10 +32,7 @@ pub fn generate_device_qr(
         .ok_or_else(|| format!("Invalid platform: {}", platform))?;
 
     let code = QrCode::new(url.as_bytes()).map_err(|e| format!("QR encode error: {}", e))?;
-    Ok(code
-        .render::<svg::Color>()
-        .max_dimensions(300, 300)
-        .build())
+    Ok(code.render::<svg::Color>().max_dimensions(300, 300).build())
 }
 
 /// Build the LAN URL that the QR code encodes.
@@ -57,13 +54,19 @@ mod tests {
     #[test]
     fn test_build_qr_url_ios() {
         let url = build_qr_url("ios", "192.168.1.5", 19876);
-        assert_eq!(url, Some("http://192.168.1.5:19876/ios.mobileconfig".to_string()));
+        assert_eq!(
+            url,
+            Some("http://192.168.1.5:19876/ios.mobileconfig".to_string())
+        );
     }
 
     #[test]
     fn test_build_qr_url_android() {
         let url = build_qr_url("android", "192.168.1.5", 19876);
-        assert_eq!(url, Some("http://192.168.1.5:19876/android-setup".to_string()));
+        assert_eq!(
+            url,
+            Some("http://192.168.1.5:19876/android-setup".to_string())
+        );
     }
 
     #[test]
@@ -85,7 +88,12 @@ mod tests {
             let code = QrCode::new(url.as_bytes()).unwrap();
             let svg = code.render::<svg::Color>().max_dimensions(300, 300).build();
             // qrcode 0.14 SVG may start with <?xml or <svg
-            assert!(svg.contains("<svg"), "platform {} produced non-SVG output: {}", platform, &svg[..svg.len().min(100)]);
+            assert!(
+                svg.contains("<svg"),
+                "platform {} produced non-SVG output: {}",
+                platform,
+                &svg[..svg.len().min(100)]
+            );
             assert!(svg.contains("</svg>"));
         }
     }

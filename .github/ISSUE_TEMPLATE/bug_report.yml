@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible ProxyBot problem
+title: "[Bug]: "
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach captured traffic, private keys, tokens, or other sensitive data. Report vulnerabilities through GitHub Security Advisories.
+  - type: input
+    id: version
+    attributes:
+      label: ProxyBot version
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS version, Mac architecture, and device platform
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start ProxyBot with ...
+        2. Configure ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, private keys, certificates, personal data, and captured payloads.
+          required: true
+        - label: This is not an undisclosed security vulnerability.
+          required: true

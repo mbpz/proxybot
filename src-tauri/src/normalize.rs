@@ -259,6 +259,8 @@ pub fn parse_headers(headers: &[(String, String)]) -> Value {
 }
 
 /// Normalize a single HTTP request record from the database.
+// This adapter intentionally mirrors the selected database row.
+#[allow(clippy::too_many_arguments)]
 pub fn normalize_http_record(
     id: i64,
     timestamp: &str,
@@ -458,7 +460,11 @@ mod tests {
     #[test]
     fn test_parse_query_params_key_without_value_is_null() {
         let result = parse_query_params("flag");
-        assert_eq!(result["flag"], Value::Null, "Bare key (no '=') should map to null");
+        assert_eq!(
+            result["flag"],
+            Value::Null,
+            "Bare key (no '=') should map to null"
+        );
     }
 
     #[test]
@@ -481,7 +487,10 @@ mod tests {
     #[test]
     fn test_parse_query_params_empty_value_is_empty_string() {
         let result = parse_query_params("empty=&filled=v");
-        assert_eq!(result["empty"], "", "Empty value (a=) should be empty string");
+        assert_eq!(
+            result["empty"], "",
+            "Empty value (a=) should be empty string"
+        );
         assert_eq!(result["filled"], "v");
     }
 
@@ -560,7 +569,10 @@ mod tests {
         assert_eq!(result.format, BodyFormat::Binary);
         // `raw` is base64 of the original bytes
         assert!(result.raw.is_some());
-        assert!(result.parsed.is_null(), "Binary should leave `parsed` as null");
+        assert!(
+            result.parsed.is_null(),
+            "Binary should leave `parsed` as null"
+        );
     }
 
     #[test]
@@ -677,7 +689,17 @@ mod tests {
     #[test]
     fn test_normalize_http_record_no_query_string_yields_empty_query() {
         let rec = normalize_http_record(
-            1, "ts", "GET", "/plain", "{}", None, Some(200), "{}", None, None, None,
+            1,
+            "ts",
+            "GET",
+            "/plain",
+            "{}",
+            None,
+            Some(200),
+            "{}",
+            None,
+            None,
+            None,
         );
         assert!(rec.query.as_object().unwrap().is_empty());
     }
@@ -688,14 +710,27 @@ mod tests {
         let rec = normalize_http_record(
             1, "ts", "GET", "/", "{}", None, None, "{}", None, None, None,
         );
-        assert_eq!(rec.response_status, 0, "None resp_status should default to 0");
+        assert_eq!(
+            rec.response_status, 0,
+            "None resp_status should default to 0"
+        );
         assert_eq!(rec.timing_ms, 0, "None duration_ms should default to 0");
     }
 
     #[test]
     fn test_normalize_http_record_missing_body_yields_null_text() {
         let rec = normalize_http_record(
-            1, "ts", "POST", "/", "{}", None, Some(200), "{}", None, None, None,
+            1,
+            "ts",
+            "POST",
+            "/",
+            "{}",
+            None,
+            Some(200),
+            "{}",
+            None,
+            None,
+            None,
         );
         // No body — `request_body` should be the null sentinel
         assert!(rec.request_body.is_null());
@@ -707,7 +742,17 @@ mod tests {
         let req_headers = r#"{"Content-Type": "application/json"}"#;
         let req_body = Some(br#"{"hello": "world"}"# as &[u8]);
         let rec = normalize_http_record(
-            1, "ts", "POST", "/", req_headers, req_body, Some(200), "{}", None, None, None,
+            1,
+            "ts",
+            "POST",
+            "/",
+            req_headers,
+            req_body,
+            Some(200),
+            "{}",
+            None,
+            None,
+            None,
         );
         assert_eq!(rec.request_body["hello"], "world");
     }
@@ -717,7 +762,17 @@ mod tests {
         let resp_headers = r#"{"content-type": "application/json"}"#;
         let resp_body = Some(br#"{"ok": true}"# as &[u8]);
         let rec = normalize_http_record(
-            1, "ts", "GET", "/", "{}", None, Some(200), resp_headers, resp_body, None, None,
+            1,
+            "ts",
+            "GET",
+            "/",
+            "{}",
+            None,
+            Some(200),
+            resp_headers,
+            resp_body,
+            None,
+            None,
         );
         // lowercase content-type header is still detected
         assert_eq!(rec.response_body["ok"], true);
@@ -726,7 +781,17 @@ mod tests {
     #[test]
     fn test_normalize_http_record_preserves_device_id() {
         let rec = normalize_http_record(
-            1, "ts", "GET", "/", "{}", None, Some(200), "{}", None, Some(42), Some(7),
+            1,
+            "ts",
+            "GET",
+            "/",
+            "{}",
+            None,
+            Some(200),
+            "{}",
+            None,
+            Some(42),
+            Some(7),
         );
         assert_eq!(rec.device_id, Some(7));
     }
@@ -736,7 +801,17 @@ mod tests {
         // Malformed req_headers/resp_headers JSON must not panic — should
         // fall back to an empty object via `unwrap_or`.
         let rec = normalize_http_record(
-            1, "ts", "GET", "/", "not json", None, Some(200), "also not json", None, None, None,
+            1,
+            "ts",
+            "GET",
+            "/",
+            "not json",
+            None,
+            Some(200),
+            "also not json",
+            None,
+            None,
+            None,
         );
         assert!(rec.request_headers.as_object().unwrap().is_empty());
         assert!(rec.response_headers.as_object().unwrap().is_empty());
@@ -749,6 +824,7 @@ mod tests {
     /// Insert a synthetic http_requests row directly via SQL. Required
     /// columns (scheme, host) get safe defaults; optional columns are
     /// parameterized so each test can pick what it cares about.
+    #[allow(clippy::too_many_arguments)]
     fn insert_http_row(
         conn: &Connection,
         timestamp: &str,
@@ -764,7 +840,15 @@ mod tests {
                (timestamp, method, scheme, host, path, req_headers, req_body,
                 resp_status, resp_headers, resp_body, duration_ms)
              VALUES (?1, ?2, 'https', 'example.com', ?3, '{}', ?4, ?5, '{}', ?6, ?7)",
-            rusqlite::params![timestamp, method, path, req_body, resp_status, resp_body, duration_ms],
+            rusqlite::params![
+                timestamp,
+                method,
+                path,
+                req_body,
+                resp_status,
+                resp_body,
+                duration_ms
+            ],
         )
         .unwrap();
         conn.last_insert_rowid()
@@ -852,16 +936,16 @@ mod tests {
              VALUES ('2026-06-04 00:00:00', 'POST', 'https', 'example.com', '/x',
                      '{\"Content-Type\": \"application/json\"}', ?1, 200,
                      '{\"Content-Type\": \"application/json\"}', ?2, 30)",
-            rusqlite::params![
-                Some(b"{\"a\": 1}" as &[u8]),
-                Some(b"{\"b\": 2}" as &[u8]),
-            ],
+            rusqlite::params![Some(b"{\"a\": 1}" as &[u8]), Some(b"{\"b\": 2}" as &[u8]),],
         )
         .unwrap();
 
         let records = get_normalized_traffic_internal(&conn, None).unwrap();
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0].request_body["a"], 1, "Persisted JSON body should round-trip parsed");
+        assert_eq!(
+            records[0].request_body["a"], 1,
+            "Persisted JSON body should round-trip parsed"
+        );
         assert_eq!(records[0].response_body["b"], 2);
     }
 
@@ -950,11 +1034,17 @@ mod tests {
 
         let page0 = get_traffic_page_internal(&conn, 0, 2).unwrap();
         assert_eq!(page0.records.len(), 2);
-        assert!(page0.has_more, "page 0 of exact-fit 2-of-4 should have more");
+        assert!(
+            page0.has_more,
+            "page 0 of exact-fit 2-of-4 should have more"
+        );
 
         let page1 = get_traffic_page_internal(&conn, 1, 2).unwrap();
         assert_eq!(page1.records.len(), 2);
         // (1+1)*2 = 4 = total — not strictly less, so has_more is false.
-        assert!(!page1.has_more, "Boundary page (consumes all rows) must NOT have_more");
+        assert!(
+            !page1.has_more,
+            "Boundary page (consumes all rows) must NOT have_more"
+        );
     }
 }

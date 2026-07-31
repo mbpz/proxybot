@@ -21,6 +21,9 @@ use std::sync::atomic::Ordering;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+// Parameters mirror the parsed wire request; consolidation belongs with the
+// proxy-runtime Module refactor rather than this protocol handler.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_http(
     ctx: ProxyContext,
     device_ctx: Option<DeviceContext>,
@@ -64,7 +67,11 @@ pub(super) async fn handle_http(
             return Ok(());
         }
         crate::scripting::engine::ScriptResult::RewriteBody(new_body) => {
-            log::info!("Rhai script rewrote request body for {} {}", request_ctx.method, request_ctx.host);
+            log::info!(
+                "Rhai script rewrote request body for {} {}",
+                request_ctx.method,
+                request_ctx.host
+            );
             request_ctx.req_body = Some(new_body);
         }
         crate::scripting::engine::ScriptResult::Continue => {}
@@ -174,11 +181,7 @@ pub(super) async fn handle_http(
                         &ctx.dns_state,
                     );
                     if let Ok(conn) = ctx.db_state.conn.lock() {
-                        let session_id = ctx
-                            .active_session_id
-                            .lock()
-                            .ok()
-                            .and_then(|g| g.clone());
+                        let session_id = ctx.active_session_id.lock().ok().and_then(|g| g.clone());
                         match record_http_request(
                             &conn,
                             &ts,
@@ -252,19 +255,16 @@ pub(super) async fn handle_http(
                 &mut response_ctx,
                 &request_ctx,
             );
-            match ctx.scripts.run_all_on_response(&response_ctx, &request_ctx) {
-                crate::scripting::engine::ScriptResult::RewriteBody(new_body) => {
-                    response_ctx.body = Some(new_body);
-                }
-                _ => {}
+            if let crate::scripting::engine::ScriptResult::RewriteBody(new_body) =
+                ctx.scripts.run_all_on_response(&response_ctx, &request_ctx)
+            {
+                response_ctx.body = Some(new_body);
             }
 
             // Classify by direct domain match first, then fall back to DNS correlation
             // (host-string, then IP).
-            let resolved_ip: Option<String> = target_stream
-                .peer_addr()
-                .ok()
-                .map(|a| a.ip().to_string());
+            let resolved_ip: Option<String> =
+                target_stream.peer_addr().ok().map(|a| a.ip().to_string());
             let app_info = crate::proxy::classify::classify_captured_request(
                 host,
                 &client_addr.ip().to_string(),
@@ -310,11 +310,7 @@ pub(super) async fn handle_http(
 
             // Record to database for TUI/persistence
             if let Ok(conn) = ctx.db_state.conn.lock() {
-                let session_id = ctx
-                    .active_session_id
-                    .lock()
-                    .ok()
-                    .and_then(|g| g.clone());
+                let session_id = ctx.active_session_id.lock().ok().and_then(|g| g.clone());
                 let _ = record_http_request(
                     &conn,
                     &req.timestamp,

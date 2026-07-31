@@ -71,7 +71,10 @@ impl AiTracker {
         };
 
         // Try to extract model from request body
-        let model = req.req_body.as_ref().and_then(|b| AiDecoder::extract_model(b));
+        let model = req
+            .req_body
+            .as_ref()
+            .and_then(|b| AiDecoder::extract_model(b));
 
         // Try to extract actual token usage from response body
         let usage = req

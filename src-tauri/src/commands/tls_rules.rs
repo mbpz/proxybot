@@ -70,9 +70,7 @@ pub fn reload_tls_rules(
 
 /// List the configured TLS decryption rules with their hit counts.
 #[tauri::command]
-pub fn get_tls_rules(
-    db_state: State<'_, Arc<DbState>>,
-) -> Result<Vec<TlsRuleRow>, String> {
+pub fn get_tls_rules(db_state: State<'_, Arc<DbState>>) -> Result<Vec<TlsRuleRow>, String> {
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
     db::get_tls_rules(&conn)
 }
@@ -128,7 +126,11 @@ mod tests {
 
     #[test]
     fn action_round_trips() {
-        for a in [TlsAction::Decrypt, TlsAction::Bypass, TlsAction::Passthrough] {
+        for a in [
+            TlsAction::Decrypt,
+            TlsAction::Bypass,
+            TlsAction::Passthrough,
+        ] {
             assert_eq!(parse_action(action_to_str(a)), a);
         }
     }

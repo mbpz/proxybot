@@ -9,6 +9,7 @@ pub use proxybot_core as core;
 
 pub mod adb;
 pub mod ai;
+pub mod ai_pipeline;
 pub mod anomaly;
 pub mod app_rules;
 pub mod cdp;
@@ -29,9 +30,8 @@ pub mod graphql;
 pub mod har;
 pub mod history;
 pub mod infer;
-pub mod metrics;
-pub mod ai_pipeline;
 pub mod mcp;
+pub mod metrics;
 pub mod mockgen;
 pub mod network;
 pub mod normalize;
@@ -57,8 +57,8 @@ pub mod workspace;
 // Re-exported so the GUI binary can call them without reaching into the
 // module hierarchy.
 pub use workspace::manager::{
-    export_workspace, import_workspace, init_workspace, list_workspaces,
-    switch_workspace, workspace_status,
+    export_workspace, import_workspace, init_workspace, list_workspaces, switch_workspace,
+    workspace_status,
 };
 pub mod ws_frames;
 pub use classifier::*;
@@ -77,7 +77,9 @@ use anomaly::{
 };
 use cert::CertManager;
 use db::DbState;
-use deploy::{generate_deployment_bundle, get_last_deployment, git_init_deployment, write_deployment_bundle};
+use deploy::{
+    generate_deployment_bundle, get_last_deployment, git_init_deployment, write_deployment_bundle,
+};
 use dns::DnsState;
 #[allow(unused_imports)]
 use mockgen::{generate_mock_project, get_mock_endpoints, start_mock_server, write_mock_project};
@@ -413,10 +415,17 @@ pub fn run() {
 }
 
 #[tauri::command]
-async fn start_dashboard(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> Result<String, String> {
+async fn start_dashboard(
+    dashboard: State<'_, Arc<dashboard::DashboardServer>>,
+) -> Result<String, String> {
     let lan_ip = crate::network::get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string());
     dashboard.start().await?;
-    Ok(format!("http://{}:{}?token={}", lan_ip, dashboard.port(), dashboard.token()))
+    Ok(format!(
+        "http://{}:{}?token={}",
+        lan_ip,
+        dashboard.port(),
+        dashboard.token()
+    ))
 }
 
 #[tauri::command]
@@ -431,9 +440,16 @@ fn is_dashboard_running(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -
 }
 
 #[tauri::command]
-fn get_dashboard_url(dashboard: State<'_, Arc<dashboard::DashboardServer>>) -> Result<String, String> {
+fn get_dashboard_url(
+    dashboard: State<'_, Arc<dashboard::DashboardServer>>,
+) -> Result<String, String> {
     let lan_ip = crate::network::get_local_ip().unwrap_or_else(|| "0.0.0.0".to_string());
-    Ok(format!("http://{}:{}?token={}", lan_ip, dashboard.port(), dashboard.token()))
+    Ok(format!(
+        "http://{}:{}?token={}",
+        lan_ip,
+        dashboard.port(),
+        dashboard.token()
+    ))
 }
 
 /// Build the network topology graph from current traffic.

@@ -9,18 +9,25 @@ lerna-debug.log*
 
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build outputs
 dist/
 dist-ssr
 *.local
+*.tsbuildinfo
+/vite.config.js
+/vite.config.d.ts
 target/
 proxybot-core/target/
 /src-tauri/Cargo.lock
 
-# Generated documentation sites
+# Downloaded third-party bundle resources
+/src-tauri/resources/apktool.jar
+/src-tauri/resources/frida-gadget/
+
+# Generated documentation site
 site/
-public/
 
 # Editor directories and files
 .vscode/*
@@ -55,6 +62,11 @@ homebrew-proxybot/
 # Pencil design files
 *.pen
 /proxybot-*.png
+
+# Local agent/session artifacts
+/handoff/
+/ralph/
+/progress.txt
 
 # Generated Rust files
 # (handled by src-tauri/target/ above)

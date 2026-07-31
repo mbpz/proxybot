@@ -269,10 +269,7 @@ fn get_vision_analyses_internal(
 }
 
 /// Delete a vision analysis by id (internal, takes &Connection).
-fn delete_vision_analysis_internal(
-    conn: &rusqlite::Connection,
-    id: i64,
-) -> Result<(), String> {
+fn delete_vision_analysis_internal(conn: &rusqlite::Connection, id: i64) -> Result<(), String> {
     conn.execute("DELETE FROM vision_analyses WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -457,7 +454,11 @@ mod tests {
     fn test_parse_vision_response_empty_components_array() {
         let raw = r#"{"components": []}"#;
         let components = parse_vision_response(raw).unwrap();
-        assert_eq!(components.len(), 0, "Empty components array should parse to empty vec");
+        assert_eq!(
+            components.len(),
+            0,
+            "Empty components array should parse to empty vec"
+        );
     }
 
     #[test]
@@ -577,7 +578,10 @@ mod tests {
 
         assert!(result.id > 0, "Auto-increment id should be > 0");
         assert_eq!(result.session_id, "session-1");
-        assert_eq!(result.filename, "screenshot.png", "Should extract just the filename from path");
+        assert_eq!(
+            result.filename, "screenshot.png",
+            "Should extract just the filename from path"
+        );
         assert_eq!(result.components.len(), 1);
         assert_eq!(result.components[0].component_type, "button");
         assert_eq!(result.raw_response, "raw api response");
@@ -625,7 +629,11 @@ mod tests {
     fn test_get_vision_analyses_empty_session() {
         let conn = test_db();
         let analyses = get_vision_analyses_internal(&conn, "nonexistent").unwrap();
-        assert_eq!(analyses.len(), 0, "Nonexistent session should return empty vec");
+        assert_eq!(
+            analyses.len(),
+            0,
+            "Nonexistent session should return empty vec"
+        );
     }
 
     #[test]
@@ -704,7 +712,10 @@ mod tests {
         assert_eq!(tree.suggested_routes.len(), 2);
         assert_eq!(tree.suggested_routes[0], "/api/login");
         assert_eq!(tree.suggested_routes[1], "/api/users");
-        assert!(!tree.layout_json.is_empty(), "layout_json should be a non-empty pretty-printed JSON");
+        assert!(
+            !tree.layout_json.is_empty(),
+            "layout_json should be a non-empty pretty-printed JSON"
+        );
     }
 
     #[test]
@@ -713,9 +724,20 @@ mod tests {
 
         let tree = fuse_vision_with_api_internal(&conn, "nonexistent").unwrap();
 
-        assert_eq!(tree.components.len(), 0, "No vision data should yield empty components");
-        assert_eq!(tree.suggested_routes.len(), 0, "No inferred APIs should yield empty routes");
-        assert_eq!(tree.layout_json, "[]", "layout_json should be empty array literal");
+        assert_eq!(
+            tree.components.len(),
+            0,
+            "No vision data should yield empty components"
+        );
+        assert_eq!(
+            tree.suggested_routes.len(),
+            0,
+            "No inferred APIs should yield empty routes"
+        );
+        assert_eq!(
+            tree.layout_json, "[]",
+            "layout_json should be empty array literal"
+        );
     }
 
     #[test]

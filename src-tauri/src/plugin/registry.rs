@@ -32,11 +32,7 @@ impl PluginRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Plugin>> {
-        self.plugins
-            .read()
-            .unwrap()
-            .get(name)
-            .map(|p| Arc::clone(p))
+        self.plugins.read().unwrap().get(name).map(Arc::clone)
     }
 
     pub fn unregister(&self, name: &str) -> Option<Arc<dyn Plugin>> {

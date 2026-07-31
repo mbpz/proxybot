@@ -4,14 +4,16 @@ use crate::graphql::GraphQLDecoder;
 use crate::protobuf;
 use std::path::{Path, PathBuf};
 
+type Headers = Vec<(String, String)>;
+type ParsedHttpRequest = (String, String, String, Headers, Vec<u8>);
+type ParsedHttpResponse = (u16, Headers, Vec<u8>);
+
 // ---------------------------------------------------------------------------
 // HTTP request/response parsing
 // ---------------------------------------------------------------------------
 
 /// Parse HTTP request line, headers, and body from buffered data.
-pub(super) fn parse_http_request(
-    data: &[u8],
-) -> Option<(String, String, String, Vec<(String, String)>, Vec<u8>)> {
+pub(super) fn parse_http_request(data: &[u8]) -> Option<ParsedHttpRequest> {
     let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
     let first_line = String::from_utf8_lossy(&data[..first_line_end]);
     let parts: Vec<&str> = first_line.split_whitespace().collect();
@@ -49,7 +51,7 @@ pub(super) fn parse_http_request(
 }
 
 /// Parse HTTP response status and headers from buffered data.
-pub(super) fn parse_http_response(data: &[u8]) -> Option<(u16, Vec<(String, String)>, Vec<u8>)> {
+pub(super) fn parse_http_response(data: &[u8]) -> Option<ParsedHttpResponse> {
     let first_line_end = data.windows(2).position(|w| w == b"\r\n")?;
     let first_line = String::from_utf8_lossy(&data[..first_line_end]);
     let parts: Vec<&str> = first_line.split(' ').collect();
@@ -269,7 +271,12 @@ pub(super) fn parse_ws_frame_header(data: &[u8]) -> Option<(WsFrameHeader, usize
         if data.len() < offset + 4 {
             return None;
         }
-        let key = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+        let key = [
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ];
         offset += 4;
         Some(key)
     } else {

@@ -63,8 +63,24 @@ impl NoiseFilter {
     pub fn new() -> Self {
         Self {
             static_extensions: vec![
-                "css", "js", "png", "jpg", "jpeg", "gif", "svg", "woff", "woff2", "ico", "webp",
-                "avif", "apng", "bmp", "tiff", "webmanifest", "xml", "json",
+                "css",
+                "js",
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+                "svg",
+                "woff",
+                "woff2",
+                "ico",
+                "webp",
+                "avif",
+                "apng",
+                "bmp",
+                "tiff",
+                "webmanifest",
+                "xml",
+                "json",
             ],
             third_party_patterns: vec![
                 "google-analytics.com",
@@ -122,7 +138,8 @@ impl NoiseFilter {
         let mut candidates = Vec::new();
         let mut noise = Vec::new();
         let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut summary: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut summary: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
 
         for req in requests {
             let url = format!("{}://{}{}", req.scheme, req.host, req.path);
@@ -316,7 +333,7 @@ mod tests {
         // Deduplication normalizes parameterized URLs, and since method is not part
         // of the normalized URL, GET /users and POST /users deduplicate to same entry.
         // Result: /users, /users/{id}, /orders = 3 candidates (some may be duplicates)
-        assert!(result.candidates.len() >= 1);
+        assert!(!result.candidates.is_empty());
         assert_eq!(result.noise.len(), 2); // POST /users and DELETE /users/789 are duplicates
     }
 

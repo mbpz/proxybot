@@ -107,6 +107,12 @@ pub struct AlertStore {
     next_id: Mutex<i64>,
 }
 
+impl Default for AlertStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AlertStore {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -248,6 +254,12 @@ struct IpEntry {
     count: i64,
     first_seen: String,
     last_seen: String,
+}
+
+impl Default for BaselineStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BaselineStore {
@@ -927,7 +939,8 @@ mod tests {
     #[test]
     fn test_scanner_finds_multiple_patterns_in_same_text() {
         let scanner = PrivacyScanner::new();
-        let text = "IDFA: 12345678-1234-5678-9ABC-123456789012 phone: +14155551234 lat:37.7749,-122.4194";
+        let text =
+            "IDFA: 12345678-1234-5678-9ABC-123456789012 phone: +14155551234 lat:37.7749,-122.4194";
         let results = scanner.scan(text);
         assert_eq!(results.len(), 3);
     }
@@ -940,10 +953,7 @@ mod tests {
         // (and leading space on the suffix) ensures the IDFA's `\b` word boundary fires.
         let prefix = format!("{} ", "a".repeat(49));
         let suffix = format!(" {}", "b".repeat(49));
-        let text = format!(
-            "{}12345678-1234-5678-9ABC-123456789012{}",
-            prefix, suffix
-        );
+        let text = format!("{}12345678-1234-5678-9ABC-123456789012{}", prefix, suffix);
         let results = scanner.scan(&text);
         assert_eq!(results.len(), 1);
         assert!(

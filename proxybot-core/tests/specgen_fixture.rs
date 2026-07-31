@@ -32,10 +32,8 @@ use proxybot_core::{
 /// Load a JSON array fixture into `Vec<TrafficRecord>`.
 fn load_fixture(name: &str) -> Vec<TrafficRecord> {
     let path = format!("tests/fixtures/specgen/{name}");
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("read fixture {path}: {e}"));
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|e| panic!("parse fixture {path}: {e}"))
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read fixture {path}: {e}"));
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| panic!("parse fixture {path}: {e}"))
 }
 
 #[test]
@@ -70,7 +68,7 @@ fn wechat_session_clusters_into_expected_paths() {
     // applied to numeric/UUID segments. If any of these is missing
     // the path-clustering rule regressed.
     for expected in [
-        "/api/v3/user/profile",        // plain path
+        "/api/v3/user/profile",          // plain path
         "/api/v3/contacts/{contactsId}", // numeric → {prevSegment}Id
         "/api/v3/messages",
         "/api/v3/sessions/{sessionsId}", // UUID → {prevSegment}Id

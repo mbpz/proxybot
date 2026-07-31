@@ -1,6 +1,7 @@
 pub mod ai_pipeline;
 pub mod ai_stats;
 pub mod app_fingerprint;
+pub mod breakpoint;
 pub mod cdp_server;
 pub mod client_setup;
 pub mod compose;
@@ -9,7 +10,6 @@ pub mod filter;
 pub mod graph;
 pub mod network_conditions;
 pub mod replay;
-pub mod breakpoint;
 pub mod specgen;
 pub mod ssl_bypass;
 pub mod tls_rules;

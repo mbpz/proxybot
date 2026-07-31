@@ -57,7 +57,7 @@ export function DecryptionRules() {
 
   async function load() {
     try {
-      setRules(await invoke<TlsRuleRow[]>("get_tls_rules"));
+      setRules((await invoke<TlsRuleRow[] | null>("get_tls_rules")) ?? []);
     } catch (err) {
       setError(String(err));
     }
@@ -71,11 +71,11 @@ export function DecryptionRules() {
     try {
       // The command returns the refreshed rule list, so we don't
       // need a second round-trip to re-read.
-      const next = await invoke<TlsRuleRow[]>("add_tls_rule", {
+      const next = await invoke<TlsRuleRow[] | null>("add_tls_rule", {
         pattern: p,
         action,
       });
-      setRules(next);
+      setRules(next ?? []);
       setPattern("");
     } catch (err) {
       setError(String(err));
@@ -87,7 +87,8 @@ export function DecryptionRules() {
   async function remove(id: number) {
     setError(null);
     try {
-      setRules(await invoke<TlsRuleRow[]>("delete_tls_rule", { id }));
+      const next = await invoke<TlsRuleRow[] | null>("delete_tls_rule", { id });
+      setRules(next ?? []);
     } catch (err) {
       setError(String(err));
     }

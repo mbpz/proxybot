@@ -57,6 +57,7 @@ pub struct TunnelServer {
     bind_addr: SocketAddr,
     running: Arc<AtomicBool>,
     status_tx: watch::Sender<TunnelStatus>,
+    shutdown_tx: watch::Sender<bool>,
 }
 
 impl TunnelServer {
@@ -66,6 +67,7 @@ impl TunnelServer {
             bind_addr: SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), port),
             running: Arc::new(AtomicBool::new(false)),
             status_tx: watch::channel(TunnelStatus::Stopped).0,
+            shutdown_tx: watch::channel(false).0,
         }
     }
 
@@ -75,6 +77,7 @@ impl TunnelServer {
             bind_addr: addr,
             running: Arc::new(AtomicBool::new(false)),
             status_tx: watch::channel(TunnelStatus::Stopped).0,
+            shutdown_tx: watch::channel(false).0,
         }
     }
 
@@ -104,9 +107,15 @@ impl TunnelServer {
 
         let _ = self.status_tx.send(TunnelStatus::Starting);
 
-        let listener = TcpListener::bind(self.bind_addr)
-            .await
-            .map_err(|e| format!("VPN tunnel bind failed: {}", e))?;
+        let listener = match TcpListener::bind(self.bind_addr).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                self.running.store(false, Ordering::SeqCst);
+                let message = format!("VPN tunnel bind failed: {}", error);
+                let _ = self.status_tx.send(TunnelStatus::Error(message.clone()));
+                return Err(message);
+            }
+        };
 
         let addr = listener
             .local_addr()
@@ -115,6 +124,8 @@ impl TunnelServer {
 
         let running = self.running.clone();
         let status_tx = self.status_tx.clone();
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
+        self.shutdown_tx.send_replace(false);
 
         tokio::spawn(async move {
             let mut connections: usize = 0;
@@ -128,7 +139,25 @@ impl TunnelServer {
                     break;
                 }
 
-                match listener.accept().await {
+                let accepted = tokio::select! {
+                    accepted = listener.accept() => Some(accepted),
+                    changed = shutdown_rx.changed() => {
+                        if changed.is_err() || *shutdown_rx.borrow() {
+                            None
+                        } else {
+                            continue;
+                        }
+                    }
+                };
+
+                let Some(accepted) = accepted else {
+                    log::info!("VPN tunnel server shutting down");
+                    running.store(false, Ordering::SeqCst);
+                    let _ = status_tx.send(TunnelStatus::Stopped);
+                    break;
+                };
+
+                match accepted {
                     Ok((stream, peer)) => {
                         connections += 1;
                         log::info!(
@@ -167,6 +196,7 @@ impl TunnelServer {
     pub fn stop(&self) {
         log::info!("Stopping VPN tunnel server...");
         self.running.store(false, Ordering::SeqCst);
+        self.shutdown_tx.send_replace(true);
         let _ = self.status_tx.send(TunnelStatus::Stopped);
     }
 
@@ -249,7 +279,11 @@ impl TunnelServer {
                 // TCP: spawn a tunnel connection
                 let dst = format!(
                     "{}.{}.{}.{}:{}",
-                    packet.dest_ip[0], packet.dest_ip[1], packet.dest_ip[2], packet.dest_ip[3], packet.dest_port
+                    packet.dest_ip[0],
+                    packet.dest_ip[1],
+                    packet.dest_ip[2],
+                    packet.dest_ip[3],
+                    packet.dest_port
                 );
                 tokio::spawn(async move {
                     if let Ok(mut remote) = tokio::net::TcpStream::connect(&dst).await {
@@ -267,6 +301,20 @@ mod tests {
     use super::*;
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpStream;
+
+    async fn start_test_server() -> (TunnelServer, SocketAddr) {
+        let server = TunnelServer::with_addr("127.0.0.1:0".parse().unwrap());
+        let mut status_rx = server.status_rx();
+        server.start().await.unwrap();
+
+        loop {
+            let status = status_rx.borrow().clone();
+            if let TunnelStatus::Running { addr, .. } = status {
+                return (server, addr);
+            }
+            status_rx.changed().await.unwrap();
+        }
+    }
 
     /// Build a framed packet bytes matching the wire format.
     fn make_frame(
@@ -293,7 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tunnel_server_new_and_status() {
-        let server = TunnelServer::with_addr("127.0.0.1:19999".parse().unwrap());
+        let server = TunnelServer::with_addr("127.0.0.1:0".parse().unwrap());
         assert!(!server.is_running());
         assert_eq!(server.current_status(), TunnelStatus::Stopped);
 
@@ -313,9 +361,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_double_start_is_error() {
-        let server = TunnelServer::with_addr("127.0.0.1:19998".parse().unwrap());
-        server.start().await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (server, _addr) = start_test_server().await;
 
         let result = server.start().await;
         assert!(result.is_err());
@@ -326,13 +372,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_tunnel_frame_decode() {
-        // Start a test server
-        let server = TunnelServer::with_addr("127.0.0.1:19997".parse().unwrap());
-        server.start().await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (server, addr) = start_test_server().await;
 
         // Connect a client and send a valid frame
-        let mut stream = TcpStream::connect("127.0.0.1:19997").await.unwrap();
+        let mut stream = TcpStream::connect(addr).await.unwrap();
 
         let frame = make_frame(
             6, // TCP
@@ -358,11 +401,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_frame_handled() {
-        let server = TunnelServer::with_addr("127.0.0.1:19996".parse().unwrap());
-        server.start().await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (server, addr) = start_test_server().await;
 
-        let mut stream = TcpStream::connect("127.0.0.1:19996").await.unwrap();
+        let mut stream = TcpStream::connect(addr).await.unwrap();
 
         // Send zero-length frame — server should log warning and return
         stream.write_all(&0u32.to_be_bytes()).await.unwrap();
@@ -374,11 +415,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_frame_too_short_skipped() {
-        let server = TunnelServer::with_addr("127.0.0.1:19995".parse().unwrap());
-        server.start().await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (server, addr) = start_test_server().await;
 
-        let mut stream = TcpStream::connect("127.0.0.1:19995").await.unwrap();
+        let mut stream = TcpStream::connect(addr).await.unwrap();
 
         // Frame claims 14 bytes but only 10 bytes of header (too short for full header)
         let mut frame = vec![];

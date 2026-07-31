@@ -11,12 +11,20 @@ use serde::{Deserialize, Serialize};
 pub enum FilterExpr {
     /// `field:op value` predicate, e.g. `method:GET`, `host:*.example.com`,
     /// `status:>=200`.
-    Field { field: String, op: FilterOp, value: String },
+    Field {
+        field: String,
+        op: FilterOp,
+        value: String,
+    },
     /// `header:NAME:op value` — look up response header named `name`
     /// (case-insensitive) and match `value` against its contents using
     /// `op`. The name lives in the field slot because the parser splits
     /// on the first `:` only.
-    HeaderName { name: String, op: FilterOp, value: String },
+    HeaderName {
+        name: String,
+        op: FilterOp,
+        value: String,
+    },
     /// `body:op value` — substring/glob/regex search against the
     /// response body (truncated to 1 MB). Numeric ops return false.
     BodyText { op: FilterOp, value: String },

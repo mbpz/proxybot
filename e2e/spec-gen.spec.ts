@@ -1,4 +1,20 @@
 import { test, expect } from "@playwright/test";
+import { mockTauriCommands } from "./fixtures/tauri-mock";
+
+const SPEC_RESULT = {
+  openapi: { OpenApi: "openapi: 3.1.0\npaths:\n  /health:\n    get: {}\n" },
+  asyncapi: null,
+  coverage: {
+    total_requests: 1,
+    covered_in_openapi: 1,
+    covered_in_asyncapi: 0,
+    uncovered_paths: [],
+    coverage_rate: 1,
+  },
+  replay: null,
+  generated_at: "2026-07-31T00:00:00Z",
+  source: "Heuristic",
+};
 
 /**
  * Spec-generation panel E2E.
@@ -9,22 +25,26 @@ import { test, expect } from "@playwright/test";
  * focuses on the React surface: the panel mounts, runs through its
  * happy path, and the replay button responds.
  *
- * Note: this requires a dev session with captured traffic on
- * `proxybot.db`. CI gates run against the seeded fixture session
- * the dev server reads in test mode (see `e2e/fixtures/`); locally
- * just generate some traffic before running.
+ * Tauri commands are mocked so the suite is deterministic and never reads a
+ * developer's local `proxybot.db`.
  */
 test.describe("Spec generation panel", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockTauriCommands(page, {
+      get_ai_stats: { stats: [] },
+      set_active_session: null,
+      get_traffic_records: [],
+      generate_spec: SPEC_RESULT,
+    });
+    await page.goto("/ai");
+    await page.getByRole("button", { name: "API Inference", exact: true }).click();
+  });
+
   test("renders source badge after running generate", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: /AI/i }).click();
     await expect(page.getByText("OpenAPI / AsyncAPI 生成")).toBeVisible();
 
-    // sessionId field lives in ApiInferenceTab. Set it to anything
-    // matching the fixture-seeded session; the empty-string
-    // fallback also works for untagged traffic.
     const sessionInput = page.getByPlaceholder(/Session/i);
-    await sessionInput.fill("");
+    await sessionInput.fill("session_001");
 
     await page.getByRole("button", { name: /生成规范/ }).click();
 
@@ -37,13 +57,11 @@ test.describe("Spec generation panel", () => {
   });
 
   test("replay button enables once a spec exists", async ({ page }) => {
-    await page.goto("/");
-    await page.getByRole("button", { name: /AI/i }).click();
-
     // Replay should be disabled before generation.
     const replayBtn = page.getByRole("button", { name: /重放验证/ });
     await expect(replayBtn).toBeDisabled();
 
+    await page.getByPlaceholder(/Session/i).fill("session_001");
     await page.getByRole("button", { name: /生成规范/ }).click();
     await expect(page.getByText(/^(Llm|Heuristic|Hybrid)$/)).toBeVisible({
       timeout: 30_000,

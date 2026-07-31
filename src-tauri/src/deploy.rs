@@ -96,8 +96,7 @@ jobs:
 // ============================================================================
 
 fn generate_docker_compose(_project_name: &str) -> String {
-    format!(
-        r#"version: '3.8'
+    r#"version: '3.8'
 
 services:
   mock-api:
@@ -156,7 +155,7 @@ networks:
 volumes:
   postgres_data:
 "#
-    )
+    .to_string()
 }
 
 // ============================================================================
@@ -813,8 +812,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     // Create placeholder home page when no routes are inferred
     if frontend_routes.is_empty() {
         let pages_dir = frontend_src.join("pages");
-        fs::create_dir_all(&pages_dir)
-            .map_err(|e| format!("Failed to create pages dir: {}", e))?;
+        fs::create_dir_all(&pages_dir).map_err(|e| format!("Failed to create pages dir: {}", e))?;
         fs::write(
             pages_dir.join("home.tsx"),
             r#"export default function Home() {
@@ -947,14 +945,14 @@ test('navigation works', async ({ page }) => {
     }
 
     // Persist deployment record
-    let last_git_init = if init_git { Some(crate::db::chrono_lite_timestamp()) } else { None };
-    if let Err(e) = crate::db::upsert_deployment(
-        conn,
-        session_id,
-        name,
-        &base,
-        last_git_init.as_deref(),
-    ) {
+    let last_git_init = if init_git {
+        Some(crate::db::chrono_lite_timestamp())
+    } else {
+        None
+    };
+    if let Err(e) =
+        crate::db::upsert_deployment(conn, session_id, name, &base, last_git_init.as_deref())
+    {
         log::warn!("Failed to persist deployment record: {}", e);
     }
 
@@ -986,10 +984,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
     for (method, path) in endpoints {
         let method_lower = method.to_lowercase();
-        let path_slug = path
-            .trim_start_matches('/')
-            .replace('/', "_")
-            .replace('-', "_");
+        let path_slug = path.trim_start_matches('/').replace(['/', '-'], "_");
         let fixture_file = format!("fixture_{}.json", path_slug);
 
         code.push_str(&format!(
@@ -1155,7 +1150,9 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         DbState::init_schema(&conn).unwrap();
         crate::db::upsert_deployment(&conn, "s1", "p1", "/x", None).unwrap();
-        let rec = get_last_deployment_inner(&conn, "s1", "p1").unwrap().unwrap();
+        let rec = get_last_deployment_inner(&conn, "s1", "p1")
+            .unwrap()
+            .unwrap();
         assert_eq!(rec.bundle_path, "/x");
     }
 
@@ -1166,42 +1163,94 @@ mod tests {
     #[test]
     fn test_generate_github_actions_ci_includes_jobs_and_steps() {
         let out = generate_github_actions_ci();
-        assert!(out.contains("name: Playwright E2E Tests"), "missing workflow name: {}", out);
+        assert!(
+            out.contains("name: Playwright E2E Tests"),
+            "missing workflow name: {}",
+            out
+        );
         assert!(out.contains("jobs:"), "missing jobs key: {}", out);
-        assert!(out.contains("runs-on: ubuntu-latest"), "missing runs-on: {}", out);
-        assert!(out.contains("npx playwright install"), "missing playwright install step: {}", out);
+        assert!(
+            out.contains("runs-on: ubuntu-latest"),
+            "missing runs-on: {}",
+            out
+        );
+        assert!(
+            out.contains("npx playwright install"),
+            "missing playwright install step: {}",
+            out
+        );
     }
 
     #[test]
     fn test_generate_frontend_dockerfile_uses_nginx_stage() {
         let out = generate_frontend_dockerfile();
         assert!(out.contains("FROM nginx"), "missing nginx stage: {}", out);
-        assert!(out.contains("COPY --from=build"), "missing multi-stage COPY: {}", out);
-        assert!(out.contains("EXPOSE 3000"), "missing EXPOSE directive: {}", out);
+        assert!(
+            out.contains("COPY --from=build"),
+            "missing multi-stage COPY: {}",
+            out
+        );
+        assert!(
+            out.contains("EXPOSE 3000"),
+            "missing EXPOSE directive: {}",
+            out
+        );
     }
 
     #[test]
     fn test_generate_nginx_conf_serves_spa() {
         let out = generate_nginx_conf();
-        assert!(out.contains("try_files"), "missing try_files for SPA fallback: {}", out);
+        assert!(
+            out.contains("try_files"),
+            "missing try_files for SPA fallback: {}",
+            out
+        );
         assert!(out.contains("location /"), "missing root location: {}", out);
-        assert!(out.contains("index.html"), "missing index.html fallback: {}", out);
+        assert!(
+            out.contains("index.html"),
+            "missing index.html fallback: {}",
+            out
+        );
     }
 
     #[test]
     fn test_generate_init_sql_creates_tables() {
         let out = generate_init_sql();
-        assert!(out.contains("CREATE TABLE"), "missing CREATE TABLE: {}", out);
-        assert!(out.contains("app_stats"), "missing app_stats table: {}", out);
+        assert!(
+            out.contains("CREATE TABLE"),
+            "missing CREATE TABLE: {}",
+            out
+        );
+        assert!(
+            out.contains("app_stats"),
+            "missing app_stats table: {}",
+            out
+        );
     }
 
     #[test]
     fn test_generate_docker_compose_includes_services() {
         let out = generate_docker_compose("my-project");
-        assert!(out.contains("version: '3.8'"), "missing compose version: {}", out);
-        assert!(out.contains("mock-api:"), "missing mock-api service: {}", out);
-        assert!(out.contains("frontend:"), "missing frontend service: {}", out);
-        assert!(out.contains("postgres:"), "missing postgres service: {}", out);
+        assert!(
+            out.contains("version: '3.8'"),
+            "missing compose version: {}",
+            out
+        );
+        assert!(
+            out.contains("mock-api:"),
+            "missing mock-api service: {}",
+            out
+        );
+        assert!(
+            out.contains("frontend:"),
+            "missing frontend service: {}",
+            out
+        );
+        assert!(
+            out.contains("postgres:"),
+            "missing postgres service: {}",
+            out
+        );
     }
 
     #[test]
@@ -1218,8 +1267,16 @@ mod tests {
     #[test]
     fn test_generate_mock_main_with_no_endpoints() {
         let out = generate_mock_main(&[]);
-        assert!(out.contains("from fastapi"), "missing fastapi import: {}", out);
-        assert!(out.contains("app = FastAPI"), "missing FastAPI init: {}", out);
+        assert!(
+            out.contains("from fastapi"),
+            "missing fastapi import: {}",
+            out
+        );
+        assert!(
+            out.contains("app = FastAPI"),
+            "missing FastAPI init: {}",
+            out
+        );
         // Health check is always appended even with no endpoints.
         assert!(out.contains("/health"), "missing health endpoint: {}", out);
     }
@@ -1228,10 +1285,18 @@ mod tests {
     fn test_generate_frontend_app_with_empty_routes() {
         let out = generate_frontend_app(&[]);
 
-        assert!(out.contains("BrowserRouter"), "missing react-router import: {}", out);
+        assert!(
+            out.contains("BrowserRouter"),
+            "missing react-router import: {}",
+            out
+        );
         assert!(out.contains("./App.css"), "missing App.css import: {}", out);
         // Empty routes still emits a placeholder Home route.
-        assert!(out.contains("path=\"/\""), "missing placeholder root route: {}", out);
+        assert!(
+            out.contains("path=\"/\""),
+            "missing placeholder root route: {}",
+            out
+        );
     }
 
     #[test]
@@ -1241,10 +1306,26 @@ mod tests {
             ("OrdersPage".to_string(), "/orders".to_string()),
         ];
         let out = generate_frontend_app(&routes);
-        assert!(out.contains("path=\"/users\""), "missing users route: {}", out);
-        assert!(out.contains("path=\"/orders\""), "missing orders route: {}", out);
-        assert!(out.contains("UsersPage"), "missing users component: {}", out);
-        assert!(out.contains("OrdersPage"), "missing orders component: {}", out);
+        assert!(
+            out.contains("path=\"/users\""),
+            "missing users route: {}",
+            out
+        );
+        assert!(
+            out.contains("path=\"/orders\""),
+            "missing orders route: {}",
+            out
+        );
+        assert!(
+            out.contains("UsersPage"),
+            "missing users component: {}",
+            out
+        );
+        assert!(
+            out.contains("OrdersPage"),
+            "missing orders component: {}",
+            out
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1261,33 +1342,52 @@ mod tests {
         insert_dummy_api(&conn, "test-session");
 
         let tmp = tempdir().unwrap();
-        let result = write_deployment_bundle_inner(
-            &conn,
-            "test-session",
-            "test-deploy",
-            tmp.path(),
-            false,
-        )
-        .expect("inner write should succeed");
+        let result =
+            write_deployment_bundle_inner(&conn, "test-session", "test-deploy", tmp.path(), false)
+                .expect("inner write should succeed");
 
         assert!(result.success);
         assert_eq!(result.bundle_path, tmp.path().to_string_lossy());
 
         // Top-level bundle files
-        assert!(tmp.path().join("docker-compose.yml").exists(), "missing docker-compose.yml");
+        assert!(
+            tmp.path().join("docker-compose.yml").exists(),
+            "missing docker-compose.yml"
+        );
         assert!(tmp.path().join("init.sql").exists(), "missing init.sql");
         assert!(tmp.path().join("README.md").exists(), "missing README.md");
-        assert!(tmp.path().join(".github/workflows/e2e.yml").exists(), "missing CI workflow");
+        assert!(
+            tmp.path().join(".github/workflows/e2e.yml").exists(),
+            "missing CI workflow"
+        );
 
         // Mock API files
-        assert!(tmp.path().join("mock-api/main.py").exists(), "missing mock-api/main.py");
-        assert!(tmp.path().join("mock-api/requirements.txt").exists(), "missing mock-api/requirements.txt");
-        assert!(tmp.path().join("mock-api/Dockerfile").exists(), "missing mock-api/Dockerfile");
+        assert!(
+            tmp.path().join("mock-api/main.py").exists(),
+            "missing mock-api/main.py"
+        );
+        assert!(
+            tmp.path().join("mock-api/requirements.txt").exists(),
+            "missing mock-api/requirements.txt"
+        );
+        assert!(
+            tmp.path().join("mock-api/Dockerfile").exists(),
+            "missing mock-api/Dockerfile"
+        );
 
         // Frontend files
-        assert!(tmp.path().join("frontend/package.json").exists(), "missing frontend/package.json");
-        assert!(tmp.path().join("frontend/Dockerfile").exists(), "missing frontend/Dockerfile");
-        assert!(tmp.path().join("frontend/src/App.tsx").exists(), "missing frontend/src/App.tsx");
+        assert!(
+            tmp.path().join("frontend/package.json").exists(),
+            "missing frontend/package.json"
+        );
+        assert!(
+            tmp.path().join("frontend/Dockerfile").exists(),
+            "missing frontend/Dockerfile"
+        );
+        assert!(
+            tmp.path().join("frontend/src/App.tsx").exists(),
+            "missing frontend/src/App.tsx"
+        );
     }
 
     #[test]
@@ -1298,14 +1398,8 @@ mod tests {
         insert_dummy_api(&conn, "sess-persist");
 
         let tmp = tempdir().unwrap();
-        write_deployment_bundle_inner(
-            &conn,
-            "sess-persist",
-            "proj-persist",
-            tmp.path(),
-            false,
-        )
-        .expect("inner write should succeed");
+        write_deployment_bundle_inner(&conn, "sess-persist", "proj-persist", tmp.path(), false)
+            .expect("inner write should succeed");
 
         let rec = get_last_deployment_inner(&conn, "sess-persist", "proj-persist")
             .unwrap()

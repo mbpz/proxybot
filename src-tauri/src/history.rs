@@ -12,6 +12,12 @@ pub struct HistoryStore {
     path: PathBuf,
 }
 
+impl Default for HistoryStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HistoryStore {
     pub fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());

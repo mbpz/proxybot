@@ -40,8 +40,8 @@ const OPENAPI_PATHS_SCHEMA: &str = "{
 }";
 
 pub fn validate_paths_object(candidate: &Value) -> Result<(), SpecError> {
-    let schema: Value = serde_json::from_str(OPENAPI_PATHS_SCHEMA)
-        .expect("embedded schema is valid JSON");
+    let schema: Value =
+        serde_json::from_str(OPENAPI_PATHS_SCHEMA).expect("embedded schema is valid JSON");
     let compiled = JSONSchema::options()
         .with_draft(jsonschema::Draft::Draft7)
         .compile(&schema)

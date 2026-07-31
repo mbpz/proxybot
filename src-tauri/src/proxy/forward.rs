@@ -164,8 +164,8 @@ pub(super) async fn pipe_ws_bidirectional(
     network: &NetworkConditionEngine,
     ws_frame_tx: &tokio::sync::broadcast::Sender<(String, crate::proxy::WsFrame)>,
 ) -> Result<(), String> {
-    use crate::db::{record_ws_frame, timestamp_now_for_ws};
     use super::protocol::{decode_ws_payload, parse_ws_frame_header};
+    use crate::db::{record_ws_frame, timestamp_now_for_ws};
 
     let mut client_buf = vec![0u8; 65536];
     let mut upstream_buf = vec![0u8; 65536];

@@ -51,7 +51,7 @@ test.describe("App shell", () => {
 
     // Filter bar should be visible with method/app selectors
     await expect(page.locator("select").first()).toBeVisible();
-    await expect(page.getByPlaceholder("host:*.example.com")).toBeVisible();
+    await expect(page.getByPlaceholder("host:*.example.com", { exact: true })).toBeVisible();
     await expect(page.getByPlaceholder("Search path...")).toBeVisible();
   });
 

@@ -12,7 +12,9 @@
 //! - Unknown → pass-through silently (or log if configured)
 
 use crate::transport::protocol::detect_protocol;
-use crate::transport::types::{ConnectionMeta, DetectedProtocol, TransportConfig, TransportEvent, TransportEventType};
+use crate::transport::types::{
+    ConnectionMeta, DetectedProtocol, TransportConfig, TransportEvent, TransportEventType,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -114,7 +116,10 @@ async fn handle_connection(
         _ => None,
     };
 
-    let proto = protocol.as_ref().cloned().unwrap_or(DetectedProtocol::Unknown);
+    let proto = protocol
+        .as_ref()
+        .cloned()
+        .unwrap_or(DetectedProtocol::Unknown);
     let sni = match &proto {
         DetectedProtocol::Tls { sni } => sni.clone(),
         _ => None,
@@ -197,7 +202,10 @@ async fn forward_to_http_proxy(
     match TcpStream::connect(&proxy_addr).await {
         Ok(mut proxy_stream) => {
             // Send initial data to proxy
-            if let Err(e) = proxy_stream.write_all(&initial_data[..initial_len as usize]).await {
+            if let Err(e) = proxy_stream
+                .write_all(&initial_data[..initial_len as usize])
+                .await
+            {
                 log::debug!("Failed to forward initial data to HTTP proxy: {}", e);
                 return;
             }
@@ -230,7 +238,10 @@ async fn pass_through(
             match TcpStream::connect(orig_addr).await {
                 Ok(mut upstream) => {
                     // Send the initial data that we already read
-                    if let Err(e) = upstream.write_all(&initial_data[..initial_len as usize]).await {
+                    if let Err(e) = upstream
+                        .write_all(&initial_data[..initial_len as usize])
+                        .await
+                    {
                         log::debug!("Failed to forward initial data: {}", e);
                         return;
                     }
@@ -303,14 +314,18 @@ fn get_original_dst(stream: &TcpStream) -> Option<std::net::SocketAddr> {
             storage.data[4],
             storage.data[5],
         );
-        Some(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(ip, port)))
+        Some(std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+            ip, port,
+        )))
     } else if storage.family == 30 {
         // AF_INET6
         let port = u16::from_be_bytes([storage.data[0], storage.data[1]]);
         let mut octets = [0u8; 16];
         octets.copy_from_slice(&storage.data[2..18]);
         let ip = std::net::Ipv6Addr::from(octets);
-        Some(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, 0)))
+        Some(std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+            ip, port, 0, 0,
+        )))
     } else {
         None
     }

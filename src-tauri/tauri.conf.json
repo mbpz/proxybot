@@ -5,6 +5,7 @@
   "identifier": "com.proxybot.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -36,12 +37,6 @@
     ],
     "category": "Developer Tools",
     "shortDescription": "HTTPS MITM Proxy Tool",
-    "longDescription": "A macOS desktop proxy tool for developers. Captures and decrypts HTTPS/WSS traffic from mobile devices on the same LAN.",
-    "resources": [
-      "resources/apktool.jar",
-      "resources/frida-gadget/arm64-v8a/libfrida-gadget.so",
-      "resources/frida-gadget/x86/libfrida-gadget.so",
-      "resources/frida-gadget/x86_64/libfrida-gadget.so"
-    ]
+    "longDescription": "A macOS desktop proxy tool for developers. Captures and decrypts HTTPS/WSS traffic from mobile devices on the same LAN."
   }
 }

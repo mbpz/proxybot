@@ -173,12 +173,12 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
         let query_string: Vec<HarQueryParam> = if let Some(query) = path.split('?').nth(1) {
             query
                 .split('&')
-                .filter_map(|param| {
+                .map(|param| {
                     let mut parts = param.splitn(2, '=');
-                    Some(HarQueryParam {
+                    HarQueryParam {
                         name: parts.next().unwrap_or("").to_string(),
                         value: parts.next().unwrap_or("").to_string(),
-                    })
+                    }
                 })
                 .collect()
         } else {
@@ -299,10 +299,7 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
         entries.push(entry);
     }
 
-    log::info!(
-        "Exported HAR with {} entries",
-        entries.len()
-    );
+    log::info!("Exported HAR with {} entries", entries.len());
 
     Ok(HarFile {
         log: HarLog {
@@ -388,7 +385,7 @@ fn chrono_lite_to_datetime(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 }
 
 fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 /// Internal helper: save HAR JSON to a given directory.
@@ -607,7 +604,10 @@ mod tests {
         let har = export_har_internal(&conn).unwrap();
         assert_eq!(har.log.version, "1.2");
         assert_eq!(har.log.creator.name, "ProxyBot");
-        assert!(har.log.entries.is_empty(), "Empty DB should produce zero entries");
+        assert!(
+            har.log.entries.is_empty(),
+            "Empty DB should produce zero entries"
+        );
     }
 
     #[test]
@@ -617,9 +617,7 @@ mod tests {
             ("Host".into(), "example.com".into()),
             ("User-Agent".into(), "test/1.0".into()),
         ];
-        let resp_headers: Vec<(String, String)> = vec![
-            ("Content-Type".into(), "text/html".into()),
-        ];
+        let resp_headers: Vec<(String, String)> = vec![("Content-Type".into(), "text/html".into())];
 
         record_http_request(
             &conn,
@@ -650,12 +648,18 @@ mod tests {
         assert_eq!(entry.request.headers.len(), 2);
         assert_eq!(entry.request.headers[0].name, "Host");
         assert_eq!(entry.request.query_string.len(), 0);
-        assert!(entry.request.post_data.is_none(), "GET should have no post_data");
+        assert!(
+            entry.request.post_data.is_none(),
+            "GET should have no post_data"
+        );
         assert_eq!(entry.request.body_size, -1, "No body -> -1");
 
         assert_eq!(entry.response.status, 200);
         assert_eq!(entry.response.status_text, "OK");
-        assert_eq!(entry.response.content.text.as_deref(), Some("<html></html>"));
+        assert_eq!(
+            entry.response.content.text.as_deref(),
+            Some("<html></html>")
+        );
         assert_eq!(entry.response.content.mime_type, "text/html");
         assert_eq!(entry.response.body_size, "<html></html>".len() as i64);
 
@@ -692,7 +696,10 @@ mod tests {
         let har = export_har_internal(&conn).unwrap();
         let entry = &har.log.entries[0];
 
-        assert_eq!(entry.request.url, "https://api.example.com/search?q=rust&lang=en");
+        assert_eq!(
+            entry.request.url,
+            "https://api.example.com/search?q=rust&lang=en"
+        );
         assert_eq!(entry.request.query_string.len(), 2);
         assert_eq!(entry.request.query_string[0].name, "q");
         assert_eq!(entry.request.query_string[0].value, "rust");
@@ -703,9 +710,8 @@ mod tests {
     #[test]
     fn test_export_har_internal_post_with_body() {
         let conn = test_db();
-        let req_headers: Vec<(String, String)> = vec![
-            ("Content-Type".into(), "application/json".into()),
-        ];
+        let req_headers: Vec<(String, String)> =
+            vec![("Content-Type".into(), "application/json".into())];
         let resp_headers: Vec<(String, String)> = vec![];
 
         record_http_request(
@@ -731,7 +737,11 @@ mod tests {
         let entry = &har.log.entries[0];
 
         // Request post_data
-        let pd = entry.request.post_data.as_ref().expect("POST should have post_data");
+        let pd = entry
+            .request
+            .post_data
+            .as_ref()
+            .expect("POST should have post_data");
         assert_eq!(pd.mime_type, "application/json");
         assert_eq!(pd.text.as_deref(), Some(r#"{"key":"value"}"#));
         assert_eq!(entry.request.body_size, r#"{"key":"value"}"#.len() as i64);
@@ -739,7 +749,10 @@ mod tests {
         // Response status
         assert_eq!(entry.response.status, 201);
         assert_eq!(entry.response.status_text, "Created");
-        assert_eq!(entry.response.content.text.as_deref(), Some(r#"{"ok":true}"#));
+        assert_eq!(
+            entry.response.content.text.as_deref(),
+            Some(r#"{"ok":true}"#)
+        );
     }
 
     #[test]
@@ -809,8 +822,14 @@ mod tests {
         let har = export_har_internal(&conn).unwrap();
         let entry = &har.log.entries[0];
 
-        assert_eq!(entry.response.status, 0, "Missing status should default to 0");
-        assert_eq!(entry.response.status_text, "", "Status 0 -> empty status text");
+        assert_eq!(
+            entry.response.status, 0,
+            "Missing status should default to 0"
+        );
+        assert_eq!(
+            entry.response.status_text, "",
+            "Status 0 -> empty status text"
+        );
         assert_eq!(entry.time, 0.0, "Missing duration -> 0.0");
     }
 
@@ -820,9 +839,60 @@ mod tests {
         let empty: Vec<(String, String)> = vec![];
 
         // Insert in reverse chronological order
-        record_http_request(&conn, "1704067202.000", "GET", "https", "c.com", "/", &empty, None, Some(200), &empty, None, None, None, None, None).unwrap();
-        record_http_request(&conn, "1704067200.000", "GET", "https", "a.com", "/", &empty, None, Some(200), &empty, None, None, None, None, None).unwrap();
-        record_http_request(&conn, "1704067201.000", "GET", "https", "b.com", "/", &empty, None, Some(200), &empty, None, None, None, None, None).unwrap();
+        record_http_request(
+            &conn,
+            "1704067202.000",
+            "GET",
+            "https",
+            "c.com",
+            "/",
+            &empty,
+            None,
+            Some(200),
+            &empty,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        record_http_request(
+            &conn,
+            "1704067200.000",
+            "GET",
+            "https",
+            "a.com",
+            "/",
+            &empty,
+            None,
+            Some(200),
+            &empty,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        record_http_request(
+            &conn,
+            "1704067201.000",
+            "GET",
+            "https",
+            "b.com",
+            "/",
+            &empty,
+            None,
+            Some(200),
+            &empty,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let har = export_har_internal(&conn).unwrap();
         assert_eq!(har.log.entries.len(), 3);
@@ -859,7 +929,10 @@ mod tests {
         let entry = &har.log.entries[0];
 
         let pd = entry.request.post_data.as_ref().unwrap();
-        assert_eq!(pd.mime_type, "application/octet-stream", "Missing Content-Type -> octet-stream default");
+        assert_eq!(
+            pd.mime_type, "application/octet-stream",
+            "Missing Content-Type -> octet-stream default"
+        );
 
         assert_eq!(
             entry.response.content.mime_type, "application/octet-stream",
@@ -889,7 +962,7 @@ mod tests {
         ];
 
         // Use zero-padded indices so string sort == numeric sort
-        for (i, (status, expected_text)) in cases.iter().enumerate() {
+        for (i, (status, _expected_text)) in cases.iter().enumerate() {
             record_http_request(
                 &conn,
                 &format!("17040672{:02}.000", i),
@@ -935,7 +1008,10 @@ mod tests {
 
         // Look up by status code instead of assuming index order
         for (status, expected_text) in &cases {
-            let entry = har.log.entries.iter()
+            let entry = har
+                .log
+                .entries
+                .iter()
                 .find(|e| e.response.status == *status)
                 .unwrap_or_else(|| panic!("No entry found for status {}", status));
             assert_eq!(
@@ -945,7 +1021,12 @@ mod tests {
             );
         }
         // Unknown status -> empty string
-        let unknown = har.log.entries.iter().find(|e| e.response.status == 418).unwrap();
+        let unknown = har
+            .log
+            .entries
+            .iter()
+            .find(|e| e.response.status == 418)
+            .unwrap();
         assert_eq!(unknown.response.status_text, "");
     }
 
@@ -960,8 +1041,14 @@ mod tests {
 
         let path = save_har_file_internal(&har_json, "test-session", tmp.path()).unwrap();
 
-        assert!(path.ends_with("test-session.har"), "Path should end with session_name.har");
-        assert!(std::path::Path::new(&path).exists(), "File should exist on disk");
+        assert!(
+            path.ends_with("test-session.har"),
+            "Path should end with session_name.har"
+        );
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "File should exist on disk"
+        );
 
         let contents = std::fs::read_to_string(&path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();

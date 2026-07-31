@@ -20,14 +20,15 @@ impl PluginLoader {
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             match ext {
-                "dylib" | "so" => {
-                    match Self::load_native_plugin(&path, registry) {
-                        Ok(_) => count += 1,
-                        Err(e) => log::warn!("Failed to load plugin {:?}: {}", path, e),
-                    }
-                }
+                "dylib" | "so" => match Self::load_native_plugin(&path, registry) {
+                    Ok(_) => count += 1,
+                    Err(e) => log::warn!("Failed to load plugin {:?}: {}", path, e),
+                },
                 "wasm" => {
-                    log::info!("WASM plugin {:?} skipped — WASM runtime not yet available", path);
+                    log::info!(
+                        "WASM plugin {:?} skipped — WASM runtime not yet available",
+                        path
+                    );
                 }
                 _ => {}
             }
@@ -45,9 +46,7 @@ impl PluginLoader {
             // (plugins must outlive the proxy session)
             let lib = Box::leak(Box::new(lib));
 
-            let creator: libloading::Symbol<
-                unsafe extern "C" fn() -> *mut dyn Plugin,
-            > = lib
+            let creator: libloading::Symbol<unsafe extern "C" fn() -> *mut dyn Plugin> = lib
                 .get(PLUGIN_CREATE_SYM)
                 .map_err(|e| format!("Plugin {:?} missing _plugin_create symbol: {}", path, e))?;
 

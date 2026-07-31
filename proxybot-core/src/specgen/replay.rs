@@ -44,8 +44,8 @@ pub async fn run_replay(
 
     let mut routes = HashMap::new();
     // Seed mock routes from examples + response body schemas in the spec.
-    let doc: serde_yaml::Value = serde_yaml::from_str(openapi_yaml)
-        .map_err(|e| SpecError::ReplayFailed(e.to_string()))?;
+    let doc: serde_yaml::Value =
+        serde_yaml::from_str(openapi_yaml).map_err(|e| SpecError::ReplayFailed(e.to_string()))?;
     // Convert YAML value tree → JSON value tree for consistent access
     let json_doc: serde_json::Value =
         serde_json::to_value(&doc).map_err(|e| SpecError::ReplayFailed(e.to_string()))?;
@@ -61,8 +61,7 @@ pub async fn run_replay(
                 // this fallback, the mock returns `{}` and the body diff in
                 // replay will fail for any non-trivial spec.
                 let body = if example_body == serde_json::json!({}) {
-                    first_captured_body(records, &tpl, &method)
-                        .unwrap_or(example_body)
+                    first_captured_body(records, &tpl, &method).unwrap_or(example_body)
                 } else {
                     example_body
                 };
@@ -74,11 +73,11 @@ pub async fn run_replay(
                 // may use a different param name (e.g. /api/users/{id}). Seed
                 // under BOTH forms so the lookup succeeds regardless of which
                 // param naming the spec used.
-                let heuristic_tpl = heuristic_template(records, &tpl, &method)
-                    .unwrap_or_else(|| tpl.clone());
-                for key_tpl in std::iter::once(tpl.clone()).chain(
-                    std::iter::once(heuristic_tpl).filter(|h| h != &tpl),
-                ) {
+                let heuristic_tpl =
+                    heuristic_template(records, &tpl, &method).unwrap_or_else(|| tpl.clone());
+                for key_tpl in std::iter::once(tpl.clone())
+                    .chain(std::iter::once(heuristic_tpl).filter(|h| h != &tpl))
+                {
                     routes.insert(
                         format!("{} {}", method, key_tpl),
                         MockRoute {
@@ -115,8 +114,8 @@ pub async fn run_replay(
             .trim_start_matches('/')
             .to_string();
         let url = format!("http://127.0.0.1:{}/{}", mock_port, tpl);
-        let method = reqwest::Method::from_bytes(r.method.as_bytes())
-            .unwrap_or(reqwest::Method::GET);
+        let method =
+            reqwest::Method::from_bytes(r.method.as_bytes()).unwrap_or(reqwest::Method::GET);
         let resp = match client
             .request(method, &url)
             .body(r.request_body.clone().unwrap_or_default())
@@ -383,7 +382,13 @@ pub struct MockState {
 pub fn build_mock_router(state: MockState) -> Router {
     Router::new()
         .route("/", get(echo))
-        .route("/*path", get(echo_path).post(echo_path).put(echo_path).delete(echo_path))
+        .route(
+            "/*path",
+            get(echo_path)
+                .post(echo_path)
+                .put(echo_path)
+                .delete(echo_path),
+        )
         .with_state(state)
 }
 
@@ -404,7 +409,11 @@ async fn echo_path(
         let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::OK);
         return (status, Json(route.body.clone())).into_response();
     }
-    (StatusCode::OK, Json(serde_json::json!({ "echoed_path": path }))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "echoed_path": path })),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -492,7 +501,11 @@ paths:
         let records = vec![a, b];
         let report = run_replay(openapi, &records, Some(0)).await.unwrap();
         assert_eq!(report.total, 2);
-        assert_eq!(report.pass, 2, "expected both replays to pass; failures={:?}", report.failures);
+        assert_eq!(
+            report.pass, 2,
+            "expected both replays to pass; failures={:?}",
+            report.failures
+        );
         assert_eq!(report.fail, 0);
     }
 }

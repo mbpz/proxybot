@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const browserExecutablePath = process.env.PLAYWRIGHT_BROWSER_EXECUTABLE_PATH;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 15000,
@@ -14,11 +16,18 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(browserExecutablePath
+          ? { launchOptions: { executablePath: browserExecutablePath } }
+          : {}),
+      },
     },
   ],
   webServer: {
-    command: "pnpm dev",
+    // Invoke the locked local Vite binary directly so E2E runs do not depend
+    // on Corepack reaching the package registry during test startup.
+    command: "node node_modules/vite/bin/vite.js",
     url: "http://localhost:1420",
     reuseExistingServer: true,
   },

@@ -61,7 +61,12 @@ pub fn add_condition_rule(
     rule: NewConditionRule,
 ) -> Result<u64, String> {
     // Validate the profile name exists so the frontend gets fast feedback.
-    if state.0.list_profiles().iter().all(|p| p.name != rule.profile) {
+    if state
+        .0
+        .list_profiles()
+        .iter()
+        .all(|p| p.name != rule.profile)
+    {
         return Err(format!("Unknown profile: {}", rule.profile));
     }
     Ok(state.0.add_rule(rule))

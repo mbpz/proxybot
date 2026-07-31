@@ -1,15 +1,8 @@
 #![cfg_attr(not(dev), windows_subsystem = "windows")]
 
 use proxybot_lib::{
-    anomaly::AnomalyDetector,
-    cert::CertManager,
-    db::DbState,
-    dns::DnsState,
-    mcp::transport,
-    proxy::ProxyState,
-    replay::ReplayState,
-    rules::RulesEngine,
-    tun::TunState,
+    anomaly::AnomalyDetector, cert::CertManager, db::DbState, dns::DnsState, mcp::transport,
+    proxy::ProxyState, replay::ReplayState, rules::RulesEngine, tun::TunState,
     workspace::WorkspaceManager,
 };
 use std::sync::Arc;

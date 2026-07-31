@@ -16,12 +16,7 @@ use uuid::Uuid;
 /// `proxy_ip` is the LAN IP of the ProxyBot host. `proxy_port` is
 /// the HTTP proxy port (default 8088). `dns_port` is the DNS server
 /// port (default 5300).
-pub fn build_ios_profile(
-    ca_pem: &str,
-    proxy_ip: &str,
-    proxy_port: u16,
-    dns_port: u16,
-) -> String {
+pub fn build_ios_profile(ca_pem: &str, proxy_ip: &str, proxy_port: u16, dns_port: u16) -> String {
     let root_uuid = Uuid::new_v4();
     let wifi_uuid = Uuid::new_v4();
     let dns_uuid = Uuid::new_v4();
@@ -123,7 +118,9 @@ mod tests {
     #[test]
     fn test_build_ios_profile_contains_ca_payload() {
         let xml = build_ios_profile(SAMPLE_CA, "192.168.1.5", 8088, 5300);
-        assert!(xml.contains("<key>PayloadCertificateFileName</key><string>proxybot-ca.cer</string>"));
+        assert!(
+            xml.contains("<key>PayloadCertificateFileName</key><string>proxybot-ca.cer</string>")
+        );
         // base64 of SAMPLE_CA
         let expected_b64 = base64::engine::general_purpose::STANDARD.encode(SAMPLE_CA.as_bytes());
         assert!(xml.contains(&format!("<data>{}</data>", expected_b64)));
@@ -132,9 +129,21 @@ mod tests {
     #[test]
     fn test_build_ios_profile_payload_count() {
         let xml = build_ios_profile(SAMPLE_CA, "192.168.1.5", 8088, 5300);
-        assert_eq!(xml.matches("<string>com.apple.wifi.managed</string>").count(), 1);
-        assert_eq!(xml.matches("<string>com.apple.dnsSettings.managed</string>").count(), 1);
-        assert_eq!(xml.matches("<string>com.apple.security.root</string>").count(), 1);
+        assert_eq!(
+            xml.matches("<string>com.apple.wifi.managed</string>")
+                .count(),
+            1
+        );
+        assert_eq!(
+            xml.matches("<string>com.apple.dnsSettings.managed</string>")
+                .count(),
+            1
+        );
+        assert_eq!(
+            xml.matches("<string>com.apple.security.root</string>")
+                .count(),
+            1
+        );
     }
 
     #[test]

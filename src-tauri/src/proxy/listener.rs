@@ -21,6 +21,9 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
+// Runtime dependencies are explicit here so desktop and headless bootstrap
+// paths cannot silently receive different services.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_proxy(
     event_tx: broadcast::Sender<InterceptedRequest>,
     breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
@@ -158,8 +161,7 @@ pub fn start_proxy(
 
     // Create broadcast channel for live WS frame events. Subscribed
     // once below and forwarded as `ws-frame:new` Tauri events.
-    let (ws_frame_tx, mut ws_frame_rx) =
-        broadcast::channel::<(String, super::WsFrame)>(256);
+    let (ws_frame_tx, mut ws_frame_rx) = broadcast::channel::<(String, super::WsFrame)>(256);
 
     // Create empty plugin registry (stub - plugins not yet registered)
     let plugins = Arc::new(PluginRegistry::new());
@@ -197,7 +199,8 @@ pub fn start_proxy(
     let bp_state = app_state.inner().clone();
     tauri::async_runtime::spawn(async move {
         while let Some(bp) = bp_rx.recv().await {
-            let id = bp_state.insert_breakpoint(bp.target, bp.request.clone(), bp.decision_tx);
+            let id =
+                bp_state.insert_breakpoint(bp.target.clone(), bp.request.clone(), bp.decision_tx);
             let _ = bp_app_handle.emit(
                 "breakpoint:new",
                 serde_json::json!({
@@ -214,13 +217,7 @@ pub fn start_proxy(
     let ws_app_handle = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         while let Ok((request_id, frame)) = ws_frame_rx.recv().await {
-            let _ = ws_app_handle.emit(
-                "ws-frame:new",
-                WsFrameEvent {
-                    request_id,
-                    frame,
-                },
-            );
+            let _ = ws_app_handle.emit("ws-frame:new", WsFrameEvent { request_id, frame });
         }
     });
 
@@ -278,6 +275,12 @@ pub fn get_proxy_status() -> bool {
     PROXY_RUNNING.load(Ordering::SeqCst)
 }
 
+pub type ProxyCoreChannels = (
+    broadcast::Receiver<InterceptedRequest>,
+    tokio::sync::mpsc::Receiver<BreakpointRequest>,
+    tokio::sync::oneshot::Sender<()>,
+);
+
 /// Start the proxy core for TUI (no Tauri dependency).
 /// Creates a broadcast channel and returns the receiver so TUI can subscribe to events.
 pub fn start_proxy_core(
@@ -288,21 +291,13 @@ pub fn start_proxy_core(
     plugins: Arc<PluginRegistry>,
     plugin_rules: Arc<RuleEngine>,
     network_engine: Arc<NetworkConditionEngine>,
-) -> Result<
-    (
-        broadcast::Receiver<InterceptedRequest>,
-        tokio::sync::mpsc::Receiver<BreakpointRequest>,
-        tokio::sync::oneshot::Sender<()>,
-    ),
-    String,
-> {
+) -> Result<ProxyCoreChannels, String> {
     if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
         return Err("Proxy already running".to_string());
     }
 
     let (event_tx, event_rx) = broadcast::channel::<InterceptedRequest>(100);
-    let (ws_frame_tx, _ws_frame_rx) =
-        broadcast::channel::<(String, super::WsFrame)>(256);
+    let (ws_frame_tx, _ws_frame_rx) = broadcast::channel::<(String, super::WsFrame)>(256);
     let (bp_tx, bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 

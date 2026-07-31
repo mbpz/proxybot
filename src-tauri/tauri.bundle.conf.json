@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "pnpm resources:fetch && pnpm build"
+  },
+  "bundle": {
+    "resources": [
+      "resources/apktool.jar",
+      "resources/frida-gadget/arm64-v8a/libfrida-gadget.so",
+      "resources/frida-gadget/x86/libfrida-gadget.so",
+      "resources/frida-gadget/x86_64/libfrida-gadget.so"
+    ]
+  }
+}
