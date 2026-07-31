@@ -354,3 +354,22 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, not(feature = "frida-runtime")))]
+mod unavailable_tests {
+    use super::*;
+
+    #[test]
+    fn adapter_returns_a_stable_capability_error() {
+        let manager = FridaManager::new().unwrap();
+        let errors = [
+            manager.list_devices().unwrap_err(),
+            manager.list_processes("local").unwrap_err(),
+            manager.detach("session-1").unwrap_err(),
+        ];
+
+        assert!(errors
+            .iter()
+            .all(|error| error == FridaManager::UNAVAILABLE));
+    }
+}

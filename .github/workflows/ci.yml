@@ -44,6 +44,9 @@ jobs:
       - name: Clippy lints
         run: cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 
+      - name: Check native Frida adapter
+        run: cargo check -p proxybot --lib --tests --locked --no-default-features --features frida-runtime
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

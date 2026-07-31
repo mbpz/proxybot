@@ -47,22 +47,7 @@ pub mod tun;
 pub mod vision;
 pub mod vpn;
 pub mod workspace;
-
-// Tauri command wrappers for the desktop app (workspace management).
-// Re-exported so the GUI binary can call them without reaching into the
-// module hierarchy.
-pub use workspace::manager::{
-    export_workspace, import_workspace, init_workspace, list_workspaces, switch_workspace,
-    workspace_status,
-};
 pub mod ws_frames;
 pub use bootstrap::{run, DESKTOP_COMMANDS};
-pub use classifier::*;
-pub use commands::client_setup::*;
-pub use commands::compose::*;
-pub use commands::filter::*;
-pub use commands::graph::*;
-pub use commands::replay::*;
-pub use commands::ws_frames::*;
 // The desktop bootstrap is intentionally kept in one Module. Binaries and
 // mobile entry points are thin Adapters that delegate to `run`.
