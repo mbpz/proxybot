@@ -17,16 +17,22 @@
 pub mod device;
 pub mod session;
 
+#[cfg(feature = "frida-runtime")]
 use std::collections::HashMap;
+#[cfg(feature = "frida-runtime")]
 use std::sync::Mutex;
 
+#[cfg(feature = "frida-runtime")]
 use frida::{
     DeviceManager, DeviceType as FridaDeviceType, Frida, Message, MessageLogLevel, ScriptHandler,
     ScriptOption,
 };
+#[cfg(feature = "frida-runtime")]
 use tauri::Emitter;
 
-use crate::frida::device::{DeviceInfo, DeviceType, ProcessInfo};
+#[cfg(feature = "frida-runtime")]
+use crate::frida::device::DeviceType;
+use crate::frida::device::{DeviceInfo, ProcessInfo};
 use crate::frida::session::SessionHandle;
 
 /// A Frida script message streamed to the UI via the `frida:message`
@@ -56,10 +62,12 @@ pub struct FridaMessage {
 /// injection gets its own listener. The handler is `'static` and
 /// `Send` because frida 0.14's signal callbacks can run on a
 /// non-Tokio thread.
+#[cfg(feature = "frida-runtime")]
 struct FridaScriptMessageHandler {
     app_handle: tauri::AppHandle,
 }
 
+#[cfg(feature = "frida-runtime")]
 impl ScriptHandler for FridaScriptMessageHandler {
     fn on_message(&mut self, message: &Message) {
         let now_ms = std::time::SystemTime::now()
@@ -95,6 +103,7 @@ impl ScriptHandler for FridaScriptMessageHandler {
     }
 }
 
+#[cfg(feature = "frida-runtime")]
 fn log_level_to_string(level: &MessageLogLevel) -> &'static str {
     match level {
         MessageLogLevel::Info => "info",
@@ -109,11 +118,13 @@ fn log_level_to_string(level: &MessageLogLevel) -> &'static str {
 /// Constructed once and shared by the Tauri command layer. Thread-safe
 /// via an internal `Mutex` on the session table. The underlying
 /// `Frida` handle is a zero-sized marker type and is `Send + Sync`.
+#[cfg(feature = "frida-runtime")]
 pub struct FridaManager {
     frida: Frida,
     sessions: Mutex<HashMap<String, SessionHandle>>,
 }
 
+#[cfg(feature = "frida-runtime")]
 impl FridaManager {
     /// Create a new `FridaManager`.
     ///
@@ -255,6 +266,46 @@ impl FridaManager {
     }
 }
 
+/// Frida Adapter used by builds that intentionally omit the native runtime.
+///
+/// Keeping the same Interface lets the desktop command contract remain stable:
+/// callers receive a precise capability error instead of an unregistered IPC
+/// command or an application startup failure.
+#[cfg(not(feature = "frida-runtime"))]
+pub struct FridaManager;
+
+#[cfg(not(feature = "frida-runtime"))]
+impl FridaManager {
+    const UNAVAILABLE: &'static str =
+        "Frida runtime is unavailable; rebuild ProxyBot with the `frida-runtime` feature";
+
+    pub fn new() -> Result<Self, String> {
+        Ok(Self)
+    }
+
+    pub fn list_devices(&self) -> Result<Vec<DeviceInfo>, String> {
+        Err(Self::UNAVAILABLE.to_string())
+    }
+
+    pub fn list_processes(&self, _device_id: &str) -> Result<Vec<ProcessInfo>, String> {
+        Err(Self::UNAVAILABLE.to_string())
+    }
+
+    pub fn attach_and_inject(
+        &self,
+        _device_id: &str,
+        _pid: u32,
+        _script_content: &str,
+        _app_handle: &tauri::AppHandle,
+    ) -> Result<SessionHandle, String> {
+        Err(Self::UNAVAILABLE.to_string())
+    }
+
+    pub fn detach(&self, _session_id: &str) -> Result<(), String> {
+        Err(Self::UNAVAILABLE.to_string())
+    }
+}
+
 /// Map frida's `DeviceType` to our public `DeviceType`.
 ///
 /// frida 0.14 uses `USB` (all-caps acronym); our public type uses
@@ -262,6 +313,7 @@ impl FridaManager {
 /// the same PascalCase names. The upstream enum is
 /// `#[non_exhaustive]`, so we must include a wildcard — fall back
 /// to `Local` for any future device type the frida crate adds.
+#[cfg(feature = "frida-runtime")]
 fn map_device_type(t: FridaDeviceType) -> DeviceType {
     match t {
         FridaDeviceType::Local => DeviceType::Local,
@@ -271,7 +323,7 @@ fn map_device_type(t: FridaDeviceType) -> DeviceType {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "frida-runtime"))]
 mod tests {
     use super::*;
 

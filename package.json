@@ -6,19 +6,19 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:tauri": "tauri build --config src-tauri/tauri.bundle.conf.json",
+    "build:tauri": "tauri build --features frida-runtime --config src-tauri/tauri.bundle.conf.json",
     "preview": "vite preview",
     "tauri": "tauri",
     "resources:fetch": "bash scripts/fetch-bundle-resources.sh",
     "resources:check": "bash scripts/fetch-bundle-resources.sh --check",
     "typecheck": "tsc --noEmit",
-    "test": "cargo test",
+    "test": "cargo test --workspace --locked --no-default-features",
     "test:ui": "vitest run",
     "test:ui:watch": "vitest",
-    "lint:rust": "cargo clippy -- -D warnings",
+    "lint:rust": "cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "ci:local": "cargo fmt --all -- --check && cargo test --workspace --locked && cargo clippy --workspace --locked -- -D warnings && pnpm typecheck && pnpm test:ui && pnpm build",
+    "ci:local": "cargo fmt --all -- --check && cargo test --workspace --locked --no-default-features && cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings && pnpm typecheck && pnpm test:ui && pnpm build",
     "prepare": "if [ -d .git ]; then git config core.hooksPath .githooks 2>/dev/null || true; fi"
   },
   "dependencies": {

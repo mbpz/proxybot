@@ -69,7 +69,7 @@ jobs:
           echo "Building for ${{ matrix.arch }} on macOS"
           rustc --version
           cargo --version
-          cargo build --release --locked --bin proxybot -p proxybot --target "${{ matrix.target }}"
+          cargo build --release --locked --bin proxybot -p proxybot --features frida-runtime --target "${{ matrix.target }}"
           BIN_PATH="target/${{ matrix.target }}/release/proxybot"
           test -f "$BIN_PATH"
           echo "Using binary at: $BIN_PATH"

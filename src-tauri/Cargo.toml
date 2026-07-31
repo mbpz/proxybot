@@ -73,7 +73,7 @@ h3-quinn = { version = "0.0.10", optional = true }
 # The `auto-download` feature lets the frida-sys build script fetch the
 # matching frida-core devkit (headers + static libs) on first build.
 # The devkit is cached, so subsequent builds are fast.
-frida = { version = "0.14", features = ["auto-download"] }
+frida = { version = "0.14", features = ["auto-download"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -84,10 +84,7 @@ pty = "0.2.2"
 cucumber = "0.23.0"
 uuid = "1"
 
-[[bin]]
-name = "proxybot"
-path = "src/bin/proxybot-gui.rs"
-
 [features]
 default = []
+frida-runtime = ["dep:frida"]
 http3 = ["quinn", "h3", "h3-quinn"]

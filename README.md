@@ -40,13 +40,22 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
+The default development build omits the native Frida runtime. Enable live
+Frida device and process operations when needed with:
+
+```bash
+pnpm tauri dev --features frida-runtime
+```
+
 Create a release bundle with:
 
 ```bash
 pnpm build:tauri
 ```
 
-The bundle step downloads pinned Apktool and Frida Gadget assets for the optional APK patcher. They are verified against SHA-256 digests in [`src-tauri/resources/resources.lock`](src-tauri/resources/resources.lock) and are not stored in Git. Run `pnpm resources:fetch` explicitly to prepare an offline build, or `pnpm resources:check` to verify an existing cache without network access.
+The bundle step downloads pinned Apktool and Frida Gadget assets for the optional APK patcher. They are verified against SHA-256 digests in [`src-tauri/resources/resources.lock`](src-tauri/resources/resources.lock) and are not stored in Git. Run `pnpm resources:fetch` explicitly to prepare an offline bundle, or `pnpm resources:check` to verify an existing cache without network access.
+
+Release tooling explicitly enables the optional `frida-runtime` Cargo feature. The first such build downloads the matching Frida Core development kit through `frida-rust`. Core development and CI use `--no-default-features`, which keeps the same IPC commands but returns a clear capability error for live Frida operations and can build fully offline after Cargo dependencies are cached.
 
 ## How traffic reaches ProxyBot
 
@@ -63,7 +72,7 @@ On first use, ProxyBot creates a local CA. Install and trust that CA only on a t
 
 ```text
 proxybot-core/   reusable proxy, certificate, classification, and spec modules
-src-tauri/       desktop runtime, Tauri commands, platform integration, and storage
+src-tauri/       single desktop bootstrap, Tauri commands, platform integration, and storage
 src/             React application and browser-side tests
 e2e/             Playwright end-to-end coverage
 docs/            MkDocs sources and architecture notes
@@ -82,8 +91,8 @@ pnpm ci:local
 Individual checks are also available:
 
 ```bash
-cargo test --workspace --locked
-cargo clippy --workspace --locked -- -D warnings
+cargo test --workspace --locked --no-default-features
+cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 cargo fmt --all -- --check
 pnpm typecheck
 pnpm test:ui
