@@ -169,7 +169,7 @@ mod tests {
     fn test_quic_proxy_requires_feature() {
         let config = QuicProxyConfig {
             listen_addr: "0.0.0.0:443".into(),
-            cert_manager: Arc::new(CertManager::new().unwrap()),
+            cert_manager: Arc::new(CertManager::new(None).unwrap()),
             db_state: Arc::new(DbState::new().unwrap()),
         };
         #[cfg(not(feature = "http3"))]

@@ -89,7 +89,12 @@ impl CertManager {
             KeyUsagePurpose::DigitalSignature,
         ];
 
-        let not_after = UNIX_EPOCH
+        let now = SystemTime::now();
+        params.not_before = now
+            .checked_sub(Duration::from_secs(24 * 60 * 60))
+            .unwrap_or(UNIX_EPOCH)
+            .into();
+        let not_after = now
             .checked_add(Duration::from_secs(365 * 24 * 60 * 60 * 10))
             .expect("date arithmetic overflow");
         params.not_after = not_after.into();
@@ -212,13 +217,21 @@ impl CertManager {
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::NoCa;
         params.distinguished_name.push(DnType::CommonName, host);
-        params.subject_alt_names = vec![SanType::DnsName(
-            host.try_into()
-                .map_err(|e: rcgen::Error| format!("Invalid hostname: {}", e))?,
-        )];
+        params.subject_alt_names = vec![match host.parse() {
+            Ok(ip) => SanType::IpAddress(ip),
+            Err(_) => SanType::DnsName(
+                host.try_into()
+                    .map_err(|e: rcgen::Error| format!("Invalid hostname: {}", e))?,
+            ),
+        }];
 
-        let not_after = UNIX_EPOCH
-            .checked_add(Duration::from_secs(86400))
+        let now = SystemTime::now();
+        params.not_before = now
+            .checked_sub(Duration::from_secs(60 * 60))
+            .unwrap_or(UNIX_EPOCH)
+            .into();
+        let not_after = now
+            .checked_add(Duration::from_secs(30 * 24 * 60 * 60))
             .expect("date arithmetic overflow");
         params.not_after = not_after.into();
 
@@ -345,6 +358,14 @@ mod tests {
         let (cert_pem, key_pem) = mgr.generate_host_cert("example.com").unwrap();
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
         assert!(key_pem.contains("BEGIN PRIVATE KEY"));
+    }
+
+    #[test]
+    fn test_generate_ip_host_cert() {
+        let dir = TempDir::new().unwrap();
+        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let (cert_pem, _) = mgr.generate_host_cert("127.0.0.1").unwrap();
+        assert!(cert_pem.contains("BEGIN CERTIFICATE"));
     }
 
     #[test]

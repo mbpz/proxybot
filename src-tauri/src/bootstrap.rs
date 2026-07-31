@@ -271,7 +271,7 @@ pub fn run() {
 fn run_desktop() {
     let db_state = Arc::new(DbState::new().expect("Failed to initialize database"));
     let cert_manager =
-        Arc::new(CertManager::new().expect("Failed to initialize certificate manager"));
+        Arc::new(CertManager::new(None).expect("Failed to initialize certificate manager"));
     let rules_engine = Arc::new(RulesEngine::new());
     let dns_state =
         Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));

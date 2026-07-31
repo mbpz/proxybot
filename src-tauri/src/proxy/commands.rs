@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn export_cert(cert_manager: State<'_, Arc<CertManager>>) -> Result<String, String> {
-    cert_manager.export_ca_pem()
+    cert_manager.export_ca_pem(None)
 }
 
 #[tauri::command]

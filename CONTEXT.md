@@ -36,6 +36,14 @@ _Avoid_: Routing Rule, plugin routing rule
 A host-pattern mapping that selects a simulated network profile; it does not route traffic.
 _Avoid_: Routing Rule, network rule
 
+**MITM Runtime**:
+The running proxy that accepts client connections, terminates or bypasses TLS, applies Routing Rules and hooks, forwards transactions, and emits capture events.
+_Avoid_: Proxy state, listener wrapper
+
+**Capture Event**:
+A stable-id lifecycle event emitted by the MITM Runtime for a Captured Request, WebSocket frame, or failure.
+_Avoid_: UI event, database row
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -43,6 +51,9 @@ _Avoid_: Routing Rule, network rule
 - The first enabled **Routing Rule** whose **Rule Pattern** matches produces its **Rule Action**
 - A **Plugin Dispatch Rule** maps an intercepted request to a plugin hook independently of **Routing Rules**
 - A **Network Condition Rule** maps a host to a simulated network profile independently of **Routing Rules**
+- The **MITM Runtime** turns client connections into zero or more **Captured Requests**
+- A **Captured Request** is reported through one or more **Capture Events** with the same stable id
+- Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
 
 ## Example dialogue
 
