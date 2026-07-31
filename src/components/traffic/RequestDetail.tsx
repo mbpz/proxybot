@@ -6,29 +6,17 @@ import { CodeExport } from "../shared/CodeExport";
 import { MethodBadge, Badge } from "../ui/Badge";
 import { Tabs } from "../ui/Tabs";
 import { getStatusTailwindClass } from "../../utils";
-
-interface InterceptedRequest {
-  id: string;
-  method: string;
-  host: string;
-  path: string;
-  status?: number;
-  duration_ms: number;
-  headers: Record<string, string>;
-  body?: string;
-  app_tag?: string;
-  is_websocket?: boolean;
-}
+import type { TrafficListItem } from "./model";
 
 interface RequestDetailProps {
-  request: InterceptedRequest;
+  request: TrafficListItem;
 }
 
 type TabType = "headers" | "body" | "ws";
 
 export function RequestDetail({ request }: RequestDetailProps) {
   const [activeTab, setActiveTab] = useState<TabType>("headers");
-  const isWebSocket = request.is_websocket ?? false;
+  const isWebSocket = request.isWebSocket;
 
   const tabs = [
     { id: "headers", label: "Headers" },
@@ -36,7 +24,7 @@ export function RequestDetail({ request }: RequestDetailProps) {
     ...(isWebSocket ? [{ id: "ws", label: "WebSocket Frames" }] : []),
   ];
 
-  const statusClass = getStatusTailwindClass(request.status);
+  const statusClass = getStatusTailwindClass(request.status ?? undefined);
 
   return (
     <div className="h-full flex flex-col bg-surface-secondary">
@@ -58,9 +46,9 @@ export function RequestDetail({ request }: RequestDetailProps) {
             </span>
           </span>
           <span className="text-text-muted">
-            Duration: {request.duration_ms}ms
+            Duration: {request.durationMs ?? "-"}ms
           </span>
-          {request.app_tag && <Badge variant="info">{request.app_tag}</Badge>}
+          {request.appName && <Badge variant="info">{request.appName}</Badge>}
         </div>
 
         <div className="mt-3">
@@ -68,7 +56,7 @@ export function RequestDetail({ request }: RequestDetailProps) {
             method={request.method}
             url={`${request.host}${request.path}`}
             headers={request.headers}
-            body={request.body}
+            body={request.body ?? undefined}
           />
         </div>
       </div>
@@ -83,7 +71,7 @@ export function RequestDetail({ request }: RequestDetailProps) {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {activeTab === "headers" && <HeadersView headers={request.headers} />}
-        {activeTab === "body" && <BodyView body={request.body} />}
+        {activeTab === "body" && <BodyView body={request.body ?? undefined} />}
         {activeTab === "ws" && isWebSocket && <WsFramesView requestId={request.id} />}
       </div>
     </div>

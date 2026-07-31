@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { WsFrame, WsFrameEvent, getOpcodeName } from "./types";
+import { desktop } from "../../desktop/contract";
+import { getOpcodeName } from "./types";
+import type { WsFrame } from "./types";
 import { FrameDetail } from "./FrameDetail";
 
 interface WsFramesViewProps {
@@ -18,24 +18,32 @@ export function WsFramesView({ requestId }: WsFramesViewProps) {
   const [selectedFrame, setSelectedFrame] = useState<WsFrame | null>(null);
 
   useEffect(() => {
-    let unlistenFn: (() => void) | null = null;
-
-    // Initial fetch
-    invoke<WsFrame[]>("get_ws_frames", { requestId })
-      .then((initial) => setFrames(initial))
-      .catch(console.error);
-
-    // Subscribe to real-time updates
-    listen<WsFrameEvent>("ws-frame:new", (event) => {
-      if (event.payload.request_id === requestId) {
-        setFrames((prev) => [...prev, event.payload.frame]);
-      }
-    }).then((fn) => {
-      unlistenFn = fn;
+    let disposed = false;
+    let initialLoaded = false;
+    const buffered: WsFrame[] = [];
+    const subscription = desktop.subscribe("ws-frame:new", {
+      next: (event) => {
+        if (event.request_id !== requestId) return;
+        if (!initialLoaded) buffered.push(event.frame);
+        else setFrames((current) => [...current, event.frame]);
+      },
+      error: (error) => console.error("Invalid WebSocket frame event:", error),
     });
 
+    void (async () => {
+      try {
+        await subscription.ready;
+        const initial = await desktop.call("get_ws_frames", { requestId });
+        initialLoaded = true;
+        if (!disposed) setFrames([...initial, ...buffered]);
+      } catch (error) {
+        console.error("WebSocket frame setup failed:", error);
+      }
+    })();
+
     return () => {
-      if (unlistenFn) unlistenFn();
+      disposed = true;
+      subscription.dispose();
     };
   }, [requestId]);
 

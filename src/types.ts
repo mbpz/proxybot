@@ -1,35 +1,4 @@
-export interface InterceptedRequest {
-  id: string;
-  timestamp: string;
-  method: string;
-  host: string;
-  path: string;
-  query_params?: string;
-  status: number | null;
-  latency_ms: number | null;
-  scheme: string;
-  req_headers: [string, string][];
-  req_body?: string;
-  resp_headers: [string, string][];
-  resp_body?: string;
-  resp_size?: number;
-  app_name?: string;
-  app_icon?: string;
-  device_id?: number;
-  device_name?: string;
-  client_ip?: string;
-  is_websocket: boolean;
-  ws_frames?: WsFrame[];
-  grpc_decoded?: string;
-  graphql_op?: string;
-}
-
-export interface WsFrame {
-  direction: string;
-  timestamp: string;
-  payload: string;
-  size: number;
-}
+export type { InterceptedRequest, WsFrame } from "./generated/desktop-contract";
 
 export type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
 

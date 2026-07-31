@@ -1,18 +1,5 @@
-// Shared types for the WS Frame Viewer components.
-
-export interface WsFrame {
-  direction: "incoming" | "outgoing";
-  timestamp: string;
-  payload: string;
-  size: number;
-  opcode: number;
-  truncated: boolean;
-}
-
-export interface WsFrameEvent {
-  request_id: string;
-  frame: WsFrame;
-}
+// The desktop wire shape is generated from Rust; this module adds display logic only.
+export type { WsFrame, WsFrameEvent } from "../../generated/desktop-contract";
 
 export function getOpcodeName(opcode: number): string {
   switch (opcode) {

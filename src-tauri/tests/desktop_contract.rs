@@ -24,7 +24,7 @@ fn frontend_literal_invocations_are_registered() {
         }
     });
     assert!(
-        used_by_command.len() >= 100,
+        used_by_command.len() >= 90,
         "IPC scanner found suspiciously few commands: {}",
         used_by_command.len()
     );
@@ -84,6 +84,53 @@ fn executable_is_a_thin_bootstrap_adapter() {
     assert_eq!(builders, [PathBuf::from("bootstrap.rs")]);
     assert_eq!(handlers, [PathBuf::from("bootstrap.rs")]);
     assert_eq!(contexts, [PathBuf::from("bootstrap.rs")]);
+}
+
+#[test]
+fn generated_tracer_contract_matches_rust_and_registered_commands() {
+    let manifest_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/generated/desktop-contract.ts");
+    let generated = fs::read_to_string(&manifest_path).unwrap();
+    assert_eq!(
+        generated,
+        proxybot_lib::desktop_contract::render_typescript()
+    );
+
+    let registered: BTreeSet<&str> = proxybot_lib::DESKTOP_COMMANDS
+        .iter()
+        .map(|path| path.rsplit("::").next().unwrap().trim())
+        .collect();
+    let missing: Vec<_> = proxybot_lib::desktop_contract::TRAFFIC_COMMANDS
+        .iter()
+        .filter(|command| !registered.contains(**command))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "generated commands absent from the Tauri handler: {missing:?}"
+    );
+}
+
+#[test]
+fn migrated_traffic_slice_only_uses_the_desktop_adapter() {
+    let frontend_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/components");
+    let mut bypasses = Vec::new();
+
+    for directory in ["traffic", "ws-frames"] {
+        let root = frontend_root.join(directory);
+        visit_source_files(&root, &["ts", "tsx"], &mut |path, source| {
+            if source.contains("@tauri-apps/api/core")
+                || source.contains("@tauri-apps/api/event")
+                || source.contains("safeInvoke")
+            {
+                bypasses.push(path.strip_prefix(&frontend_root).unwrap().to_path_buf());
+            }
+        });
+    }
+
+    assert!(
+        bypasses.is_empty(),
+        "migrated Traffic/WS files bypass the desktop Adapter: {bypasses:?}"
+    );
 }
 
 fn visit_source_files(root: &Path, extensions: &[&str], visitor: &mut impl FnMut(&Path, &str)) {

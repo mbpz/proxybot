@@ -1,29 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
+import { capturedRequestToListItem, normalizedRecordToListItem } from "./model";
 import { FilterInput } from "../filter/FilterInput";
-import { FilterPreset } from "../filter/types";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 import { Button } from "../ui/Button";
 import { Search, Download, Table2, Save, FolderOpen } from "lucide-react";
-
-interface InterceptedRequest {
-  id: string;
-  method: string;
-  host: string;
-  path: string;
-  status?: number;
-  duration_ms: number;
-  timestamp: number;
-  app_tag?: string;
-  headers: Record<string, string>;
-  body?: string;
-  size?: number;
-}
+import { desktop } from "../../desktop/contract";
+import type {
+  FilterPreset,
+  InterceptedRequest,
+  NormalizedRecord,
+} from "../../generated/desktop-contract";
 
 interface FilterState {
   method?: string;
@@ -44,15 +34,14 @@ export function TrafficPage() {
   const [harName, setHarName] = useState("");
   const [showHarDialog, setShowHarDialog] = useState(false);
   const [normalizedView, setNormalizedView] = useState(false);
-  const [normalizedData, setNormalizedData] = useState<InterceptedRequest[]>([]);
-  const [normPage, setNormPage] = useState(1);
+  const [normalizedData, setNormalizedData] = useState<NormalizedRecord[]>([]);
+  const [normPage, setNormPage] = useState(0);
   const [normTotal, setNormTotal] = useState(0);
   const [normLoading, setNormLoading] = useState(false);
 
   async function loadPresets() {
     try {
-      const list = await invoke<FilterPreset[] | null>("list_filter_presets");
-      setPresets(list ?? []);
+      setPresets(await desktop.call("list_filter_presets", {}));
     } catch (e) {
       console.error("Failed to load presets:", e);
     }
@@ -66,16 +55,13 @@ export function TrafficPage() {
     // Start with empty list - requests will come via events
     setLoading(false);
 
-    const unlistenPromise = listen<InterceptedRequest>("intercepted-request", (event) => {
-      const req = event.payload;
-      if (req && typeof req === "object" && req.id && req.host) {
-        setRequests((prev) => [req, ...prev].slice(0, 999));
-      }
+    const subscription = desktop.subscribe("intercepted-request", {
+      next: (request) => setRequests((current) => [request, ...current].slice(0, 999)),
+      error: (error) => console.error("Invalid intercepted request event:", error),
     });
+    void subscription.ready.catch((error) => console.error("Traffic subscription failed:", error));
 
-    return () => {
-      unlistenPromise.then((fn) => fn());
-    };
+    return () => subscription.dispose();
   }, []);
 
   const filteredRequests = useMemo(() => {
@@ -90,6 +76,9 @@ export function TrafficPage() {
     }
     if (filters.status) {
       result = result.filter((r) => r.status === filters.status);
+    }
+    if (filters.appTag) {
+      result = result.filter((r) => r.app_name === filters.appTag);
     }
     if (filters.search) {
       const search = filters.search.toLowerCase();
@@ -119,33 +108,9 @@ export function TrafficPage() {
       const out: InterceptedRequest[] = [];
       for (const r of filteredRequests) {
         try {
-          const matches = await invoke<boolean>("evaluate_filter", {
+          const matches = await desktop.call("evaluate_filter", {
             expr: dslExpr,
-            request: {
-              id: r.id,
-              timestamp: String(r.timestamp ?? ""),
-              method: r.method,
-              host: r.host,
-              path: r.path,
-              query_params: undefined,
-              status: r.status,
-              latency_ms: r.duration_ms,
-              scheme: "https",
-              req_headers: Object.entries(r.headers ?? {}),
-              req_body: r.body,
-              resp_headers: [],
-              resp_body: undefined,
-              resp_size: r.size,
-              app_name: r.app_tag,
-              app_icon: undefined,
-              device_id: undefined,
-              device_name: undefined,
-              client_ip: undefined,
-              is_websocket: false,
-              ws_frames: undefined,
-              grpc_decoded: undefined,
-              graphql_op: undefined,
-            },
+            request: r,
           });
           if (matches) out.push(r);
         } catch {
@@ -159,17 +124,23 @@ export function TrafficPage() {
     };
   }, [filteredRequests, dslExpr]);
 
-  const selectedRequest = useMemo(
-    () => requests.find((r) => r.id === selectedId),
-    [requests, selectedId]
+  const displayedRequests = useMemo(
+    () =>
+      normalizedView
+        ? normalizedData.map(normalizedRecordToListItem)
+        : dslFilteredRequests.map(capturedRequestToListItem),
+    [normalizedView, normalizedData, dslFilteredRequests],
   );
 
-  async function loadNormalized() {
+  const selectedRequest = useMemo(
+    () => displayedRequests.find((request) => request.id === selectedId),
+    [displayedRequests, selectedId],
+  );
+
+  async function loadNormalized(page = normPage) {
     try {
       setNormLoading(true);
-      const result = await invoke<{ records: InterceptedRequest[]; total: number; has_more: boolean }>(
-        "get_traffic_page", { page: normPage, page_size: 50 }
-      );
+      const result = await desktop.call("get_traffic_page", { page, pageSize: 50 });
       setNormalizedData(result.records);
       setNormTotal(result.total);
     } catch (err) {
@@ -187,8 +158,7 @@ export function TrafficPage() {
 
   async function loadHistory() {
     try {
-      const data = await invoke<InterceptedRequest[]>("load_history", { filter: {}, limit: 1000 });
-      setRequests(data);
+      setRequests(await desktop.call("load_history", {}));
     } catch (err) {
       alert("Load history failed: " + String(err));
     }
@@ -196,7 +166,7 @@ export function TrafficPage() {
 
   async function saveHistory() {
     try {
-      await invoke("save_history");
+      await desktop.call("save_history", { requests });
       alert("Traffic history saved");
     } catch (err) {
       alert("Save failed: " + String(err));
@@ -207,10 +177,10 @@ export function TrafficPage() {
     if (!harName) return;
     try {
       setHarExporting(true);
-      const har = await invoke<{ log: object }>("export_har", { session_name: harName });
-      const path = await invoke<string>("save_har_file", {
-        har_json: JSON.stringify(har),
-        session_name: harName,
+      const har = await desktop.call("export_har", { sessionName: harName });
+      const path = await desktop.call("save_har_file", {
+        harJson: JSON.stringify(har),
+        sessionName: harName,
       });
       setShowHarDialog(false);
       setHarName("");
@@ -279,7 +249,7 @@ export function TrafficPage() {
                 <SkeletonTable rows={10} />
               ) : (
                 <RequestTable
-                  requests={normalizedView ? normalizedData : dslFilteredRequests}
+                  requests={displayedRequests}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
                 />
@@ -288,10 +258,10 @@ export function TrafficPage() {
           </div>
           {normalizedView && normTotal > 0 && (
             <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-surface-primary text-xs text-text-muted">
-              <span>Page {normPage} of {Math.ceil(normTotal / 50)} ({normTotal} total)</span>
+              <span>Page {normPage + 1} of {Math.ceil(normTotal / 50)} ({normTotal} total)</span>
               <div className="flex gap-1">
-                <Button variant="secondary" size="sm" disabled={normPage <= 1} onClick={() => { setNormPage(p => p - 1); setTimeout(loadNormalized, 0); }}>Prev</Button>
-                <Button variant="secondary" size="sm" disabled={normPage * 50 >= normTotal} onClick={() => { setNormPage(p => p + 1); setTimeout(loadNormalized, 0); }}>Next</Button>
+                <Button variant="secondary" size="sm" disabled={normPage <= 0} onClick={() => { const page = normPage - 1; setNormPage(page); void loadNormalized(page); }}>Prev</Button>
+                <Button variant="secondary" size="sm" disabled={(normPage + 1) * 50 >= normTotal} onClick={() => { const page = normPage + 1; setNormPage(page); void loadNormalized(page); }}>Next</Button>
               </div>
             </div>
           )}

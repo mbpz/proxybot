@@ -4,8 +4,9 @@ import { TrafficPage } from "../components/traffic/TrafficPage";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string) => {
+    if (cmd === "list_filter_presets") return Promise.resolve([]);
     if (cmd === "get_traffic_page")
-      return Promise.resolve({ records: [], total: 0, has_more: false });
+      return Promise.resolve({ records: [], total: 0, page: 0, page_size: 50, has_more: false });
     if (cmd === "load_history") return Promise.resolve([]);
     return Promise.resolve(null);
   }),

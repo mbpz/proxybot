@@ -14,21 +14,23 @@ use tauri::State;
 // Normalized Record Types
 // ============================================================================
 
-/// Normalized HTTP exchange record for AI analysis.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NormalizedRecord {
-    pub id: i64,
-    pub timestamp: String,
-    pub method: String,
-    pub path: String,
-    pub query: Value,
-    pub request_headers: Value,
-    pub request_body: Value,
-    pub response_status: u16,
-    pub response_headers: Value,
-    pub response_body: Value,
-    pub timing_ms: i64,
-    pub device_id: Option<i64>,
+proxybot_core::desktop_contract_type! {
+    /// Normalized HTTP exchange record for AI analysis.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct NormalizedRecord {
+        pub id: i64,
+        pub timestamp: String,
+        pub method: String,
+        pub path: String,
+        pub query: Value,
+        pub request_headers: Value,
+        pub request_body: Value,
+        pub response_status: u16,
+        pub response_headers: Value,
+        pub response_body: Value,
+        pub timing_ms: i64,
+        pub device_id: Option<i64>,
+    }
 }
 
 /// Parsed body content with detected format.
@@ -49,14 +51,16 @@ pub enum BodyFormat {
     Binary,
 }
 
-/// Paginated traffic response.
-#[derive(Debug, Clone, Serialize)]
-pub struct TrafficPage {
-    pub records: Vec<NormalizedRecord>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub has_more: bool,
+proxybot_core::desktop_contract_type! {
+    /// Paginated traffic response.
+    #[derive(Debug, Clone, Serialize)]
+    pub struct TrafficPage {
+        pub records: Vec<NormalizedRecord>,
+        pub total: i64,
+        pub page: i64,
+        pub page_size: i64,
+        pub has_more: bool,
+    }
 }
 
 // ============================================================================

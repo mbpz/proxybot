@@ -13,4 +13,3 @@ pub mod replay;
 pub mod specgen;
 pub mod ssl_bypass;
 pub mod tls_rules;
-pub mod ws_frames;

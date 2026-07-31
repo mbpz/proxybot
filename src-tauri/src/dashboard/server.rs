@@ -219,12 +219,17 @@ impl DashboardServer {
     }
 }
 
-/// Generate a random 16-char hex token for dashboard auth.
+/// Generate a cryptographically random 128-bit token for dashboard auth.
 fn generate_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:016x}", nanos)
+    use rand::{rngs::OsRng, RngCore};
+    use std::fmt::Write;
+
+    let mut bytes = [0_u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+
+    let mut token = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(token, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    token
 }

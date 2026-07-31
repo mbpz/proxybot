@@ -57,48 +57,15 @@ pub(super) static SHUTDOWN_TX: LazyLock<
 // Public data types
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
-pub struct InterceptedRequest {
-    pub id: String,
-    pub timestamp: String,
-    pub method: String,
-    pub host: String,
-    pub path: String,
-    pub query_params: Option<String>,
-    pub status: Option<u16>,
-    pub latency_ms: Option<u64>,
-    pub scheme: String,
-    pub req_headers: Vec<(String, String)>,
-    pub req_body: Option<String>,
-    pub resp_headers: Vec<(String, String)>,
-    pub resp_body: Option<String>,
-    pub resp_size: Option<usize>,
-    pub app_name: Option<String>,
-    pub app_icon: Option<String>,
-    pub device_id: Option<i64>,
-    pub device_name: Option<String>,
-    pub client_ip: Option<String>,
-    pub is_websocket: bool,
-    pub ws_frames: Option<Vec<WsFrame>>,
-    pub grpc_decoded: Option<String>,
-    pub graphql_op: Option<String>,
-}
+pub use proxybot_core::{InterceptedRequest, WsFrame};
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct WsFrame {
-    pub direction: String,
-    pub timestamp: String,
-    pub payload: String,
-    pub size: usize,
-    pub opcode: u8,
-    pub truncated: bool,
-}
-
-/// Wrapper emitted on the `ws-frame:new` Tauri event channel.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct WsFrameEvent {
-    pub request_id: String,
-    pub frame: WsFrame,
+proxybot_core::desktop_contract_type! {
+    /// Wrapper emitted on the `ws-frame:new` Tauri event channel.
+    #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+    pub struct WsFrameEvent {
+        pub request_id: String,
+        pub frame: WsFrame,
+    }
 }
 
 /// Map a WebSocket frame opcode to a human-readable name.

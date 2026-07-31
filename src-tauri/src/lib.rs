@@ -17,6 +17,7 @@ pub mod dag;
 pub mod dashboard;
 pub mod db;
 pub mod deploy;
+pub mod desktop_contract;
 pub mod dns;
 pub mod error;
 pub mod filter;

@@ -5,6 +5,7 @@ pub use server::DashboardServer;
 mod tests {
     use super::*;
     use crate::proxy::InterceptedRequest;
+    use std::collections::HashSet;
 
     #[test]
     fn test_dashboard_new() {
@@ -54,9 +55,11 @@ mod tests {
 
     #[test]
     fn test_token_uniqueness() {
-        let d1 = DashboardServer::new(0);
-        let d2 = DashboardServer::new(0);
-        // Tokens are time-based nanos — extremely unlikely to collide
-        assert_ne!(d1.token(), d2.token());
+        let tokens: HashSet<_> = (0..128)
+            .map(|_| DashboardServer::new(0).token().to_owned())
+            .collect();
+
+        assert_eq!(tokens.len(), 128);
+        assert!(tokens.iter().all(|token| token.len() == 32));
     }
 }

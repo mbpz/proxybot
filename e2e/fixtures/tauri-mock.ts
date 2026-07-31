@@ -32,7 +32,11 @@ export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void>
 
     window.__TAURI_INTERNALS__ = {
       invoke: (cmd: string, args?: Record<string, unknown>) => {
-        return Promise.resolve(handler(cmd, args));
+        try {
+          return Promise.resolve(handler(cmd, args));
+        } catch (error) {
+          return Promise.reject(error);
+        }
       },
       transformCallback,
       unregisterCallback,
@@ -56,6 +60,6 @@ export async function mockTauriCommands(
   // Build a function body that does a lookup
   const entries = Object.entries(mocks).map(([k, v]) => [k, JSON.stringify(v)] as [string, string]);
   const switchCases = entries.map(([k, v]) => `case ${JSON.stringify(k)}: return ${v};`).join("\n");
-  const fnBody = `switch(cmd) {\n${switchCases}\ndefault: return null;\n}`;
+  const fnBody = `switch(cmd) {\n${switchCases}\ndefault: throw new Error("Unhandled Tauri mock command: " + cmd);\n}`;
   await mockTauriIPC(page, fnBody);
 }

@@ -41,6 +41,9 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --locked --no-default-features
 
+      - name: Check generated desktop contract
+        run: cargo run -p proxybot --example export_desktop_contract --locked --no-default-features -- --check
+
       - name: Clippy lints
         run: cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 

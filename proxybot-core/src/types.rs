@@ -7,41 +7,49 @@ use serde::{Deserialize, Serialize};
 
 // ─── Request / Response ────────────────────────────────────────────────────
 
-/// A captured HTTP request with its response and metadata.
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct InterceptedRequest {
-    pub id: String,
-    pub timestamp: String,
-    pub method: String,
-    pub host: String,
-    pub path: String,
-    pub query_params: Option<String>,
-    pub status: Option<u16>,
-    pub latency_ms: Option<u64>,
-    pub scheme: String,
-    pub req_headers: Vec<(String, String)>,
-    pub req_body: Option<String>,
-    pub resp_headers: Vec<(String, String)>,
-    pub resp_body: Option<String>,
-    pub resp_size: Option<usize>,
-    pub app_name: Option<String>,
-    pub app_icon: Option<String>,
-    pub device_id: Option<i64>,
-    pub device_name: Option<String>,
-    pub client_ip: Option<String>,
-    pub is_websocket: bool,
-    pub ws_frames: Option<Vec<WsFrame>>,
-    pub grpc_decoded: Option<String>,
-    pub graphql_op: Option<String>,
+crate::desktop_contract_type! {
+    /// A captured HTTP request with its response and metadata.
+    #[derive(Clone, Debug, Serialize, Deserialize, Default)]
+    pub struct InterceptedRequest {
+        pub id: String,
+        pub timestamp: String,
+        pub method: String,
+        pub host: String,
+        pub path: String,
+        pub query_params: Option<String>,
+        pub status: Option<u16>,
+        pub latency_ms: Option<u64>,
+        pub scheme: String,
+        pub req_headers: Vec<(String, String)>,
+        pub req_body: Option<String>,
+        pub resp_headers: Vec<(String, String)>,
+        pub resp_body: Option<String>,
+        pub resp_size: Option<usize>,
+        pub app_name: Option<String>,
+        pub app_icon: Option<String>,
+        pub device_id: Option<i64>,
+        pub device_name: Option<String>,
+        pub client_ip: Option<String>,
+        pub is_websocket: bool,
+        pub ws_frames: Option<Vec<WsFrame>>,
+        pub grpc_decoded: Option<String>,
+        pub graphql_op: Option<String>,
+    }
 }
 
-/// A single WebSocket frame captured from a connection.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WsFrame {
-    pub direction: String,
-    pub timestamp: String,
-    pub payload: String,
-    pub size: usize,
+crate::desktop_contract_type! {
+    /// A single WebSocket frame captured from a connection.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct WsFrame {
+        pub direction: String,
+        pub timestamp: String,
+        pub payload: String,
+        pub size: usize,
+        #[serde(default)]
+        pub opcode: u8,
+        #[serde(default)]
+        pub truncated: bool,
+    }
 }
 
 // ─── Breakpoint ────────────────────────────────────────────────────────────

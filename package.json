@@ -11,6 +11,8 @@
     "tauri": "tauri",
     "resources:fetch": "bash scripts/fetch-bundle-resources.sh",
     "resources:check": "bash scripts/fetch-bundle-resources.sh --check",
+    "contract:generate": "cargo run -p proxybot --example export_desktop_contract --no-default-features",
+    "contract:check": "cargo run -p proxybot --example export_desktop_contract --no-default-features -- --check",
     "typecheck": "tsc --noEmit",
     "test": "cargo test --workspace --locked --no-default-features",
     "test:ui": "vitest run",

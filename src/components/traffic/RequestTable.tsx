@@ -3,31 +3,22 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { MethodBadge } from "../ui/Badge";
 import { getStatusTailwindClass } from "../../utils";
 import { Radio } from "lucide-react";
-
-interface InterceptedRequest {
-  id: string;
-  method: string;
-  host: string;
-  path: string;
-  status?: number;
-  duration_ms: number;
-  timestamp: number;
-  app_tag?: string;
-  size?: number;
-}
+import type { TrafficListItem } from "./model";
 
 interface RequestTableProps {
-  requests: InterceptedRequest[];
+  requests: TrafficListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }
 
-function formatTime(timestamp: number): string {
-  const d = new Date(timestamp * 1000);
+function formatTime(timestamp: string): string {
+  const numeric = Number(timestamp);
+  const d = new Date(Number.isFinite(numeric) ? numeric * 1000 : timestamp);
+  if (Number.isNaN(d.getTime())) return "--:--:--";
   return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
 }
 
-function formatSize(bytes?: number): string {
+function formatSize(bytes: number | null): string {
   if (!bytes) return "-";
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -102,7 +93,7 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
                 <span className="font-mono text-text-primary">{req.host}</span>
                 <span className="text-text-muted">{req.path}</span>
               </span>
-              <span className={`w-16 text-center text-sm font-mono ${getStatusTailwindClass(req.status)}`}>
+              <span className={`w-16 text-center text-sm font-mono ${getStatusTailwindClass(req.status ?? undefined)}`}>
                 {req.status || ".."}
               </span>
               <span className="w-16 text-center text-xs text-text-muted font-mono">

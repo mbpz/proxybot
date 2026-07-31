@@ -32,6 +32,7 @@ pub mod app_classifier;
 pub mod body;
 pub mod cert_manager;
 pub mod config;
+pub mod desktop_contract;
 pub mod dns_state;
 pub mod fingerprint;
 pub mod proxy_engine;
