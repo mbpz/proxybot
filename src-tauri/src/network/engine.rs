@@ -139,6 +139,25 @@ impl NetworkConditionEngine {
             }
         };
 
+        Self::effect(&profile, read_size)
+    }
+
+    /// Compute the effect for a host-specific rule, falling back to the active profile.
+    pub fn apply_for_host(&self, host: &str, read_size: usize) -> ConditionEffect {
+        let profile = self
+            .match_profile_for_host(host)
+            .and_then(|name| self.profiles.read().unwrap().get(&name).cloned())
+            .or_else(|| self.active_profile.read().unwrap().clone());
+        match profile {
+            Some(profile) => Self::effect(&profile, read_size),
+            None => ConditionEffect {
+                delay_ms: 0,
+                drop: false,
+            },
+        }
+    }
+
+    fn effect(profile: &NetworkProfile, read_size: usize) -> ConditionEffect {
         // Packet loss: randomly drop
         let drop = if profile.packet_loss_pct > 0 {
             (rand::random::<u8>() % 100) < profile.packet_loss_pct
@@ -218,6 +237,21 @@ mod tests {
         let effect = engine.apply(1024);
         assert_eq!(effect.delay_ms, 300);
         assert!(!effect.drop);
+    }
+
+    #[test]
+    fn host_rule_applies_without_changing_global_profile() {
+        let engine = NetworkConditionEngine::new();
+        engine.add_rule(NewConditionRule {
+            pattern: NetworkHostPattern::Domain,
+            value: "api.example.com".to_owned(),
+            profile: "3G".to_owned(),
+            enabled: true,
+        });
+
+        assert!(engine.get_active().is_none());
+        assert_eq!(engine.apply_for_host("api.example.com", 1024).delay_ms, 300);
+        assert_eq!(engine.apply_for_host("other.example.com", 1024).delay_ms, 0);
     }
 
     #[test]

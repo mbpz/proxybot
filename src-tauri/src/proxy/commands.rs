@@ -1,15 +1,14 @@
 //! Tauri command handlers: cert operations, network/PF, history, replay,
 //! keep-running toggle, window control.
 
-use super::protocol::{try_decode_graphql_body, try_decode_grpc_body};
-use super::{InterceptedRequest, KeepRunningState, ProxyState, PROXY_RUNNING, SHUTDOWN_TX};
+use super::capture_decode::{try_decode_graphql_body, try_decode_grpc_body};
+use super::{InterceptedRequest, KeepRunningState, ProxyState};
 use crate::cert::{CaMetadata, CertManager};
 use crate::db::DbState;
 use crate::dns::{self, DnsState};
 use crate::history::HistoryStore;
 use crate::network::NetworkInfo;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
@@ -88,15 +87,6 @@ pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
 #[tauri::command]
 pub fn is_pf_enabled() -> bool {
     crate::pf::is_pf_enabled()
-}
-
-#[tauri::command]
-pub fn stop_proxy() -> Result<String, String> {
-    PROXY_RUNNING.store(false, Ordering::SeqCst);
-    if let Some(tx) = SHUTDOWN_TX.lock().unwrap().take() {
-        let _ = tx.send(());
-    }
-    Ok("Proxy stopped".to_string())
 }
 
 #[tauri::command]

@@ -24,13 +24,11 @@ pub struct AppState {
     /// "no active session" — captured rows have NULL `session_id`
     /// and are returned by `get_traffic_records("")`.
     ///
-    /// Held as an `Arc` so the proxy hot path can clone it once
-    /// into `ProxyContext` and read without going through the
-    /// Tauri State map per request.
+    /// Held as an `Arc` so the desktop Capture Event Adapter can retain the
+    /// same value without going through the Tauri State map per request.
     pub active_session_id: Arc<Mutex<Option<String>>>,
-    /// Per-host TLS decryption policy. The proxy's HTTPS handler
-    /// reads this (via the cloned `Arc` in `ProxyContext`) before
-    /// deciding whether to MITM a connection. The DB is the source
+    /// Per-host TLS decryption policy. The core MITM Runtime reads this shared
+    /// rule set before deciding whether to decrypt a connection. The DB is the source
     /// of truth; commands that mutate the rules rebuild this cache
     /// so changes take effect without a proxy restart.
     ///
@@ -92,7 +90,7 @@ impl AppState {
 
     /// Snapshot the current active session id. Returns `None` when
     /// no session is selected. Used by the proxy capture pipeline
-    /// (via the cloned Arc inside `ProxyContext`) and by the
+    /// (via the desktop Capture Event Adapter) and by the
     /// `get_active_session` Tauri command.
     pub fn active_session_id_snapshot(&self) -> Option<String> {
         self.active_session_id
@@ -274,7 +272,7 @@ mod tests {
 
     #[test]
     fn active_session_id_arc_is_shared() {
-        // The Arc<Mutex<...>> is the contract used by ProxyContext;
+        // The Arc<Mutex<...>> is the contract used by the Capture Event Adapter;
         // confirm a clone of the Arc sees mutations through the
         // owner.
         let s = AppState::new();

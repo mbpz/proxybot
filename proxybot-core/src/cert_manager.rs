@@ -243,8 +243,9 @@ impl CertManager {
         let ca_key_pem = self.ca_key_pem.lock().map_err(|e| e.to_string())?;
         let ca_key_pair =
             KeyPair::from_pem(&ca_key_pem).map_err(|e| format!("Failed to parse CA key: {}", e))?;
-
-        let issuer = Issuer::new(params.clone(), ca_key_pair);
+        let ca_cert_pem = self.ca_cert_pem.lock().map_err(|e| e.to_string())?;
+        let issuer = Issuer::from_ca_cert_pem(&ca_cert_pem, ca_key_pair)
+            .map_err(|e| format!("Failed to parse CA certificate: {}", e))?;
         let cert = params
             .signed_by(&key_pair, &issuer)
             .map_err(|e| format!("Failed to sign host cert: {}", e))?;

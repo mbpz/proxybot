@@ -181,8 +181,7 @@ pub fn get_specgen_config(state: State<'_, Arc<AppState>>) -> Result<SpecConfig,
 
 /// Mark a UI-selected `session_id` as the *active* session.
 ///
-/// The proxy capture pipeline reads this value (via the cloned `Arc`
-/// inside `ProxyContext`) and stamps every newly-recorded
+/// The desktop Capture Event Adapter reads this value and stamps every newly-recorded
 /// `http_requests` row with it. Pass `None` to clear and have
 /// subsequent rows recorded with NULL `session_id`.
 ///

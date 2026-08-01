@@ -4114,6 +4114,7 @@ dependencies = [
 name = "proxybot"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "cucumber",
@@ -4173,6 +4174,7 @@ dependencies = [
 name = "proxybot-core"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "brotli",
  "chrono",
@@ -4183,6 +4185,8 @@ dependencies = [
  "notify",
  "rcgen",
  "reqwest 0.12.28",
+ "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -4190,6 +4194,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
+ "webpki-roots 0.26.11",
  "wiremock",
 ]
 

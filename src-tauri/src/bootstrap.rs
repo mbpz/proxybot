@@ -276,6 +276,7 @@ fn run_desktop() {
     let dns_state =
         Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
     let proxy_state = Arc::new(ProxyState::new());
+    let mitm_runtime_state = Arc::new(crate::proxy::MitmRuntimeState::new());
     let keep_running_state = Arc::new(crate::proxy::KeepRunningState::new());
     let anomaly_detector = Arc::new(AnomalyDetector::new());
     let tun_state = Arc::new(TunState::new());
@@ -299,6 +300,7 @@ fn run_desktop() {
         .manage(cert_manager)
         .manage(dns_state)
         .manage(proxy_state)
+        .manage(mitm_runtime_state)
         .manage(keep_running_state)
         .manage(anomaly_detector)
         .manage(tun_state)
@@ -394,40 +396,63 @@ fn configure_tray(app: &mut tauri::App) -> tauri::Result<()> {
 }
 
 fn start_proxy_from_tray(app: &tauri::AppHandle, app_handle: &tauri::AppHandle) {
-    let result = crate::proxy::start_proxy(
-        app_handle.clone(),
-        app.state::<Arc<CertManager>>().clone(),
-        app.state::<Arc<DnsState>>().clone(),
-        app.state::<Arc<DbState>>().clone(),
-        app.state::<Arc<RulesEngine>>().clone(),
-        app.state::<Arc<crate::state::AppState>>().clone(),
-    );
-
-    match result {
-        Ok(_) => {
-            let _ = app
-                .notification()
-                .builder()
-                .title("ProxyBot")
-                .body("Proxy started")
-                .show();
+    let app_handle = app_handle.clone();
+    let runtime = app
+        .state::<Arc<crate::proxy::MitmRuntimeState>>()
+        .inner()
+        .clone();
+    let certs = app.state::<Arc<CertManager>>().inner().clone();
+    let dns = app.state::<Arc<DnsState>>().inner().clone();
+    let db = app.state::<Arc<DbState>>().inner().clone();
+    let rules = app.state::<Arc<RulesEngine>>().inner().clone();
+    let app_state = app.state::<Arc<crate::state::AppState>>().inner().clone();
+    let network = app.state::<NetworkConditionsState>().inner().0.clone();
+    tauri::async_runtime::spawn(async move {
+        match crate::proxy::start_proxy_runtime(
+            app_handle.clone(),
+            runtime,
+            certs,
+            dns,
+            db,
+            rules,
+            app_state,
+            network,
+        )
+        .await
+        {
+            Ok(_) => {
+                let _ = app_handle
+                    .notification()
+                    .builder()
+                    .title("ProxyBot")
+                    .body("Proxy started")
+                    .show();
+            }
+            Err(error) => log::error!("Failed to start proxy: {error}"),
         }
-        Err(error) => log::error!("Failed to start proxy: {error}"),
-    }
+    });
 }
 
 fn stop_proxy_from_tray(app: &tauri::AppHandle) {
-    match crate::proxy::stop_proxy() {
-        Ok(_) => {
-            let _ = app
-                .notification()
-                .builder()
-                .title("ProxyBot")
-                .body("Proxy stopped")
-                .show();
+    let app_handle = app.clone();
+    let runtime = app
+        .state::<Arc<crate::proxy::MitmRuntimeState>>()
+        .inner()
+        .clone();
+    let app_state = app.state::<Arc<crate::state::AppState>>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        match crate::proxy::stop_proxy_runtime(runtime, app_state).await {
+            Ok(_) => {
+                let _ = app_handle
+                    .notification()
+                    .builder()
+                    .title("ProxyBot")
+                    .body("Proxy stopped")
+                    .show();
+            }
+            Err(error) => log::error!("Failed to stop proxy: {error}"),
         }
-        Err(error) => log::error!("Failed to stop proxy: {error}"),
-    }
+    });
 }
 
 fn show_main_window(app: &tauri::AppHandle) {

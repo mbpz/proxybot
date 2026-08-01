@@ -53,7 +53,12 @@ pub use fingerprint::{
     default_fingerprint_set, get_default_signatures, glob_match, AppMatch, AppSignature,
     CustomAppRule, HelloInfo, MatchSource, RuleCondition, TlsFingerprint,
 };
-pub use proxy_engine::ProxyEngine;
+pub use proxy_engine::{
+    CaptureEvent, MitmRuntime, NoOriginalDestination, NoopRuntimeHooks, OriginalDestination,
+    ProxyEngine, RunningMitm, RuntimeConfig, RuntimeConnectDecision, RuntimeError,
+    RuntimeHookDecision, RuntimeHooks, RuntimeRequest, RuntimeResponse, TrafficDirection,
+    TrafficEffect, UpstreamTlsPolicy,
+};
 pub use rules_engine::{
     host_matches_domain, match_host_pattern, match_pattern, match_rule, HostPattern, RulesEngine,
     RulesError,

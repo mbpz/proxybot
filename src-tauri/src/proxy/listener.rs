@@ -1,107 +1,54 @@
-//! Proxy listener lifecycle: bind, accept, dispatch to per-connection handler,
-//! shut down. Also the Tauri- and TUI-flavored start helpers that wire up
-//! broadcast channels and the global PROXY_RUNNING flag.
+//! Tauri Adapter for starting, observing, and stopping the core MITM Runtime.
 
-use super::handler::handle_client;
-use super::{BreakpointRequest, InterceptedRequest, WsFrameEvent, PROXY_RUNNING};
+use super::runtime_adapter::{bridge_capture_events, DesktopRuntimeHooks, PfOriginalDestination};
+use super::BreakpointRequest;
 use crate::cert::CertManager;
-use crate::config::proxy_port;
 use crate::db::DbState;
 use crate::dns::DnsState;
-use crate::metrics::counters::METRICS;
 use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::PluginDispatchEngine;
 use crate::rules::RulesEngine;
 use crate::scripting::ScriptEngine;
+use crate::state::AppState;
+use proxybot_core::{MitmRuntime, RunningMitm, RuntimeConfig};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
-use tokio::net::TcpListener;
-use tokio::sync::broadcast;
 
-// Runtime dependencies are explicit here so desktop and headless bootstrap
-// paths cannot silently receive different services.
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn run_proxy(
-    event_tx: broadcast::Sender<InterceptedRequest>,
-    breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
-    ws_frame_tx: broadcast::Sender<(String, super::WsFrame)>,
-    cert_manager: Arc<CertManager>,
-    dns_state: Arc<DnsState>,
-    db_state: Arc<DbState>,
-    rules_engine: Arc<RulesEngine>,
-    plugins: Arc<PluginRegistry>,
-    plugin_rules: Arc<PluginDispatchEngine>,
-    network: Arc<NetworkConditionEngine>,
-    scripts: Arc<ScriptEngine>,
-    metrics: Arc<crate::metrics::ProxyMetrics>,
-    active_session_id: Arc<std::sync::Mutex<Option<String>>>,
-    tls_rules: Arc<std::sync::RwLock<proxybot_core::TlsRuleSet>>,
-    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-) -> Result<(), String> {
-    use super::ProxyContext;
+/// Desktop ownership of the one live runtime handle.
+pub struct MitmRuntimeState {
+    running: tokio::sync::Mutex<Option<RunningMitm>>,
+}
 
-    let addr = format!("0.0.0.0:{}", proxy_port());
-    let listener = TcpListener::bind(&addr)
-        .await
-        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
-
-    log::info!("Proxy listening on {}", addr);
-
-    loop {
-        tokio::select! {
-            result = listener.accept() => {
-                match result {
-                    Ok((stream, client_addr)) => {
-                        metrics.connections_total.fetch_add(1, Ordering::Relaxed);
-                        metrics.connections_active.fetch_add(1, Ordering::Relaxed);
-                        let ctx = ProxyContext {
-                            event_tx: event_tx.clone(),
-                            breakpoint_tx: breakpoint_tx.clone(),
-                            ws_frame_tx: ws_frame_tx.clone(),
-                            cert_manager: cert_manager.clone(),
-                            dns_state: dns_state.clone(),
-                            db_state: db_state.clone(),
-                            rules_engine: rules_engine.clone(),
-                            plugins: plugins.clone(),
-                            plugin_rules: plugin_rules.clone(),
-                            network: network.clone(),
-                            scripts: scripts.clone(),
-                            metrics: metrics.clone(),
-                            active_session_id: active_session_id.clone(),
-                            tls_rules: tls_rules.clone(),
-                        };
-                        let m = metrics.clone();
-                        tokio::spawn(async move {
-                            handle_client(ctx, stream, client_addr).await;
-                            m.connections_closed.fetch_add(1, Ordering::Relaxed);
-                            m.connections_active.fetch_sub(1, Ordering::Relaxed);
-                        });
-                    }
-                    Err(e) => {
-                        log::error!("Accept failed: {}", e);
-                    }
-                }
-            }
-            _ = &mut shutdown_rx => {
-                log::info!("Proxy shutdown signal received");
-                break;
-            }
+impl MitmRuntimeState {
+    pub fn new() -> Self {
+        Self {
+            running: tokio::sync::Mutex::new(None),
         }
     }
-    Ok(())
+
+    pub async fn is_running(&self) -> bool {
+        self.running
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(RunningMitm::is_running)
+    }
+}
+
+impl Default for MitmRuntimeState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 const EXAMPLE_SCRIPT: &str = r#"// ProxyBot Example Script
 // Return true to allow requests, false to block them.
 // Available scope variables: method, scheme, host, path, query_params, status, resp_body
 
-// Log all requests
 log(`Request: ${method} ${host}${path}`);
 
-// Block TikTok domains
 if host.contains("tiktok") || host.contains("douyin") {
     warn(`Blocked: ${host}`);
     false
@@ -115,236 +62,147 @@ fn load_or_create_example_scripts(scripts: &ScriptEngine) {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".proxybot")
         .join("scripts");
-    if let Err(e) = std::fs::create_dir_all(&scripts_dir) {
-        log::error!("Failed to create scripts directory: {}", e);
+    if let Err(error) = std::fs::create_dir_all(&scripts_dir) {
+        log::error!("Failed to create scripts directory: {error}");
     }
     let example_path = scripts_dir.join("example.rhai");
     if !example_path.exists() {
-        if let Err(e) = std::fs::write(&example_path, EXAMPLE_SCRIPT) {
-            log::error!("Failed to write example script: {}", e);
+        if let Err(error) = std::fs::write(&example_path, EXAMPLE_SCRIPT) {
+            log::error!("Failed to write example script: {error}");
         }
     }
-    if let Err(e) = scripts.load_dir(&scripts_dir) {
-        log::error!("Failed to load scripts: {}", e);
+    if let Err(error) = scripts.load_dir(&scripts_dir) {
+        log::error!("Failed to load scripts: {error}");
     }
 }
 
-#[tauri::command]
-pub fn start_proxy(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn start_proxy_runtime(
     app_handle: AppHandle,
-    cert_manager: State<'_, Arc<CertManager>>,
-    dns_state: State<'_, Arc<DnsState>>,
-    db_state: State<'_, Arc<DbState>>,
-    rules_engine: State<'_, Arc<RulesEngine>>,
-    app_state: State<'_, Arc<crate::state::AppState>>,
+    runtime_state: Arc<MitmRuntimeState>,
+    cert_manager: Arc<CertManager>,
+    dns_state: Arc<DnsState>,
+    db_state: Arc<DbState>,
+    rules_engine: Arc<RulesEngine>,
+    app_state: Arc<AppState>,
+    network: Arc<NetworkConditionEngine>,
 ) -> Result<String, String> {
-    // Prevent starting proxy multiple times
-    if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err("Proxy is already running".to_string());
+    let mut running = runtime_state.running.lock().await;
+    if running.as_ref().is_some_and(RunningMitm::is_running) {
+        return Err("Proxy is already running".to_owned());
     }
+    *running = None;
 
-    let cm = cert_manager.inner().clone();
-    let ds = dns_state.inner().clone();
-    let db = db_state.inner().clone();
-    let re = rules_engine.inner().clone();
-    // Share the AppState's active-session Arc so updates from the UI
-    // (`set_active_session` command) are visible to the capture path
-    // without restarting the proxy.
-    let active_session_id = app_state.inner().active_session_id.clone();
-    // Same sharing trick for the per-host TLS policy: edits via the
-    // tls_rules commands rebuild this set so the HTTPS handler sees
-    // them without a proxy restart.
-    let tls_rules = app_state.inner().tls_rules.clone();
-
-    // Create broadcast channel for events
-    let (event_tx, mut event_rx) = broadcast::channel::<InterceptedRequest>(100);
-
-    // Create broadcast channel for live WS frame events. Subscribed
-    // once below and forwarded as `ws-frame:new` Tauri events.
-    let (ws_frame_tx, mut ws_frame_rx) = broadcast::channel::<(String, super::WsFrame)>(256);
-
-    // Create empty plugin registry (stub - plugins not yet registered)
     let plugins = Arc::new(PluginRegistry::new());
-
-    // Create plugin rule engine (loads rules from config if available)
     let plugin_rules = Arc::new(PluginDispatchEngine::new());
-
-    // Create network condition engine
-    let network_engine = Arc::new(NetworkConditionEngine::new());
-
-    // Create metrics (use global singleton so CLI metrics command sees the same counters)
-    let metrics = METRICS.clone();
-
-    // Create scripting engine and load scripts from ~/.proxybot/scripts/
     let scripts = Arc::new(ScriptEngine::new());
     load_or_create_example_scripts(&scripts);
+    let (breakpoint_tx, mut breakpoint_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
+    let hooks = Arc::new(DesktopRuntimeHooks::new(
+        plugins,
+        plugin_rules,
+        scripts,
+        network,
+        breakpoint_tx,
+    ));
 
-    // Breakpoint channel: rules engine sends BreakpointRequest into
-    // bp_tx; the bridge task below routes them into AppState and
-    // notifies the UI.
-    let (bp_tx, mut bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
+    let runtime = MitmRuntime::new(
+        RuntimeConfig::default(),
+        cert_manager,
+        rules_engine,
+        Arc::clone(&app_state.tls_rules),
+    )
+    .with_hooks(hooks)
+    .with_original_destination(Arc::new(PfOriginalDestination));
 
-    // Spawn task to forward events to Tauri frontend
-    let app_handle_clone = app_handle.clone();
+    // The core Interface returns only after bind succeeds.
+    let mut handle = runtime.start().await.map_err(|error| error.to_string())?;
+    let bound_addr = handle.bound_addr();
+    let events = handle
+        .take_events()
+        .ok_or_else(|| "MITM Runtime event stream already taken".to_owned())?;
+
+    let event_app = app_handle.clone();
+    let event_db = Arc::clone(&db_state);
+    let event_dns = Arc::clone(&dns_state);
+    let event_state = Arc::clone(&app_state);
     tauri::async_runtime::spawn(async move {
-        while let Ok(req) = event_rx.recv().await {
-            let _ = app_handle_clone.emit("intercepted-request", &req);
-        }
+        bridge_capture_events(events, event_app, event_db, event_dns, event_state).await;
     });
 
-    // Bridge: read bp_rx, stash each in AppState, emit a Tauri event
-    // so the UI panel wakes up. The oneshot stays in AppState until
-    // resolve_breakpoint sends a decision through it.
-    let bp_app_handle = app_handle.clone();
-    let bp_state = app_state.inner().clone();
+    let breakpoint_app = app_handle;
+    let breakpoint_state = app_state;
     tauri::async_runtime::spawn(async move {
-        while let Some(bp) = bp_rx.recv().await {
-            let id =
-                bp_state.insert_breakpoint(bp.target.clone(), bp.request.clone(), bp.decision_tx);
-            let _ = bp_app_handle.emit(
+        while let Some(breakpoint) = breakpoint_rx.recv().await {
+            let id = breakpoint_state.insert_breakpoint(
+                breakpoint.target.clone(),
+                breakpoint.request.clone(),
+                breakpoint.decision_tx,
+            );
+            let _ = breakpoint_app.emit(
                 "breakpoint:new",
                 serde_json::json!({
                     "id": id,
-                    "target": bp.target,
-                    "request": bp.request,
+                    "target": breakpoint.target,
+                    "request": breakpoint.request,
                 }),
             );
         }
     });
 
-    // Spawn task to forward live WS frames to the frontend
-    // as `ws-frame:new` events. Payload shape: { request_id, frame }
-    let ws_app_handle = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        while let Ok((request_id, frame)) = ws_frame_rx.recv().await {
-            let _ = ws_app_handle.emit("ws-frame:new", WsFrameEvent { request_id, frame });
-        }
-    });
+    *running = Some(handle);
+    Ok(format!("Proxy listening on {bound_addr}"))
+}
 
-    // AI token tracking - subscribe to request events
-    let mut ai_event_rx = event_tx.subscribe();
-    let ai_tracker = Arc::new(crate::ai::AiTracker::new(db.clone()));
-    tauri::async_runtime::spawn(async move {
-        loop {
-            match ai_event_rx.recv().await {
-                Ok(req) => {
-                    ai_tracker.process_request(&req);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    log::warn!("AI tracker lagged by {} messages", n);
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-
-    tauri::async_runtime::spawn(async move {
-        // Keep shutdown_tx alive by dropping it at the end
-        let _shutdown_tx = shutdown_tx;
-        if let Err(e) = run_proxy(
-            event_tx,
-            bp_tx,
-            ws_frame_tx,
-            cm,
-            ds,
-            db,
-            re,
-            plugins,
-            plugin_rules,
-            network_engine,
-            scripts,
-            metrics,
-            active_session_id,
-            tls_rules,
-            shutdown_rx,
-        )
+pub(crate) async fn stop_proxy_runtime(
+    runtime_state: Arc<MitmRuntimeState>,
+    app_state: Arc<AppState>,
+) -> Result<String, String> {
+    let handle = runtime_state
+        .running
+        .lock()
         .await
-        {
-            log::error!("Proxy error: {}", e);
-        }
-        PROXY_RUNNING.store(false, Ordering::SeqCst);
-    });
-
-    Ok(format!("Proxy starting on port {}", proxy_port()))
+        .take()
+        .ok_or_else(|| "Proxy is not running".to_owned())?;
+    app_state.cancel_all_breakpoints();
+    handle.shutdown().await;
+    Ok("Proxy stopped".to_owned())
 }
 
 #[tauri::command]
-pub fn get_proxy_status() -> bool {
-    PROXY_RUNNING.load(Ordering::SeqCst)
+#[allow(clippy::too_many_arguments)]
+pub async fn start_proxy(
+    app_handle: AppHandle,
+    runtime_state: State<'_, Arc<MitmRuntimeState>>,
+    cert_manager: State<'_, Arc<CertManager>>,
+    dns_state: State<'_, Arc<DnsState>>,
+    db_state: State<'_, Arc<DbState>>,
+    rules_engine: State<'_, Arc<RulesEngine>>,
+    app_state: State<'_, Arc<AppState>>,
+    network: State<'_, crate::commands::network_conditions::NetworkConditionsState>,
+) -> Result<String, String> {
+    start_proxy_runtime(
+        app_handle,
+        runtime_state.inner().clone(),
+        cert_manager.inner().clone(),
+        dns_state.inner().clone(),
+        db_state.inner().clone(),
+        rules_engine.inner().clone(),
+        app_state.inner().clone(),
+        Arc::clone(&network.0),
+    )
+    .await
 }
 
-pub type ProxyCoreChannels = (
-    broadcast::Receiver<InterceptedRequest>,
-    tokio::sync::mpsc::Receiver<BreakpointRequest>,
-    tokio::sync::oneshot::Sender<()>,
-);
+#[tauri::command]
+pub async fn get_proxy_status(runtime: State<'_, Arc<MitmRuntimeState>>) -> Result<bool, String> {
+    Ok(runtime.is_running().await)
+}
 
-/// Start the proxy core for TUI (no Tauri dependency).
-/// Creates a broadcast channel and returns the receiver so TUI can subscribe to events.
-pub fn start_proxy_core(
-    cert_manager: Arc<CertManager>,
-    dns_state: Arc<DnsState>,
-    db_state: Arc<DbState>,
-    rules_engine: Arc<RulesEngine>,
-    plugins: Arc<PluginRegistry>,
-    plugin_rules: Arc<PluginDispatchEngine>,
-    network_engine: Arc<NetworkConditionEngine>,
-) -> Result<ProxyCoreChannels, String> {
-    if PROXY_RUNNING.swap(true, Ordering::SeqCst) {
-        return Err("Proxy already running".to_string());
-    }
-
-    let (event_tx, event_rx) = broadcast::channel::<InterceptedRequest>(100);
-    let (ws_frame_tx, _ws_frame_rx) = broadcast::channel::<(String, super::WsFrame)>(256);
-    let (bp_tx, bp_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-
-    let cm = cert_manager.clone();
-    let ds = dns_state.clone();
-    let db = db_state.clone();
-    let ne = network_engine.clone();
-    let metrics = METRICS.clone();
-    // TUI startup has no UI to drive session switches — start with
-    // an empty Arc and leave it permanently None. Captures land
-    // with NULL `session_id` and surface via `get_traffic_records("")`.
-    let active_session_id = Arc::new(std::sync::Mutex::new(None));
-    // TUI has no rule-editing UI either — start with an empty rule
-    // set so every host is decrypted (today's behaviour).
-    let tls_rules = Arc::new(std::sync::RwLock::new(proxybot_core::TlsRuleSet::default()));
-
-    // Create scripting engine and load scripts from ~/.proxybot/scripts/
-    let scripts = Arc::new(ScriptEngine::new());
-    load_or_create_example_scripts(&scripts);
-
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            if let Err(e) = run_proxy(
-                event_tx,
-                bp_tx,
-                ws_frame_tx,
-                cm,
-                ds,
-                db,
-                rules_engine,
-                plugins,
-                plugin_rules,
-                ne,
-                scripts,
-                metrics,
-                active_session_id,
-                tls_rules,
-                shutdown_rx,
-            )
-            .await
-            {
-                log::error!("Proxy error: {}", e);
-            }
-            PROXY_RUNNING.store(false, Ordering::SeqCst);
-        });
-    });
-
-    Ok((event_rx, bp_rx, shutdown_tx))
+#[tauri::command]
+pub async fn stop_proxy(
+    runtime: State<'_, Arc<MitmRuntimeState>>,
+    app_state: State<'_, Arc<AppState>>,
+) -> Result<String, String> {
+    stop_proxy_runtime(runtime.inner().clone(), app_state.inner().clone()).await
 }

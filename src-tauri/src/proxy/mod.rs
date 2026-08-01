@@ -5,17 +5,13 @@
 //! reference them as `crate::proxy::<name>`.
 
 // Sub-modules
+mod capture_decode;
 mod classify;
 mod commands;
-mod forward;
-mod handler;
 mod hooks;
-mod http;
-mod https;
 mod listener;
-mod protocol;
 mod requests;
-mod rules;
+mod runtime_adapter;
 mod tls;
 
 // Re-exports: public API surface (must be preserved for backward compatibility).
@@ -36,22 +32,7 @@ pub struct BreakpointRequest {
     pub decision_tx: tokio::sync::oneshot::Sender<BreakpointDecision>,
 }
 
-#[derive(Clone, Debug)]
-pub enum BreakpointDecision {
-    Proceed,
-    Modify(Box<InterceptedRequest>),
-    Drop,
-}
-
-// ---------------------------------------------------------------------------
-// Proxy runtime state
-// ---------------------------------------------------------------------------
-
-pub(super) static PROXY_RUNNING: AtomicBool = AtomicBool::new(false);
-
-pub(super) static SHUTDOWN_TX: LazyLock<
-    std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
-> = LazyLock::new(|| std::sync::Mutex::new(None));
+pub use proxybot_core::BreakpointDecision;
 
 // ---------------------------------------------------------------------------
 // Public data types
@@ -78,39 +59,6 @@ pub fn get_opcode_name(opcode: u8) -> &'static str {
         0x0A => "Pong",
         _ => "Unknown",
     }
-}
-
-// ---------------------------------------------------------------------------
-// Internal shared types (used by sibling sub-modules)
-// ---------------------------------------------------------------------------
-
-pub(super) struct ProxyContext {
-    pub(super) event_tx: broadcast::Sender<InterceptedRequest>,
-    pub(super) breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
-    pub(super) ws_frame_tx: broadcast::Sender<(String, WsFrame)>,
-    #[allow(dead_code)]
-    pub(super) cert_manager: Arc<CertManager>,
-    pub(super) dns_state: Arc<DnsState>,
-    pub(super) db_state: Arc<DbState>,
-    pub(super) rules_engine: Arc<RulesEngine>,
-    pub(super) plugins: Arc<PluginRegistry>,
-    pub(super) plugin_rules: Arc<PluginDispatchEngine>,
-    pub(super) network: Arc<NetworkConditionEngine>,
-    pub(super) scripts: Arc<ScriptEngine>,
-    pub(super) metrics: Arc<ProxyMetrics>,
-    /// Cloned `Arc<Mutex<Option<String>>>` from `AppState`. The
-    /// capture-side `record_http_request` calls in `proxy/{http,
-    /// https}.rs` lock this and stamp every newly-recorded
-    /// `http_requests` row with the current value (NULL when
-    /// nothing is selected). The TUI startup path
-    /// (`start_proxy_core`) creates a fresh empty `Arc` since
-    /// there's no UI to set it.
-    pub(super) active_session_id: Arc<std::sync::Mutex<Option<String>>>,
-    /// Cloned `Arc<RwLock<TlsRuleSet>>` from `AppState`. The HTTPS
-    /// handler consults this before generating a leaf cert: a
-    /// `Bypass`/`Passthrough` host is tunnelled raw instead of
-    /// MITM'd. The TUI path starts with an empty set (decrypt all).
-    pub(super) tls_rules: Arc<std::sync::RwLock<proxybot_core::TlsRuleSet>>,
 }
 
 /// Device context for tracking which device made a request.
@@ -169,20 +117,7 @@ impl KeepRunningState {
 // Imports needed by this module's type definitions
 // ---------------------------------------------------------------------------
 
-use crate::cert::CertManager;
-use crate::db::DbState;
-use crate::dns::DnsState;
-use crate::metrics::ProxyMetrics;
-use crate::network::NetworkConditionEngine;
-use crate::plugin::registry::PluginRegistry;
-use crate::plugin::PluginDispatchEngine;
 pub use crate::rules::BreakpointTarget;
-use crate::rules::RulesEngine;
-use crate::scripting::ScriptEngine;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use std::sync::LazyLock;
-use tokio::sync::broadcast;
 
 #[cfg(test)]
 mod tests_inner {

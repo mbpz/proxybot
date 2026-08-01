@@ -15,11 +15,16 @@ serde_json = "1"
 serde_yaml = "0.9"
 
 # Certificate generation (MITM)
-rcgen = "0.14"
+rcgen = { version = "0.14", features = ["x509-parser"] }
 sha1 = "0.10"
 
 # Networking
 ipnetwork = "0.20"
+async-trait = "0.1"
+rustls = { version = "0.23", features = ["std"] }
+rustls-pemfile = "2.1"
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
 
 # Logging
 log = "0.4"
@@ -29,8 +34,8 @@ tempfile = "3"
 # Error handling
 thiserror = "2"
 
-# Async runtime (needed for future proxy engine expansion)
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"], optional = true }
+# Async runtime used by the standalone MITM Runtime.
+tokio = { version = "1", features = ["full"] }
 
 # Spec generation
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
@@ -48,4 +53,5 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 [features]
 default = ["tokio-rt"]
-tokio-rt = ["tokio"]
+# Compatibility feature: Tokio is now required by the MITM Runtime.
+tokio-rt = []
