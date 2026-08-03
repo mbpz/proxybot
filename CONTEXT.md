@@ -52,6 +52,14 @@ _Avoid_: App tag, classification result
 A client-scoped DNS query and its answers retained as possible evidence for Application Attribution.
 _Avoid_: DNS log row, lookup cache
 
+**Process Config**:
+The immutable, validated ports, paths, and startup options assembled once before a ProxyBot process selects its desktop or MCP adapter.
+_Avoid_: Global config, settings state
+
+**Runtime Config**:
+The MITM Runtime's bind, TLS, timeout, size, and reverse-target inputs derived from Process Config before the listener starts.
+_Avoid_: App config, proxy state
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -64,6 +72,9 @@ _Avoid_: DNS log row, lookup cache
 - Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
 - A **Captured Request** may receive one **Application Attribution**
 - A **DNS Observation** can support **Application Attribution** only for the same client and within the correlation window
+- One **Process Config** supplies every process-lifetime path and listener port to desktop or MCP adapters
+- **Runtime Config** is derived from **Process Config**; it does not read environment variables or desktop state
+- DNS upstream selection, TLS Rules, and spec-generation settings are mutable runtime state, not **Process Config**
 
 ## Example dialogue
 
@@ -72,6 +83,9 @@ _Avoid_: DNS log row, lookup cache
 
 > **Dev:** "Can another device's **DNS Observation** identify this **Captured Request**?"
 > **Domain expert:** "No — DNS evidence contributes to **Application Attribution** only when the client identity and timing match."
+
+> **Dev:** "Can the desktop PF adapter and the **MITM Runtime** use different proxy ports?"
+> **Domain expert:** "No — both receive the same **Process Config**, and the **MITM Runtime** derives its **Runtime Config** from it."
 
 ## Flagged ambiguities
 

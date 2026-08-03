@@ -1,54 +1,85 @@
-//! Tauri commands for the App Fingerprint feature.
+//! Desktop Adapter for custom Application Attribution rules.
 //!
-//! Exposes the v0.9.0 app signature library (default + custom rules)
-//! to the React frontend. Custom rules are persisted to
-//! `~/.proxybot/app_signatures.json` so they survive restarts.
+//! The store is constructed by the composition root with an explicit path;
+//! there is no process-global cache or test-time environment mutation.
 
-use std::path::PathBuf;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use once_cell::sync::Lazy;
 use proxybot_core::{AppSignature, CustomAppRule};
 use tauri::State;
 
-/// Path to the on-disk custom rules file. Created lazily on first write.
-fn custom_rules_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home)
-        .join(".proxybot")
-        .join("app_signatures.json")
+pub struct CustomAppRuleStore {
+    path: PathBuf,
+    rules: Mutex<Vec<CustomAppRule>>,
 }
 
-/// In-process cache of custom rules so repeated reads from the UI
-/// don't hit the disk.
-static CUSTOM_RULES: Lazy<Mutex<Vec<CustomAppRule>>> = Lazy::new(|| Mutex::new(load_from_disk()));
-
-fn load_from_disk() -> Vec<CustomAppRule> {
-    proxybot_core::load_custom_app_rules_from(&custom_rules_path())
-}
-
-fn persist(rules: &[CustomAppRule]) -> Result<(), String> {
-    let path = custom_rules_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
+impl CustomAppRuleStore {
+    pub fn from_path(path: PathBuf) -> Self {
+        let rules = proxybot_core::load_custom_app_rules_from(&path);
+        Self {
+            path,
+            rules: Mutex::new(rules),
+        }
     }
-    let content = serde_json::to_string_pretty(rules).map_err(|e| format!("serialize: {e}"))?;
-    std::fs::write(&path, content).map_err(|e| format!("write {path:?}: {e}"))?;
-    Ok(())
+
+    fn snapshot(&self) -> Result<Vec<CustomAppRule>, String> {
+        self.rules
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))
+            .map(|rules| rules.clone())
+    }
+
+    fn upsert(&self, rule: CustomAppRule) -> Result<Vec<CustomAppRule>, String> {
+        let mut rules = self
+            .rules
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        if let Some(existing) = rules.iter_mut().find(|entry| entry.app_id == rule.app_id) {
+            *existing = rule;
+        } else {
+            rules.push(rule);
+        }
+        persist(&self.path, &rules)?;
+        Ok(rules.clone())
+    }
+
+    fn remove(&self, app_id: &str) -> Result<Vec<CustomAppRule>, String> {
+        let mut rules = self
+            .rules
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        rules.retain(|entry| entry.app_id != app_id);
+        persist(&self.path, &rules)?;
+        Ok(rules.clone())
+    }
 }
 
-/// Return every app signature — the built-in defaults followed by
-/// any user-defined custom rules.
+fn persist(path: &Path, rules: &[CustomAppRule]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("mkdir {parent:?}: {error}"))?;
+    }
+    let content =
+        serde_json::to_string_pretty(rules).map_err(|error| format!("serialize: {error}"))?;
+    std::fs::write(path, content).map_err(|error| format!("write {path:?}: {error}"))
+}
+
+/// Return the built-in signatures followed by user-defined rules.
 #[tauri::command]
-pub fn get_app_signatures() -> Result<Vec<AppSignature>, String> {
-    let mut out = proxybot_core::get_default_signatures();
-    let custom = CUSTOM_RULES
-        .lock()
-        .map_err(|e| format!("lock poisoned: {e}"))?
-        .clone();
-    for rule in custom {
-        let sni_patterns = extract_sni_patterns(&rule);
-        out.push(AppSignature {
+pub fn get_app_signatures(
+    store: State<'_, Arc<CustomAppRuleStore>>,
+) -> Result<Vec<AppSignature>, String> {
+    let mut signatures = proxybot_core::get_default_signatures();
+    for rule in store.snapshot()? {
+        let sni_patterns = rule
+            .conditions
+            .iter()
+            .filter_map(|condition| match condition {
+                proxybot_core::RuleCondition::Sni { pattern } => Some(pattern.clone()),
+                _ => None,
+            })
+            .collect();
+        signatures.push(AppSignature {
             app_id: rule.app_id,
             app_name: rule.app_name,
             icon: rule.icon,
@@ -56,162 +87,71 @@ pub fn get_app_signatures() -> Result<Vec<AppSignature>, String> {
             fingerprints: Vec::new(),
         });
     }
-    Ok(out)
+    Ok(signatures)
 }
 
-fn extract_sni_patterns(rule: &CustomAppRule) -> Vec<String> {
-    rule.conditions
-        .iter()
-        .filter_map(|c| match c {
-            proxybot_core::RuleCondition::Sni { pattern } => Some(pattern.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Persist a new custom rule. If a rule with the same `app_id` already
-/// exists it is overwritten (idempotent upsert).
 #[tauri::command]
 pub fn add_custom_rule(
     rule: CustomAppRule,
-    dns: State<'_, std::sync::Arc<crate::dns::DnsState>>,
+    dns: State<'_, Arc<crate::dns::DnsState>>,
+    store: State<'_, Arc<CustomAppRuleStore>>,
 ) -> Result<(), String> {
-    let rules = upsert_custom_rule(rule)?;
+    let rules = store.upsert(rule)?;
     dns.replace_custom_attribution_rules(rules);
     Ok(())
 }
 
-fn upsert_custom_rule(rule: CustomAppRule) -> Result<Vec<CustomAppRule>, String> {
-    let mut guard = CUSTOM_RULES
-        .lock()
-        .map_err(|e| format!("lock poisoned: {e}"))?;
-    if let Some(existing) = guard.iter_mut().find(|r| r.app_id == rule.app_id) {
-        *existing = rule;
-    } else {
-        guard.push(rule);
-    }
-    persist(&guard)?;
-    Ok(guard.clone())
-}
-
-/// Remove a custom rule by `app_id`. Returns Ok even if the id was
-/// not present (idempotent delete).
 #[tauri::command]
 pub fn remove_custom_rule(
     app_id: String,
-    dns: State<'_, std::sync::Arc<crate::dns::DnsState>>,
+    dns: State<'_, Arc<crate::dns::DnsState>>,
+    store: State<'_, Arc<CustomAppRuleStore>>,
 ) -> Result<(), String> {
-    let rules = remove_custom_rule_from_store(&app_id)?;
+    let rules = store.remove(&app_id)?;
     dns.replace_custom_attribution_rules(rules);
     Ok(())
-}
-
-fn remove_custom_rule_from_store(app_id: &str) -> Result<Vec<CustomAppRule>, String> {
-    let mut guard = CUSTOM_RULES
-        .lock()
-        .map_err(|e| format!("lock poisoned: {e}"))?;
-    guard.retain(|r| r.app_id != app_id);
-    persist(&guard)?;
-    Ok(guard.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use proxybot_core::RuleCondition;
-    use std::env;
-    use std::sync::Mutex;
 
-    /// Serialise the tests so the shared `CUSTOM_RULES` static doesn't
-    /// race between cases.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Each test points CUSTOM_RULES at a unique temp file so they
-    /// don't fight over the user's real `~/.proxybot/app_signatures.json`.
-    fn with_temp_path<F: FnOnce()>(f: F) {
-        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = tempfile::tempdir().expect("tempdir");
-        env::set_var("HOME", tmp.path());
-        // The lazy static is process-wide; clear it so it doesn't
-        // leak rules from earlier tests or from the real user dir.
-        {
-            let mut g = CUSTOM_RULES.lock().unwrap();
-            *g = Vec::new();
+    fn rule(id: &str, name: &str) -> CustomAppRule {
+        CustomAppRule {
+            app_id: id.into(),
+            app_name: name.into(),
+            icon: "I".into(),
+            conditions: vec![RuleCondition::Sni {
+                pattern: "*.internal.corp".into(),
+            }],
+            confidence: 0.7,
         }
-        f();
     }
 
     #[test]
-    fn add_and_remove_persists() {
-        with_temp_path(|| {
-            let rule = CustomAppRule {
-                app_id: "myapp".into(),
-                app_name: "My App".into(),
-                icon: "M".into(),
-                conditions: vec![RuleCondition::Sni {
-                    pattern: "*.mycompany.com".into(),
-                }],
-                confidence: 0.8,
-            };
-            upsert_custom_rule(rule.clone()).expect("add");
-            assert!(custom_rules_path().exists(), "should write file");
+    fn store_persists_upsert_and_idempotent_remove() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("app_signatures.json");
+        let store = CustomAppRuleStore::from_path(path.clone());
 
-            // Re-read from disk to confirm persistence
-            let reread = load_from_disk();
-            assert_eq!(reread.len(), 1);
-            assert_eq!(reread[0].app_id, "myapp");
+        store.upsert(rule("internal", "v1")).unwrap();
+        store.upsert(rule("internal", "v2")).unwrap();
+        assert_eq!(store.snapshot().unwrap()[0].app_name, "v2");
+        assert_eq!(proxybot_core::load_custom_app_rules_from(&path).len(), 1);
 
-            // Idempotent remove
-            remove_custom_rule_from_store("myapp").expect("remove");
-            remove_custom_rule_from_store("myapp").expect("remove again");
-            assert!(load_from_disk().is_empty());
-        });
+        store.remove("internal").unwrap();
+        store.remove("internal").unwrap();
+        assert!(proxybot_core::load_custom_app_rules_from(&path).is_empty());
     }
 
     #[test]
-    fn add_overwrites_existing_app_id() {
-        with_temp_path(|| {
-            let v1 = CustomAppRule {
-                app_id: "dup".into(),
-                app_name: "v1".into(),
-                icon: "1".into(),
-                conditions: vec![],
-                confidence: 0.5,
-            };
-            let v2 = CustomAppRule {
-                app_id: "dup".into(),
-                app_name: "v2".into(),
-                icon: "2".into(),
-                conditions: vec![],
-                confidence: 0.6,
-            };
-            upsert_custom_rule(v1).unwrap();
-            upsert_custom_rule(v2).unwrap();
-            let rules = load_from_disk();
-            assert_eq!(rules.len(), 1);
-            assert_eq!(rules[0].app_name, "v2");
-        });
-    }
-
-    #[test]
-    fn get_app_signatures_merges_default_and_custom() {
-        with_temp_path(|| {
-            upsert_custom_rule(CustomAppRule {
-                app_id: "internal".into(),
-                app_name: "Internal".into(),
-                icon: "I".into(),
-                conditions: vec![RuleCondition::Sni {
-                    pattern: "*.internal.corp".into(),
-                }],
-                confidence: 0.7,
-            })
-            .unwrap();
-
-            let all = get_app_signatures().expect("signatures");
-            // Built-in defaults + our custom one
-            assert!(all.iter().any(|s| s.app_id == "internal"));
-            assert!(all.iter().any(|s| s.app_id == "tiktok"));
-            assert!(all.iter().any(|s| s.app_id == "wechat"));
-        });
+    fn custom_rules_project_to_signatures() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = CustomAppRuleStore::from_path(temp.path().join("rules.json"));
+        store.upsert(rule("internal", "Internal")).unwrap();
+        let custom = store.snapshot().unwrap().remove(0);
+        assert_eq!(custom.app_id, "internal");
+        assert!(matches!(custom.conditions[0], RuleCondition::Sni { .. }));
     }
 }

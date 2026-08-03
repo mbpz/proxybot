@@ -556,6 +556,7 @@ pub fn generate_mock_project(
 #[tauri::command]
 pub fn write_mock_project(
     db_state: State<'_, Arc<DbState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
     session_id: String,
     project_name: Option<String>,
     output_dir: Option<String>,
@@ -571,8 +572,11 @@ pub fn write_mock_project(
 
     let name = project_name.unwrap_or_else(|| "proxybot_mock".to_string());
     let base = output_dir.unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        format!("{}/.proxybot/mock_projects/{}", home, name)
+        config
+            .mock_projects_dir
+            .join(&name)
+            .to_string_lossy()
+            .into_owned()
     });
 
     let base_path = PathBuf::from(&base);

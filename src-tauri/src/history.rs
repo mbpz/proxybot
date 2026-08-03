@@ -20,12 +20,14 @@ impl Default for HistoryStore {
 
 impl HistoryStore {
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let dir = PathBuf::from(home).join(".proxybot");
-        std::fs::create_dir_all(&dir).ok();
-        Self {
-            path: dir.join(HISTORY_FILE),
+        Self::with_path(PathBuf::from(HISTORY_FILE))
+    }
+
+    pub fn with_path(path: PathBuf) -> Self {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
         }
+        Self { path }
     }
 
     pub fn load(&self) -> Vec<InterceptedRequest> {

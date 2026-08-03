@@ -16,8 +16,10 @@ use tauri::State;
 pub fn generate_device_qr(
     platform: String,
     state: State<'_, Arc<ProxyState>>,
+    cert_server: State<'_, Arc<crate::cert_server::CertServerState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
 ) -> Result<String, String> {
-    if !crate::cert_server::is_running() {
+    if !cert_server.is_running() {
         return Err("Cert server not started. Start the proxy first.".to_string());
     }
 
@@ -28,7 +30,7 @@ pub fn generate_device_qr(
         .clone()
         .ok_or_else(|| "Network info not set. Start the proxy first.".to_string())?;
 
-    let url = build_qr_url(&platform, &local_ip, crate::config::cert_server_port())
+    let url = build_qr_url(&platform, &local_ip, config.cert_server_port)
         .ok_or_else(|| format!("Invalid platform: {}", platform))?;
 
     let code = QrCode::new(url.as_bytes()).map_err(|e| format!("QR encode error: {}", e))?;

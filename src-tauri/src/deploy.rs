@@ -620,6 +620,7 @@ pub fn generate_deployment_bundle(
 #[tauri::command]
 pub fn write_deployment_bundle(
     db: State<'_, Arc<DbState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
     session_id: String,
     project_name: Option<String>,
     output_dir: Option<String>,
@@ -629,8 +630,11 @@ pub fn write_deployment_bundle(
 
     let name = project_name.unwrap_or_else(|| "proxybot_deployment".to_string());
     let base = output_dir.unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        format!("{}/.proxybot/deployments/{}", home, name)
+        config
+            .deployments_dir
+            .join(&name)
+            .to_string_lossy()
+            .into_owned()
     });
 
     write_deployment_bundle_inner(&conn, &session_id, &name, Path::new(&base), init_git)

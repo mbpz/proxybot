@@ -4133,7 +4133,6 @@ dependencies = [
  "log",
  "nix 0.27.1",
  "notify",
- "once_cell",
  "proptest",
  "proxybot-core",
  "pty",

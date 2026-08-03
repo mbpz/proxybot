@@ -47,9 +47,9 @@ where
 }
 
 /// Stdio transport entry point for CLI
-pub fn start_stdio_mode() {
+pub fn start_stdio_mode(config: proxybot_core::AppConfig) {
     use super::{McpServer, McpState};
     let state: std::sync::Arc<McpState> = std::sync::Arc::new(McpState::new_insecure());
-    let server = McpServer::new(state);
+    let server = McpServer::with_config(state, &config);
     run_stdio_server(move |req| server.handle_request(req)).expect("Stdio server error");
 }

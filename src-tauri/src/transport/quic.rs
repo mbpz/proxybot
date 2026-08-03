@@ -167,10 +167,11 @@ mod tests {
 
     #[test]
     fn test_quic_proxy_requires_feature() {
+        let temp = tempfile::tempdir().unwrap();
         let config = QuicProxyConfig {
             listen_addr: "0.0.0.0:443".into(),
-            cert_manager: Arc::new(CertManager::new(None).unwrap()),
-            db_state: Arc::new(DbState::new().unwrap()),
+            cert_manager: Arc::new(CertManager::new(temp.path().join("ca")).unwrap()),
+            db_state: Arc::new(DbState::new_in_memory(std::sync::Mutex::new(())).unwrap()),
         };
         #[cfg(not(feature = "http3"))]
         {

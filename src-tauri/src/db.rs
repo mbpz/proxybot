@@ -5,7 +5,6 @@
 
 use rusqlite::{Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -18,7 +17,12 @@ impl DbState {
     /// Open (or create) the database at ~/.proxybot/proxybot.db
     /// and initialize the schema with WAL mode.
     pub fn new() -> SqlResult<Self> {
-        let db_path = Self::db_path();
+        Self::open(".proxybot/proxybot.db")
+    }
+
+    /// Open a database path selected by the process composition root.
+    pub fn open(path: impl AsRef<std::path::Path>) -> SqlResult<Self> {
+        let db_path = path.as_ref().to_path_buf();
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
@@ -119,10 +123,6 @@ impl DbState {
             .map_err(|e| e.to_string())?;
 
         Ok(device)
-    }
-
-    fn db_path() -> PathBuf {
-        crate::config::db_path()
     }
 
     pub(crate) fn init_schema(conn: &Connection) -> SqlResult<()> {

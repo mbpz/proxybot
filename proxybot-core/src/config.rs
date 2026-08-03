@@ -1,295 +1,249 @@
-//! Central configuration for proxybot-core.
+//! Process configuration and path ownership for ProxyBot.
 //!
-//! All magic numbers, ports, paths, and timeouts are defined here.
-//! Consumers call accessor functions rather than referencing fields directly.
-//!
-//! Environment variable overrides are supported:
-//! - `PROXYBOT_HOME` — override base directory (default: `~/.proxybot`)
-//! - `PROXYBOT_PORT` — override proxy port (default: 8088)
-//! - `PROXYBOT_DNS_PORT` — override DNS port (default: 5300)
+//! [`AppConfig`] is an immutable value assembled once by a composition root.
+//! The core does not retain a process-global snapshot: desktop, MCP, and tests
+//! choose an [`EnvironmentSource`] Adapter and pass the resulting value to the
+//! Modules they construct.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 
-/// Global singleton config — initialized once on first access.
-static CONFIG: LazyLock<AppConfig> = LazyLock::new(AppConfig::load);
+use thiserror::Error;
 
-/// Centralized application configuration.
-#[derive(Debug, Clone)]
+pub const DEFAULT_PROXY_PORT: u16 = 8088;
+pub const DEFAULT_DNS_PORT: u16 = 5300;
+pub const DEFAULT_CERT_SERVER_PORT: u16 = 19876;
+pub const DEFAULT_DASHBOARD_PORT: u16 = 9980;
+
+/// Read-only source used while constructing process configuration.
+pub trait EnvironmentSource {
+    fn value(&self, name: &str) -> Option<String>;
+}
+
+/// Production Adapter backed by the current process environment.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProcessEnvironment;
+
+impl EnvironmentSource for ProcessEnvironment {
+    fn value(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+}
+
+/// Deterministic environment Adapter for tests and embedders.
+impl EnvironmentSource for HashMap<String, String> {
+    fn value(&self, name: &str) -> Option<String> {
+        self.get(name).cloned()
+    }
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ConfigError {
+    #[error("{name} must be a valid non-zero port, got {value:?}")]
+    InvalidPort { name: &'static str, value: String },
+    #[error("PROXYBOT_HOME must not be empty")]
+    EmptyBaseDir,
+}
+
+/// Canonical immutable process configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
-    // ─── Ports ───────────────────────────────────────────────────────────────
+    // Network listeners.
     pub proxy_port: u16,
     pub dns_port: u16,
     pub cert_server_port: u16,
+    pub dashboard_port: u16,
 
-    // ─── Paths (all under ~/.proxybot by default) ───────────────────────────
+    // Persistent paths. Every default lives under `base_dir`.
     pub base_dir: PathBuf,
     pub db_path: PathBuf,
     pub rules_dir: PathBuf,
     pub ca_dir: PathBuf,
+    pub ca_cert_path: PathBuf,
     pub hosts_path: PathBuf,
     pub blocklist_path: PathBuf,
     pub app_rules_path: PathBuf,
+    pub app_signatures_path: PathBuf,
+    pub filter_presets_path: PathBuf,
+    pub history_path: PathBuf,
+    pub replay_targets_path: PathBuf,
+    pub alerts_path: PathBuf,
+    pub baseline_path: PathBuf,
     pub exports_dir: PathBuf,
     pub deployments_dir: PathBuf,
     pub scaffold_projects_dir: PathBuf,
     pub mock_projects_dir: PathBuf,
+    pub specs_dir: PathBuf,
+    pub scripts_dir: PathBuf,
+    pub bypass_scripts_dir: PathBuf,
+    pub workspaces_dir: PathBuf,
 
-    // ─── DNS ────────────────────────────────────────────────────────────────
+    // DNS.
     pub max_dns_entries: usize,
     pub dns_timeout_secs: u64,
     pub default_upstream_dns: String,
     pub default_doh_url: String,
 
-    // ─── Storage ────────────────────────────────────────────────────────────
+    // Storage and generation limits.
     pub max_stored_requests: usize,
+    pub max_tokens: usize,
+    pub replay_buffer_size: usize,
 
-    // ─── pf (macOS firewall) ───────────────────────────────────────────────
+    // macOS packet filter.
     pub pf_anchor_file: PathBuf,
     pub pf_anchor_name: String,
 
-    // ─── API inference ──────────────────────────────────────────────────────
-    pub max_tokens: usize,
-
-    // ─── Replay buffer ──────────────────────────────────────────────────────
-    pub replay_buffer_size: usize,
-
-    // ─── Reverse proxy mode (v1.3 G-4 part 2) ─────────────────────────────
-    /// When `target.is_some()`, every unmatched request is forwarded
-    /// to this URL instead of being resolved via DNS. Lets a frontend
-    /// dev point ProxyBot at their local backend without writing
-    /// MapRemote rules for every endpoint.
+    // Optional reverse-proxy target.
     pub reverse_target: Option<String>,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self::load()
-    }
-}
-
 impl AppConfig {
-    /// Load configuration from environment / defaults.
-    pub fn load() -> Self {
-        let home = std::env::var("PROXYBOT_HOME")
-            .unwrap_or_else(|_| std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
-        let base = PathBuf::from(&home).join(".proxybot");
+    /// Load and validate the production process environment.
+    pub fn load() -> Result<Self, ConfigError> {
+        Self::from_source(&ProcessEnvironment)
+    }
 
-        let proxy_port = std::env::var("PROXYBOT_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(8088);
+    /// Build configuration through an explicit environment Seam.
+    pub fn from_source(source: &impl EnvironmentSource) -> Result<Self, ConfigError> {
+        let base_dir = match source.value("PROXYBOT_HOME") {
+            Some(value) if value.trim().is_empty() => return Err(ConfigError::EmptyBaseDir),
+            Some(value) => PathBuf::from(value),
+            None => PathBuf::from(source.value("HOME").unwrap_or_else(|| ".".to_owned()))
+                .join(".proxybot"),
+        };
+        let proxy_port = parse_port(source, "PROXYBOT_PORT", DEFAULT_PROXY_PORT)?;
+        let dns_port = parse_port(source, "PROXYBOT_DNS_PORT", DEFAULT_DNS_PORT)?;
 
-        let dns_port = std::env::var("PROXYBOT_DNS_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(5300);
+        Ok(Self::for_base_dir(base_dir)
+            .with_ports(proxy_port, dns_port)
+            .with_reverse_target(source.value("PROXYBOT_REVERSE_TARGET")))
+    }
 
+    /// Deterministic constructor for tests and non-environment Adapters.
+    pub fn for_base_dir(base_dir: PathBuf) -> Self {
         Self {
-            // Ports
-            proxy_port,
-            dns_port,
-            cert_server_port: 19876,
-
-            // Paths
-            base_dir: base.clone(),
-            db_path: base.join("proxybot.db"),
-            rules_dir: base.join("rules"),
-            ca_dir: base.join("ca"),
-            hosts_path: base.join("hosts"),
-            blocklist_path: base.join("blocklist.txt"),
-            app_rules_path: base.join("app_rules.json"),
-            exports_dir: base.join("exports"),
-            deployments_dir: base.join("deployments"),
-            scaffold_projects_dir: base.join("scaffold_projects"),
-            mock_projects_dir: base.join("mock_projects"),
-
-            // DNS
-            max_dns_entries: 10000,
+            proxy_port: DEFAULT_PROXY_PORT,
+            dns_port: DEFAULT_DNS_PORT,
+            cert_server_port: DEFAULT_CERT_SERVER_PORT,
+            dashboard_port: DEFAULT_DASHBOARD_PORT,
+            db_path: base_dir.join("proxybot.db"),
+            rules_dir: base_dir.join("rules"),
+            ca_dir: base_dir.join("ca"),
+            ca_cert_path: base_dir.join("ca.crt"),
+            hosts_path: base_dir.join("hosts"),
+            blocklist_path: base_dir.join("blocklist.txt"),
+            app_rules_path: base_dir.join("app_rules.json"),
+            app_signatures_path: base_dir.join("app_signatures.json"),
+            filter_presets_path: base_dir.join("filter_presets.json"),
+            history_path: base_dir.join("history.json"),
+            replay_targets_path: base_dir.join("replay_targets.json"),
+            alerts_path: base_dir.join("alerts.json"),
+            baseline_path: base_dir.join("baseline.json"),
+            exports_dir: base_dir.join("exports"),
+            deployments_dir: base_dir.join("deployments"),
+            scaffold_projects_dir: base_dir.join("scaffold_projects"),
+            mock_projects_dir: base_dir.join("mock_projects"),
+            specs_dir: base_dir.join("specs"),
+            scripts_dir: base_dir.join("scripts"),
+            bypass_scripts_dir: base_dir.join("bypass-scripts"),
+            workspaces_dir: base_dir.join("workspaces"),
+            base_dir,
+            max_dns_entries: 10_000,
             dns_timeout_secs: 5,
-            default_upstream_dns: "8.8.8.8:53".to_string(),
-            default_doh_url: "https://1.1.1.1/dns-query".to_string(),
-
-            // Storage
-            max_stored_requests: 1000,
-
-            // pf
+            default_upstream_dns: "8.8.8.8:53".to_owned(),
+            default_doh_url: "https://1.1.1.1/dns-query".to_owned(),
+            max_stored_requests: 1_000,
+            max_tokens: 4_096,
+            replay_buffer_size: 8_192,
             pf_anchor_file: PathBuf::from("/etc/pf.anchors/proxybot"),
-            pf_anchor_name: "com.apple/proxybot".to_string(),
-
-            // API
-            max_tokens: 4096,
-
-            // Replay
-            replay_buffer_size: 8192,
-
-            // Reverse proxy mode: disabled by default. Set
-            // PROXYBOT_REVERSE_TARGET=http://localhost:3000 to enable
-            // without rebuilding.
-            reverse_target: std::env::var("PROXYBOT_REVERSE_TARGET").ok(),
+            pf_anchor_name: "com.apple/proxybot".to_owned(),
+            reverse_target: None,
         }
     }
+
+    pub fn with_ports(mut self, proxy_port: u16, dns_port: u16) -> Self {
+        self.proxy_port = proxy_port;
+        self.dns_port = dns_port;
+        self
+    }
+
+    pub fn with_reverse_target(mut self, reverse_target: Option<String>) -> Self {
+        self.reverse_target = reverse_target.filter(|value| !value.trim().is_empty());
+        self
+    }
 }
 
-// ─── Accessor functions ─────────────────────────────────────────────────────
-
-/// Returns the configured proxy port.
-pub fn proxy_port() -> u16 {
-    CONFIG.proxy_port
-}
-
-/// Returns the configured DNS port.
-pub fn dns_port() -> u16 {
-    CONFIG.dns_port
-}
-
-/// Returns the certificate server port.
-pub fn cert_server_port() -> u16 {
-    CONFIG.cert_server_port
-}
-
-/// Returns the database path.
-pub fn db_path() -> PathBuf {
-    CONFIG.db_path.clone()
-}
-
-/// Returns the rules directory path.
-pub fn rules_dir() -> PathBuf {
-    CONFIG.rules_dir.clone()
-}
-
-/// Returns the CA directory path.
-pub fn ca_dir() -> PathBuf {
-    CONFIG.ca_dir.clone()
-}
-
-/// Returns the CA certificate export path.
-pub fn ca_cert_path() -> PathBuf {
-    CONFIG.base_dir.join("ca.crt")
-}
-
-/// Returns the hosts file path.
-pub fn hosts_path() -> PathBuf {
-    CONFIG.hosts_path.clone()
-}
-
-/// Returns the blocklist path.
-pub fn blocklist_path() -> PathBuf {
-    CONFIG.blocklist_path.clone()
-}
-
-/// Returns the app_rules JSON path.
-pub fn app_rules_path() -> PathBuf {
-    CONFIG.app_rules_path.clone()
-}
-
-/// Returns the exports directory path.
-pub fn exports_dir() -> PathBuf {
-    CONFIG.exports_dir.clone()
-}
-
-/// Returns the deployments directory path.
-pub fn deployments_dir() -> PathBuf {
-    CONFIG.deployments_dir.clone()
-}
-
-/// Returns the scaffold projects directory path.
-pub fn scaffold_projects_dir() -> PathBuf {
-    CONFIG.scaffold_projects_dir.clone()
-}
-
-/// Returns the mock projects directory path.
-pub fn mock_projects_dir() -> PathBuf {
-    CONFIG.mock_projects_dir.clone()
-}
-
-/// Returns the pf anchor file path.
-pub fn pf_anchor_file() -> PathBuf {
-    CONFIG.pf_anchor_file.clone()
-}
-
-/// Returns the pf anchor name.
-pub fn pf_anchor_name() -> String {
-    CONFIG.pf_anchor_name.clone()
-}
-
-/// Returns the default upstream DNS address.
-pub fn default_upstream_dns() -> String {
-    CONFIG.default_upstream_dns.clone()
-}
-
-/// Returns the default DoH URL.
-pub fn default_doh_url() -> String {
-    CONFIG.default_doh_url.clone()
-}
-
-/// Returns the max DNS entries.
-pub fn max_dns_entries() -> usize {
-    CONFIG.max_dns_entries
-}
-
-/// Returns the DNS timeout in seconds.
-pub fn dns_timeout_secs() -> u64 {
-    CONFIG.dns_timeout_secs
-}
-
-/// Returns the max stored requests.
-pub fn max_stored_requests() -> usize {
-    CONFIG.max_stored_requests
-}
-
-/// Returns the API inference max tokens.
-pub fn max_tokens() -> usize {
-    CONFIG.max_tokens
-}
-
-/// Returns the replay buffer size.
-pub fn replay_buffer_size() -> usize {
-    CONFIG.replay_buffer_size
-}
-
-/// Returns the reverse proxy target URL, or `None` when reverse mode
-/// is disabled.
-pub fn reverse_target() -> Option<String> {
-    CONFIG.reverse_target.clone()
-}
-
-/// Returns the base config directory.
-pub fn base_dir() -> PathBuf {
-    CONFIG.base_dir.clone()
+fn parse_port(
+    source: &impl EnvironmentSource,
+    name: &'static str,
+    default: u16,
+) -> Result<u16, ConfigError> {
+    let Some(value) = source.value(name) else {
+        return Ok(default);
+    };
+    value
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or(ConfigError::InvalidPort { name, value })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_default_config() {
-        let config = AppConfig::load();
-        assert_eq!(config.proxy_port, 8088);
-        assert_eq!(config.dns_port, 5300);
-        assert_eq!(config.max_dns_entries, 10000);
-        assert!(config.base_dir.to_string_lossy().ends_with(".proxybot"));
+    fn environment(values: &[(&str, &str)]) -> HashMap<String, String> {
+        values
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect()
     }
 
     #[test]
-    fn test_accessor_functions() {
-        assert_eq!(proxy_port(), 8088);
-        assert_eq!(dns_port(), 5300);
-        assert_eq!(max_dns_entries(), 10000);
-        assert_eq!(max_tokens(), 4096);
-        assert_eq!(replay_buffer_size(), 8192);
-        // reverse_target defaults to None unless PROXYBOT_REVERSE_TARGET
-        // is set in the test environment. The default-config test
-        // doesn't assert on this because of that env coupling.
+    fn defaults_are_derived_from_home() {
+        let config = AppConfig::from_source(&environment(&[("HOME", "/users/test")])).unwrap();
+        assert_eq!(config.base_dir, PathBuf::from("/users/test/.proxybot"));
+        assert_eq!(config.proxy_port, DEFAULT_PROXY_PORT);
+        assert_eq!(config.dns_port, DEFAULT_DNS_PORT);
+        assert_eq!(
+            config.app_signatures_path,
+            config.base_dir.join("app_signatures.json")
+        );
     }
 
     #[test]
-    fn test_reverse_target_accessor() {
-        // Just confirm the accessor returns whatever the global
-        // config holds. With no env override it should be None.
-        if std::env::var("PROXYBOT_REVERSE_TARGET").is_err() {
-            assert!(reverse_target().is_none());
-        }
+    fn proxybot_home_is_the_base_directory() {
+        let config = AppConfig::from_source(&environment(&[
+            ("HOME", "/ignored"),
+            ("PROXYBOT_HOME", "/runtime/proxybot"),
+            ("PROXYBOT_PORT", "9080"),
+            ("PROXYBOT_DNS_PORT", "5353"),
+            ("PROXYBOT_REVERSE_TARGET", "http://127.0.0.1:3000"),
+        ]))
+        .unwrap();
+        assert_eq!(config.base_dir, PathBuf::from("/runtime/proxybot"));
+        assert_eq!(
+            config.db_path,
+            PathBuf::from("/runtime/proxybot/proxybot.db")
+        );
+        assert_eq!(config.proxy_port, 9080);
+        assert_eq!(config.dns_port, 5353);
+        assert_eq!(
+            config.reverse_target.as_deref(),
+            Some("http://127.0.0.1:3000")
+        );
+    }
+
+    #[test]
+    fn invalid_ports_fail_fast() {
+        let error =
+            AppConfig::from_source(&environment(&[("PROXYBOT_PORT", "not-a-port")])).unwrap_err();
+        assert_eq!(
+            error,
+            ConfigError::InvalidPort {
+                name: "PROXYBOT_PORT",
+                value: "not-a-port".to_owned(),
+            }
+        );
     }
 }

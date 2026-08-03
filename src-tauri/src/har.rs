@@ -4,7 +4,6 @@
 
 use crate::db::DbState;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
 
@@ -410,10 +409,12 @@ fn save_har_file_internal(
 
 /// Save HAR file to disk.
 #[tauri::command]
-pub fn save_har_file(har_json: String, session_name: String) -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let dir = PathBuf::from(home).join(".proxybot").join("exports");
-    save_har_file_internal(&har_json, &session_name, &dir)
+pub fn save_har_file(
+    har_json: String,
+    session_name: String,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<String, String> {
+    save_har_file_internal(&har_json, &session_name, &config.exports_dir)
 }
 
 #[cfg(test)]

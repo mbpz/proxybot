@@ -7,6 +7,7 @@ use super::requests::get_or_create_device;
 use super::{BreakpointRequest, WsFrameEvent};
 use crate::db::{mark_request_websocket, record_http_request, record_ws_frame, DbState};
 use crate::dns::DnsState;
+use crate::metrics::counters::ProxyMetrics;
 use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::{InterceptedResponse, PluginDispatchEngine};
@@ -30,6 +31,7 @@ pub(super) struct DesktopRuntimeHooks {
     scripts: Arc<ScriptEngine>,
     network: Arc<NetworkConditionEngine>,
     breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
+    metrics: Arc<ProxyMetrics>,
 }
 
 impl DesktopRuntimeHooks {
@@ -39,6 +41,7 @@ impl DesktopRuntimeHooks {
         scripts: Arc<ScriptEngine>,
         network: Arc<NetworkConditionEngine>,
         breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
+        metrics: Arc<ProxyMetrics>,
     ) -> Self {
         Self {
             plugins,
@@ -46,6 +49,7 @@ impl DesktopRuntimeHooks {
             scripts,
             network,
             breakpoint_tx,
+            metrics,
         }
     }
 }
@@ -53,7 +57,7 @@ impl DesktopRuntimeHooks {
 #[async_trait]
 impl RuntimeHooks for DesktopRuntimeHooks {
     async fn on_connect(&self, host: &str, _port: u16) -> RuntimeConnectDecision {
-        match call_on_connect_hooks(&self.plugins, host) {
+        match call_on_connect_hooks(&self.plugins, host, &self.metrics) {
             None | Some(crate::plugin::ConnectDecision::Allow) => RuntimeConnectDecision::Allow,
             Some(crate::plugin::ConnectDecision::Block) => RuntimeConnectDecision::Block,
             Some(crate::plugin::ConnectDecision::Redirect(authority)) => {
@@ -64,7 +68,12 @@ impl RuntimeHooks for DesktopRuntimeHooks {
 
     async fn on_request(&self, request: &mut RuntimeRequest) -> RuntimeHookDecision {
         let mut intercepted = request.as_intercepted();
-        call_on_request_hooks(&self.plugins, &self.plugin_rules, &mut intercepted);
+        call_on_request_hooks(
+            &self.plugins,
+            &self.plugin_rules,
+            &mut intercepted,
+            &self.metrics,
+        );
         request.method = intercepted.method;
         request.path = intercepted.path;
         request.headers = intercepted.req_headers;
@@ -99,6 +108,7 @@ impl RuntimeHooks for DesktopRuntimeHooks {
             &self.plugin_rules,
             &mut intercepted,
             &request,
+            &self.metrics,
         );
         if let ScriptResult::RewriteBody(body) =
             self.scripts.run_all_on_response(&intercepted, &request)
@@ -163,6 +173,7 @@ pub(super) async fn bridge_capture_events(
     db: Arc<DbState>,
     dns: Arc<DnsState>,
     app_state: Arc<AppState>,
+    metrics: Arc<ProxyMetrics>,
 ) {
     let ai_tracker = crate::ai::AiTracker::new(Arc::clone(&db));
     let mut request_ids = HashMap::<String, String>::new();
@@ -176,7 +187,6 @@ pub(super) async fn bridge_capture_events(
                 aborted_connections,
             } => {
                 use std::sync::atomic::Ordering;
-                let metrics = &crate::metrics::counters::METRICS;
                 metrics
                     .connections_closed
                     .fetch_add(aborted_connections as u64, Ordering::Relaxed);
@@ -184,16 +194,11 @@ pub(super) async fn bridge_capture_events(
             }
             CaptureEvent::ConnectionOpened { .. } => {
                 use std::sync::atomic::Ordering;
-                crate::metrics::counters::METRICS
-                    .connections_total
-                    .fetch_add(1, Ordering::Relaxed);
-                crate::metrics::counters::METRICS
-                    .connections_active
-                    .fetch_add(1, Ordering::Relaxed);
+                metrics.connections_total.fetch_add(1, Ordering::Relaxed);
+                metrics.connections_active.fetch_add(1, Ordering::Relaxed);
             }
             CaptureEvent::ConnectionClosed { .. } => {
                 use std::sync::atomic::Ordering;
-                let metrics = &crate::metrics::counters::METRICS;
                 metrics.connections_closed.fetch_add(1, Ordering::Relaxed);
                 let _ = metrics.connections_active.fetch_update(
                     Ordering::Relaxed,
@@ -207,9 +212,7 @@ pub(super) async fn bridge_capture_events(
                 error,
             } => {
                 use std::sync::atomic::Ordering;
-                crate::metrics::counters::METRICS
-                    .errors_total
-                    .fetch_add(1, Ordering::Relaxed);
+                metrics.errors_total.fetch_add(1, Ordering::Relaxed);
                 log::error!(
                     "MITM Runtime request {request_id} failed for {}: {error}",
                     host.as_deref().unwrap_or("unknown host")
@@ -217,7 +220,6 @@ pub(super) async fn bridge_capture_events(
             }
             CaptureEvent::Completed(mut request) => {
                 use std::sync::atomic::Ordering;
-                let metrics = &crate::metrics::counters::METRICS;
                 if request.scheme == "https" {
                     metrics.https_requests_total.fetch_add(1, Ordering::Relaxed);
                 } else {

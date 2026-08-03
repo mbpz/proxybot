@@ -5,14 +5,15 @@ use super::BreakpointRequest;
 use crate::cert::CertManager;
 use crate::db::DbState;
 use crate::dns::DnsState;
+use crate::metrics::counters::ProxyMetrics;
 use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::PluginDispatchEngine;
 use crate::rules::RulesEngine;
 use crate::scripting::ScriptEngine;
 use crate::state::AppState;
-use proxybot_core::{MitmRuntime, RunningMitm, RuntimeConfig};
-use std::path::PathBuf;
+use proxybot_core::{AppConfig, MitmRuntime, RunningMitm, RuntimeConfig};
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
@@ -57,12 +58,8 @@ if host.contains("tiktok") || host.contains("douyin") {
 }
 "#;
 
-fn load_or_create_example_scripts(scripts: &ScriptEngine) {
-    let scripts_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".proxybot")
-        .join("scripts");
-    if let Err(error) = std::fs::create_dir_all(&scripts_dir) {
+fn load_or_create_example_scripts(scripts: &ScriptEngine, scripts_dir: &Path) {
+    if let Err(error) = std::fs::create_dir_all(scripts_dir) {
         log::error!("Failed to create scripts directory: {error}");
     }
     let example_path = scripts_dir.join("example.rhai");
@@ -71,7 +68,7 @@ fn load_or_create_example_scripts(scripts: &ScriptEngine) {
             log::error!("Failed to write example script: {error}");
         }
     }
-    if let Err(error) = scripts.load_dir(&scripts_dir) {
+    if let Err(error) = scripts.load_dir(scripts_dir) {
         log::error!("Failed to load scripts: {error}");
     }
 }
@@ -86,6 +83,8 @@ pub(crate) async fn start_proxy_runtime(
     rules_engine: Arc<RulesEngine>,
     app_state: Arc<AppState>,
     network: Arc<NetworkConditionEngine>,
+    config: Arc<AppConfig>,
+    metrics: Arc<ProxyMetrics>,
 ) -> Result<String, String> {
     let mut running = runtime_state.running.lock().await;
     if running.as_ref().is_some_and(RunningMitm::is_running) {
@@ -96,7 +95,7 @@ pub(crate) async fn start_proxy_runtime(
     let plugins = Arc::new(PluginRegistry::new());
     let plugin_rules = Arc::new(PluginDispatchEngine::new());
     let scripts = Arc::new(ScriptEngine::new());
-    load_or_create_example_scripts(&scripts);
+    load_or_create_example_scripts(&scripts, &config.scripts_dir);
     let (breakpoint_tx, mut breakpoint_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
     let hooks = Arc::new(DesktopRuntimeHooks::new(
         plugins,
@@ -104,10 +103,11 @@ pub(crate) async fn start_proxy_runtime(
         scripts,
         network,
         breakpoint_tx,
+        metrics.clone(),
     ));
 
     let runtime = MitmRuntime::new(
-        RuntimeConfig::default(),
+        RuntimeConfig::from(config.as_ref()),
         cert_manager,
         rules_engine,
         Arc::clone(&app_state.tls_rules),
@@ -127,7 +127,7 @@ pub(crate) async fn start_proxy_runtime(
     let event_dns = Arc::clone(&dns_state);
     let event_state = Arc::clone(&app_state);
     tauri::async_runtime::spawn(async move {
-        bridge_capture_events(events, event_app, event_db, event_dns, event_state).await;
+        bridge_capture_events(events, event_app, event_db, event_dns, event_state, metrics).await;
     });
 
     let breakpoint_app = app_handle;
@@ -180,6 +180,8 @@ pub async fn start_proxy(
     rules_engine: State<'_, Arc<RulesEngine>>,
     app_state: State<'_, Arc<AppState>>,
     network: State<'_, crate::commands::network_conditions::NetworkConditionsState>,
+    config: State<'_, Arc<AppConfig>>,
+    metrics: State<'_, Arc<ProxyMetrics>>,
 ) -> Result<String, String> {
     start_proxy_runtime(
         app_handle,
@@ -190,6 +192,8 @@ pub async fn start_proxy(
         rules_engine.inner().clone(),
         app_state.inner().clone(),
         Arc::clone(&network.0),
+        config.inner().clone(),
+        metrics.inner().clone(),
     )
     .await
 }

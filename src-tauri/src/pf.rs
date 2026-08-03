@@ -9,12 +9,12 @@
 use std::fs;
 use std::process::Command;
 
-use crate::config::{dns_port, pf_anchor_file, pf_anchor_name, proxy_port};
+use proxybot_core::AppConfig;
 
 /// Set up pf rules for transparent proxying.
 /// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8088.
 /// Requires administrator privileges via osascript prompt.
-pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
+pub fn setup_pf(interface: String, local_ip: String, config: &AppConfig) -> Result<String, String> {
     // Validate interface name - must be alphanumeric only to prevent command injection.
     if !interface.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid interface name".to_string());
@@ -32,8 +32,8 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     let rules = format!(
         "rdr on {iface} proto tcp from any to any port {{80,443}} -> {ip} port {port}\nrdr on {iface} proto udp from any to any port 53 -> {ip} port {dns_port}\npass on {iface} proto tcp from any to any port {{80,443}}\n",
         iface = interface,
-        port = proxy_port(),
-        dns_port = dns_port(),
+        port = config.proxy_port,
+        dns_port = config.dns_port,
         ip = local_ip,
     );
     fs::write(tmp_file, &rules).map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
@@ -42,8 +42,8 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     let privileged_script = format!(
         r#"do shell script "mkdir -p /etc/pf.anchors && cp {tmp} {anchor_file} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {anchor} -f {anchor_file} && pfctl -e; echo done" with administrator privileges"#,
         tmp = tmp_file,
-        anchor_file = pf_anchor_file().display(),
-        anchor = pf_anchor_name(),
+        anchor_file = config.pf_anchor_file.display(),
+        anchor = config.pf_anchor_name,
     );
 
     // Execute the privileged operations via osascript.
@@ -62,13 +62,12 @@ pub fn setup_pf(interface: String, local_ip: String) -> Result<String, String> {
     log::info!("pf rules loaded successfully via osascript");
     Ok(format!(
         "Transparent proxy enabled. Redirecting {} traffic on ports 80/443 to port {}",
-        interface,
-        proxy_port()
+        interface, config.proxy_port
     ))
 }
 
 /// Tear down pf rules and disable IP forwarding.
-pub fn teardown_pf() -> Result<(), String> {
+pub fn teardown_pf(config: &AppConfig) -> Result<(), String> {
     // Build the osascript command to remove rules and disable pf.
     let privileged_script = r#"do shell script "
         # Remove pf rules
@@ -97,7 +96,7 @@ pub fn teardown_pf() -> Result<(), String> {
     }
 
     // Clean up the anchor file.
-    let _ = fs::remove_file(pf_anchor_file());
+    let _ = fs::remove_file(&config.pf_anchor_file);
 
     log::info!("pf rules removed successfully via osascript");
     Ok(())
@@ -130,6 +129,7 @@ pub fn setup_pf_transport(
     interface: String,
     local_ip: String,
     transport_port: u16,
+    config: &AppConfig,
 ) -> Result<String, String> {
     if !interface.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err("Invalid interface name".to_string());
@@ -146,7 +146,7 @@ pub fn setup_pf_transport(
         "rdr on {iface} proto tcp from any to any port 1:65535 -> {ip} port {tport}\nrdr on {iface} proto udp from any to any port 53 -> {ip} port {dns_port}\npass on {iface} proto tcp from any to any port 1:65535\n",
         iface = interface,
         tport = transport_port,
-        dns_port = dns_port(),
+        dns_port = config.dns_port,
         ip = local_ip,
     );
     fs::write(tmp_file, &rules).map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
@@ -154,8 +154,8 @@ pub fn setup_pf_transport(
     let privileged_script = format!(
         r#"do shell script "mkdir -p /etc/pf.anchors && cp {tmp} {anchor_file} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {anchor} -f {anchor_file} && pfctl -e; echo done" with administrator privileges"#,
         tmp = tmp_file,
-        anchor_file = pf_anchor_file().display(),
-        anchor = pf_anchor_name(),
+        anchor_file = config.pf_anchor_file.display(),
+        anchor = config.pf_anchor_name,
     );
 
     let output = Command::new("osascript")
@@ -181,8 +181,8 @@ pub fn setup_pf_transport(
 }
 
 /// Tear down transport-mode pf rules.
-pub fn teardown_pf_transport() -> Result<(), String> {
-    teardown_pf()
+pub fn teardown_pf_transport(config: &AppConfig) -> Result<(), String> {
+    teardown_pf(config)
 }
 
 /// Check if transport-mode pf rules are loaded.
@@ -207,7 +207,11 @@ pub fn is_pf_transport_enabled() -> bool {
 // Current stub returns manual proxy instructions.
 
 #[cfg(windows)]
-pub fn setup_pf(_interface: String, _local_ip: String) -> Result<String, String> {
+pub fn setup_pf(
+    _interface: String,
+    _local_ip: String,
+    _config: &AppConfig,
+) -> Result<String, String> {
     Err(
         "Windows transparent proxy via WFP is not yet implemented.\n\
          Use manual proxy mode: Settings → Network → Proxy → 127.0.0.1:8088\n\
@@ -217,7 +221,7 @@ pub fn setup_pf(_interface: String, _local_ip: String) -> Result<String, String>
 }
 
 #[cfg(windows)]
-pub fn teardown_pf() -> Result<(), String> {
+pub fn teardown_pf(_config: &AppConfig) -> Result<(), String> {
     Ok(())
 }
 
@@ -231,12 +235,13 @@ pub fn setup_pf_transport(
     _interface: String,
     _local_ip: String,
     _transport_port: u16,
+    _config: &AppConfig,
 ) -> Result<String, String> {
     Err("Transport-layer proxy not available on Windows".into())
 }
 
 #[cfg(windows)]
-pub fn teardown_pf_transport() -> Result<(), String> {
+pub fn teardown_pf_transport(_config: &AppConfig) -> Result<(), String> {
     Ok(())
 }
 

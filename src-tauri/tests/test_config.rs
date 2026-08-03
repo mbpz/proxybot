@@ -1,56 +1,48 @@
-//! Integration tests for AppConfig.
+//! Integration tests for the canonical process configuration.
 
-use proxybot_lib::config::AppConfig;
+use proxybot_core::{AppConfig, RuntimeConfig};
+
+fn config() -> AppConfig {
+    AppConfig::for_base_dir("/tmp/proxybot-config-test".into())
+}
 
 #[test]
-fn test_config_load_returns_defaults() {
-    let config = AppConfig::load();
+fn config_defaults_are_stable() {
+    let config = config();
     assert_eq!(config.proxy_port, 8088);
     assert_eq!(config.dns_port, 5300);
     assert_eq!(config.cert_server_port, 19876);
-}
-
-#[test]
-fn test_config_paths_under_base_dir() {
-    let config = AppConfig::load();
-    assert!(config.db_path.starts_with(&config.base_dir));
-    assert!(config.rules_dir.starts_with(&config.base_dir));
-    assert!(config.ca_dir.starts_with(&config.base_dir));
-    assert!(config.hosts_path.starts_with(&config.base_dir));
-    assert!(config.blocklist_path.starts_with(&config.base_dir));
-}
-
-#[test]
-fn test_config_dns_defaults() {
-    let config = AppConfig::load();
     assert_eq!(config.default_upstream_dns, "8.8.8.8:53");
-    assert!(config.default_doh_url.contains("1.1.1.1"));
-    assert_eq!(config.max_dns_entries, 10000);
-    assert_eq!(config.dns_timeout_secs, 5);
+    assert_eq!(config.max_dns_entries, 10_000);
+    assert_eq!(config.max_stored_requests, 1_000);
 }
 
 #[test]
-fn test_config_storage_defaults() {
-    let config = AppConfig::load();
-    assert_eq!(config.max_stored_requests, 1000);
+fn persistent_paths_share_one_base_directory() {
+    let config = config();
+    for path in [
+        &config.db_path,
+        &config.rules_dir,
+        &config.ca_dir,
+        &config.hosts_path,
+        &config.blocklist_path,
+        &config.app_rules_path,
+        &config.app_signatures_path,
+        &config.workspaces_dir,
+    ] {
+        assert!(path.starts_with(&config.base_dir));
+    }
 }
 
 #[test]
-fn test_proxy_port_helper() {
-    use proxybot_lib::config::proxy_port;
-    assert_eq!(proxy_port(), 8088);
-}
-
-#[test]
-fn test_dns_port_helper() {
-    use proxybot_lib::config::dns_port;
-    assert_eq!(dns_port(), 5300);
-}
-
-#[test]
-fn test_rules_dir_helper() {
-    use proxybot_lib::config::rules_dir;
-    let dir = rules_dir();
-    assert!(dir.to_str().unwrap().contains(".proxybot"));
-    assert!(dir.to_str().unwrap().contains("rules"));
+fn mitm_runtime_config_is_derived_from_process_config() {
+    let config = config()
+        .with_ports(9080, 5353)
+        .with_reverse_target(Some("http://127.0.0.1:3000".into()));
+    let runtime = RuntimeConfig::from(&config);
+    assert_eq!(runtime.bind_addr.port(), 9080);
+    assert_eq!(
+        runtime.reverse_target.as_deref(),
+        Some("http://127.0.0.1:3000")
+    );
 }

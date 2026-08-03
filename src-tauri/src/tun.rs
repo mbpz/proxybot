@@ -15,15 +15,13 @@ use tun::Device;
 
 use tun::Configuration as TunConfig;
 
-/// Static flag to track if TUN is currently enabled.
-static TUN_ENABLED: AtomicBool = AtomicBool::new(false);
-
 /// TUN interface configuration.
 const TUN_IP: &str = "10.0.0.1";
 const TUN_NETMASK: &str = "255.255.255.0";
 
 /// Shared state for the TUN interface.
 pub struct TunState {
+    enabled: AtomicBool,
     /// The TUN device file descriptor.
     tun_fd: Mutex<Option<std::os::fd::RawFd>>,
     /// Interface name for cleanup.
@@ -33,6 +31,7 @@ pub struct TunState {
 impl TunState {
     pub fn new() -> Self {
         Self {
+            enabled: AtomicBool::new(false),
             tun_fd: Mutex::new(None),
             iface_name: Mutex::new(None),
         }
@@ -145,7 +144,7 @@ fn unconfigure_tun_interface(iface_name: &str) -> Result<(), String> {
 /// will be captured by the TUN device.
 #[tauri::command]
 pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, String> {
-    if TUN_ENABLED.swap(true, Ordering::SeqCst) {
+    if state.enabled.swap(true, Ordering::SeqCst) {
         return Err("TUN is already enabled".to_string());
     }
 
@@ -177,7 +176,7 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
             }
             Err(e) => {
                 log::error!("[tun] Failed to create TUN device: {}", e);
-                TUN_ENABLED.store(false, Ordering::SeqCst);
+                state.enabled.store(false, Ordering::SeqCst);
                 return Err(format!(
                     "Failed to create TUN device: {}. \
                     Make sure you have administrator privileges.",
@@ -195,7 +194,7 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
             log::error!("[tun] Failed to configure TUN interface: {}", e);
             // Leak the device intentionally so the fd stays open
             std::mem::forget(dev);
-            TUN_ENABLED.store(false, Ordering::SeqCst);
+            state.enabled.store(false, Ordering::SeqCst);
             return Err(e);
         }
 
@@ -223,7 +222,7 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
 
     #[cfg(not(target_os = "macos"))]
     {
-        TUN_ENABLED.store(false, Ordering::SeqCst);
+        state.enabled.store(false, Ordering::SeqCst);
         Err("TUN/VPN mode is only supported on macOS".to_string())
     }
 }
@@ -231,7 +230,7 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
 /// Tear down TUN/VPN mode.
 #[tauri::command]
 pub fn teardown_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<(), String> {
-    if !TUN_ENABLED.swap(false, Ordering::SeqCst) {
+    if !state.enabled.swap(false, Ordering::SeqCst) {
         return Err("TUN is not enabled".to_string());
     }
 
@@ -255,6 +254,6 @@ pub fn teardown_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<(), String
 
 /// Check if TUN is currently enabled.
 #[tauri::command]
-pub fn is_tun_enabled() -> bool {
-    TUN_ENABLED.load(Ordering::SeqCst)
+pub fn is_tun_enabled(state: tauri::State<'_, Arc<TunState>>) -> bool {
+    state.enabled.load(Ordering::SeqCst)
 }

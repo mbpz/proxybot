@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 /// Transport proxy that handles arbitrary TCP connections.
 pub struct TransportProxy {
     config: TransportConfig,
+    classifier: Arc<proxybot_core::ApplicationClassifier>,
     running: Arc<AtomicBool>,
     event_tx: broadcast::Sender<TransportEvent>,
 }
@@ -34,6 +35,7 @@ impl TransportProxy {
     pub fn new(config: TransportConfig, event_tx: broadcast::Sender<TransportEvent>) -> Self {
         Self {
             config,
+            classifier: Arc::new(proxybot_core::ApplicationClassifier::new(Vec::new())),
             running: Arc::new(AtomicBool::new(false)),
             event_tx,
         }
@@ -55,6 +57,7 @@ impl TransportProxy {
         let running = self.running.clone();
         let config = self.config.clone();
         let event_tx = self.event_tx.clone();
+        let classifier = self.classifier.clone();
 
         tokio::spawn(async move {
             while running.load(Ordering::SeqCst) {
@@ -62,8 +65,10 @@ impl TransportProxy {
                     Ok((stream, src_addr)) => {
                         let config = config.clone();
                         let event_tx = event_tx.clone();
+                        let classifier = classifier.clone();
                         tokio::spawn(async move {
-                            handle_connection(stream, src_addr, &config, &event_tx).await;
+                            handle_connection(stream, src_addr, &config, &event_tx, &classifier)
+                                .await;
                         });
                     }
                     Err(e) => {
@@ -96,6 +101,7 @@ async fn handle_connection(
     src_addr: std::net::SocketAddr,
     config: &TransportConfig,
     event_tx: &broadcast::Sender<TransportEvent>,
+    classifier: &proxybot_core::ApplicationClassifier,
 ) {
     let peer_addr = stream.peer_addr().unwrap_or(src_addr);
     let start = Instant::now();
@@ -148,9 +154,7 @@ async fn handle_connection(
 
     // Classify by SNI if available
     let meta = if let Some(ref host) = sni {
-        if let Some(attribution) = proxybot_core::ApplicationClassifier::from_config_files()
-            .classify_request("", Some(host), None)
-        {
+        if let Some(attribution) = classifier.classify_request("", Some(host), None) {
             ConnectionMeta {
                 app_name: Some(attribution.app_name),
                 app_icon: attribution.app_icon,

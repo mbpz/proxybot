@@ -115,10 +115,10 @@ impl Default for AlertStore {
 
 impl AlertStore {
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let dir = PathBuf::from(home).join(".proxybot");
-        std::fs::create_dir_all(&dir).ok();
-        let path = dir.join("alerts.json");
+        let path = PathBuf::from("alerts.json");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
         Self::with_path(path)
     }
 
@@ -264,10 +264,10 @@ impl Default for BaselineStore {
 
 impl BaselineStore {
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let dir = PathBuf::from(home).join(".proxybot");
-        std::fs::create_dir_all(&dir).ok();
-        let path = dir.join("baseline.json");
+        let path = PathBuf::from("baseline.json");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
         Self::with_path(path)
     }
 

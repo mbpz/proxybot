@@ -12,7 +12,6 @@
 //! The Tauri layer (`src-tauri/src/cert.rs`) wraps it with
 //! `AppConfig` path resolution and `#[tauri::command]` annotations.
 
-use crate::config::ca_cert_path;
 use crate::types::CaMetadata;
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, KeyUsagePurpose, SanType,
@@ -40,8 +39,7 @@ impl CertManager {
     ///
     /// CA files are stored in `ca_dir`. If an existing CA is found,
     /// it is loaded; otherwise a new one is generated.
-    pub fn new(ca_dir: Option<PathBuf>) -> Result<Self, String> {
-        let dir = ca_dir.unwrap_or_else(crate::config::ca_dir);
+    pub fn new(dir: PathBuf) -> Result<Self, String> {
         fs::create_dir_all(&dir).map_err(|e| format!("Failed to create ca dir: {}", e))?;
 
         let (cert_pem, key_pem) = Self::load_or_generate_ca(&dir)?;
@@ -184,7 +182,8 @@ impl CertManager {
     /// Export CA PEM to a file and return its path.
     pub fn export_ca_pem(&self, dest: Option<PathBuf>) -> Result<String, String> {
         let cert_pem = self.ca_cert_pem.lock().unwrap();
-        let dest = dest.unwrap_or_else(ca_cert_path);
+        let dest =
+            dest.unwrap_or_else(|| self.ca_dir.parent().unwrap_or(&self.ca_dir).join("ca.crt"));
         fs::write(&dest, cert_pem.as_bytes()).map_err(|e| format!("Failed to write CA: {}", e))?;
         log::info!("Exported CA certificate to {:?}", dest);
         dest.to_str()
@@ -260,12 +259,6 @@ impl CertManager {
     }
 }
 
-impl Default for CertManager {
-    fn default() -> Self {
-        Self::new(None).expect("Failed to initialize CertManager")
-    }
-}
-
 /// Format expiry timestamp as a human-readable date string.
 fn format_expiry_date(secs: u64) -> String {
     let total_days = secs / 86400;
@@ -308,7 +301,7 @@ mod tests {
     #[test]
     fn test_new_cert_manager() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let pem = mgr.get_ca_cert_pem();
         assert!(pem.contains("BEGIN CERTIFICATE"));
         assert!(pem.contains("END CERTIFICATE"));
@@ -317,7 +310,7 @@ mod tests {
     #[test]
     fn test_ca_metadata() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let meta = mgr.get_ca_metadata().unwrap();
         assert!(meta.created_at > 0);
         assert!(!meta.serial.is_empty());
@@ -326,7 +319,7 @@ mod tests {
     #[test]
     fn test_ca_fingerprint() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let fp = mgr.get_ca_fingerprint();
         // SHA1 fingerprint is 20 bytes = 59 chars with colons
         assert!(fp.contains(':'));
@@ -335,7 +328,7 @@ mod tests {
     #[test]
     fn test_ca_expiry() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let (date, days) = mgr.get_ca_expiry();
         assert!(!date.is_empty());
         assert!(days > 0); // Should be close to 3650 (10 years)
@@ -344,7 +337,7 @@ mod tests {
     #[test]
     fn test_export_ca_pem() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let export_path = dir.path().join("exported_ca.crt");
         let _result = mgr.export_ca_pem(Some(export_path.clone())).unwrap();
         assert!(export_path.exists());
@@ -355,7 +348,7 @@ mod tests {
     #[test]
     fn test_generate_host_cert() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let (cert_pem, key_pem) = mgr.generate_host_cert("example.com").unwrap();
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
         assert!(key_pem.contains("BEGIN PRIVATE KEY"));
@@ -364,7 +357,7 @@ mod tests {
     #[test]
     fn test_generate_ip_host_cert() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let (cert_pem, _) = mgr.generate_host_cert("127.0.0.1").unwrap();
         assert!(cert_pem.contains("BEGIN CERTIFICATE"));
     }
@@ -372,7 +365,7 @@ mod tests {
     #[test]
     fn test_host_cert_caching() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let (cert1, _) = mgr.generate_host_cert("example.com").unwrap();
         let (cert2, _) = mgr.generate_host_cert("example.com").unwrap();
         // Same host should return cached cert
@@ -382,22 +375,10 @@ mod tests {
     #[test]
     fn test_regenerate_ca() {
         let dir = TempDir::new().unwrap();
-        let mgr = CertManager::new(Some(dir.path().to_path_buf())).unwrap();
+        let mgr = CertManager::new(dir.path().to_path_buf()).unwrap();
         let old_pem = mgr.get_ca_cert_pem();
         mgr.regenerate_ca().unwrap();
         let new_pem = mgr.get_ca_cert_pem();
         assert_ne!(old_pem, new_pem);
-    }
-
-    #[test]
-    fn test_default_constructor() {
-        // Default uses ca_dir() which may fail in CI without HOME.
-        // Skip if HOME is not set.
-        if std::env::var("HOME").is_err() {
-            return;
-        }
-        let mgr = CertManager::default();
-        let pem = mgr.get_ca_cert_pem();
-        assert!(pem.contains("BEGIN CERTIFICATE"));
     }
 }

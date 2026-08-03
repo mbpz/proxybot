@@ -718,6 +718,7 @@ pub fn generate_scaffold_with_vision(
 #[tauri::command]
 pub fn write_scaffold_project(
     db: State<'_, Arc<DbState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
     session_id: String,
     name: Option<String>,
     dir: Option<String>,
@@ -729,11 +730,11 @@ pub fn write_scaffold_project(
     }
     let n = name.unwrap_or_else(|| "proxybot_frontend".to_string());
     let base = dir.unwrap_or_else(|| {
-        format!(
-            "{}/.proxybot/scaffold_projects/{}",
-            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()),
-            n
-        )
+        config
+            .scaffold_projects_dir
+            .join(&n)
+            .to_string_lossy()
+            .into_owned()
     });
     let bp = PathBuf::from(&base);
     let src = bp.join("src");
@@ -793,13 +794,14 @@ pub fn write_scaffold_project(
 pub fn write_scaffold_project_with_vision(
     project: ScaffoldProject,
     output_dir: Option<String>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
 ) -> Result<String, String> {
     let base = output_dir.unwrap_or_else(|| {
-        format!(
-            "{}/.proxybot/scaffold_projects/{}",
-            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()),
-            project.name
-        )
+        config
+            .scaffold_projects_dir
+            .join(&project.name)
+            .to_string_lossy()
+            .into_owned()
     });
     let bp = PathBuf::from(&base);
     fs::create_dir_all(&bp).map_err(|e| e.to_string())?;

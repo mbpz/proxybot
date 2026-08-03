@@ -1,6 +1,8 @@
 use std::net::ToSocketAddrs;
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tauri::State;
 
 // ── Relationship to `crate::replay` ─────────────────────────────────────────
 // `crate::replay::ReplayTarget` is a **host summary** (host, request_count,
@@ -43,14 +45,17 @@ pub struct ReplayOutcome {
 }
 
 #[tauri::command]
-pub fn save_replay_target(target: ReplayTargetConfig) -> Result<(), String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let dir = std::path::PathBuf::from(home).join(".proxybot");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join("replay_targets.json");
+pub fn save_replay_target(
+    target: ReplayTargetConfig,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<(), String> {
+    let path = &config.replay_targets_path;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
 
     let mut targets: Vec<ReplayTargetConfig> = if path.exists() {
-        let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&data).unwrap_or_default()
     } else {
         Vec::new()
@@ -64,7 +69,7 @@ pub fn save_replay_target(target: ReplayTargetConfig) -> Result<(), String> {
     }
 
     let json = serde_json::to_string_pretty(&targets).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())?;
     Ok(())
 }
 

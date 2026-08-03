@@ -10,7 +10,6 @@ pub mod cdp;
 pub mod cert;
 pub mod cert_server;
 pub mod commands;
-pub mod config;
 pub mod dag;
 pub mod dashboard;
 pub mod db;

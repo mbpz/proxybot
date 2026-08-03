@@ -1,8 +1,4 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock};
-
-/// Global shared metrics instance accessible from both the proxy core and the metrics server.
-pub static METRICS: LazyLock<Arc<ProxyMetrics>> = LazyLock::new(|| Arc::new(ProxyMetrics::new()));
 
 /// Prometheus-compatible metrics counters.
 ///

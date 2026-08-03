@@ -1,7 +1,7 @@
 // MCP Server implementation - handles JSON-RPC 2.0 requests via stdio transport
 
 use super::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpState};
-use proxybot_core::ApplicationClassifier;
+use proxybot_core::{AppConfig, ApplicationClassifier};
 use std::sync::Arc;
 
 /// Main MCP server that handles protocol requests
@@ -14,7 +14,17 @@ impl McpServer {
     pub fn new(state: Arc<McpState>) -> Self {
         Self {
             state,
-            classifier: ApplicationClassifier::from_config_files(),
+            classifier: ApplicationClassifier::new(Vec::new()),
+        }
+    }
+
+    pub fn with_config(state: Arc<McpState>, config: &AppConfig) -> Self {
+        Self {
+            state,
+            classifier: ApplicationClassifier::from_paths(
+                &config.app_rules_path,
+                &config.app_signatures_path,
+            ),
         }
     }
 

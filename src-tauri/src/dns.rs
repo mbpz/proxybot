@@ -6,7 +6,6 @@
 
 use std::fs;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,13 +15,10 @@ use tokio::net::UdpSocket;
 use tokio::sync::broadcast;
 use tokio::time::{timeout, Duration};
 
-use crate::config::{
-    default_doh_url, default_upstream_dns, dns_port, dns_timeout_secs, max_dns_entries,
-};
 use crate::db::DbState;
 use crate::rules::RulesEngine;
 use proxybot_core::{
-    ApplicationAttribution, ApplicationClassifier, AttributionEngine, AttributionInput,
+    AppConfig, ApplicationAttribution, ApplicationClassifier, AttributionEngine, AttributionInput,
 };
 pub use proxybot_core::{
     BlocklistEntry, DnsEntry, DnsObservation, DnsUpstream, DnsUpstreamType, HostsEntry,
@@ -36,6 +32,7 @@ pub const CORRELATION_WINDOW_MS: u64 = proxybot_core::DEFAULT_DNS_CORRELATION_WI
 
 /// Shared DNS state.
 pub struct DnsState {
+    config: Arc<AppConfig>,
     /// Core-owned attribution Implementation shared by DNS and Capture Event Adapters.
     pub(crate) attribution: AttributionEngine,
     pub running: Arc<AtomicBool>,
@@ -56,10 +53,19 @@ impl Default for DnsState {
 
 impl DnsState {
     pub fn new() -> Self {
+        let config = Arc::new(AppConfig::for_base_dir(".proxybot".into()));
+        Self::with_config(config)
+    }
+
+    pub fn with_config(config: Arc<AppConfig>) -> Self {
         Self {
+            config: config.clone(),
             attribution: AttributionEngine::new(
-                ApplicationClassifier::from_config_files(),
-                max_dns_entries(),
+                ApplicationClassifier::from_paths(
+                    &config.app_rules_path,
+                    &config.app_signatures_path,
+                ),
+                config.max_dns_entries,
                 CORRELATION_WINDOW_MS,
             ),
             running: Arc::new(AtomicBool::new(false)),
@@ -67,7 +73,7 @@ impl DnsState {
             db_state: None,
             upstream: Arc::new(Mutex::new(DnsUpstream {
                 upstream_type: DnsUpstreamType::Doh,
-                address: default_doh_url().to_owned(),
+                address: config.default_doh_url.clone(),
             })),
             hosts: Arc::new(Mutex::new(Vec::new())),
             blocklist: Arc::new(Mutex::new(Vec::new())),
@@ -77,9 +83,12 @@ impl DnsState {
     }
 
     pub fn with_db(db: Arc<DbState>) -> Self {
-        let mut state = Self::new();
-        state.db_state = Some(db);
-        state
+        Self::new().with_database(db)
+    }
+
+    pub fn with_database(mut self, db: Arc<DbState>) -> Self {
+        self.db_state = Some(db);
+        self
     }
 
     /// Set the rules engine for routing decisions.
@@ -91,10 +100,10 @@ impl DnsState {
     /// Load hosts file from ~/.proxybot/hosts.
     /// Format: "IPAddress DomainName" (same as /etc/hosts)
     pub fn load_hosts_file(&self) {
-        let path = get_proxybot_dir().join("hosts");
+        let path = &self.config.hosts_path;
         let mut entries = Vec::new();
 
-        if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(content) = fs::read_to_string(path) {
             for line in content.lines() {
                 let line = line.trim();
                 // Skip empty lines and comments
@@ -119,10 +128,10 @@ impl DnsState {
     /// Load blocklist from ~/.proxybot/blocklist.txt.
     /// Format: one domain per line (0.0.0.0 domain.com for hosts-style, or just domain.com)
     pub fn load_blocklist(&self) {
-        let path = get_proxybot_dir().join("blocklist.txt");
+        let path = &self.config.blocklist_path;
         let mut entries = Vec::new();
 
-        if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(content) = fs::read_to_string(path) {
             for line in content.lines() {
                 let line = line.trim();
                 // Skip empty lines and comments
@@ -267,7 +276,7 @@ impl DnsState {
         F: FnMut(&DnsEntry) -> bool,
     {
         self.attribution
-            .observations(max_dns_entries())
+            .observations(self.config.max_dns_entries)
             .into_iter()
             .filter(|entry| {
                 captured_at_ms >= entry.timestamp_ms
@@ -298,12 +307,6 @@ impl DnsState {
 
 fn attribution_tag(attribution: ApplicationAttribution) -> Option<(String, String)> {
     Some((attribution.app_name, attribution.app_icon?))
-}
-
-/// Get the ProxyBot config directory.
-fn get_proxybot_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".proxybot")
 }
 
 #[cfg(test)]
@@ -638,10 +641,14 @@ pub(crate) fn base64_encode(data: &[u8]) -> String {
 }
 
 /// Send DNS query via DoH (DNS over HTTPS) using reqwest.
-async fn query_upstream_doh(query: &[u8], doh_url: &str) -> Result<Vec<u8>, String> {
+async fn query_upstream_doh(
+    query: &[u8],
+    doh_url: &str,
+    timeout_secs: u64,
+) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .use_rustls_tls()
-        .timeout(Duration::from_secs(dns_timeout_secs()))
+        .timeout(Duration::from_secs(timeout_secs))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -672,10 +679,14 @@ async fn query_upstream_doh(query: &[u8], doh_url: &str) -> Result<Vec<u8>, Stri
 }
 
 /// Forward DNS query to upstream based on configuration.
-async fn forward_dns_query(query: &[u8], upstream: &DnsUpstream) -> Result<Vec<u8>, String> {
+async fn forward_dns_query(
+    query: &[u8],
+    upstream: &DnsUpstream,
+    timeout_secs: u64,
+) -> Result<Vec<u8>, String> {
     match upstream.upstream_type {
         DnsUpstreamType::PlainUdp => query_upstream_udp(query, &upstream.address).await,
-        DnsUpstreamType::Doh => query_upstream_doh(query, &upstream.address).await,
+        DnsUpstreamType::Doh => query_upstream_doh(query, &upstream.address, timeout_secs).await,
     }
 }
 
@@ -810,8 +821,8 @@ async fn handle_dns_query(
 
     // Forward to upstream DNS
     match timeout(
-        Duration::from_secs(dns_timeout_secs()),
-        forward_dns_query(data, &upstream),
+        Duration::from_secs(state.config.dns_timeout_secs),
+        forward_dns_query(data, &upstream, state.config.dns_timeout_secs),
     )
     .await
     {
@@ -831,11 +842,11 @@ async fn handle_dns_query(
                 log::info!("Trying fallback to plain UDP for {}", domain);
                 let fallback = DnsUpstream {
                     upstream_type: DnsUpstreamType::PlainUdp,
-                    address: default_upstream_dns().to_string(),
+                    address: state.config.default_upstream_dns.clone(),
                 };
                 match timeout(
-                    Duration::from_secs(dns_timeout_secs()),
-                    forward_dns_query(data, &fallback),
+                    Duration::from_secs(state.config.dns_timeout_secs),
+                    forward_dns_query(data, &fallback, state.config.dns_timeout_secs),
                 )
                 .await
                 {
@@ -938,7 +949,7 @@ pub(crate) fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
 
 /// Run the DNS server loop.
 async fn run_dns_server(app_handle: AppHandle, state: Arc<DnsState>) -> Result<(), String> {
-    let addr = format!("0.0.0.0:{}", dns_port());
+    let addr = format!("0.0.0.0:{}", state.config.dns_port);
     let socket = UdpSocket::bind(&addr)
         .await
         .map_err(|e| format!("Failed to bind DNS socket to {}: {}", addr, e))?;

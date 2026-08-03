@@ -7,7 +7,7 @@
 //! # Modules
 //!
 //! - [`types`] — Shared data types (InterceptedRequest, Rule, DnsEntry, etc.)
-//! - [`config`] — Centralized configuration with env-var overrides
+//! - [`config`] — Immutable process configuration and environment Adapter
 //! - [`app_classifier`] — Domain-based app identification (WeChat, Douyin, etc.)
 //! - [`fingerprint`] — TLS ClientHello fingerprint types and the built-in signature library
 //! - [`cert_manager`] — Root CA and per-host leaf certificate management
@@ -18,10 +18,11 @@
 //! # Usage
 //!
 //! ```rust,no_run
-//! use proxybot_core::{CertManager, RulesEngine};
+//! use proxybot_core::{AppConfig, CertManager, RulesEngine};
 //!
-//! let cert_mgr = CertManager::new(None).unwrap();
-//! let engine = RulesEngine::new();
+//! let config = AppConfig::load().unwrap();
+//! let cert_mgr = CertManager::new(config.ca_dir.clone()).unwrap();
+//! let engine = RulesEngine::with_dir(config.rules_dir);
 //!
 //! if let Some(action) = engine.match_host("api.example.com", None) {
 //!     println!("Routing action: {action}");
@@ -44,15 +45,18 @@ pub mod types;
 // Re-export key types for convenience
 pub use app_classifier::{
     canonicalize_host, classify, classify_host, classify_host_name, get_default_rules,
-    load_app_rules, load_custom_app_rules, load_custom_app_rules_from, AppClassifier,
-    AppMatchResult, ApplicationClassifier,
+    load_app_rules, load_app_rules_from, load_custom_app_rules, load_custom_app_rules_from,
+    AppClassifier, AppMatchResult, ApplicationClassifier,
 };
 pub use application_identity::{
     AttributionEngine, AttributionInput, DEFAULT_DNS_CORRELATION_WINDOW_MS,
     DEFAULT_DNS_OBSERVATION_CAPACITY,
 };
 pub use cert_manager::CertManager;
-pub use config::{dns_port, proxy_port, AppConfig};
+pub use config::{
+    AppConfig, ConfigError, EnvironmentSource, ProcessEnvironment, DEFAULT_CERT_SERVER_PORT,
+    DEFAULT_DASHBOARD_PORT, DEFAULT_DNS_PORT, DEFAULT_PROXY_PORT,
+};
 pub use fingerprint::AppMatch as ApplicationAttribution;
 pub use fingerprint::{
     default_fingerprint_set, get_default_signatures, glob_match, AppMatch, AppSignature,

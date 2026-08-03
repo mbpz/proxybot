@@ -32,10 +32,11 @@ pub fn frida_inject_script(
     script_id: String,
     app_handle: tauri::AppHandle,
     state: State<'_, FridaState>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
 ) -> Result<SessionHandle, String> {
     let script = bypass_scripts::get_script(&script_id)
         .or_else(|| {
-            custom_scripts::load_custom_scripts()
+            custom_scripts::load_custom_scripts(&config.bypass_scripts_dir)
                 .into_iter()
                 .find(|s| s.id == script_id)
         })
@@ -51,9 +52,13 @@ pub fn frida_detach(session_id: String, state: State<'_, FridaState>) -> Result<
 }
 
 #[tauri::command]
-pub fn list_bypass_scripts() -> Vec<bypass_scripts::BypassScript> {
+pub fn list_bypass_scripts(
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Vec<bypass_scripts::BypassScript> {
     let mut all = bypass_scripts::get_all_builtin_scripts();
-    all.extend(custom_scripts::load_custom_scripts());
+    all.extend(custom_scripts::load_custom_scripts(
+        &config.bypass_scripts_dir,
+    ));
     all
 }
 
@@ -82,13 +87,17 @@ pub fn check_adb_installed() -> bool {
 /// `libfrida-gadget.so` (arm64-v8a) to be present at the resource paths
 /// resolved by `ApkPatcher::new()`.
 #[tauri::command]
-pub fn patch_apk(apk_path: String, script_id: String) -> Result<String, String> {
+pub fn patch_apk(
+    apk_path: String,
+    script_id: String,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<String, String> {
     use crate::ssl_bypass::apk_patcher::ApkPatcher;
 
     // Look up script (built-in or custom)
     let script = bypass_scripts::get_script(&script_id)
         .or_else(|| {
-            custom_scripts::load_custom_scripts()
+            custom_scripts::load_custom_scripts(&config.bypass_scripts_dir)
                 .into_iter()
                 .find(|s| s.id == script_id)
         })

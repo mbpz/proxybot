@@ -6,25 +6,46 @@
 //!   /* (anything else) — CA certificate download (unchanged behavior)
 
 use crate::cert::{mobileconfig, wizard};
-use crate::config;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tauri::State;
 
-static SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
-
-/// Returns true if the CertServer is currently listening.
-pub fn is_running() -> bool {
-    SERVER_RUNNING.load(Ordering::SeqCst)
+pub struct CertServerState {
+    running: AtomicBool,
 }
 
+impl CertServerState {
+    pub fn new() -> Self {
+        Self {
+            running: AtomicBool::new(false),
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
+    }
+}
+
+impl Default for CertServerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Returns true if the CertServer is currently listening.
 /// Starts a tiny_http server that serves the CA certificate at /ca.crt.
 /// Returns the LAN IP and port so mobile devices can download via browser.
 #[tauri::command]
-pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
-    let port = config::cert_server_port();
+pub fn start_cert_server(
+    cert_path: String,
+    local_ip: String,
+    state: State<'_, Arc<CertServerState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> String {
+    let port = config.cert_server_port;
     let server_url = format!("http://{}:{}", local_ip, port);
 
-    if SERVER_RUNNING.load(Ordering::SeqCst) {
+    if state.is_running() {
         return server_url;
     }
 
@@ -58,12 +79,12 @@ pub fn start_cert_server(cert_path: String, local_ip: String) -> String {
     };
 
     // Bind succeeded AND CA is readable; mark the server as running.
-    SERVER_RUNNING.store(true, Ordering::SeqCst);
+    state.running.store(true, Ordering::SeqCst);
     log::info!("Cert server listening on {}", server_url);
 
+    let proxy_port = config.proxy_port;
+    let dns_port = config.dns_port;
     std::thread::spawn(move || {
-        let proxy_port = config::proxy_port();
-        let dns_port = config::dns_port();
         let ca_pem_arc = ca_pem.clone();
         let ca_pem = ca_pem_arc.as_str();
 

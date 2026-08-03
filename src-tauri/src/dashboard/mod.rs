@@ -6,10 +6,11 @@ mod tests {
     use super::*;
     use crate::proxy::InterceptedRequest;
     use std::collections::HashSet;
+    use std::sync::Arc;
 
     #[test]
     fn test_dashboard_new() {
-        let dashboard = DashboardServer::new(0);
+        let dashboard = DashboardServer::new(0, Arc::new(Default::default()));
         assert!(!dashboard.is_running());
         assert_eq!(dashboard.port(), 0);
         assert!(!dashboard.token().is_empty());
@@ -17,7 +18,7 @@ mod tests {
 
     #[test]
     fn test_push_request() {
-        let dashboard = DashboardServer::new(0);
+        let dashboard = DashboardServer::new(0, Arc::new(Default::default()));
         let req = InterceptedRequest {
             id: "test-1".into(),
             timestamp: "1234567890".into(),
@@ -35,7 +36,7 @@ mod tests {
 
     #[test]
     fn test_ring_buffer_eviction() {
-        let dashboard = DashboardServer::new(0);
+        let dashboard = DashboardServer::new(0, Arc::new(Default::default()));
         for i in 0..1005 {
             dashboard.push_request(InterceptedRequest {
                 id: format!("req-{}", i),
@@ -56,7 +57,11 @@ mod tests {
     #[test]
     fn test_token_uniqueness() {
         let tokens: HashSet<_> = (0..128)
-            .map(|_| DashboardServer::new(0).token().to_owned())
+            .map(|_| {
+                DashboardServer::new(0, Arc::new(Default::default()))
+                    .token()
+                    .to_owned()
+            })
             .collect();
 
         assert_eq!(tokens.len(), 128);

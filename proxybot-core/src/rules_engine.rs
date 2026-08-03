@@ -77,7 +77,7 @@ pub struct RulesEngine {
 impl RulesEngine {
     /// Open the configured Rule File directory and load every valid file.
     pub fn new() -> Self {
-        Self::with_dir(crate::config::rules_dir())
+        Self::with_dir(PathBuf::from(".proxybot/rules"))
     }
 
     /// Open a specific Rule File directory.

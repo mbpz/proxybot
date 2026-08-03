@@ -17,29 +17,24 @@ use crate::workspace::serialize::{Workspace, WorkspaceInfo};
 /// Workspace manager handles saving/loading workspace sessions.
 pub struct WorkspaceManager {
     base_dir: PathBuf,
+    config_dir: PathBuf,
     active: RwLock<Option<String>>,
 }
 
 impl WorkspaceManager {
-    pub fn new() -> Self {
-        let base_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".proxybot")
-            .join("workspaces");
+    pub fn with_paths(base_dir: PathBuf, config_dir: PathBuf) -> Self {
         fs::create_dir_all(&base_dir).ok();
         Self {
             base_dir,
+            config_dir,
             active: RwLock::new(None),
         }
     }
 
     /// Create a WorkspaceManager with a custom base directory (for testing).
     pub fn with_base_dir(base_dir: PathBuf) -> Self {
-        fs::create_dir_all(&base_dir).ok();
-        Self {
-            base_dir,
-            active: RwLock::new(None),
-        }
+        let config_dir = base_dir.parent().unwrap_or(&base_dir).to_path_buf();
+        Self::with_paths(base_dir, config_dir)
     }
 
     pub fn base_dir(&self) -> &Path {
@@ -59,12 +54,8 @@ impl WorkspaceManager {
         fs::write(ws_dir.join("workspace.json"), json).map_err(|e| e.to_string())?;
 
         // Copy current config files if they exist
-        let proxybot_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".proxybot");
-
         for file in &["rules.yaml", "ca.crt", "config.yaml"] {
-            let src = proxybot_dir.join(file);
+            let src = self.config_dir.join(file);
             if src.exists() {
                 fs::copy(&src, ws_dir.join(file)).ok();
             }
@@ -235,14 +226,10 @@ impl WorkspaceManager {
         *self.active.write().unwrap() = Some(name.to_string());
 
         // Copy workspace config into active .proxybot config
-        let proxybot_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".proxybot");
-
         for file in &["rules.yaml", "ca.crt", "config.yaml"] {
             let src = ws_dir.join(file);
             if src.exists() {
-                fs::copy(&src, proxybot_dir.join(file)).ok();
+                fs::copy(&src, self.config_dir.join(file)).ok();
             }
         }
 
@@ -275,12 +262,6 @@ impl WorkspaceManager {
         let json = fs::read_to_string(&path)
             .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
         serde_json::from_str(&json).map_err(|e| format!("failed to parse workspace.json: {}", e))
-    }
-}
-
-impl Default for WorkspaceManager {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -386,7 +367,7 @@ mod tests {
 
         let export_path = tmp.path().join("test.proxybot");
 
-        let manager = WorkspaceManager::new();
+        let manager = WorkspaceManager::with_base_dir(tmp.path().join("workspaces"));
 
         // Export
         manager.export(&workspace, &export_path).unwrap();
@@ -409,7 +390,7 @@ mod tests {
 
         let export_path = tmp.path().join("info-test.proxybot");
 
-        let manager = WorkspaceManager::new();
+        let manager = WorkspaceManager::with_base_dir(tmp.path().join("workspaces"));
         manager.export(&workspace, &export_path).unwrap();
 
         let info = manager.info(&export_path).unwrap();
@@ -421,7 +402,8 @@ mod tests {
 
     #[test]
     fn test_manager_default() {
-        let manager = WorkspaceManager::default();
+        let tmp = tempdir().unwrap();
+        let manager = WorkspaceManager::with_base_dir(tmp.path().join("workspaces"));
         assert!(manager.base_dir().exists());
         assert!(manager.active().is_none());
     }
@@ -430,8 +412,6 @@ mod tests {
     fn test_init_and_list() {
         let tmp = tempdir().unwrap();
         // Create a custom manager with test base_dir
-        // Note: WorkspaceManager uses real homedir; this test validates the data
-        // structures work. For full integration tests, use a test helper.
         let ws = Workspace::new(
             "test-ws".to_string(),
             tmp.path().join("test-ws").join("requests.db"),
@@ -447,7 +427,8 @@ mod tests {
 
     #[test]
     fn test_workspace_default() {
-        let mgr = WorkspaceManager::default();
+        let temp = tempdir().unwrap();
+        let mgr = WorkspaceManager::with_base_dir(temp.path().join("workspaces"));
         assert!(mgr.base_dir().exists());
     }
 

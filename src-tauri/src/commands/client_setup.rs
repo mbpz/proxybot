@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::Arc;
+use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientInfo {
@@ -23,8 +25,12 @@ pub enum ClientType {
 // Keeping a comment above each client makes this user-facing compatibility
 // list easier to audit than one large `vec!` expression.
 #[allow(clippy::vec_init_then_push)]
-pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
+pub fn detect_clients(
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<Vec<ClientInfo>, String> {
     let mut clients = Vec::new();
+    let proxy = format!("127.0.0.1:{}", config.proxy_port);
+    let ca = config.ca_cert_path.to_string_lossy();
 
     // Chrome
     clients.push(ClientInfo {
@@ -33,8 +39,9 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Browser,
         installed: app_exists("Google Chrome"),
         proxy_configured: false,
-        config_instructions:
-            "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+        config_instructions: format!(
+            "Settings → System → Open proxy settings → Set HTTP proxy to {proxy}"
+        ),
     });
 
     // Firefox
@@ -44,8 +51,10 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Browser,
         installed: app_exists("Firefox"),
         proxy_configured: false,
-        config_instructions:
-            "Settings → Network Settings → Manual proxy → HTTP Proxy: 127.0.0.1, Port: 8088".into(),
+        config_instructions: format!(
+            "Settings → Network Settings → Manual proxy → HTTP Proxy: 127.0.0.1, Port: {}",
+            config.proxy_port
+        ),
     });
 
     // Safari
@@ -66,8 +75,9 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Browser,
         installed: app_exists("Brave Browser"),
         proxy_configured: false,
-        config_instructions:
-            "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+        config_instructions: format!(
+            "Settings → System → Open proxy settings → Set HTTP proxy to {proxy}"
+        ),
     });
 
     // Edge
@@ -77,8 +87,9 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Browser,
         installed: app_exists("Microsoft Edge"),
         proxy_configured: false,
-        config_instructions:
-            "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+        config_instructions: format!(
+            "Settings → System → Open proxy settings → Set HTTP proxy to {proxy}"
+        ),
     });
 
     // Arc
@@ -88,8 +99,9 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Browser,
         installed: app_exists("Arc"),
         proxy_configured: false,
-        config_instructions:
-            "Settings → System → Open proxy settings → Set HTTP proxy to 127.0.0.1:8088".into(),
+        config_instructions: format!(
+            "Settings → System → Open proxy settings → Set HTTP proxy to {proxy}"
+        ),
     });
 
     // Node.js
@@ -99,7 +111,9 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Runtime,
         installed: command_exists("node"),
         proxy_configured: false,
-        config_instructions: "export HTTP_PROXY=http://127.0.0.1:8088 HTTPS_PROXY=http://127.0.0.1:8088 NODE_EXTRA_CA_CERTS=~/.proxybot/ca.crt".into(),
+        config_instructions: format!(
+            "export HTTP_PROXY=http://{proxy} HTTPS_PROXY=http://{proxy} NODE_EXTRA_CA_CERTS={ca}"
+        ),
     });
 
     // Python
@@ -109,19 +123,26 @@ pub fn detect_clients() -> Result<Vec<ClientInfo>, String> {
         client_type: ClientType::Runtime,
         installed: command_exists("python3") || command_exists("python"),
         proxy_configured: false,
-        config_instructions: "export HTTP_PROXY=http://127.0.0.1:8088 HTTPS_PROXY=http://127.0.0.1:8088 REQUESTS_CA_BUNDLE=~/.proxybot/ca.crt".into(),
+        config_instructions: format!(
+            "export HTTP_PROXY=http://{proxy} HTTPS_PROXY=http://{proxy} REQUESTS_CA_BUNDLE={ca}"
+        ),
     });
 
     Ok(clients)
 }
 
 #[tauri::command]
-pub fn get_proxy_config_command(client_id: String) -> Result<String, String> {
+pub fn get_proxy_config_command(
+    client_id: String,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<String, String> {
+    let proxy = format!("127.0.0.1:{}", config.proxy_port);
+    let ca = config.ca_cert_path.to_string_lossy();
     match client_id.as_str() {
-        "chrome" => Ok("open -a 'Google Chrome' --args --proxy-server='http://127.0.0.1:8088' --ignore-certificate-errors-spki-list=''".into()),
-        "nodejs" => Ok("export HTTP_PROXY=http://127.0.0.1:8088 HTTPS_PROXY=http://127.0.0.1:8088 NODE_EXTRA_CA_CERTS=~/.proxybot/ca.crt".into()),
-        "python" => Ok("export HTTP_PROXY=http://127.0.0.1:8088 HTTPS_PROXY=http://127.0.0.1:8088 REQUESTS_CA_BUNDLE=~/.proxybot/ca.crt".into()),
-        _ => Ok("Configure your client to use HTTP proxy at 127.0.0.1:8088".into()),
+        "chrome" => Ok(format!("open -a 'Google Chrome' --args --proxy-server='http://{proxy}' --ignore-certificate-errors-spki-list=''")),
+        "nodejs" => Ok(format!("export HTTP_PROXY=http://{proxy} HTTPS_PROXY=http://{proxy} NODE_EXTRA_CA_CERTS={ca}")),
+        "python" => Ok(format!("export HTTP_PROXY=http://{proxy} HTTPS_PROXY=http://{proxy} REQUESTS_CA_BUNDLE={ca}")),
+        _ => Ok(format!("Configure your client to use HTTP proxy at {proxy}")),
     }
 }
 

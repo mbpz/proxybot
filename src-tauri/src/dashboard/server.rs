@@ -1,4 +1,4 @@
-use crate::metrics::counters::METRICS;
+use crate::metrics::counters::ProxyMetrics;
 use crate::proxy::InterceptedRequest;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,10 +19,11 @@ pub struct DashboardServer {
     pub(crate) requests: Arc<Mutex<Vec<InterceptedRequest>>>,
     running: Arc<AtomicBool>,
     shutdown_tx: Arc<Mutex<Option<watch::Sender<()>>>>,
+    metrics: Arc<ProxyMetrics>,
 }
 
 impl DashboardServer {
-    pub fn new(port: u16) -> Self {
+    pub fn new(port: u16, metrics: Arc<ProxyMetrics>) -> Self {
         let token = generate_token();
         Self {
             port,
@@ -30,6 +31,7 @@ impl DashboardServer {
             requests: Arc::new(Mutex::new(Vec::with_capacity(MAX_REQUESTS))),
             running: Arc::new(AtomicBool::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
+            metrics,
         }
     }
 
@@ -70,6 +72,7 @@ impl DashboardServer {
         let requests = Arc::clone(&self.requests);
         let running = Arc::clone(&self.running);
         let token = self.token.clone();
+        let metrics = Arc::clone(&self.metrics);
 
         log::info!("Dashboard server listening on http://0.0.0.0:{}", self.port);
 
@@ -87,6 +90,7 @@ impl DashboardServer {
 
                         let requests = Arc::clone(&requests);
                         let token = token.clone();
+                        let metrics = Arc::clone(&metrics);
 
                         tokio::spawn(async move {
                             let mut buf = [0u8; 8192];
@@ -158,7 +162,7 @@ impl DashboardServer {
                                     }
                                 }
                                 ("GET", "/api/stats") => {
-                                    let m = &*METRICS;
+                                    let m = &*metrics;
                                     let total = m.http_requests_total.load(Ordering::Relaxed)
                                         + m.https_requests_total.load(Ordering::Relaxed);
                                     let active = m.connections_active.load(Ordering::Relaxed);
@@ -172,7 +176,7 @@ impl DashboardServer {
                                     ("200 OK", "application/json", json.to_string())
                                 }
                                 ("GET", "/api/connections") => {
-                                    let count = METRICS.connections_active.load(Ordering::Relaxed);
+                                    let count = metrics.connections_active.load(Ordering::Relaxed);
                                     let json = serde_json::json!({ "active_connections": count });
                                     ("200 OK", "application/json", json.to_string())
                                 }

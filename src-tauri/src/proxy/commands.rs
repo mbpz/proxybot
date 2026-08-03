@@ -8,7 +8,6 @@ use crate::db::DbState;
 use crate::dns::{self, DnsState};
 use crate::history::HistoryStore;
 use crate::network::NetworkInfo;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
@@ -18,13 +17,8 @@ pub fn export_cert(cert_manager: State<'_, Arc<CertManager>>) -> Result<String, 
 }
 
 #[tauri::command]
-pub fn get_ca_cert_path() -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home)
-        .join(".proxybot")
-        .join("ca.pem")
-        .to_string_lossy()
-        .to_string()
+pub fn get_ca_cert_path(config: State<'_, Arc<proxybot_core::AppConfig>>) -> String {
+    config.ca_dir.join("ca.pem").to_string_lossy().to_string()
 }
 
 #[tauri::command]
@@ -55,6 +49,7 @@ pub fn setup_pf(
     app_handle: AppHandle,
     dns_state: State<'_, Arc<DnsState>>,
     proxy_state: State<'_, Arc<ProxyState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
 ) -> Result<String, String> {
     let interface = proxy_state
         .interface
@@ -68,7 +63,7 @@ pub fn setup_pf(
         .unwrap()
         .clone()
         .ok_or("Network info not set. Call get_network_info first.")?;
-    let result = crate::pf::setup_pf(interface, local_ip);
+    let result = crate::pf::setup_pf(interface, local_ip, &config);
     if result.is_ok() {
         // Start DNS server after pf setup succeeds
         dns::start_dns_server(app_handle, dns_state.inner().clone());
@@ -77,11 +72,14 @@ pub fn setup_pf(
 }
 
 #[tauri::command]
-pub fn teardown_pf(dns_state: State<'_, Arc<DnsState>>) -> Result<(), String> {
+pub fn teardown_pf(
+    dns_state: State<'_, Arc<DnsState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<(), String> {
     // Stop DNS server first
     dns::stop_dns_server(dns_state.inner());
     // Then tear down pf
-    crate::pf::teardown_pf()
+    crate::pf::teardown_pf(&config)
 }
 
 #[tauri::command]
@@ -146,8 +144,10 @@ pub fn get_request_detail(
 }
 
 #[tauri::command]
-pub fn load_history() -> Result<Vec<InterceptedRequest>, String> {
-    let store = HistoryStore::new();
+pub fn load_history(
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<Vec<InterceptedRequest>, String> {
+    let store = HistoryStore::with_path(config.history_path.clone());
     Ok(store.load())
 }
 
@@ -161,8 +161,11 @@ pub fn get_ws_frames(
 }
 
 #[tauri::command]
-pub fn save_history(requests: Vec<InterceptedRequest>) -> Result<(), String> {
-    let store = HistoryStore::new();
+pub fn save_history(
+    requests: Vec<InterceptedRequest>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<(), String> {
+    let store = HistoryStore::with_path(config.history_path.clone());
     store.save(&requests)
 }
 

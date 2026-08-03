@@ -23,6 +23,7 @@ use crate::replay::ReplayState;
 use crate::rules::RulesEngine;
 use crate::tun::TunState;
 use crate::workspace::WorkspaceManager;
+use proxybot_core::AppConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LaunchMode {
@@ -79,6 +80,13 @@ impl LaunchOptions {
             mode: LaunchMode::Desktop,
             reverse_target,
         })
+    }
+
+    fn apply_to(&self, config: AppConfig) -> AppConfig {
+        match &self.reverse_target {
+            Some(target) => config.with_reverse_target(Some(target.clone())),
+            None => config,
+        }
     }
 }
 
@@ -248,40 +256,54 @@ pub fn run() {
         std::process::exit(2);
     });
 
-    if options.mode == LaunchMode::McpStdio {
-        crate::mcp::transport::start_stdio_mode();
-        return;
-    }
+    let config = AppConfig::load().unwrap_or_else(|error| {
+        eprintln!("proxybot: invalid configuration: {error}");
+        std::process::exit(2);
+    });
+    let config = options.apply_to(config);
 
-    if let Some(reverse_target) = options.reverse_target {
-        // SAFETY: process configuration happens before any application worker
-        // threads are created, so no other thread can access the environment.
-        unsafe {
-            std::env::set_var("PROXYBOT_REVERSE_TARGET", &reverse_target);
-        }
+    if options.mode == LaunchMode::McpStdio {
+        crate::mcp::transport::start_stdio_mode(config);
+        return;
     }
 
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init();
     log::info!("Starting ProxyBot desktop application");
 
-    run_desktop();
+    run_desktop(Arc::new(config));
 }
 
-fn run_desktop() {
-    let db_state = Arc::new(DbState::new().expect("Failed to initialize database"));
-    let cert_manager =
-        Arc::new(CertManager::new(None).expect("Failed to initialize certificate manager"));
-    let rules_engine = Arc::new(RulesEngine::new());
-    let dns_state =
-        Arc::new(DnsState::with_db(db_state.clone()).with_rules_engine(rules_engine.clone()));
+fn run_desktop(config: Arc<AppConfig>) {
+    let db_state = Arc::new(DbState::open(&config.db_path).expect("Failed to initialize database"));
+    let cert_manager = Arc::new(
+        CertManager::new(config.ca_dir.clone()).expect("Failed to initialize certificate manager"),
+    );
+    let rules_engine = Arc::new(RulesEngine::with_dir(config.rules_dir.clone()));
+    let dns_state = Arc::new(
+        DnsState::with_config(config.clone())
+            .with_database(db_state.clone())
+            .with_rules_engine(rules_engine.clone()),
+    );
     let proxy_state = Arc::new(ProxyState::new());
     let mitm_runtime_state = Arc::new(crate::proxy::MitmRuntimeState::new());
     let keep_running_state = Arc::new(crate::proxy::KeepRunningState::new());
-    let anomaly_detector = Arc::new(AnomalyDetector::new());
+    let anomaly_detector = Arc::new(AnomalyDetector::with_stores(
+        Arc::new(crate::anomaly::AlertStore::with_path(
+            config.alerts_path.clone(),
+        )),
+        Arc::new(crate::anomaly::BaselineStore::with_path(
+            config.baseline_path.clone(),
+        )),
+    ));
     let tun_state = Arc::new(TunState::new());
     let replay_state = Arc::new(ReplayState::default());
-    let dashboard_server = Arc::new(crate::dashboard::DashboardServer::new(9980));
+    let cert_server_state = Arc::new(crate::cert_server::CertServerState::new());
+    let metrics = Arc::new(crate::metrics::counters::ProxyMetrics::new());
+    let dashboard_server = Arc::new(crate::dashboard::DashboardServer::new(
+        config.dashboard_port,
+        metrics.clone(),
+    ));
     let frida_manager = Arc::new(
         crate::frida::FridaManager::new()
             .map_err(|error| format!("Failed to initialize Frida: {error}"))
@@ -290,8 +312,18 @@ fn run_desktop() {
     let frida_state = FridaState(frida_manager);
     let network_conditions_engine = Arc::new(crate::network::NetworkConditionEngine::new());
     let network_conditions_state = NetworkConditionsState(network_conditions_engine);
-    let app_state = Arc::new(crate::state::AppState::new());
-    let workspace_manager = Arc::new(WorkspaceManager::new());
+    let app_state = Arc::new(crate::state::AppState::with_specs_dir(
+        config.specs_dir.clone(),
+    ));
+    let workspace_manager = Arc::new(WorkspaceManager::with_paths(
+        config.workspaces_dir.clone(),
+        config.base_dir.clone(),
+    ));
+    let custom_app_rules = Arc::new(
+        crate::commands::app_fingerprint::CustomAppRuleStore::from_path(
+            config.app_signatures_path.clone(),
+        ),
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -306,11 +338,15 @@ fn run_desktop() {
         .manage(tun_state)
         .manage(rules_engine.clone())
         .manage(replay_state)
+        .manage(cert_server_state)
+        .manage(metrics)
         .manage(dashboard_server)
         .manage(frida_state)
         .manage(network_conditions_state)
         .manage(app_state)
         .manage(workspace_manager)
+        .manage(custom_app_rules)
+        .manage(config)
         .setup(move |app| setup_desktop(app, rules_engine))
         .invoke_handler(desktop_invoke_handler())
         .run(tauri::generate_context!())
@@ -407,6 +443,11 @@ fn start_proxy_from_tray(app: &tauri::AppHandle, app_handle: &tauri::AppHandle) 
     let rules = app.state::<Arc<RulesEngine>>().inner().clone();
     let app_state = app.state::<Arc<crate::state::AppState>>().inner().clone();
     let network = app.state::<NetworkConditionsState>().inner().0.clone();
+    let config = app.state::<Arc<AppConfig>>().inner().clone();
+    let metrics = app
+        .state::<Arc<crate::metrics::counters::ProxyMetrics>>()
+        .inner()
+        .clone();
     tauri::async_runtime::spawn(async move {
         match crate::proxy::start_proxy_runtime(
             app_handle.clone(),
@@ -417,6 +458,8 @@ fn start_proxy_from_tray(app: &tauri::AppHandle, app_handle: &tauri::AppHandle) 
             rules,
             app_state,
             network,
+            config,
+            metrics,
         )
         .await
         {
@@ -585,6 +628,22 @@ mod tests {
         .unwrap();
         assert_eq!(options.mode, LaunchMode::McpStdio);
         assert_eq!(options.reverse_target, None);
+    }
+
+    #[test]
+    fn cli_reverse_target_overrides_the_config_value_without_environment_mutation() {
+        let options = LaunchOptions::parse(args(&[
+            "proxybot",
+            "--reverse-target=http://127.0.0.1:4000",
+        ]))
+        .unwrap();
+        let config = AppConfig::for_base_dir("/tmp/proxybot".into())
+            .with_reverse_target(Some("http://127.0.0.1:3000".into()));
+
+        assert_eq!(
+            options.apply_to(config).reverse_target.as_deref(),
+            Some("http://127.0.0.1:4000")
+        );
     }
 
     #[test]

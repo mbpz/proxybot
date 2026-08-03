@@ -6,8 +6,8 @@
 //! delivery enter through [`RuntimeHooks`].
 
 use crate::{
-    body, BreakpointDecision, BreakpointTarget, CertManager, InterceptedRequest, RuleAction,
-    RulesEngine, TlsAction, TlsRuleSet, WsFrame,
+    body, AppConfig, BreakpointDecision, BreakpointTarget, CertManager, InterceptedRequest,
+    RuleAction, RulesEngine, TlsAction, TlsRuleSet, WsFrame,
 };
 use async_trait::async_trait;
 use rustls::client::danger as rustls_danger;
@@ -25,8 +25,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
-
-static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Whether upstream TLS certificates are verified.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -51,11 +49,21 @@ pub struct RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            bind_addr: SocketAddr::from(([0, 0, 0, 0], crate::config::proxy_port())),
+            bind_addr: SocketAddr::from(([0, 0, 0, 0], crate::config::DEFAULT_PROXY_PORT)),
             upstream_tls: UpstreamTlsPolicy::Verify,
-            reverse_target: crate::config::reverse_target(),
+            reverse_target: None,
             io_timeout: Duration::from_secs(15),
             max_message_bytes: 16 * 1024 * 1024,
+        }
+    }
+}
+
+impl From<&AppConfig> for RuntimeConfig {
+    fn from(config: &AppConfig) -> Self {
+        Self {
+            bind_addr: SocketAddr::from(([0, 0, 0, 0], config.proxy_port)),
+            reverse_target: config.reverse_target.clone(),
+            ..Self::default()
         }
     }
 }
@@ -295,6 +303,7 @@ impl MitmRuntime {
             hooks: self.hooks,
             original_destination: self.original_destination,
             events: event_tx.clone(),
+            request_counter: AtomicU64::new(1),
         });
         event_tx
             .send(CaptureEvent::Started { bound_addr })
@@ -361,6 +370,13 @@ struct RuntimeContext {
     hooks: Arc<dyn RuntimeHooks>,
     original_destination: Arc<dyn OriginalDestination>,
     events: mpsc::Sender<CaptureEvent>,
+    request_counter: AtomicU64,
+}
+
+impl RuntimeContext {
+    fn next_request_id(&self) -> String {
+        generate_request_id(self.request_counter.fetch_add(1, Ordering::Relaxed))
+    }
 }
 
 async fn run_listener(
@@ -378,7 +394,7 @@ async fn run_listener(
                         let _ = context.events.send(CaptureEvent::ConnectionOpened { client_addr }).await;
                         if let Err(error) = handle_connection(Arc::clone(&context), stream, client_addr).await {
                             let _ = context.events.send(CaptureEvent::Failed {
-                                request_id: next_request_id(),
+                                request_id: context.next_request_id(),
                                 host: None,
                                 error: error.to_string(),
                             }).await;
@@ -462,7 +478,7 @@ async fn handle_connection(
             .ok_or_else(|| RuntimeError::Protocol("HTTP request has no Host header".to_owned()))?;
         let (host, port) = parse_authority(authority, 80)?;
         let request = RuntimeRequest {
-            id: next_request_id(),
+            id: context.next_request_id(),
             timestamp: timestamp_now(),
             method: parsed.method,
             scheme: "http".to_owned(),
@@ -518,7 +534,7 @@ async fn handle_tls(
             .map_err(|error| RuntimeError::Io(error.to_string()))?;
         if tls_action.should_log() {
             let capture = InterceptedRequest {
-                id: next_request_id(),
+                id: context.next_request_id(),
                 timestamp: timestamp_now(),
                 method: "CONNECT".to_owned(),
                 scheme: "https".to_owned(),
@@ -567,7 +583,7 @@ async fn handle_tls(
     let parsed = parse_http_request(&request_bytes)
         .ok_or_else(|| RuntimeError::Protocol("invalid decrypted HTTP request".to_owned()))?;
     let request = RuntimeRequest {
-        id: next_request_id(),
+        id: context.next_request_id(),
         timestamp: timestamp_now(),
         method: parsed.method,
         scheme: "https".to_owned(),
@@ -1607,10 +1623,6 @@ fn http_reason(status: u16) -> &'static str {
     }
 }
 
-fn next_request_id() -> String {
-    generate_request_id(REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed))
-}
-
 /// Build a stable request id from timestamp and a process-local counter.
 pub fn generate_request_id(counter: u64) -> String {
     let nanos = SystemTime::now()
@@ -1647,7 +1659,7 @@ mod tests {
 
     fn runtime_with_rules(rules: Vec<Rule>) -> (MitmRuntime, tempfile::TempDir) {
         let root = tempdir().unwrap();
-        let certs = Arc::new(CertManager::new(Some(root.path().join("ca"))).unwrap());
+        let certs = Arc::new(CertManager::new(root.path().join("ca")).unwrap());
         let engine = Arc::new(RulesEngine::with_dir(root.path().join("rules")));
         engine.set_rules(rules);
         let runtime = MitmRuntime::new(

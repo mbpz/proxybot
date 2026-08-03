@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 /// the inner config is a plain data type. Following the pattern used by
 /// `NetworkConditionsState` in `commands/network_conditions.rs`.
 pub struct AppState {
+    specs_dir: PathBuf,
     /// User-tunable spec generation knobs (API key, retry counts,
     /// replay toggles, mock port). Wrapped in `Mutex` so commands can
     /// update it at runtime via `update_specgen_config`.
@@ -72,7 +73,12 @@ impl AppState {
     /// `SpecConfig::default()`; callers can mutate the LLM key and
     /// other knobs at runtime via the `update_specgen_config` command.
     pub fn new() -> Self {
+        Self::with_specs_dir(PathBuf::from(".proxybot/specs"))
+    }
+
+    pub fn with_specs_dir(specs_dir: PathBuf) -> Self {
         Self {
+            specs_dir,
             specgen_config: Arc::new(Mutex::new(SpecConfig::default())),
             active_session_id: Arc::new(Mutex::new(None)),
             tls_rules: Arc::new(RwLock::new(TlsRuleSet::default())),
@@ -130,8 +136,7 @@ impl AppState {
     /// Directory where generated spec JSON files are persisted. Each
     /// session gets its own file: `<specs_dir>/<session_id>.json`.
     pub fn specs_dir(&self) -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".proxybot").join("specs")
+        self.specs_dir.clone()
     }
 }
 

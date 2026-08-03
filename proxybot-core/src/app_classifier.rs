@@ -20,26 +20,25 @@ use crate::fingerprint::{
     MatchSource, TlsFingerprint,
 };
 use crate::types::AppRule;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-/// Load app rules — first from `app_rules.json` if present, otherwise defaults.
+/// Return the built-in domain catalog.
 pub fn load_app_rules() -> Vec<AppRule> {
-    // Try JSON file first
-    if let Some(rules) = load_app_rules_from_file() {
+    get_default_rules()
+}
+
+/// Load domain rules from a specific path, falling back to the built-in catalog.
+pub fn load_app_rules_from(path: &Path) -> Vec<AppRule> {
+    if let Some(rules) = load_app_rules_from_file(path) {
         log::info!("Loaded {} app rules from file", rules.len());
         return rules;
     }
     get_default_rules()
 }
 
-fn load_app_rules_from_file() -> Option<Vec<AppRule>> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let path = std::path::PathBuf::from(home)
-        .join(".proxybot")
-        .join("app_rules.json");
-
+fn load_app_rules_from_file(path: &Path) -> Option<Vec<AppRule>> {
     if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(content) = std::fs::read_to_string(path) {
             if let Ok(rules) = serde_json::from_str::<Vec<AppRule>>(&content) {
                 return Some(rules);
             }
@@ -49,14 +48,9 @@ fn load_app_rules_from_file() -> Option<Vec<AppRule>> {
     None
 }
 
-/// Load the user-defined TLS/SNI rules consumed by every application Adapter.
+/// Return no custom rules when no filesystem Adapter is supplied.
 pub fn load_custom_app_rules() -> Vec<CustomAppRule> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-    load_custom_app_rules_from(
-        &PathBuf::from(home)
-            .join(".proxybot")
-            .join("app_signatures.json"),
-    )
+    Vec::new()
 }
 
 /// Parameterized loader used by the desktop persistence Adapter and tests.
@@ -629,9 +623,12 @@ impl ApplicationClassifier {
         Self::with_rules(get_default_rules(), custom_rules)
     }
 
-    /// Load both compatibility catalog files from the configured home directory.
-    pub fn from_config_files() -> Self {
-        Self::with_rules(load_app_rules(), load_custom_app_rules())
+    /// Load both catalogs from paths selected by the process configuration.
+    pub fn from_paths(app_rules_path: &Path, app_signatures_path: &Path) -> Self {
+        Self::with_rules(
+            load_app_rules_from(app_rules_path),
+            load_custom_app_rules_from(app_signatures_path),
+        )
     }
 
     /// Deterministic constructor used by tests and non-filesystem Adapters.

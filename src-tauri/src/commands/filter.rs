@@ -6,6 +6,8 @@ use crate::filter::dsl;
 use crate::filter::evaluator::Evaluator;
 use crate::filter::preset::{self, FilterPreset};
 use crate::proxy::InterceptedRequest;
+use std::sync::Arc;
+use tauri::State;
 
 /// Result of parsing a DSL expression. Returned as JSON so the
 /// frontend can display `error` inline without throwing.
@@ -46,18 +48,26 @@ pub fn evaluate_filter(expr: String, request: InterceptedRequest) -> bool {
 
 /// Return all saved filter presets.
 #[tauri::command]
-pub fn list_filter_presets() -> Result<Vec<FilterPreset>, String> {
-    preset::list()
+pub fn list_filter_presets(
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<Vec<FilterPreset>, String> {
+    preset::list(&config.filter_presets_path)
 }
 
 /// Save (insert or replace-by-id) a preset.
 #[tauri::command]
-pub fn save_filter_preset(preset: FilterPreset) -> Result<(), String> {
-    preset::save(preset)
+pub fn save_filter_preset(
+    preset: FilterPreset,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<(), String> {
+    preset::save(&config.filter_presets_path, preset)
 }
 
 /// Delete the preset with the given id. Returns Err if not found.
 #[tauri::command]
-pub fn delete_filter_preset(id: String) -> Result<(), String> {
-    preset::delete(&id)
+pub fn delete_filter_preset(
+    id: String,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<(), String> {
+    preset::delete(&config.filter_presets_path, &id)
 }
