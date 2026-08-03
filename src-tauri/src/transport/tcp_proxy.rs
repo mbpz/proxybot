@@ -148,10 +148,12 @@ async fn handle_connection(
 
     // Classify by SNI if available
     let meta = if let Some(ref host) = sni {
-        if let Some((app, icon)) = crate::app_rules::classify_host(host) {
+        if let Some(attribution) = proxybot_core::ApplicationClassifier::from_config_files()
+            .classify_request("", Some(host), None)
+        {
             ConnectionMeta {
-                app_name: Some(app),
-                app_icon: Some(icon),
+                app_name: Some(attribution.app_name),
+                app_icon: attribution.app_icon,
                 ..meta
             }
         } else {

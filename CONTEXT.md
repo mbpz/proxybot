@@ -44,6 +44,14 @@ _Avoid_: Proxy state, listener wrapper
 A stable-id lifecycle event emitted by the MITM Runtime for a Captured Request, WebSocket frame, or failure.
 _Avoid_: UI event, database row
 
+**Application Attribution**:
+The best-supported application identity assigned to a Captured Request, including confidence, source, and evidence.
+_Avoid_: App tag, classification result
+
+**DNS Observation**:
+A client-scoped DNS query and its answers retained as possible evidence for Application Attribution.
+_Avoid_: DNS log row, lookup cache
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -54,11 +62,16 @@ _Avoid_: UI event, database row
 - The **MITM Runtime** turns client connections into zero or more **Captured Requests**
 - A **Captured Request** is reported through one or more **Capture Events** with the same stable id
 - Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
+- A **Captured Request** may receive one **Application Attribution**
+- A **DNS Observation** can support **Application Attribution** only for the same client and within the correlation window
 
 ## Example dialogue
 
 > **Dev:** "If two **Routing Rules** match the same host, which **Rule Action** wins?"
 > **Domain expert:** "The enabled rule with the lower **Rule Priority** is evaluated first, regardless of which **Rule File** contains it."
+
+> **Dev:** "Can another device's **DNS Observation** identify this **Captured Request**?"
+> **Domain expert:** "No — DNS evidence contributes to **Application Attribution** only when the client identity and timing match."
 
 ## Flagged ambiguities
 

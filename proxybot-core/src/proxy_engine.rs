@@ -73,6 +73,7 @@ pub struct RuntimeRequest {
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub client_ip: IpAddr,
+    pub upstream_ip: Option<IpAddr>,
 }
 
 impl RuntimeRequest {
@@ -88,6 +89,7 @@ impl RuntimeRequest {
             req_headers: self.headers.clone(),
             req_body: body_to_string(&self.body),
             client_ip: Some(self.client_ip.to_string()),
+            upstream_ip: self.upstream_ip.map(|ip| ip.to_string()),
             ..InterceptedRequest::default()
         }
     }
@@ -203,7 +205,7 @@ pub enum CaptureEvent {
     ConnectionClosed {
         client_addr: SocketAddr,
     },
-    Completed(InterceptedRequest),
+    Completed(Box<InterceptedRequest>),
     Frame {
         request_id: String,
         frame: WsFrame,
@@ -470,6 +472,7 @@ async fn handle_connection(
             headers: parsed.headers,
             body: parsed.body,
             client_ip: client_addr.ip(),
+            upstream_ip: None,
         };
         execute_transaction(&context, &mut stream, request, None).await
     }
@@ -525,7 +528,10 @@ async fn handle_tls(
                 client_ip: Some(client_addr.ip().to_string()),
                 ..InterceptedRequest::default()
             };
-            let _ = context.events.send(CaptureEvent::Completed(capture)).await;
+            let _ = context
+                .events
+                .send(CaptureEvent::Completed(Box::new(capture)))
+                .await;
         }
         return pipe_tunnel(&context, &host, &mut stream, &mut upstream).await;
     }
@@ -571,6 +577,7 @@ async fn handle_tls(
         headers: parsed.headers,
         body: parsed.body,
         client_ip: client_addr.ip(),
+        upstream_ip: Some(target.ip()),
     };
     let result = execute_transaction(&context, &mut client_tls, request, Some(target)).await;
     let close_result = client_tls
@@ -601,7 +608,7 @@ where
             finish_synthetic(context, client, request, response, started).await
         }
         RequestPlan::Forward {
-            request,
+            mut request,
             target,
             response_breakpoint,
         } => {
@@ -613,8 +620,9 @@ where
                     ..target
                 }
             };
-            let (mut upstream, response_bytes) =
+            let (mut upstream, response_bytes, upstream_addr) =
                 forward_to_upstream(context, &request, &target).await?;
+            request.upstream_ip = Some(upstream_addr.ip());
             let mut response = parse_http_response(&response_bytes).ok_or_else(|| {
                 RuntimeError::Protocol("invalid upstream HTTP response".to_owned())
             })?;
@@ -810,7 +818,7 @@ async fn forward_to_upstream(
     context: &RuntimeContext,
     request: &RuntimeRequest,
     target: &UpstreamTarget,
-) -> Result<(BoxedIo, Vec<u8>), RuntimeError> {
+) -> Result<(BoxedIo, Vec<u8>, SocketAddr), RuntimeError> {
     let address = if let Some(address) = target.connect_override {
         address
     } else {
@@ -851,7 +859,7 @@ async fn forward_to_upstream(
         &context.config,
     )
     .await?;
-    Ok((stream, response))
+    Ok((stream, response, address))
 }
 
 async fn emit_capture(
@@ -880,10 +888,14 @@ async fn emit_capture(
         resp_body: body_to_string(&decoded),
         resp_size: Some(response_size),
         client_ip: Some(request.client_ip.to_string()),
+        upstream_ip: request.upstream_ip.map(|ip| ip.to_string()),
         is_websocket,
         ..InterceptedRequest::default()
     };
-    let _ = context.events.send(CaptureEvent::Completed(capture)).await;
+    let _ = context
+        .events
+        .send(CaptureEvent::Completed(Box::new(capture)))
+        .await;
 }
 
 trait AsyncIo: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -1653,7 +1665,7 @@ mod tests {
     async fn next_completed(events: &mut mpsc::Receiver<CaptureEvent>) -> InterceptedRequest {
         loop {
             match events.recv().await {
-                Some(CaptureEvent::Completed(capture)) => return capture,
+                Some(CaptureEvent::Completed(capture)) => return *capture,
                 Some(_) => continue,
                 None => panic!("capture stream closed before a completed request"),
             }
@@ -1803,6 +1815,7 @@ mod tests {
         let capture = next_completed(&mut events).await;
         assert_eq!(capture.scheme, "https");
         assert_eq!(capture.status, Some(403));
+        assert!(capture.upstream_ip.is_some());
         running.shutdown().await;
     }
 
@@ -1864,6 +1877,7 @@ mod tests {
         let capture = next_completed(&mut events).await;
         assert_eq!(capture.path, "/rewritten");
         assert_eq!(capture.status, Some(201));
+        assert_eq!(capture.upstream_ip.as_deref(), Some("127.0.0.1"));
 
         origin_task.await.unwrap();
         running.shutdown().await;

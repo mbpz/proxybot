@@ -4,7 +4,6 @@
 //! domain names, forwards all queries to configurable upstream DNS (plain UDP or DoH),
 //! and relays responses back. Supports local hosts file, blocklist, and routing integration.
 
-use std::collections::VecDeque;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -22,53 +21,23 @@ use crate::config::{
 };
 use crate::db::DbState;
 use crate::rules::RulesEngine;
+use proxybot_core::{
+    ApplicationAttribution, ApplicationClassifier, AttributionEngine, AttributionInput,
+};
+pub use proxybot_core::{
+    BlocklistEntry, DnsEntry, DnsObservation, DnsUpstream, DnsUpstreamType, HostsEntry,
+};
 
 /// Time window (in milliseconds) for DNS-to-connection correlation.
 /// A DNS query observed within this window of a captured request can be
 /// used to infer the request's app tag when SNI/Host does not match a
 /// rule directly. 5 minutes matches typical DNS TTLs for app CDNs.
-pub const CORRELATION_WINDOW_MS: u64 = 300_000;
-
-/// DNS upstream protocol type.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DnsUpstreamType {
-    PlainUdp,
-    Doh,
-}
-
-/// DNS upstream configuration.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct DnsUpstream {
-    pub upstream_type: DnsUpstreamType,
-    pub address: String, // "8.8.8.8:53" for UDP, URL for DoH
-}
-
-impl Default for DnsUpstream {
-    fn default() -> Self {
-        // Default to DoH for secure DNS
-        Self {
-            upstream_type: DnsUpstreamType::Doh,
-            address: default_doh_url().to_string(),
-        }
-    }
-}
-
-/// A single DNS query entry with app classification and routing action.
-#[derive(Clone, serde::Serialize)]
-pub struct DnsEntry {
-    pub domain: String,
-    pub timestamp_ms: u64,
-    pub app_name: Option<String>,
-    pub app_icon: Option<String>,
-    pub action: Option<String>, // Routing action: DIRECT, PROXY, REJECT
-    pub resolved_ips: Vec<String>,
-    pub client_ip: Option<String>, // Source LAN IP of the DNS query
-}
+pub const CORRELATION_WINDOW_MS: u64 = proxybot_core::DEFAULT_DNS_CORRELATION_WINDOW_MS;
 
 /// Shared DNS state.
 pub struct DnsState {
-    pub entries: Arc<Mutex<VecDeque<DnsEntry>>>,
+    /// Core-owned attribution Implementation shared by DNS and Capture Event Adapters.
+    pub(crate) attribution: AttributionEngine,
     pub running: Arc<AtomicBool>,
     pub shutdown_tx: Arc<Mutex<Option<broadcast::Sender<()>>>>,
     pub db_state: Option<Arc<DbState>>,
@@ -77,19 +46,6 @@ pub struct DnsState {
     pub blocklist: Arc<Mutex<Vec<BlocklistEntry>>>,
     pub blocklist_enabled: Arc<AtomicBool>,
     pub rules_engine: Option<Arc<RulesEngine>>,
-}
-
-/// A single hosts file entry (domain -> IP mapping).
-#[derive(Clone, Debug)]
-pub struct HostsEntry {
-    pub domain: String,
-    pub ip: String,
-}
-
-/// A single blocklist entry (domain pattern).
-#[derive(Clone, Debug)]
-pub struct BlocklistEntry {
-    pub domain: String, // Exact match or suffix with leading dot
 }
 
 impl Default for DnsState {
@@ -101,11 +57,18 @@ impl Default for DnsState {
 impl DnsState {
     pub fn new() -> Self {
         Self {
-            entries: Arc::new(Mutex::new(VecDeque::with_capacity(max_dns_entries()))),
+            attribution: AttributionEngine::new(
+                ApplicationClassifier::from_config_files(),
+                max_dns_entries(),
+                CORRELATION_WINDOW_MS,
+            ),
             running: Arc::new(AtomicBool::new(false)),
             shutdown_tx: Arc::new(Mutex::new(None)),
             db_state: None,
-            upstream: Arc::new(Mutex::new(DnsUpstream::default())),
+            upstream: Arc::new(Mutex::new(DnsUpstream {
+                upstream_type: DnsUpstreamType::Doh,
+                address: default_doh_url().to_owned(),
+            })),
             hosts: Arc::new(Mutex::new(Vec::new())),
             blocklist: Arc::new(Mutex::new(Vec::new())),
             blocklist_enabled: Arc::new(AtomicBool::new(true)), // enabled by default
@@ -211,7 +174,7 @@ impl DnsState {
             if entry.domain.starts_with('.') {
                 // Suffix match: .example.com matches www.example.com
                 let suffix = &entry.domain[1..];
-                if domain_lower == suffix || domain_lower.ends_with(suffix) {
+                if domain_lower == suffix || domain_lower.ends_with(&format!(".{suffix}")) {
                     return true;
                 }
             } else if domain_lower == entry.domain {
@@ -235,90 +198,91 @@ impl DnsState {
         None
     }
 
-    /// Scan entries once, returning the most recent entry that satisfies
-    /// `predicate` within the time window.
-    pub fn find_latest_matching<F>(
+    /// Core Application Attribution Interface used by Capture Event Adapters.
+    pub fn attribute_connection(
         &self,
-        request_timestamp_ms: u64,
+        host: &str,
+        sni: Option<&str>,
+        client_ip: &str,
+        upstream_ip: Option<&str>,
+        captured_at_ms: u64,
+    ) -> Option<ApplicationAttribution> {
+        self.attribution.classify(AttributionInput {
+            host,
+            sni,
+            client_ip: Some(client_ip),
+            upstream_ip,
+            captured_at_ms,
+        })
+    }
+
+    /// Compatibility Adapter for callers that explicitly request DNS-only correlation.
+    pub fn correlate_app(&self, host: &str, captured_at_ms: u64) -> Option<(String, String)> {
+        self.attribution
+            .correlate_dns(AttributionInput {
+                host,
+                sni: None,
+                client_ip: None,
+                upstream_ip: None,
+                captured_at_ms,
+            })
+            .and_then(attribution_tag)
+    }
+
+    pub fn correlate_app_for_ip(
+        &self,
+        client_ip: &str,
+        upstream_ip: &str,
+        captured_at_ms: u64,
+    ) -> Option<(String, String)> {
+        self.attribution
+            .correlate_dns(AttributionInput {
+                host: upstream_ip,
+                sni: None,
+                client_ip: Some(client_ip),
+                upstream_ip: Some(upstream_ip),
+                captured_at_ms,
+            })
+            .and_then(attribution_tag)
+    }
+
+    pub fn classify_connection(
+        &self,
+        host: &str,
+        client_ip: &str,
+        upstream_ip: Option<&str>,
+        captured_at_ms: u64,
+    ) -> Option<(String, String)> {
+        self.attribute_connection(host, None, client_ip, upstream_ip, captured_at_ms)
+            .and_then(attribution_tag)
+    }
+
+    #[cfg(test)]
+    fn find_latest_matching<F>(
+        &self,
+        captured_at_ms: u64,
         mut predicate: F,
     ) -> Option<(String, String)>
     where
         F: FnMut(&DnsEntry) -> bool,
     {
-        let entries = self.entries.lock().ok()?;
-        for entry in entries.iter().rev() {
-            if request_timestamp_ms < entry.timestamp_ms {
-                continue;
-            }
-            if request_timestamp_ms - entry.timestamp_ms > CORRELATION_WINDOW_MS {
-                break;
-            }
-            if predicate(entry) {
-                if let (Some(name), Some(icon)) = (&entry.app_name, &entry.app_icon) {
-                    return Some((name.clone(), icon.clone()));
-                }
-            }
-        }
-        None
+        self.attribution
+            .observations(max_dns_entries())
+            .into_iter()
+            .filter(|entry| {
+                captured_at_ms >= entry.timestamp_ms
+                    && captured_at_ms - entry.timestamp_ms <= CORRELATION_WINDOW_MS
+            })
+            .find(|entry| predicate(entry))
+            .and_then(|entry| Some((entry.app_name?, entry.app_icon?)))
     }
 
-    /// Find the most recent DNS query matching the given host within a time window.
-    /// Returns app_name and app_icon if found within the window.
-    pub fn correlate_app(&self, host: &str, request_timestamp_ms: u64) -> Option<(String, String)> {
-        self.find_latest_matching(request_timestamp_ms, |e| {
-            host == e.domain || host.ends_with(&format!(".{}", e.domain))
-        })
+    pub fn replace_custom_attribution_rules(&self, rules: Vec<proxybot_core::CustomAppRule>) {
+        self.attribution.replace_custom_rules(rules);
     }
 
-    /// Correlate a connection whose target is a literal IP (e.g. CDN
-    /// endpoint) against recent DNS resolutions for the same client.
-    /// Returns the app_name and app_icon of the most recent DNS query
-    /// from `client_ip` whose `resolved_ips` includes `resolved_ip`,
-    /// within `CORRELATION_WINDOW_MS` of `request_timestamp_ms`.
-    pub fn correlate_app_for_ip(
-        &self,
-        client_ip: &str,
-        resolved_ip: &str,
-        request_timestamp_ms: u64,
-    ) -> Option<(String, String)> {
-        self.find_latest_matching(request_timestamp_ms, |e| {
-            e.client_ip.as_deref() == Some(client_ip)
-                && e.resolved_ips.iter().any(|ip| ip == resolved_ip)
-        })
-    }
-
-    /// Two-step DNS-side classification for a captured connection.
-    /// Tries the host-string path first (`correlate_app`), then the
-    /// resolved-IP path (`correlate_app_for_ip`) if the first missed
-    /// and a `resolved_ip` is known. Used by the proxy to combine
-    /// both DNS-side fallbacks into a single call.
-    ///
-    /// If `target_host` is an IP literal (no SNI), the host-string
-    /// path is skipped entirely — passing an IP to `correlate_app`
-    /// can never match a domain entry, and a stray match against a
-    /// numeric-styled domain would be a false positive.
-    pub fn classify_connection(
-        &self,
-        target_host: &str,
-        client_ip: &str,
-        resolved_ip: Option<&str>,
-        request_timestamp_ms: u64,
-    ) -> Option<(String, String)> {
-        // If target_host is an IP literal, skip the host path entirely
-        if is_ip_literal(target_host) {
-            if let Some(ip) = resolved_ip {
-                return self.correlate_app_for_ip(client_ip, ip, request_timestamp_ms);
-            }
-            return None;
-        }
-
-        if let Some(hit) = self.correlate_app(target_host, request_timestamp_ms) {
-            return Some(hit);
-        }
-        if let Some(ip) = resolved_ip {
-            return self.correlate_app_for_ip(client_ip, ip, request_timestamp_ms);
-        }
-        None
+    fn observations(&self, limit: usize) -> Vec<DnsObservation> {
+        self.attribution.observations(limit)
     }
 
     /// Get routing action for a resolved domain.
@@ -332,26 +296,19 @@ impl DnsState {
     }
 }
 
+fn attribution_tag(attribution: ApplicationAttribution) -> Option<(String, String)> {
+    Some((attribution.app_name, attribution.app_icon?))
+}
+
 /// Get the ProxyBot config directory.
 fn get_proxybot_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".proxybot")
 }
 
-/// Returns `true` if `s` parses as a valid IPv4 or IPv6 address literal.
-///
-/// Used to short-circuit the host-string path in `classify_connection`
-/// when a connection's target is a literal IP (no SNI), since matching
-/// an IP against `domain` entries in the DNS log can never produce a
-/// meaningful hit and risks false positives from numeric-styled domains.
-fn is_ip_literal(s: &str) -> bool {
-    if s.parse::<std::net::Ipv4Addr>().is_ok() {
-        return true;
-    }
-    if s.parse::<std::net::Ipv6Addr>().is_ok() {
-        return true;
-    }
-    false
+#[cfg(test)]
+fn is_ip_literal(value: &str) -> bool {
+    value.parse::<std::net::IpAddr>().is_ok()
 }
 
 /// Get current timestamp in milliseconds since UNIX epoch.
@@ -372,16 +329,15 @@ fn record_query(
 ) {
     let timestamp_ms_val = timestamp_ms();
 
-    // Classify the domain for app tagging
-    let app_info = crate::app_rules::classify_host(&domain);
-    let (app_name, app_icon) = app_info
-        .map(|(n, i)| (Some(n), Some(i)))
+    let attribution = state.attribution.classify_domain(&domain);
+    let (app_name, app_icon) = attribution
+        .map(|attribution| (Some(attribution.app_name), attribution.app_icon))
         .unwrap_or((None, None));
 
     // Get routing action from rules engine
     let action = state.get_routing_action(&domain);
 
-    let entry = DnsEntry {
+    let entry = DnsObservation {
         domain: domain.clone(),
         timestamp_ms: timestamp_ms_val,
         app_name: app_name.clone(),
@@ -391,17 +347,16 @@ fn record_query(
         client_ip: Some(client_ip.to_string()),
     };
 
-    let mut entries = state.entries.lock().unwrap();
-    if entries.len() >= max_dns_entries() {
-        entries.pop_front();
-    }
-    entries.push_back(entry.clone());
+    state.attribution.observe_dns(entry.clone());
 
     // Emit event to frontend
     let _ = app_handle.emit("dns-query", &entry);
 
     // Log to database if db_state is available
     if let Some(db) = &state.db_state {
+        let device_id = db
+            .get_device_by_ip_internal(client_ip)
+            .map(|device| device.id);
         if let Ok(conn) = db.conn.lock() {
             let timestamp_str = chrono_lite_timestamp();
             let query_type = 1; // A record
@@ -411,8 +366,15 @@ fn record_query(
 
             let _ = conn.execute(
                 "INSERT INTO dns_queries (timestamp, query_name, query_type, response_ips, device_id, app_tag)
-                 VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
-                rusqlite::params![timestamp_str, domain, query_type, response_ips_json, app_tag],
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    timestamp_str,
+                    domain,
+                    query_type,
+                    response_ips_json,
+                    device_id,
+                    app_tag
+                ],
             );
         }
     }
@@ -611,6 +573,11 @@ pub(crate) fn parse_response_ips(response: &[u8]) -> Vec<String> {
                 response[pos + 3]
             );
             ips.push(ip);
+        } else if rr_type == 28 && rdlength == 16 && pos + 16 <= response.len() {
+            let octets: [u8; 16] = response[pos..pos + 16]
+                .try_into()
+                .expect("validated AAAA record length");
+            ips.push(std::net::Ipv6Addr::from(octets).to_string());
         }
 
         pos += rdlength as usize;
@@ -1064,8 +1031,7 @@ pub fn stop_dns_server(state: &Arc<DnsState>) {
 /// Get the current DNS log entries.
 #[tauri::command]
 pub fn get_dns_log(state: State<'_, Arc<DnsState>>) -> Vec<DnsEntry> {
-    let entries = state.entries.lock().unwrap();
-    entries.iter().rev().take(50).cloned().collect()
+    state.observations(50)
 }
 
 /// Get current DNS upstream configuration.
@@ -1251,14 +1217,17 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_response_skips_non_a_records() {
+    fn test_parse_response_extracts_a_and_aaaa_records() {
         let mut r = build_response_with_a_records(&["example", "com"], &["1.2.3.4"]);
         // ANCOUNT update is cosmetic — parse_response_ips uses byte-length
         // (while pos < response.len() - 12), not the count field.
         r[7] = 0x02;
-        append_aaaa_record(&mut r, &[0u8; 16]);
+        append_aaaa_record(
+            &mut r,
+            &[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        );
         let ips = parse_response_ips(&r);
-        assert_eq!(ips, vec!["1.2.3.4".to_string()]);
+        assert_eq!(ips, vec!["1.2.3.4".to_string(), "2001:db8::1".to_string()]);
     }
 
     #[test]
@@ -1413,10 +1382,7 @@ mod tests {
         // Suffix matching means both subdomains AND the bare domain are matched.
         assert!(state.is_blocked("www.example.com"));
         assert!(state.is_blocked("example.com"));
-        // NOTE: current production behavior is `ends_with(suffix)` (no leading-dot
-        // check on the domain), so "notexample.com" is also matched. Locking in
-        // this behavior — do not "fix" without a separate bug ticket.
-        assert!(state.is_blocked("notexample.com"));
+        assert!(!state.is_blocked("notexample.com"));
     }
 
     #[test]
@@ -1472,7 +1438,7 @@ mod tests {
             resolved_ips: vec!["1.2.3.4".to_string()],
             client_ip: None,
         };
-        state.entries.lock().unwrap().push_back(entry);
+        state.attribution.observe_dns(entry);
 
         // 4 minutes after the entry, the host should still correlate.
         assert_eq!(
@@ -1509,7 +1475,7 @@ mod tests {
             resolved_ips: vec!["1.2.3.4".to_string()],
             client_ip: None,
         };
-        state.entries.lock().unwrap().push_back(entry);
+        state.attribution.observe_dns(entry);
 
         // 6 minutes after the entry, the host should NOT correlate (window is 5 min).
         assert_eq!(state.correlate_app("api.weixin.qq.com", now_ms), None);
@@ -1621,7 +1587,7 @@ mod tests {
             resolved_ips: resolved_ips.into_iter().map(str::to_string).collect(),
             client_ip: client_ip.map(str::to_string),
         };
-        state.entries.lock().unwrap().push_back(entry);
+        state.attribution.observe_dns(entry);
     }
 
     #[test]
@@ -1768,14 +1734,11 @@ mod tests {
             Some("\u{1F4AC}"),
         );
         let result = state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms);
-        assert_eq!(
-            result,
-            Some(("Alipay".to_string(), "\u{1F4AC}".to_string()))
-        );
+        assert_eq!(result, Some(("Alipay".to_string(), "💳".to_string())));
     }
 
     #[test]
-    fn test_correlate_app_for_ip_app_name_only_returns_none() {
+    fn test_correlate_app_for_ip_repairs_missing_icon_from_catalog() {
         let state = DnsState::new();
         let now_ms: u64 = 1_000_000_000_000;
         push_entry(
@@ -1789,12 +1752,12 @@ mod tests {
         );
         assert_eq!(
             state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms),
-            None
+            Some(("WeChat".to_string(), "💬".to_string()))
         );
     }
 
     #[test]
-    fn test_correlate_app_for_ip_app_icon_only_returns_none() {
+    fn test_correlate_app_for_ip_repairs_missing_name_from_catalog() {
         let state = DnsState::new();
         let now_ms: u64 = 1_000_000_000_000;
         push_entry(
@@ -1808,7 +1771,7 @@ mod tests {
         );
         assert_eq!(
             state.correlate_app_for_ip("192.168.1.5", "1.2.3.4", now_ms),
-            None
+            Some(("WeChat".to_string(), "💬".to_string()))
         );
     }
 
@@ -1833,10 +1796,7 @@ mod tests {
         // Connection to api.alipay.com (host-string match should win)
         let result =
             state.classify_connection("api.alipay.com", "192.168.1.5", Some("1.2.3.4"), now_ms);
-        assert_eq!(
-            result,
-            Some(("Alipay".to_string(), "\u{1F4AC}".to_string()))
-        );
+        assert_eq!(result, Some(("Alipay".to_string(), "💳".to_string())));
     }
 
     #[test]

@@ -20,6 +20,7 @@ use crate::fingerprint::{
     MatchSource, TlsFingerprint,
 };
 use crate::types::AppRule;
+use std::path::{Path, PathBuf};
 
 /// Load app rules — first from `app_rules.json` if present, otherwise defaults.
 pub fn load_app_rules() -> Vec<AppRule> {
@@ -48,6 +49,33 @@ fn load_app_rules_from_file() -> Option<Vec<AppRule>> {
     None
 }
 
+/// Load the user-defined TLS/SNI rules consumed by every application Adapter.
+pub fn load_custom_app_rules() -> Vec<CustomAppRule> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
+    load_custom_app_rules_from(
+        &PathBuf::from(home)
+            .join(".proxybot")
+            .join("app_signatures.json"),
+    )
+}
+
+/// Parameterized loader used by the desktop persistence Adapter and tests.
+pub fn load_custom_app_rules_from(path: &Path) -> Vec<CustomAppRule> {
+    if !path.exists() {
+        return Vec::new();
+    }
+    match std::fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|error| {
+            log::warn!("Failed to parse {path:?}: {error}");
+            Vec::new()
+        }),
+        Err(error) => {
+            log::warn!("Failed to read {path:?}: {error}");
+            Vec::new()
+        }
+    }
+}
+
 /// Classify a host string against the app rules.
 /// Returns Some((app_name, app_icon)) if a match is found, None otherwise.
 pub fn classify_host(host: &str) -> Option<(String, String)> {
@@ -57,9 +85,10 @@ pub fn classify_host(host: &str) -> Option<(String, String)> {
 
 /// Classify a host using provided rules (avoids reloading rules on each call).
 pub fn classify_host_with_rules(host: &str, rules: &[AppRule]) -> Option<(String, String)> {
+    let host = canonicalize_host(host)?;
     for rule in rules {
         for domain in &rule.domains {
-            if host_matches_domain(host, domain) {
+            if host_matches_domain(&host, domain) {
                 return Some((rule.name.clone(), rule.icon.clone()));
             }
         }
@@ -69,15 +98,24 @@ pub fn classify_host_with_rules(host: &str, rules: &[AppRule]) -> Option<(String
 
 /// Check if a host matches a domain rule (exact or subdomain).
 pub fn host_matches_domain(host: &str, domain: &str) -> bool {
-    if host == domain {
-        return true;
+    let Some(host) = canonicalize_host(host) else {
+        return false;
+    };
+    let Some(domain) = canonicalize_host(domain) else {
+        return false;
+    };
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
+/// Normalize case, a terminal DNS root label, and Unicode hostnames.
+pub fn canonicalize_host(host: &str) -> Option<String> {
+    let host = host.trim().trim_end_matches('.');
+    if host.is_empty() {
+        return None;
     }
-    // Subdomain match: "api.weixin.qq.com" matches "weixin.qq.com"
-    // but "qq.com.evil.com" must NOT match "qq.com"
-    if host.ends_with(&format!(".{}", domain)) {
-        return true;
-    }
-    false
+    idna::domain_to_ascii(host)
+        .ok()
+        .map(|host| host.to_ascii_lowercase())
 }
 
 /// Classify a host, returning just the app name.
@@ -561,35 +599,77 @@ pub fn get_default_rules() -> Vec<AppRule> {
     ]
 }
 
-// ─── AppClassifier (TLS-aware) ─────────────────────────────────────────────
+// ─── ApplicationClassifier ─────────────────────────────────────────────────
 
-/// Classifier that combines the legacy domain rules with the v0.9.0
-/// TLS-fingerprint + custom-rule pipeline.
+/// Canonical classifier for domain, SNI, TLS fingerprint, and custom evidence.
 ///
-/// Cheap to construct — designed to be cloned into per-connection state
-/// or held in a `OnceCell`/read-only shared.
+/// Construction compiles domain rules once. Callers do not need to know which
+/// catalog supplied a match or the precedence between evidence sources.
 #[derive(Debug, Clone)]
-pub struct AppClassifier {
+pub struct ApplicationClassifier {
+    domain_rules: Vec<AppRule>,
+    compiled_domains: Vec<CompiledDomainRule>,
     signatures: Vec<AppSignature>,
     custom_rules: Vec<CustomAppRule>,
     /// Pre-built HashSet of every default fingerprint for O(1) `contains`.
     default_fp_set: std::collections::HashSet<TlsFingerprint>,
 }
 
-impl AppClassifier {
-    /// Build a classifier from the default signature library and an
-    /// optional list of user-defined custom rules.
+#[derive(Debug, Clone)]
+struct CompiledDomainRule {
+    domain: String,
+    app_id: String,
+    app_name: String,
+    app_icon: String,
+}
+
+impl ApplicationClassifier {
+    /// Build from the canonical domain/signature catalogs and custom rules.
     pub fn new(custom_rules: Vec<CustomAppRule>) -> Self {
+        Self::with_rules(get_default_rules(), custom_rules)
+    }
+
+    /// Load both compatibility catalog files from the configured home directory.
+    pub fn from_config_files() -> Self {
+        Self::with_rules(load_app_rules(), load_custom_app_rules())
+    }
+
+    /// Deterministic constructor used by tests and non-filesystem Adapters.
+    pub fn with_rules(domain_rules: Vec<AppRule>, custom_rules: Vec<CustomAppRule>) -> Self {
         let signatures = get_default_signatures();
         let default_fp_set = signatures
             .iter()
             .flat_map(|s| s.fingerprints.iter().cloned())
             .collect();
+        let compiled_domains = domain_rules
+            .iter()
+            .flat_map(|rule| {
+                let app_id = signatures
+                    .iter()
+                    .find(|signature| signature.app_name == rule.name)
+                    .map(|signature| signature.app_id.clone())
+                    .unwrap_or_else(|| application_id(&rule.name));
+                rule.domains.iter().filter_map(move |domain| {
+                    canonicalize_host(domain).map(|domain| CompiledDomainRule {
+                        domain,
+                        app_id: app_id.clone(),
+                        app_name: rule.name.clone(),
+                        app_icon: rule.icon.clone(),
+                    })
+                })
+            })
+            .collect();
         Self {
+            domain_rules,
+            compiled_domains,
             signatures,
             custom_rules,
             default_fp_set,
         }
+    }
+
+    pub fn domain_rules(&self) -> &[AppRule] {
+        &self.domain_rules
     }
 
     pub fn signatures(&self) -> &[AppSignature] {
@@ -600,16 +680,68 @@ impl AppClassifier {
         &self.custom_rules
     }
 
+    /// Attribute a normalized HTTP Host/domain using the canonical catalog.
+    pub fn classify_domain(&self, host: &str) -> Option<AppMatch> {
+        let host = canonicalize_host(host)?;
+        self.compiled_domains.iter().find_map(|rule| {
+            (host == rule.domain || host.ends_with(&format!(".{}", rule.domain))).then(|| {
+                AppMatch {
+                    app_id: rule.app_id.clone(),
+                    app_name: rule.app_name.clone(),
+                    app_icon: Some(rule.app_icon.clone()),
+                    confidence: 0.95,
+                    source: MatchSource::Domain,
+                    evidence: vec![rule.domain.clone()],
+                }
+            })
+        })
+    }
+
+    /// Attribute MCP-style request evidence with explicit precedence.
+    pub fn classify_request(
+        &self,
+        host: &str,
+        sni: Option<&str>,
+        dns_query: Option<&str>,
+    ) -> Option<AppMatch> {
+        sni.and_then(|sni| {
+            self.classify(&HelloInfo {
+                sni: canonicalize_host(sni),
+                ..HelloInfo::default()
+            })
+        })
+        .or_else(|| self.classify_domain(host))
+        .or_else(|| {
+            dns_query.and_then(|domain| {
+                self.classify_domain(domain).map(|mut attribution| {
+                    attribution.source = MatchSource::Dns;
+                    attribution.confidence = 0.7;
+                    attribution.evidence = vec![format!("dns:{domain}")];
+                    attribution
+                })
+            })
+        })
+    }
+
     /// Run the priority chain:
-    /// 1. Exact TLS fingerprint match → confidence 1.0, source `Fingerprint`
-    /// 2. SNI pattern match → confidence 0.9, source `Sni`
-    /// 3. User custom rule → confidence from rule, source `Custom`
-    ///
-    /// Fingerprint is checked first because it's the most specific
-    /// signal — an exact fingerprint match is less likely to be a
-    /// coincidence than a wild-carded SNI.
+    /// 1. User custom rule (explicit operator intent)
+    /// 2. Exact TLS fingerprint
+    /// 3. Built-in SNI pattern
     pub fn classify(&self, hello: &HelloInfo) -> Option<AppMatch> {
-        // 1. TLS fingerprint (exact) — highest confidence
+        for rule in &self.custom_rules {
+            if rule.matches(hello) {
+                return Some(AppMatch {
+                    app_id: rule.app_id.clone(),
+                    app_name: rule.app_name.clone(),
+                    app_icon: Some(rule.icon.clone()),
+                    confidence: rule.confidence,
+                    source: MatchSource::Custom,
+                    evidence: vec!["custom-rule".to_owned()],
+                });
+            }
+        }
+
+        // Exact fingerprints are more specific than built-in SNI patterns.
         let fp = hello.fingerprint();
         if !fp.cipher_suites.is_empty() && self.default_fp_set.contains(&fp) {
             for sig in &self.signatures {
@@ -617,59 +749,76 @@ impl AppClassifier {
                     return Some(AppMatch {
                         app_id: sig.app_id.clone(),
                         app_name: sig.app_name.clone(),
+                        app_icon: Some(sig.icon.clone()),
                         confidence: 1.0,
                         source: MatchSource::Fingerprint,
+                        evidence: vec!["tls-fingerprint".to_owned()],
                     });
                 }
             }
         }
 
         // 2. SNI patterns
-        if let Some(sni) = hello.sni.as_deref() {
+        if let Some(sni) = hello.sni.as_deref().and_then(canonicalize_host) {
+            if let Some(mut attribution) = self.classify_domain(&sni) {
+                attribution.source = MatchSource::Sni;
+                attribution.confidence = 0.9;
+                attribution.evidence = vec![format!("sni:{sni}")];
+                return Some(attribution);
+            }
             for sig in &self.signatures {
                 for pattern in &sig.sni_patterns {
-                    if glob_match(pattern, sni) {
+                    if glob_match(pattern, &sni) {
                         return Some(AppMatch {
                             app_id: sig.app_id.clone(),
                             app_name: sig.app_name.clone(),
+                            app_icon: Some(sig.icon.clone()),
                             confidence: 0.9,
                             source: MatchSource::Sni,
+                            evidence: vec![pattern.clone()],
                         });
                     }
                 }
             }
         }
-
-        // 3. Custom user rules
-        for rule in &self.custom_rules {
-            if rule.matches(hello) {
-                return Some(AppMatch {
-                    app_id: rule.app_id.clone(),
-                    app_name: rule.app_name.clone(),
-                    confidence: rule.confidence,
-                    source: MatchSource::Custom,
-                });
-            }
-        }
-
         None
     }
 }
 
-impl Default for AppClassifier {
+impl Default for ApplicationClassifier {
     fn default() -> Self {
         Self::new(Vec::new())
     }
 }
 
+/// Compatibility name retained for downstream callers.
+pub type AppClassifier = ApplicationClassifier;
+
 /// Convenience: classify a hello using the default signature library
 /// (no custom rules). Equivalent to `AppClassifier::default().classify(hello)`.
 pub fn classify(hello: &HelloInfo) -> Option<AppMatch> {
-    AppClassifier::default().classify(hello)
+    ApplicationClassifier::default().classify(hello)
 }
 
 /// Backward-compat alias — `AppMatchResult == AppMatch`.
 pub type AppMatchResult = AppMatch;
+
+fn application_id(name: &str) -> String {
+    let mut id = String::new();
+    let mut separator = false;
+    for character in name.chars() {
+        if character.is_ascii_alphanumeric() {
+            if separator && !id.is_empty() {
+                id.push('-');
+            }
+            id.push(character.to_ascii_lowercase());
+            separator = false;
+        } else {
+            separator = true;
+        }
+    }
+    id
+}
 
 #[cfg(test)]
 mod tests {
@@ -728,6 +877,20 @@ mod tests {
             classify_host_with_rules("api.m.jd.com", &rules),
             Some(("JD".to_string(), "🐕".to_string()))
         );
+    }
+
+    #[test]
+    fn domain_matching_normalizes_case_root_label_and_idna() {
+        let rules = vec![AppRule {
+            name: "Books".to_owned(),
+            icon: "B".to_owned(),
+            domains: vec!["xn--bcher-kva.example".to_owned()],
+        }];
+        assert_eq!(
+            classify_host_with_rules("BÜCHER.EXAMPLE.", &rules),
+            Some(("Books".to_owned(), "B".to_owned()))
+        );
+        assert!(classify_host_with_rules("bücher.example.evil", &rules).is_none());
     }
 
     #[test]
@@ -830,7 +993,7 @@ mod tests {
             ..Default::default()
         };
         let m = c.classify(&hello).expect("expected TikTok match");
-        assert_eq!(m.app_id, "tiktok");
+        assert_eq!(m.app_id, "douyin");
         assert_eq!(m.source, MatchSource::Sni);
         assert!((m.confidence - 0.9).abs() < f32::EPSILON);
     }
@@ -853,6 +1016,7 @@ mod tests {
         let m = c.classify(&hello).expect("expected match");
         assert_eq!(m.source, MatchSource::Fingerprint);
         assert!((m.confidence - 1.0).abs() < f32::EPSILON);
+        assert_eq!(m.app_id, "tiktok");
     }
 
     #[test]
@@ -867,7 +1031,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_custom_rule_runs_last() {
+    fn classify_custom_rule_uses_operator_priority() {
         let rule = CustomAppRule {
             app_id: "internal".into(),
             app_name: "Internal Tool".into(),
@@ -886,6 +1050,28 @@ mod tests {
         assert_eq!(m.source, MatchSource::Custom);
         assert_eq!(m.app_id, "internal");
         assert!((m.confidence - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn custom_rule_overrides_a_builtin_sni_match() {
+        let rule = CustomAppRule {
+            app_id: "company-video".into(),
+            app_name: "Company Video".into(),
+            icon: "C".into(),
+            conditions: vec![RuleCondition::Sni {
+                pattern: "*.tiktokv.com".into(),
+            }],
+            confidence: 0.8,
+        };
+        let classifier = AppClassifier::new(vec![rule]);
+        let attribution = classifier
+            .classify(&HelloInfo {
+                sni: Some("API.TIKTOKV.COM.".into()),
+                ..HelloInfo::default()
+            })
+            .unwrap();
+        assert_eq!(attribution.app_id, "company-video");
+        assert_eq!(attribution.source, MatchSource::Custom);
     }
 
     #[test]

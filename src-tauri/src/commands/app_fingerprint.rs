@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 use proxybot_core::{AppSignature, CustomAppRule};
+use tauri::State;
 
 /// Path to the on-disk custom rules file. Created lazily on first write.
 fn custom_rules_path() -> PathBuf {
@@ -23,20 +24,7 @@ fn custom_rules_path() -> PathBuf {
 static CUSTOM_RULES: Lazy<Mutex<Vec<CustomAppRule>>> = Lazy::new(|| Mutex::new(load_from_disk()));
 
 fn load_from_disk() -> Vec<CustomAppRule> {
-    let path = custom_rules_path();
-    if !path.exists() {
-        return Vec::new();
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|err| {
-            log::warn!("Failed to parse app_signatures.json: {err}");
-            Vec::new()
-        }),
-        Err(err) => {
-            log::warn!("Failed to read app_signatures.json: {err}");
-            Vec::new()
-        }
-    }
+    proxybot_core::load_custom_app_rules_from(&custom_rules_path())
 }
 
 fn persist(rules: &[CustomAppRule]) -> Result<(), String> {
@@ -84,7 +72,16 @@ fn extract_sni_patterns(rule: &CustomAppRule) -> Vec<String> {
 /// Persist a new custom rule. If a rule with the same `app_id` already
 /// exists it is overwritten (idempotent upsert).
 #[tauri::command]
-pub fn add_custom_rule(rule: CustomAppRule) -> Result<(), String> {
+pub fn add_custom_rule(
+    rule: CustomAppRule,
+    dns: State<'_, std::sync::Arc<crate::dns::DnsState>>,
+) -> Result<(), String> {
+    let rules = upsert_custom_rule(rule)?;
+    dns.replace_custom_attribution_rules(rules);
+    Ok(())
+}
+
+fn upsert_custom_rule(rule: CustomAppRule) -> Result<Vec<CustomAppRule>, String> {
     let mut guard = CUSTOM_RULES
         .lock()
         .map_err(|e| format!("lock poisoned: {e}"))?;
@@ -93,18 +90,29 @@ pub fn add_custom_rule(rule: CustomAppRule) -> Result<(), String> {
     } else {
         guard.push(rule);
     }
-    persist(&guard)
+    persist(&guard)?;
+    Ok(guard.clone())
 }
 
 /// Remove a custom rule by `app_id`. Returns Ok even if the id was
 /// not present (idempotent delete).
 #[tauri::command]
-pub fn remove_custom_rule(app_id: String) -> Result<(), String> {
+pub fn remove_custom_rule(
+    app_id: String,
+    dns: State<'_, std::sync::Arc<crate::dns::DnsState>>,
+) -> Result<(), String> {
+    let rules = remove_custom_rule_from_store(&app_id)?;
+    dns.replace_custom_attribution_rules(rules);
+    Ok(())
+}
+
+fn remove_custom_rule_from_store(app_id: &str) -> Result<Vec<CustomAppRule>, String> {
     let mut guard = CUSTOM_RULES
         .lock()
         .map_err(|e| format!("lock poisoned: {e}"))?;
     guard.retain(|r| r.app_id != app_id);
-    persist(&guard)
+    persist(&guard)?;
+    Ok(guard.clone())
 }
 
 #[cfg(test)]
@@ -145,7 +153,7 @@ mod tests {
                 }],
                 confidence: 0.8,
             };
-            add_custom_rule(rule.clone()).expect("add");
+            upsert_custom_rule(rule.clone()).expect("add");
             assert!(custom_rules_path().exists(), "should write file");
 
             // Re-read from disk to confirm persistence
@@ -154,8 +162,8 @@ mod tests {
             assert_eq!(reread[0].app_id, "myapp");
 
             // Idempotent remove
-            remove_custom_rule("myapp".into()).expect("remove");
-            remove_custom_rule("myapp".into()).expect("remove again");
+            remove_custom_rule_from_store("myapp").expect("remove");
+            remove_custom_rule_from_store("myapp").expect("remove again");
             assert!(load_from_disk().is_empty());
         });
     }
@@ -177,8 +185,8 @@ mod tests {
                 conditions: vec![],
                 confidence: 0.6,
             };
-            add_custom_rule(v1).unwrap();
-            add_custom_rule(v2).unwrap();
+            upsert_custom_rule(v1).unwrap();
+            upsert_custom_rule(v2).unwrap();
             let rules = load_from_disk();
             assert_eq!(rules.len(), 1);
             assert_eq!(rules[0].app_name, "v2");
@@ -188,7 +196,7 @@ mod tests {
     #[test]
     fn get_app_signatures_merges_default_and_custom() {
         with_temp_path(|| {
-            add_custom_rule(CustomAppRule {
+            upsert_custom_rule(CustomAppRule {
                 app_id: "internal".into(),
                 app_name: "Internal".into(),
                 icon: "I".into(),

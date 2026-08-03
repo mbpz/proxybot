@@ -406,12 +406,7 @@ pub fn match_host_pattern(
         HostPattern::DomainSuffix => host == value || host.ends_with(&format!(".{value}")),
         HostPattern::DomainKeyword => host.contains(&value),
         HostPattern::IpCidr => client_ip
-            .and_then(|ip| {
-                value
-                    .parse::<ipnetwork::IpNetwork>()
-                    .ok()
-                    .map(|network| (ip, network))
-            })
+            .zip(value.parse::<ipnetwork::IpNetwork>().ok())
             .is_some_and(|(ip, network)| network.contains(ip)),
     }
 }

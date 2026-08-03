@@ -47,6 +47,8 @@ impl TlsFingerprint {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchSource {
+    /// Matched by a normalized Host/domain catalog rule.
+    Domain,
     /// Matched by SNI hostname pattern.
     Sni,
     /// Matched by exact TLS fingerprint equality.
@@ -62,9 +64,15 @@ pub enum MatchSource {
 pub struct AppMatch {
     pub app_id: String,
     pub app_name: String,
+    /// Display icon from the canonical application catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_icon: Option<String>,
     /// 0.0 (uncertain) to 1.0 (exact match).
     pub confidence: f32,
     pub source: MatchSource,
+    /// Rules or observations that support this attribution.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
 }
 
 /// Simplified TLS ClientHello view used by the classifier.
@@ -132,7 +140,7 @@ pub enum RuleCondition {
 impl CustomAppRule {
     /// Test whether a hello satisfies ALL of this rule's conditions.
     pub fn matches(&self, hello: &HelloInfo) -> bool {
-        self.conditions.iter().all(|c| c.matches(hello))
+        !self.conditions.is_empty() && self.conditions.iter().all(|c| c.matches(hello))
     }
 }
 
@@ -154,9 +162,16 @@ impl RuleCondition {
 /// for SNI patterns like `*.tiktokv.com` and `api.openai.com`.
 pub fn glob_match(pattern: &str, s: &str) -> bool {
     if let Some(suffix) = pattern.strip_prefix("*.") {
-        s == suffix || s.ends_with(&format!(".{}", suffix))
+        let Some(s) = crate::app_classifier::canonicalize_host(s) else {
+            return false;
+        };
+        let Some(suffix) = crate::app_classifier::canonicalize_host(suffix) else {
+            return false;
+        };
+        s == suffix || s.ends_with(&format!(".{suffix}"))
     } else {
-        s == pattern
+        crate::app_classifier::canonicalize_host(s)
+            == crate::app_classifier::canonicalize_host(pattern)
     }
 }
 

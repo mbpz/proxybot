@@ -1,16 +1,21 @@
 // MCP Server implementation - handles JSON-RPC 2.0 requests via stdio transport
 
 use super::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpState};
+use proxybot_core::ApplicationClassifier;
 use std::sync::Arc;
 
 /// Main MCP server that handles protocol requests
 pub struct McpServer {
     state: Arc<McpState>,
+    classifier: ApplicationClassifier,
 }
 
 impl McpServer {
     pub fn new(state: Arc<McpState>) -> Self {
-        Self { state }
+        Self {
+            state,
+            classifier: ApplicationClassifier::from_config_files(),
+        }
     }
 
     /// Handle a JSON-RPC request and return a response
@@ -250,14 +255,22 @@ impl McpServer {
         let sni = args.get("sni").and_then(|v| v.as_str());
         let dns_query = args.get("dns_query").and_then(|v| v.as_str());
 
-        // Use classifier to determine app
-        let app = classify_host(host, sni, dns_query);
-
-        Ok(serde_json::json!({
-            "app": app.name,
-            "confidence": app.confidence,
-            "rules_matched": app.matched_rules,
-        }))
+        let attribution = self.classifier.classify_request(host, sni, dns_query);
+        Ok(match attribution {
+            Some(attribution) => serde_json::json!({
+                "app": attribution.app_name,
+                "app_id": attribution.app_id,
+                "icon": attribution.app_icon,
+                "confidence": attribution.confidence,
+                "source": attribution.source,
+                "rules_matched": attribution.evidence,
+            }),
+            None => serde_json::json!({
+                "app": "Unknown",
+                "confidence": 0.1,
+                "rules_matched": [],
+            }),
+        })
     }
 
     fn tool_apply_rule(
@@ -403,66 +416,6 @@ impl McpServer {
     }
 }
 
-/// Simple classification result
-struct ClassifiedApp {
-    name: String,
-    confidence: f32,
-    matched_rules: Vec<String>,
-}
-
-/// Classify a host to identify the app (WeChat, Douyin, Alipay, etc.)
-fn classify_host(host: &str, sni: Option<&str>, _dns_query: Option<&str>) -> ClassifiedApp {
-    let check_str = format!("{} {} {}", host, sni.unwrap_or(""), "");
-
-    // WeChat patterns
-    let wechat_patterns = ["weixin.qq.com", "wechat.com", "qq.com", "weixin100.com"];
-    for pattern in &wechat_patterns {
-        if check_str.contains(pattern) {
-            return ClassifiedApp {
-                name: "WeChat".to_string(),
-                confidence: 0.95,
-                matched_rules: vec![pattern.to_string()],
-            };
-        }
-    }
-
-    // Douyin/TikTok patterns
-    let douyin_patterns = ["douyin.com", "tiktokv.com", "tiktok.com", "bytecdn.com"];
-    for pattern in &douyin_patterns {
-        if check_str.contains(pattern) {
-            return ClassifiedApp {
-                name: "Douyin".to_string(),
-                confidence: 0.95,
-                matched_rules: vec![pattern.to_string()],
-            };
-        }
-    }
-
-    // Alipay patterns
-    let alipay_patterns = [
-        "alipay.com",
-        "alipayusercontent.com",
-        "alipay.ec",
-        "antfin.com",
-    ];
-    for pattern in &alipay_patterns {
-        if check_str.contains(pattern) {
-            return ClassifiedApp {
-                name: "Alipay".to_string(),
-                confidence: 0.95,
-                matched_rules: vec![pattern.to_string()],
-            };
-        }
-    }
-
-    // Default - unknown
-    ClassifiedApp {
-        name: "Unknown".to_string(),
-        confidence: 0.1,
-        matched_rules: vec![],
-    }
-}
-
 /// Get current timestamp in ISO format for rule IDs
 fn chrono_lite_timestamp() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -604,30 +557,40 @@ mod tests {
 
     #[test]
     fn test_classify_wechat() {
-        let result = classify_host("wxapi.weixin.qq.com", None, None);
-        assert_eq!(result.name, "WeChat");
+        let classifier = ApplicationClassifier::default();
+        let result = classifier
+            .classify_request("wxapi.weixin.qq.com", None, None)
+            .unwrap();
+        assert_eq!(result.app_name, "WeChat");
         assert!(result.confidence > 0.9);
     }
 
     #[test]
     fn test_classify_douyin() {
-        let result = classify_host("dm.tiktokv.com", None, None);
-        assert_eq!(result.name, "Douyin");
+        let classifier = ApplicationClassifier::default();
+        let result = classifier
+            .classify_request("dm.tiktokv.com", None, None)
+            .unwrap();
+        assert_eq!(result.app_name, "Douyin");
         assert!(result.confidence > 0.9);
     }
 
     #[test]
     fn test_classify_alipay() {
-        let result = classify_host("pay.alipay.com", None, None);
-        assert_eq!(result.name, "Alipay");
+        let classifier = ApplicationClassifier::default();
+        let result = classifier
+            .classify_request("pay.alipay.com", None, None)
+            .unwrap();
+        assert_eq!(result.app_name, "Alipay");
         assert!(result.confidence > 0.9);
     }
 
     #[test]
     fn test_classify_unknown() {
-        let result = classify_host("random.unknown-site.com", None, None);
-        assert_eq!(result.name, "Unknown");
-        assert!(result.confidence < 0.5);
+        let classifier = ApplicationClassifier::default();
+        assert!(classifier
+            .classify_request("random.unknown-site.com", None, None)
+            .is_none());
     }
 
     #[test]

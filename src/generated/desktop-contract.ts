@@ -23,6 +23,7 @@ export interface InterceptedRequest {
   device_id: number | null;
   device_name: string | null;
   client_ip: string | null;
+  upstream_ip: string | null;
   is_websocket: boolean;
   ws_frames: Array<WsFrame> | null;
   grpc_decoded: string | null;

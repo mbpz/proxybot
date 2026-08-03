@@ -30,6 +30,7 @@ crate::desktop_contract_type! {
         pub device_id: Option<i64>,
         pub device_name: Option<String>,
         pub client_ip: Option<String>,
+        pub upstream_ip: Option<String>,
         pub is_websocket: bool,
         pub ws_frames: Option<Vec<WsFrame>>,
         pub grpc_decoded: Option<String>,
@@ -326,16 +327,20 @@ impl Default for DnsUpstream {
     }
 }
 
-/// A single DNS query entry with app classification and routing action.
-#[derive(Clone, Serialize)]
-pub struct DnsEntry {
+/// A DNS query/answer observation available to Application Attribution.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DnsObservation {
     pub domain: String,
     pub timestamp_ms: u64,
     pub app_name: Option<String>,
     pub app_icon: Option<String>,
     pub action: Option<String>,
     pub resolved_ips: Vec<String>,
+    pub client_ip: Option<String>,
 }
+
+/// Compatibility name used by the desktop DNS log Interface.
+pub type DnsEntry = DnsObservation;
 
 /// A single hosts file entry (domain -> IP mapping).
 #[derive(Clone, Debug)]
@@ -362,7 +367,7 @@ pub struct CaMetadata {
 // ─── App Classification ────────────────────────────────────────────────────
 
 /// App classification rule for traffic filtering.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppRule {
     pub name: String,
     pub icon: String,

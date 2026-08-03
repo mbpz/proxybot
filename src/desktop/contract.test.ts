@@ -32,6 +32,7 @@ const request: InterceptedRequest = {
   device_id: null,
   device_name: null,
   client_ip: null,
+  upstream_ip: null,
   is_websocket: true,
   ws_frames: [frame],
   grpc_decoded: null,

@@ -237,9 +237,14 @@ pub(super) async fn bridge_capture_events(
                 );
                 let runtime_id = request.id.clone();
                 let client_ip = request.client_ip.clone().unwrap_or_default();
-                if let Some((name, icon)) =
-                    classify_captured_request(&request.host, &client_ip, None, &dns)
-                {
+                if let Some((name, icon)) = classify_captured_request(
+                    &request.host,
+                    &request.scheme,
+                    &client_ip,
+                    request.upstream_ip.as_deref(),
+                    &request.timestamp,
+                    &dns,
+                ) {
                     request.app_name = Some(name);
                     request.app_icon = Some(icon);
                 }

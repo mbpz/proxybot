@@ -24,6 +24,7 @@ describe("Traffic wire projections", () => {
       device_id: null,
       device_name: null,
       client_ip: null,
+      upstream_ip: null,
       is_websocket: false,
       ws_frames: null,
       grpc_decoded: null,

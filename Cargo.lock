@@ -4179,6 +4179,7 @@ dependencies = [
  "brotli",
  "chrono",
  "flate2",
+ "idna",
  "ipnetwork",
  "jsonschema",
  "log",

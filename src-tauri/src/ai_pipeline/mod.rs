@@ -114,6 +114,7 @@ mod tests {
             device_id: None,
             device_name: None,
             client_ip: None,
+            upstream_ip: None,
             is_websocket: false,
             ws_frames: None,
             grpc_decoded: None,

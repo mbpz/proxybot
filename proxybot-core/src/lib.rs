@@ -13,7 +13,7 @@
 //! - [`cert_manager`] — Root CA and per-host leaf certificate management
 //! - [`rules_engine`] — Domain matching and priority-based rule evaluation
 //! - [`proxy_engine`] — HTTP/HTTPS proxy engine (core logic)
-//! - [`dns_state`] — DNS query tracking and correlation
+//! - [`application_identity`] — Application Attribution and DNS correlation
 //!
 //! # Usage
 //!
@@ -29,11 +29,11 @@
 //! ```
 
 pub mod app_classifier;
+pub mod application_identity;
 pub mod body;
 pub mod cert_manager;
 pub mod config;
 pub mod desktop_contract;
-pub mod dns_state;
 pub mod fingerprint;
 pub mod proxy_engine;
 pub mod rules_engine;
@@ -43,12 +43,17 @@ pub mod types;
 
 // Re-export key types for convenience
 pub use app_classifier::{
-    classify, classify_host, classify_host_name, get_default_rules, load_app_rules, AppClassifier,
-    AppMatchResult,
+    canonicalize_host, classify, classify_host, classify_host_name, get_default_rules,
+    load_app_rules, load_custom_app_rules, load_custom_app_rules_from, AppClassifier,
+    AppMatchResult, ApplicationClassifier,
+};
+pub use application_identity::{
+    AttributionEngine, AttributionInput, DEFAULT_DNS_CORRELATION_WINDOW_MS,
+    DEFAULT_DNS_OBSERVATION_CAPACITY,
 };
 pub use cert_manager::CertManager;
 pub use config::{dns_port, proxy_port, AppConfig};
-pub use dns_state::DnsState;
+pub use fingerprint::AppMatch as ApplicationAttribution;
 pub use fingerprint::{
     default_fingerprint_set, get_default_signatures, glob_match, AppMatch, AppSignature,
     CustomAppRule, HelloInfo, MatchSource, RuleCondition, TlsFingerprint,
@@ -72,7 +77,7 @@ pub use specgen::{
 };
 pub use tls_rules::{TlsAction, TlsRule, TlsRuleSet};
 pub use types::{
-    AppRule, BreakpointDecision, BreakpointRequest, BreakpointTarget, CaMetadata, DnsEntry,
-    DnsUpstream, DnsUpstreamType, HostsEntry, InterceptedRequest, Rule, RuleAction, RuleEntry,
-    RuleFile, RulePattern, WsFrame,
+    AppRule, BlocklistEntry, BreakpointDecision, BreakpointRequest, BreakpointTarget, CaMetadata,
+    DnsEntry, DnsObservation, DnsUpstream, DnsUpstreamType, HostsEntry, InterceptedRequest, Rule,
+    RuleAction, RuleEntry, RuleFile, RulePattern, WsFrame,
 };
