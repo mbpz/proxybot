@@ -8,6 +8,7 @@ use crate::db::DbState;
 use crate::dns::{self, DnsState};
 use crate::history::HistoryStore;
 use crate::network::NetworkInfo;
+use crate::pf::PfRuntimeState;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
@@ -44,13 +45,18 @@ pub fn get_network_info(state: State<'_, Arc<ProxyState>>) -> Result<NetworkInfo
     Ok(info)
 }
 
-#[tauri::command]
-pub fn setup_pf(
+pub(crate) async fn start_pf_runtime(
     app_handle: AppHandle,
-    dns_state: State<'_, Arc<DnsState>>,
-    proxy_state: State<'_, Arc<ProxyState>>,
-    config: State<'_, Arc<proxybot_core::AppConfig>>,
+    dns_state: Arc<DnsState>,
+    proxy_state: Arc<ProxyState>,
+    pf_state: Arc<PfRuntimeState>,
+    config: Arc<proxybot_core::AppConfig>,
 ) -> Result<String, String> {
+    let _operation = pf_state.operation.lock().await;
+    if pf_state.is_enabled() {
+        return Err("PF redirect is already enabled".to_owned());
+    }
+
     let interface = proxy_state
         .interface
         .lock()
@@ -63,28 +69,86 @@ pub fn setup_pf(
         .unwrap()
         .clone()
         .ok_or("Network info not set. Call get_network_info first.")?;
-    let result = crate::pf::setup_pf(interface, local_ip, &config);
-    if result.is_ok() {
-        // Start DNS server after pf setup succeeds
-        dns::start_dns_server(app_handle, dns_state.inner().clone());
+
+    // DNS binds before PF publishes redirect rules, so a failed listener never
+    // diverts client traffic into a closed port.
+    dns::start_dns_server(app_handle, dns_state.clone()).await?;
+    match crate::pf::setup_pf(interface, local_ip, &config) {
+        Ok(message) => {
+            pf_state.mark_enabled(true);
+            Ok(message)
+        }
+        Err(error) => {
+            let _ = dns::stop_dns_server(&dns_state).await;
+            if config.pf_anchor_file.exists() {
+                let _ = crate::pf::teardown_pf(&config);
+            }
+            Err(error)
+        }
     }
-    result
+}
+
+pub(crate) async fn stop_pf_runtime(
+    dns_state: Arc<DnsState>,
+    pf_state: Arc<PfRuntimeState>,
+    config: Arc<proxybot_core::AppConfig>,
+) -> Result<(), String> {
+    let _operation = pf_state.operation.lock().await;
+    let dns_result = dns::stop_dns_server(&dns_state).await;
+    let pf_result = if pf_state.is_enabled() {
+        crate::pf::teardown_pf(&config)
+    } else {
+        Ok(())
+    };
+    if pf_result.is_ok() {
+        pf_state.mark_enabled(false);
+    }
+
+    match (dns_result, pf_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(dns_error), Ok(())) => Err(dns_error),
+        (Ok(()), Err(pf_error)) => Err(pf_error),
+        (Err(dns_error), Err(pf_error)) => Err(format!(
+            "DNS shutdown failed: {dns_error}; PF teardown failed: {pf_error}"
+        )),
+    }
 }
 
 #[tauri::command]
-pub fn teardown_pf(
+pub async fn setup_pf(
+    app_handle: AppHandle,
     dns_state: State<'_, Arc<DnsState>>,
+    proxy_state: State<'_, Arc<ProxyState>>,
+    pf_state: State<'_, Arc<PfRuntimeState>>,
+    config: State<'_, Arc<proxybot_core::AppConfig>>,
+) -> Result<String, String> {
+    start_pf_runtime(
+        app_handle,
+        dns_state.inner().clone(),
+        proxy_state.inner().clone(),
+        pf_state.inner().clone(),
+        config.inner().clone(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn teardown_pf(
+    dns_state: State<'_, Arc<DnsState>>,
+    pf_state: State<'_, Arc<PfRuntimeState>>,
     config: State<'_, Arc<proxybot_core::AppConfig>>,
 ) -> Result<(), String> {
-    // Stop DNS server first
-    dns::stop_dns_server(dns_state.inner());
-    // Then tear down pf
-    crate::pf::teardown_pf(&config)
+    stop_pf_runtime(
+        dns_state.inner().clone(),
+        pf_state.inner().clone(),
+        config.inner().clone(),
+    )
+    .await
 }
 
 #[tauri::command]
-pub fn is_pf_enabled() -> bool {
-    crate::pf::is_pf_enabled()
+pub fn is_pf_enabled(pf_state: State<'_, Arc<PfRuntimeState>>) -> bool {
+    pf_state.is_enabled()
 }
 
 #[tauri::command]
@@ -189,8 +253,29 @@ pub fn replay_request(db_state: State<'_, Arc<DbState>>, id: i64) -> Result<Stri
 
 #[cfg(test)]
 mod tests {
+    use super::stop_pf_runtime;
     use crate::db::{get_ws_frames, record_ws_frame, DbState};
+    use crate::dns::DnsState;
+    use crate::pf::PfRuntimeState;
+    use proxybot_core::AppConfig;
     use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn stop_pf_runtime_is_idempotent_when_no_anchor_is_owned() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let mut config = AppConfig::for_base_dir(base_dir.path().to_owned());
+        config.pf_anchor_file = base_dir.path().join("missing-pf-anchor");
+        let config = Arc::new(config);
+        let dns = Arc::new(DnsState::with_config(config.clone()));
+        let pf = Arc::new(PfRuntimeState::new(&config));
+
+        stop_pf_runtime(dns.clone(), pf.clone(), config.clone())
+            .await
+            .unwrap();
+        stop_pf_runtime(dns, pf.clone(), config).await.unwrap();
+
+        assert!(!pf.is_enabled());
+    }
 
     // Shortcut: Tauri's `State<'_, Arc<DbState>>` wrapper cannot be cheaply
     // constructed in a unit test without spinning up a Tauri runtime.

@@ -65,9 +65,6 @@ flate2 = "1"
 libloading = "0.8"
 uuid = { version = "1", features = ["v4"] }
 qrcode = "0.14"
-quinn = { version = "0.11", optional = true }
-h3 = { version = "0.0.6", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
 
 # Frida runtime injection (SSL bypass).
 # The `auto-download` feature lets the frida-sys build script fetch the
@@ -87,4 +84,3 @@ uuid = "1"
 [features]
 default = []
 frida-runtime = ["dep:frida"]
-http3 = ["quinn", "h3", "h3-quinn"]

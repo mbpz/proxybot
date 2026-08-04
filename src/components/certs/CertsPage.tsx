@@ -22,6 +22,9 @@ export function CertsPage() {
 
   useEffect(() => {
     loadCaMetadata();
+    safeInvoke<boolean>("is_cert_server_running").then((running) => {
+      setCaServerRunning(running ?? false);
+    });
   }, []);
 
   async function loadCaMetadata() {
@@ -47,6 +50,7 @@ export function CertsPage() {
     try {
       setError(null);
       if (caServerRunning) {
+        await invoke<void>("stop_cert_server");
         setCaServerRunning(false);
         setCaServerUrl(null);
       } else {

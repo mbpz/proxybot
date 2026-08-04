@@ -8,8 +8,32 @@
 
 use std::fs;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use proxybot_core::AppConfig;
+
+/// Process-local ownership for ProxyBot's PF anchor.
+pub struct PfRuntimeState {
+    pub(crate) operation: tokio::sync::Mutex<()>,
+    enabled: AtomicBool,
+}
+
+impl PfRuntimeState {
+    pub fn new(config: &AppConfig) -> Self {
+        Self {
+            operation: tokio::sync::Mutex::new(()),
+            enabled: AtomicBool::new(config.pf_anchor_file.exists() && is_system_pf_enabled()),
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn mark_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
+}
 
 /// Set up pf rules for transparent proxying.
 /// Redirects TCP traffic on ports 80 and 443 to the local proxy on port 8088.
@@ -103,7 +127,7 @@ pub fn teardown_pf(config: &AppConfig) -> Result<(), String> {
 }
 
 /// Check if pf is currently enabled.
-pub fn is_pf_enabled() -> bool {
+fn is_system_pf_enabled() -> bool {
     let output = Command::new("pfctl").args(["-s", "info"]).output();
 
     match output {
@@ -116,79 +140,6 @@ pub fn is_pf_enabled() -> bool {
 }
 
 // ─── Transport-layer pf mode (all TCP ports) ──────────────────────────────
-
-/// Set up pf rules for transport-layer proxying.
-///
-/// Unlike [`setup_pf`] which only redirects :80/:443, this mode redirects
-/// ALL TCP traffic to the transport proxy (default port 8089).
-/// The transport proxy detects the protocol, extracts metadata, and either
-/// passes through or forwards to the HTTP MITM proxy.
-///
-/// DNS (UDP 53) is also redirected as in standard mode.
-pub fn setup_pf_transport(
-    interface: String,
-    local_ip: String,
-    transport_port: u16,
-    config: &AppConfig,
-) -> Result<String, String> {
-    if !interface.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err("Invalid interface name".to_string());
-    }
-    if interface.is_empty() || interface.len() > 10 {
-        return Err("Invalid interface name".to_string());
-    }
-    if !local_ip.chars().all(|c| c.is_ascii_digit() || c == '.') || local_ip.is_empty() {
-        return Err("Invalid local IP address".to_string());
-    }
-
-    let tmp_file = "/tmp/proxybot.pf.transport.conf";
-    let rules = format!(
-        "rdr on {iface} proto tcp from any to any port 1:65535 -> {ip} port {tport}\nrdr on {iface} proto udp from any to any port 53 -> {ip} port {dns_port}\npass on {iface} proto tcp from any to any port 1:65535\n",
-        iface = interface,
-        tport = transport_port,
-        dns_port = config.dns_port,
-        ip = local_ip,
-    );
-    fs::write(tmp_file, &rules).map_err(|e| format!("Failed to write temp pf rules: {}", e))?;
-
-    let privileged_script = format!(
-        r#"do shell script "mkdir -p /etc/pf.anchors && cp {tmp} {anchor_file} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {anchor} -f {anchor_file} && pfctl -e; echo done" with administrator privileges"#,
-        tmp = tmp_file,
-        anchor_file = config.pf_anchor_file.display(),
-        anchor = config.pf_anchor_name,
-    );
-
-    let output = Command::new("osascript")
-        .args(["-e", &privileged_script])
-        .output()
-        .map_err(|e| format!("Failed to execute osascript: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if !output.status.success() {
-        return Err(format!("pf transport setup failed: {}{}", stderr, stdout));
-    }
-
-    log::info!(
-        "pf transport rules loaded: all TCP → port {}",
-        transport_port
-    );
-    Ok(format!(
-        "Transport proxy enabled. Redirecting {} all TCP traffic to port {}",
-        interface, transport_port
-    ))
-}
-
-/// Tear down transport-mode pf rules.
-pub fn teardown_pf_transport(config: &AppConfig) -> Result<(), String> {
-    teardown_pf(config)
-}
-
-/// Check if transport-mode pf rules are loaded.
-pub fn is_pf_transport_enabled() -> bool {
-    is_pf_enabled()
-}
 
 // ─── Windows WFP (Windows Filtering Platform) ─────────────────────────
 //
@@ -223,29 +174,4 @@ pub fn setup_pf(
 #[cfg(windows)]
 pub fn teardown_pf(_config: &AppConfig) -> Result<(), String> {
     Ok(())
-}
-
-#[cfg(windows)]
-pub fn is_pf_enabled() -> bool {
-    false
-}
-
-#[cfg(windows)]
-pub fn setup_pf_transport(
-    _interface: String,
-    _local_ip: String,
-    _transport_port: u16,
-    _config: &AppConfig,
-) -> Result<String, String> {
-    Err("Transport-layer proxy not available on Windows".into())
-}
-
-#[cfg(windows)]
-pub fn teardown_pf_transport(_config: &AppConfig) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(windows)]
-pub fn is_pf_transport_enabled() -> bool {
-    false
 }

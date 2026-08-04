@@ -92,6 +92,10 @@ _Avoid_: Hook helper, desktop hook logic
 The immutable, normalized view of a Captured Request consumed by DAG, Graph, Topology, Auth, and anomaly analysis Implementations.
 _Avoid_: Raw request, HTTP tuple, analysis row
 
+**Desktop Network Resource**:
+A desktop-owned listener or device whose lifecycle includes synchronous setup publication and completion-safe shutdown.
+_Avoid_: Running flag, detached server, raw descriptor
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -121,6 +125,10 @@ _Avoid_: Raw request, HTTP tuple, analysis row
 - **Captured Request Analysis** converts accepted persisted timestamps to UTC once, maps invalid timestamps to Unix epoch, clamps invalid negative durations to zero, and preserves optional response status and device association
 - Analysis time windows use epoch milliseconds and include both start and end boundaries
 - DAG, Graph, Topology, Auth, and anomaly algorithms share **Captured Request Analysis** facts but retain independent Implementations and desktop wire contracts
+- A retained **Desktop Network Resource** is published as running only after its listener binds or device setup completes successfully
+- Repeated start of a running **Desktop Network Resource** fails, while stop is idempotent and returns only after owned tasks, listeners, and device handles are released
+- The desktop composition root drains the **MITM Runtime**, DNS, dashboard, certificate distribution, and TUN **Desktop Network Resources** before process exit
+- The **MITM Runtime** is the supported transport path; speculative transport and VPN Implementations without a composition-root path are not retained
 
 ## Example dialogue
 

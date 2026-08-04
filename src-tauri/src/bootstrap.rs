@@ -129,6 +129,8 @@ define_desktop_commands![
     crate::dns::set_dns_upstream,
     crate::dns::reload_dns_lists,
     crate::cert_server::start_cert_server,
+    crate::cert_server::stop_cert_server,
+    crate::cert_server::is_cert_server_running,
     crate::commands::device_setup::generate_device_qr,
     crate::anomaly::get_traffic_baseline,
     crate::anomaly::scan_request_anomalies,
@@ -287,6 +289,7 @@ fn run_desktop(config: Arc<AppConfig>) {
             .with_rules_engine(rules_engine.clone()),
     );
     let proxy_state = Arc::new(ProxyState::new());
+    let pf_runtime_state = Arc::new(crate::pf::PfRuntimeState::new(&config));
     let mitm_runtime_state = Arc::new(crate::proxy::MitmRuntimeState::new());
     let keep_running_state = Arc::new(crate::proxy::KeepRunningState::new());
     let anomaly_detector = Arc::new(AnomalyDetector::with_stores(
@@ -324,13 +327,14 @@ fn run_desktop(config: Arc<AppConfig>) {
         ),
     );
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(db_state)
         .manage(cert_manager)
         .manage(dns_state)
         .manage(proxy_state)
+        .manage(pf_runtime_state)
         .manage(mitm_runtime_state)
         .manage(keep_running_state)
         .manage(anomaly_detector)
@@ -348,8 +352,67 @@ fn run_desktop(config: Arc<AppConfig>) {
         .manage(config)
         .setup(move |app| setup_desktop(app, rules_engine))
         .invoke_handler(desktop_invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    let shutdown_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    app.run(move |app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+            if !shutdown_started.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                api.prevent_exit();
+                let app_handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    shutdown_desktop_network_resources(&app_handle).await;
+                    app_handle.exit(code.unwrap_or_default());
+                });
+            }
+        }
+    });
+}
+
+async fn shutdown_desktop_network_resources(app: &tauri::AppHandle) {
+    let runtime = app
+        .state::<Arc<crate::proxy::MitmRuntimeState>>()
+        .inner()
+        .clone();
+    let app_state = app.state::<Arc<crate::state::AppState>>().inner().clone();
+    if let Err(error) = crate::proxy::stop_proxy_runtime(runtime, app_state).await {
+        log::error!("MITM Runtime shutdown failed: {error}");
+    }
+
+    let dns = app.state::<Arc<DnsState>>().inner().clone();
+    let pf = app
+        .state::<Arc<crate::pf::PfRuntimeState>>()
+        .inner()
+        .clone();
+    let config = app.state::<Arc<AppConfig>>().inner().clone();
+    if let Err(error) = crate::proxy::stop_pf_runtime(dns, pf, config).await {
+        log::error!("PF/DNS shutdown failed: {error}");
+    }
+
+    let dashboard = app
+        .state::<Arc<crate::dashboard::DashboardServer>>()
+        .inner()
+        .clone();
+    if let Err(error) = dashboard.stop().await {
+        log::error!("Dashboard shutdown failed: {error}");
+    }
+
+    let cert_server = app
+        .state::<Arc<crate::cert_server::CertServerState>>()
+        .inner()
+        .clone();
+    if let Err(error) = cert_server.stop() {
+        log::error!("Certificate server shutdown failed: {error}");
+    }
+
+    let tun = app.state::<Arc<TunState>>().inner().clone();
+    if let Err(error) = tokio::task::spawn_blocking(move || tun.shutdown())
+        .await
+        .unwrap_or_else(|join_error| Err(format!("TUN shutdown task failed: {join_error}")))
+    {
+        log::error!("TUN shutdown failed: {error}");
+    }
 }
 
 fn setup_desktop(
@@ -533,10 +596,10 @@ async fn start_dashboard(
 }
 
 #[tauri::command]
-fn stop_dashboard(
+async fn stop_dashboard(
     dashboard: State<'_, Arc<crate::dashboard::DashboardServer>>,
 ) -> Result<String, String> {
-    dashboard.stop();
+    dashboard.stop().await?;
     Ok("Dashboard stopped".into())
 }
 

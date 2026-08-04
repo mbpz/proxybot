@@ -159,14 +159,11 @@ pub(crate) async fn stop_proxy_runtime(
     runtime_state: Arc<MitmRuntimeState>,
     app_state: Arc<AppState>,
 ) -> Result<String, String> {
-    let handle = runtime_state
-        .running
-        .lock()
-        .await
-        .take()
-        .ok_or_else(|| "Proxy is not running".to_owned())?;
     app_state.cancel_all_breakpoints();
-    handle.shutdown().await;
+    let handle = runtime_state.running.lock().await.take();
+    if let Some(handle) = handle {
+        handle.shutdown().await;
+    }
     Ok("Proxy stopped".to_owned())
 }
 
@@ -210,4 +207,29 @@ pub async fn stop_proxy(
     app_state: State<'_, Arc<AppState>>,
 ) -> Result<String, String> {
     stop_proxy_runtime(runtime.inner().clone(), app_state.inner().clone()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stop_proxy_runtime_is_idempotent_without_a_running_listener() {
+        let runtime = Arc::new(MitmRuntimeState::new());
+        let app_state = Arc::new(AppState::new());
+
+        assert_eq!(
+            stop_proxy_runtime(Arc::clone(&runtime), Arc::clone(&app_state))
+                .await
+                .unwrap(),
+            "Proxy stopped"
+        );
+        assert_eq!(
+            stop_proxy_runtime(runtime.clone(), app_state.clone())
+                .await
+                .unwrap(),
+            "Proxy stopped"
+        );
+        assert!(!runtime.is_running().await);
+    }
 }

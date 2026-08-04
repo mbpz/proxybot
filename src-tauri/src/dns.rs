@@ -12,7 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, State};
 use tokio::net::UdpSocket;
-use tokio::sync::broadcast;
+use tokio::sync::oneshot;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{timeout, Duration};
 
 use crate::db::DbState;
@@ -35,14 +36,18 @@ pub struct DnsState {
     config: Arc<AppConfig>,
     /// Core-owned attribution Implementation shared by DNS and Capture Event Adapters.
     pub(crate) attribution: AttributionEngine,
-    pub running: Arc<AtomicBool>,
-    pub shutdown_tx: Arc<Mutex<Option<broadcast::Sender<()>>>>,
+    lifecycle: tokio::sync::Mutex<Option<RunningDnsServer>>,
     pub db_state: Option<Arc<DbState>>,
     pub upstream: Arc<Mutex<DnsUpstream>>,
     pub hosts: Arc<Mutex<Vec<HostsEntry>>>,
     pub blocklist: Arc<Mutex<Vec<BlocklistEntry>>>,
     pub blocklist_enabled: Arc<AtomicBool>,
     pub rules_engine: Option<Arc<RulesEngine>>,
+}
+
+struct RunningDnsServer {
+    shutdown_tx: oneshot::Sender<()>,
+    task: JoinHandle<Result<(), String>>,
 }
 
 impl Default for DnsState {
@@ -68,8 +73,7 @@ impl DnsState {
                 config.max_dns_entries,
                 CORRELATION_WINDOW_MS,
             ),
-            running: Arc::new(AtomicBool::new(false)),
-            shutdown_tx: Arc::new(Mutex::new(None)),
+            lifecycle: tokio::sync::Mutex::new(None),
             db_state: None,
             upstream: Arc::new(Mutex::new(DnsUpstream {
                 upstream_type: DnsUpstreamType::Doh,
@@ -948,37 +952,20 @@ pub(crate) fn build_hosts_response(query: &[u8], ip: &str) -> Vec<u8> {
 }
 
 /// Run the DNS server loop.
-async fn run_dns_server(app_handle: AppHandle, state: Arc<DnsState>) -> Result<(), String> {
-    let addr = format!("0.0.0.0:{}", state.config.dns_port);
-    let socket = UdpSocket::bind(&addr)
-        .await
-        .map_err(|e| format!("Failed to bind DNS socket to {}: {}", addr, e))?;
-
-    log::info!("DNS server listening on {}", addr);
-
-    // Load hosts file and blocklist
-    state.load_hosts_file();
-    state.load_blocklist();
-
+async fn run_dns_server(
+    app_handle: AppHandle,
+    state: Arc<DnsState>,
+    socket: UdpSocket,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) -> Result<(), String> {
     // Wrap socket in Arc for use in spawned tasks
     let socket = Arc::new(socket);
-
-    // Set up shutdown receiver for interrupting recv_from
-    let shutdown_tx = state
-        .shutdown_tx
-        .lock()
-        .unwrap()
-        .take()
-        .expect("shutdown_tx must be set before starting DNS server");
-    let mut shutdown_rx = shutdown_tx.subscribe();
-
     let mut buf = vec![0u8; 512];
+    let mut queries = JoinSet::new();
 
-    while state.running.load(Ordering::SeqCst) {
+    loop {
         tokio::select! {
-            _ = shutdown_rx.recv() => {
-                break;
-            }
+            _ = &mut shutdown_rx => break,
             result = socket.recv_from(&mut buf) => {
                 match result {
                     Ok((len, src)) => {
@@ -988,55 +975,84 @@ async fn run_dns_server(app_handle: AppHandle, state: Arc<DnsState>) -> Result<(
                         let buf_copy = buf.clone();
 
                         // Spawn task to handle this query (avoid blocking the loop)
-                        tokio::spawn(async move {
+                        queries.spawn(async move {
                             handle_dns_query(&buf_copy, len, src, &socket, &app_handle, &state).await;
                         });
                     }
                     Err(e) => {
-                        if state.running.load(Ordering::SeqCst) {
-                            log::error!("DNS recv error: {}", e);
-                        }
+                        return Err(format!("DNS receive failed: {e}"));
                     }
+                }
+            }
+            completed = queries.join_next(), if !queries.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    log::error!("DNS query task failed: {error}");
                 }
             }
         }
     }
 
+    queries.abort_all();
+    while queries.join_next().await.is_some() {}
     log::info!("DNS server stopped");
     Ok(())
 }
 
-/// Start the DNS server and return the shared state.
-pub fn start_dns_server(app_handle: AppHandle, state: Arc<DnsState>) {
-    if state.running.swap(true, Ordering::SeqCst) {
-        log::warn!("DNS server already running");
-        return;
-    }
-
-    // Create shutdown channel for interrupting recv_from
-    let (shutdown_tx, _shutdown_rx) = broadcast::channel(1);
-    *state.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
-
-    let app_handle_clone = app_handle.clone();
-    let state_clone = state.clone();
-
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_dns_server(app_handle_clone, state_clone).await {
-            log::error!("DNS server error: {}", e);
-        }
-    });
-
-    log::info!("DNS server started");
+async fn bind_dns_socket(state: &DnsState) -> Result<(UdpSocket, String), String> {
+    let addr = format!("0.0.0.0:{}", state.config.dns_port);
+    let socket = UdpSocket::bind(&addr)
+        .await
+        .map_err(|error| format!("Failed to bind DNS socket to {addr}: {error}"))?;
+    Ok((socket, addr))
 }
 
-/// Stop the DNS server.
-pub fn stop_dns_server(state: &Arc<DnsState>) {
-    // Wake up the blocking recv_from call via shutdown channel
-    if let Some(tx) = state.shutdown_tx.lock().unwrap().as_ref() {
-        let _ = tx.send(());
+/// Bind and start DNS. Running ownership is published only after bind succeeds.
+pub async fn start_dns_server(app_handle: AppHandle, state: Arc<DnsState>) -> Result<(), String> {
+    let mut lifecycle = state.lifecycle.lock().await;
+    if lifecycle
+        .as_ref()
+        .is_some_and(|running| !running.task.is_finished())
+    {
+        return Err("DNS server is already running".to_owned());
     }
-    state.running.store(false, Ordering::SeqCst);
-    log::info!("DNS server stop signal sent");
+    if let Some(finished) = lifecycle.take() {
+        match finished.task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => log::warn!("Previous DNS server stopped with error: {error}"),
+            Err(error) => log::warn!("Previous DNS server task failed: {error}"),
+        }
+    }
+
+    let (socket, addr) = bind_dns_socket(&state).await?;
+    state.load_hosts_file();
+    state.load_blocklist();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let task_state = Arc::clone(&state);
+    let task = tokio::spawn(run_dns_server(app_handle, task_state, socket, shutdown_rx));
+    *lifecycle = Some(RunningDnsServer { shutdown_tx, task });
+    log::info!("DNS server listening on {addr}");
+    Ok(())
+}
+
+pub async fn is_dns_server_running(state: &DnsState) -> bool {
+    state
+        .lifecycle
+        .lock()
+        .await
+        .as_ref()
+        .is_some_and(|running| !running.task.is_finished())
+}
+
+/// Idempotent completion barrier for the DNS listener and query tasks.
+pub async fn stop_dns_server(state: &DnsState) -> Result<(), String> {
+    let Some(running) = state.lifecycle.lock().await.take() else {
+        return Ok(());
+    };
+    let _ = running.shutdown_tx.send(());
+    running
+        .task
+        .await
+        .map_err(|error| format!("DNS server task failed during shutdown: {error}"))?
 }
 
 /// Get the current DNS log entries.
@@ -1089,6 +1105,36 @@ pub fn reload_dns_lists(state: State<'_, Arc<DnsState>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bind_failure_never_publishes_a_running_server() {
+        let occupied = UdpSocket::bind("0.0.0.0:0").await.unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let config = AppConfig::for_base_dir(std::env::temp_dir().join("proxybot-dns-bind"))
+            .with_ports(0, port);
+        let state = DnsState::with_config(Arc::new(config));
+
+        let error = bind_dns_socket(&state).await.unwrap_err();
+
+        assert!(error.contains("Failed to bind DNS socket"));
+        assert!(!is_dns_server_running(&state).await);
+    }
+
+    #[tokio::test]
+    async fn stop_is_an_idempotent_completion_barrier() {
+        let state = DnsState::new();
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _ = shutdown_rx.await;
+            Ok(())
+        });
+        *state.lifecycle.lock().await = Some(RunningDnsServer { shutdown_tx, task });
+
+        assert!(is_dns_server_running(&state).await);
+        stop_dns_server(&state).await.unwrap();
+        assert!(!is_dns_server_running(&state).await);
+        stop_dns_server(&state).await.unwrap();
+    }
 
     /// Build a minimal DNS query packet: 12-byte header + QNAME labels + QTYPE/QCLASS.
     /// All queries are standard queries with RD=1 and QDCOUNT=1, QTYPE=A, QCLASS=IN.

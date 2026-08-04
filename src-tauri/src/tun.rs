@@ -6,7 +6,6 @@
 //! On macOS, we create a utun interface and configure it as a VPN gateway.
 //! The phone connects via VPN profile and all traffic is captured by the TUN device.
 
-use std::os::fd::AsRawFd;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,8 +21,9 @@ const TUN_NETMASK: &str = "255.255.255.0";
 /// Shared state for the TUN interface.
 pub struct TunState {
     enabled: AtomicBool,
-    /// The TUN device file descriptor.
-    tun_fd: Mutex<Option<std::os::fd::RawFd>>,
+    operation: Mutex<()>,
+    /// Own the device for exactly as long as the interface is enabled.
+    device: Mutex<Option<TunDevice>>,
     /// Interface name for cleanup.
     iface_name: Mutex<Option<String>>,
 }
@@ -32,9 +32,28 @@ impl TunState {
     pub fn new() -> Self {
         Self {
             enabled: AtomicBool::new(false),
-            tun_fd: Mutex::new(None),
+            operation: Mutex::new(()),
+            device: Mutex::new(None),
             iface_name: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn shutdown(&self) -> Result<(), String> {
+        let _operation = self.operation.lock().unwrap();
+        if !self.enabled.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let device = self.device.lock().unwrap().take();
+        let iface_name = self.iface_name.lock().unwrap().take();
+        let result = iface_name
+            .as_deref()
+            .map(unconfigure_tun_interface)
+            .transpose()
+            .map(|_| ());
+        drop(device);
+        self.enabled.store(false, Ordering::SeqCst);
+        result
     }
 }
 
@@ -144,7 +163,8 @@ fn unconfigure_tun_interface(iface_name: &str) -> Result<(), String> {
 /// will be captured by the TUN device.
 #[tauri::command]
 pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, String> {
-    if state.enabled.swap(true, Ordering::SeqCst) {
+    let _operation = state.operation.lock().unwrap();
+    if state.enabled.load(Ordering::SeqCst) {
         return Err("TUN is already enabled".to_string());
     }
 
@@ -176,7 +196,6 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
             }
             Err(e) => {
                 log::error!("[tun] Failed to create TUN device: {}", e);
-                state.enabled.store(false, Ordering::SeqCst);
                 return Err(format!(
                     "Failed to create TUN device: {}. \
                     Make sure you have administrator privileges.",
@@ -186,27 +205,26 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
         };
 
         let actual_name = dev.name().to_string();
-        let fd = dev.as_raw_fd();
-        log::info!("[tun] TUN device actual name: {}, fd: {}", actual_name, fd);
+        log::info!("[tun] TUN device actual name: {}", actual_name);
 
         // Configure routing (requires admin)
         if let Err(e) = configure_tun_interface(&actual_name, TUN_IP, TUN_NETMASK) {
             log::error!("[tun] Failed to configure TUN interface: {}", e);
-            // Leak the device intentionally so the fd stays open
-            std::mem::forget(dev);
-            state.enabled.store(false, Ordering::SeqCst);
+            if let Err(cleanup_error) = unconfigure_tun_interface(&actual_name) {
+                log::warn!(
+                    "[tun] Failed to roll back partially configured interface {actual_name}: {cleanup_error}"
+                );
+            }
+            drop(dev);
             return Err(e);
         }
 
-        // Store fd and name
-        {
-            let mut fd_guard = state.tun_fd.lock().unwrap();
-            *fd_guard = Some(fd);
-        }
+        *state.device.lock().unwrap() = Some(dev);
         {
             let mut name_guard = state.iface_name.lock().unwrap();
             *name_guard = Some(actual_name.clone());
         }
+        state.enabled.store(true, Ordering::SeqCst);
 
         log::info!(
             "[tun] TUN/VPN mode enabled successfully. Interface: {}",
@@ -222,7 +240,6 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
 
     #[cfg(not(target_os = "macos"))]
     {
-        state.enabled.store(false, Ordering::SeqCst);
         Err("TUN/VPN mode is only supported on macOS".to_string())
     }
 }
@@ -230,24 +247,7 @@ pub fn setup_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<String, Strin
 /// Tear down TUN/VPN mode.
 #[tauri::command]
 pub fn teardown_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<(), String> {
-    if !state.enabled.swap(false, Ordering::SeqCst) {
-        return Err("TUN is not enabled".to_string());
-    }
-
-    let iface_name = {
-        let mut fd_guard = state.tun_fd.lock().unwrap();
-        if let Some(fd) = fd_guard.take() {
-            log::info!("[tun] Closing TUN fd: {}", fd);
-            unsafe { libc::close(fd) };
-        }
-        let mut name_guard = state.iface_name.lock().unwrap();
-        name_guard.take()
-    };
-
-    if let Some(name) = iface_name {
-        unconfigure_tun_interface(&name)?;
-    }
-
+    state.shutdown()?;
     log::info!("[tun] TUN/VPN mode disabled");
     Ok(())
 }
@@ -256,4 +256,21 @@ pub fn teardown_tun(state: tauri::State<'_, Arc<TunState>>) -> Result<(), String
 #[tauri::command]
 pub fn is_tun_enabled(state: tauri::State<'_, Arc<TunState>>) -> bool {
     state.enabled.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shutdown_is_idempotent_when_no_device_is_owned() {
+        let state = TunState::new();
+
+        state.shutdown().unwrap();
+        state.shutdown().unwrap();
+
+        assert!(!state.enabled.load(Ordering::SeqCst));
+        assert!(state.device.lock().unwrap().is_none());
+        assert!(state.iface_name.lock().unwrap().is_none());
+    }
 }
