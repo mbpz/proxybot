@@ -89,12 +89,6 @@ The desktop Adapter can install a dedicated `pf` redirect and run a DNS server
 for DNS Observation and Application Attribution. This mode changes host network
 state, may require elevated privileges, and needs explicit cleanup.
 
-### TUN and iOS VPN — Labs
-
-The current TUN Implementation can create a device but does not provide a
-complete packet-forwarding path into the MITM Runtime. The iOS experiment also
-depends on a missing Mac tunnel peer. Neither is a supported transport path.
-
 ## Capture lifecycle
 
 The intended ownership model is:
@@ -131,7 +125,7 @@ database rows.
 
 - The local CA private key and captured credentials are secrets.
 - Explicit proxy is preferred before host-wide routing changes.
-- `pf`, DNS, TUN, certificate distribution, dashboard, and MITM listeners are
+- `pf`, DNS, certificate distribution, dashboard, and MITM listeners are
   Desktop Network Resources with explicit ownership and cleanup.
 - MCP stdio is a local Adapter but can expose sensitive persisted data to its
   client.

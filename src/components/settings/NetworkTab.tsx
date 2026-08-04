@@ -1,19 +1,15 @@
 import { useState } from "react";
 import { useNetwork } from "../../hooks/useNetwork";
 import { Button } from "../ui/Button";
-import { Globe, Wifi, Shield } from "lucide-react";
+import { Globe, Shield } from "lucide-react";
 
 export function NetworkTab() {
   const {
     networkInfo,
     pfEnabled,
     pfLoading,
-    tunEnabled,
-    tunLoading,
     enablePf,
     disablePf,
-    enableTun,
-    disableTun,
   } = useNetwork();
   const [error, setError] = useState("");
 
@@ -67,32 +63,6 @@ export function NetworkTab() {
             onClick={() => pfEnabled ? disablePf(setError) : enablePf(setError)}
           >
             {pfLoading ? "..." : pfEnabled ? "Disable" : "Enable"}
-          </Button>
-        </div>
-      </div>
-
-      {/* TUN Mode */}
-      <div className="card">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Wifi size={20} className={tunEnabled ? "text-accent-green" : "text-text-secondary"} />
-            <div>
-              <div className="font-medium text-text-primary">TUN Mode</div>
-              <div className="text-sm text-text-muted">
-                Virtual network interface — captures all system traffic without pf
-              </div>
-              <span className={`badge mt-1 ${tunEnabled ? "badge-direct" : "badge-unknown"}`}>
-                {tunEnabled ? "Enabled" : "Disabled"}
-              </span>
-            </div>
-          </div>
-          <Button
-            variant={tunEnabled ? "danger" : "primary"}
-            size="sm"
-            disabled={tunLoading}
-            onClick={() => tunEnabled ? disableTun(setError) : enableTun(setError)}
-          >
-            {tunLoading ? "..." : tunEnabled ? "Disable" : "Enable"}
           </Button>
         </div>
       </div>

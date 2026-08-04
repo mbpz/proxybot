@@ -63,7 +63,6 @@ Advanced features must not be required for first success.
 Labs are experiments, not product promises. They should be hidden behind an
 explicit opt-in and excluded from the default navigation and release claims:
 
-- TUN/iOS VPN experiments
 - Android SSL-bypass and APK patching
 - AI analysis
 - spec, mock, scaffold, and deployment generation
@@ -83,10 +82,11 @@ surface does not reflect them consistently:
   first-use journey remains fragmented.
 - Device QR setup is separated from the certificate distribution lifecycle and
   depends on hidden ordering across pages.
-- The TUN Implementation creates and configures an interface but does not own a
-  packet-forwarding path into the MITM Runtime.
-- The iOS VPN experiment refers to a Mac tunnel service and CLI that are not part
-  of the current composition root.
+- The former TUN Implementation could create an interface but had no packet
+  forwarding path into the MITM Runtime; it and its unused dependency were
+  removed instead of being shipped as a misleading mode.
+- No iOS VPN peer or CLI exists in the composition root, so the public product
+  and supported documentation do not claim that transport.
 - Browser E2E tests use a mock Tauri Adapter; they cannot prove that a packaged
   app starts, captures traffic, or serves a certificate.
 - Package metadata, update checking, MCP metadata, tags, and the latest GitHub
@@ -138,6 +138,8 @@ exit gate.
 3. **Quarantine incomplete network experiments.**
    - Remove TUN and iOS VPN from the default UI, release claims, and supported
      documentation until a real packet-forwarding Adapter exists.
+   - The unsupported TUN state, commands, dependency, settings control, and
+     shutdown branch have been removed; no iOS VPN path is advertised.
 4. **Establish one Release/Install/Update source of truth.**
    - Derive Rust, Tauri, frontend, MCP, tag, and update metadata from one version.
    - Build with the Tauri bundler; add Developer ID signing, notarization,
@@ -224,7 +226,7 @@ deepen; detailed Interfaces belong in an accepted design or ADR.
 
 1. Capture Session lifecycle and shell/tray Adapters
 2. Device Onboarding and certificate distribution lifecycle
-3. Removal or isolation of incomplete TUN/iOS VPN Implementations
+3. Removal of the incomplete TUN/iOS VPN product surface
 4. Generated Desktop Contract adoption across the React application
 5. MCP as an Adapter over shared domain Modules
 6. Release/Install/Update as one reproducible Module

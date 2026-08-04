@@ -214,6 +214,14 @@ test.describe("Settings Page", () => {
     await expect(page.getByText("Keep Running")).toBeVisible();
     await expect(page.getByText("Mobile Dashboard")).toBeVisible();
   });
+
+  test("network settings expose only maintained network modes", async ({ page }) => {
+    await page.goto("/settings");
+    await page.locator("button.tab", { hasText: "Network" }).click();
+
+    await expect(page.getByText("Packet Filter (pf)")).toBeVisible();
+    await expect(page.getByText("TUN Mode")).toHaveCount(0);
+  });
 });
 
 test.describe("Design System", () => {

@@ -36,8 +36,8 @@ Captured Requests.
 ## Scope
 
 Explicit proxy is the default setup path. macOS `pf`, DNS, MCP, scripting, the
-mobile dashboard, and protocol analysis are Advanced capabilities. TUN/iOS VPN,
-SSL bypass, AI, and generation/deployment features are Labs and are not part of
+mobile dashboard, and protocol analysis are Advanced capabilities. SSL bypass,
+AI, and generation/deployment features are Labs and are not part of
 the supported first-capture journey.
 
 Use ProxyBot only on devices and networks you own or are authorized to test.

@@ -44,7 +44,6 @@ pub mod ssl_bypass;
 pub mod state;
 pub mod state_machine;
 pub mod topology;
-pub mod tun;
 pub mod vision;
 pub mod workspace;
 pub mod ws_frames;

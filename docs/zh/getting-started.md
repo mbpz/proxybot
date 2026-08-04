@@ -88,7 +88,7 @@ Android 是否信任用户 CA 取决于系统版本和应用配置。证书固�
 - 项目尚未通过受维护的 Homebrew tap 分发。
 - 现有 GitHub ZIP 还不代表目标中的签名、公证和安装冒烟测试流水线。
 - Playwright 使用模拟桌面 Adapter，不能证明真实设备流程。
-- TUN/iOS VPN 与 SSL Bypass 属于 Labs，不是受支持的配置路径。
+- SSL Bypass 属于 Labs，不是受支持的配置路径。
 
 下一步可阅读[架构](architecture.md)、[产品对比](comparison.md)与
 [产品路线图](../roadmap.md)。

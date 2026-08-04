@@ -115,7 +115,7 @@ _Avoid_: Running flag, detached server, raw descriptor
 - One **Capture Session** observes and controls at most one **MITM Runtime**
 - Window and tray Adapters publish the same **Capture Session** running state after successful lifecycle transitions
 - One **Device Onboarding** flow prepares certificate distribution independently of the **Capture Session** so either lifecycle can fail or stop without misreporting the other
-- Core **Device Onboarding** uses an explicit Wi-Fi proxy and CA-only delivery; managed DNS, `pf`, TUN, and VPN setup remain Advanced or Labs capabilities
+- Core **Device Onboarding** uses an explicit Wi-Fi proxy and CA-only delivery; managed DNS and `pf` remain separate Advanced capabilities
 - A **Captured Request** is reported through one or more **Capture Events** with the same stable id
 - Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
 - A **Captured Request** may receive one **Application Attribution**
@@ -139,7 +139,7 @@ _Avoid_: Running flag, detached server, raw descriptor
 - DAG, Graph, Topology, Auth, and anomaly algorithms share **Captured Request Analysis** facts but retain independent Implementations and desktop wire contracts
 - A retained **Desktop Network Resource** is published as running only after its listener binds or device setup completes successfully
 - Repeated start of a running **Desktop Network Resource** either returns the identical prepared configuration or rejects a conflicting configuration; stop is idempotent and returns only after owned tasks, listeners, and device handles are released
-- The desktop composition root drains the **MITM Runtime**, DNS, dashboard, certificate distribution, and TUN **Desktop Network Resources** before process exit
+- The desktop composition root drains the **MITM Runtime**, DNS, dashboard, and certificate distribution **Desktop Network Resources** before process exit
 - The **MITM Runtime** is the supported transport path; speculative transport and VPN Implementations without a composition-root path are not retained
 
 ## Example dialogue

@@ -44,9 +44,9 @@ The following capabilities support that workflow:
 - reusable `proxybot-core` crate without GUI dependencies
 
 macOS `pf`, the DNS server, MCP stdio, scripting, the mobile dashboard, and
-protocol analysis are Advanced capabilities. TUN/iOS VPN, Android SSL bypass,
-AI analysis, and generation/deployment screens are Labs until their complete
-user journey is proven. See the [product roadmap](docs/roadmap.md).
+protocol analysis are Advanced capabilities. Android SSL bypass, AI analysis,
+and generation/deployment screens are Labs until their complete user journey is
+proven. See the [product roadmap](docs/roadmap.md).
 
 Some applications use certificate pinning or platform protections that
 intentionally prevent decryption. ProxyBot may still expose DNS or SNI metadata,

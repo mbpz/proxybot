@@ -36,7 +36,7 @@ therefore use this order:
 2. **macOS `pf` + DNS** — Advanced, because it changes host networking and may
    require elevated privileges.
 3. **MCP, dashboard, and scripting** — Advanced automation Adapters.
-4. **TUN, iOS VPN, SSL bypass, AI, generation, and deployment** — Labs until
+4. **SSL bypass, AI, generation, and deployment** — Labs until
    their end-to-end path and support boundary are proven.
 
 ## Evaluation criteria

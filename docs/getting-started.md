@@ -104,7 +104,7 @@ After installation, choose **Stop Setup Server**; this does not stop capture.
   notarized, and smoke-tested distribution pipeline.
 - Browser Playwright tests use a mock desktop Adapter and do not prove this real
   device journey.
-- TUN/iOS VPN and SSL-bypass flows are Labs, not supported setup paths.
+- SSL-bypass flows are Labs, not supported setup paths.
 
 See [Architecture](architecture.md), [Product comparison](comparison.md), and the
 [Product roadmap](roadmap.md) for the next work.

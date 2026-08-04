@@ -27,7 +27,7 @@ ProxyBot 不以功能数量取胜。它的机会是成为一个聚焦的 macOS �
 1. **显式代理** — Core，默认且完整记录。
 2. **macOS `pf` + DNS** — Advanced，会修改主机网络且可能需要提权。
 3. **MCP、Dashboard、脚本** — Advanced 自动化 Adapter。
-4. **TUN、iOS VPN、SSL Bypass、AI、生成与部署** — Labs，直到真实端到端
+4. **SSL Bypass、AI、生成与部署** — Labs，直到真实端到端
    路径和支持边界被验证。
 
 ## 持久的评估标准

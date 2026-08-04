@@ -34,8 +34,8 @@ ProxyBot 让 iOS 或 Android 测试设备连接到本机 Rust MITM Runtime，以
 ## 产品边界
 
 显式代理是默认配置方式。macOS `pf`、DNS、MCP、脚本、移动 Dashboard 与协议
-分析属于 Advanced。TUN/iOS VPN、SSL Bypass、AI、生成与部署功能属于 Labs，
-不在受支持的首次抓包路径内。
+分析属于 Advanced。SSL Bypass、AI、生成与部署功能属于 Labs，不在受支持的
+首次抓包路径内。
 
 ProxyBot 只能用于你拥有或明确获准测试的设备和网络。抓包内容和本地 CA 材料
 都属于敏感数据。

@@ -82,11 +82,6 @@ Tauri，或通过浅 Adapter 将错误转换为 `null`。
 与 Application Attribution。该模式会修改主机网络状态，可能需要提权，并要求明确
 清理。
 
-### TUN 与 iOS VPN — Labs
-
-当前 TUN Implementation 能创建设备，但没有完整的数据包转发路径接入 MITM
-Runtime。iOS 实验也依赖当前不存在的 Mac tunnel peer。两者都不是受支持的传输路径。
-
 ## Capture 生命周期
 
 目标所有权模型是：
@@ -120,7 +115,7 @@ Topology、认证和异常检测各自重新解释数据库记录。
 
 - 本地 CA 私钥和捕获到的凭据都是秘密。
 - 修改主机全局网络前优先使用显式代理。
-- `pf`、DNS、TUN、证书分发、Dashboard 与 MITM listener 都必须是具有明确
+- `pf`、DNS、证书分发、Dashboard 与 MITM listener 都必须是具有明确
   所有权和清理行为的 Desktop Network Resource。
 - MCP stdio 是本地 Adapter，但会向客户端暴露敏感的持久化数据。
 - Android SSL Bypass 会修改应用，只能属于 Labs。

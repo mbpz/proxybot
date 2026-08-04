@@ -21,7 +21,6 @@ use crate::dns::DnsState;
 use crate::proxy::ProxyState;
 use crate::replay::ReplayState;
 use crate::rules::RulesEngine;
-use crate::tun::TunState;
 use crate::workspace::WorkspaceManager;
 use proxybot_core::AppConfig;
 
@@ -141,9 +140,6 @@ define_desktop_commands![
     crate::db::update_device_stats,
     crate::db::set_device_rule_override,
     crate::db::get_device_by_mac,
-    crate::tun::setup_tun,
-    crate::tun::teardown_tun,
-    crate::tun::is_tun_enabled,
     crate::rules::get_rules,
     crate::rules::save_rule,
     crate::rules::delete_rule,
@@ -293,7 +289,6 @@ fn run_desktop(config: Arc<AppConfig>) {
             config.baseline_path.clone(),
         )),
     ));
-    let tun_state = Arc::new(TunState::new());
     let replay_state = Arc::new(ReplayState::default());
     let cert_server_state = Arc::new(crate::cert_server::CertServerState::new());
     let metrics = Arc::new(crate::metrics::counters::ProxyMetrics::new());
@@ -333,7 +328,6 @@ fn run_desktop(config: Arc<AppConfig>) {
         .manage(mitm_runtime_state)
         .manage(keep_running_state)
         .manage(anomaly_detector)
-        .manage(tun_state)
         .manage(rules_engine.clone())
         .manage(replay_state)
         .manage(cert_server_state)
@@ -399,14 +393,6 @@ async fn shutdown_desktop_network_resources(app: &tauri::AppHandle) {
         .clone();
     if let Err(error) = cert_server.stop() {
         log::error!("Certificate server shutdown failed: {error}");
-    }
-
-    let tun = app.state::<Arc<TunState>>().inner().clone();
-    if let Err(error) = tokio::task::spawn_blocking(move || tun.shutdown())
-        .await
-        .unwrap_or_else(|join_error| Err(format!("TUN shutdown task failed: {join_error}")))
-    {
-        log::error!("TUN shutdown failed: {error}");
     }
 }
 

@@ -143,6 +143,26 @@ fn migrated_slices_only_use_the_desktop_adapter() {
     );
 }
 
+#[test]
+fn unsupported_tun_product_surface_is_absent() {
+    let tauri_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = tauri_root.parent().unwrap();
+    let manifest = fs::read_to_string(tauri_root.join("Cargo.toml")).unwrap();
+    let bootstrap = fs::read_to_string(tauri_root.join("src/bootstrap.rs")).unwrap();
+    let library = fs::read_to_string(tauri_root.join("src/lib.rs")).unwrap();
+    let network_tab =
+        fs::read_to_string(workspace_root.join("src/components/settings/NetworkTab.tsx")).unwrap();
+    let readme = fs::read_to_string(workspace_root.join("README.md")).unwrap();
+
+    assert!(!tauri_root.join("src/tun.rs").exists());
+    assert!(!manifest.contains("\ntun ="));
+    assert!(!bootstrap.contains("setup_tun"));
+    assert!(!bootstrap.contains("TunState"));
+    assert!(!library.contains("pub mod tun"));
+    assert!(!network_tab.contains("TUN Mode"));
+    assert!(!readme.contains("TUN/iOS VPN"));
+}
+
 fn visit_source_files(root: &Path, extensions: &[&str], visitor: &mut impl FnMut(&Path, &str)) {
     for entry in fs::read_dir(root).unwrap() {
         let path = entry.unwrap().path();

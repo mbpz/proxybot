@@ -6,8 +6,6 @@ export function useNetwork() {
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
   const [pfEnabled, setPfEnabled] = useState(false);
   const [pfLoading, setPfLoading] = useState(false);
-  const [tunEnabled, setTunEnabled] = useState(false);
-  const [tunLoading, setTunLoading] = useState(false);
 
   useEffect(() => {
     invoke<NetworkInfo>("get_network_info")
@@ -16,9 +14,6 @@ export function useNetwork() {
     invoke<boolean>("is_pf_enabled")
       .then(setPfEnabled)
       .catch((e) => console.error("Failed to get pf status:", e));
-    invoke<boolean>("is_tun_enabled")
-      .then(setTunEnabled)
-      .catch((e) => console.error("Failed to get TUN status:", e));
   }, []);
 
   const enablePf = useCallback(async (onError: (msg: string) => void) => {
@@ -53,34 +48,8 @@ export function useNetwork() {
     }
   }, []);
 
-  const enableTun = useCallback(async (onError: (msg: string) => void) => {
-    try {
-      setTunLoading(true);
-      onError("");
-      await invoke<string>("setup_tun");
-      setTunEnabled(true);
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setTunLoading(false);
-    }
-  }, []);
-
-  const disableTun = useCallback(async (onError: (msg: string) => void) => {
-    try {
-      setTunLoading(true);
-      onError("");
-      await invoke<void>("teardown_tun");
-      setTunEnabled(false);
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setTunLoading(false);
-    }
-  }, []);
-
   return {
-    networkInfo, pfEnabled, pfLoading, tunEnabled, tunLoading,
-    enablePf, disablePf, enableTun, disableTun,
+    networkInfo, pfEnabled, pfLoading,
+    enablePf, disablePf,
   };
 }
