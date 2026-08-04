@@ -25,9 +25,9 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-Use the ProxyBot icon in the macOS menu bar and choose **Start Proxy**. The
-current main window does not yet expose the full Capture Session control; this
-is tracked as P0 in the [roadmap](roadmap.md).
+Choose **Start Capture** in the persistent bar at the top of the ProxyBot window.
+The macOS menu-bar item provides the same Start/Stop actions and remains
+synchronized with the main window.
 
 The default proxy port is `8088`.
 
@@ -86,7 +86,8 @@ Traffic. Never publish the generated CA private key or a captured credential.
 
 ## 6. Clean up
 
-1. Choose **Stop Proxy** from the ProxyBot menu-bar item.
+1. Choose **Stop Capture** in the main window, or **Stop Proxy** from the
+   ProxyBot menu-bar item.
 2. Return the device Wi-Fi proxy setting to **Off**.
 3. Stop the CA server.
 4. Remove the ProxyBot profile and CA from the test device when no longer needed.
@@ -98,8 +99,6 @@ Traffic. Never publish the generated CA private key or a captured credential.
   maintained Homebrew tap.
 - Existing GitHub ZIP releases do not yet represent the target signed,
   notarized, and smoke-tested distribution pipeline.
-- Start/Stop is currently available from the macOS menu-bar item rather than the
-  mounted main-window Layout.
 - Browser Playwright tests use a mock desktop Adapter and do not prove this real
   device journey.
 - TUN/iOS VPN and SSL-bypass flows are Labs, not supported setup paths.

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::anomaly::AnomalyDetector;
@@ -526,6 +526,7 @@ fn start_proxy_from_tray(app: &tauri::AppHandle, app_handle: &tauri::AppHandle) 
         .await
         {
             Ok(_) => {
+                let _ = app_handle.emit("capture-session:changed", true);
                 let _ = app_handle
                     .notification()
                     .builder()
@@ -548,6 +549,7 @@ fn stop_proxy_from_tray(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         match crate::proxy::stop_proxy_runtime(runtime, app_state).await {
             Ok(_) => {
+                let _ = app_handle.emit("capture-session:changed", false);
                 let _ = app_handle
                     .notification()
                     .builder()

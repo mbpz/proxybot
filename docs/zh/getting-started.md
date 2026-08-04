@@ -24,8 +24,8 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-点击 macOS 菜单栏中的 ProxyBot 图标，选择 **Start Proxy**。当前主窗口还没有
-挂载完整的 Capture Session 控件，这是[路线图](../roadmap.md)中的 P0。
+点击 ProxyBot 主窗口顶部常驻栏中的 **Start Capture**。macOS 菜单栏也提供相同
+的 Start/Stop 操作，并与主窗口状态同步。
 
 默认代理端口为 `8088`。
 
@@ -79,7 +79,7 @@ Android 是否信任用户 CA 取决于系统版本和应用配置。证书固�
 
 ## 6. 清理
 
-1. 从 ProxyBot 菜单栏选择 **Stop Proxy**。
+1. 在主窗口选择 **Stop Capture**，或从 ProxyBot 菜单栏选择 **Stop Proxy**。
 2. 将设备 Wi-Fi 代理恢复为 **关闭**。
 3. 停止 CA Server。
 4. 不再使用时，从测试设备移除 ProxyBot 描述文件和 CA。
@@ -89,7 +89,6 @@ Android 是否信任用户 CA 取决于系统版本和应用配置。证书固�
 
 - 项目尚未通过受维护的 Homebrew tap 分发。
 - 现有 GitHub ZIP 还不代表目标中的签名、公证和安装冒烟测试流水线。
-- Start/Stop 当前位于 macOS 菜单栏，而不是已挂载的主窗口 Layout。
 - Playwright 使用模拟桌面 Adapter，不能证明真实设备流程。
 - TUN/iOS VPN 与 SSL Bypass 属于 Labs，不是受支持的配置路径。
 

@@ -177,6 +177,9 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "get_alerts":
       assertArray(value, command, assertAlert);
       return;
+    case "get_proxy_status":
+      assert(typeof value === "boolean", command, "must be a boolean");
+      return;
     case "get_ws_frames":
       assertArray(value, command, assertWsFrame);
       return;
@@ -208,6 +211,10 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
       assertString(value, command);
       return;
     case "save_history":
+      return;
+    case "start_proxy":
+    case "stop_proxy":
+      assertString(value, command);
       return;
   }
 }
@@ -283,6 +290,9 @@ function assertRuleAction(value: unknown, path: string): asserts value is RuleAc
 
 function validateEventPayload(event: keyof DesktopEvents, value: unknown): void {
   switch (event) {
+    case "capture-session:changed":
+      assert(typeof value === "boolean", event, "must be a boolean");
+      return;
     case "intercepted-request":
       assertInterceptedRequest(value, event);
       return;

@@ -100,9 +100,11 @@ fn generated_contract_matches_rust_and_registered_commands() {
         .iter()
         .map(|path| path.rsplit("::").next().unwrap().trim())
         .collect();
-    let missing: Vec<_> = proxybot_lib::desktop_contract::TRAFFIC_COMMANDS
+    let missing: Vec<_> = proxybot_lib::desktop_contract::CAPTURE_SESSION_COMMANDS
         .iter()
+        .chain(proxybot_lib::desktop_contract::TRAFFIC_COMMANDS)
         .chain(proxybot_lib::desktop_contract::RULE_COMMANDS)
+        .chain(proxybot_lib::desktop_contract::ALERT_COMMANDS)
         .filter(|command| !registered.contains(**command))
         .collect();
     assert!(
@@ -113,10 +115,15 @@ fn generated_contract_matches_rust_and_registered_commands() {
 
 #[test]
 fn migrated_slices_only_use_the_desktop_adapter() {
-    let frontend_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/components");
+    let frontend_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src");
     let mut bypasses = Vec::new();
 
-    for directory in ["traffic", "ws-frames", "rules"] {
+    for directory in [
+        "components/traffic",
+        "components/ws-frames",
+        "components/rules",
+        "features/capture-session",
+    ] {
         let root = frontend_root.join(directory);
         visit_source_files(&root, &["ts", "tsx"], &mut |path, source| {
             if source.contains("@tauri-apps/api/core")

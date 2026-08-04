@@ -15,9 +15,22 @@ const BASE_MOCKS = {
   get_devices: [],
   get_ca_cert_pem: "",
   list_rule_files: [],
+  start_proxy: "Proxy listening on 0.0.0.0:8088",
+  stop_proxy: "Proxy stopped",
 };
 
 test.describe("App shell", () => {
+  test("starts and stops capture from the mounted shell", async ({ page }) => {
+    await mockTauriCommands(page, BASE_MOCKS);
+    await page.goto("/");
+
+    await expect(page.getByText("Capture stopped")).toBeVisible();
+    await page.getByRole("button", { name: "Start Capture" }).click();
+    await expect(page.getByText("Capturing")).toBeVisible();
+    await page.getByRole("button", { name: "Stop Capture" }).click();
+    await expect(page.getByText("Capture stopped")).toBeVisible();
+  });
+
   test("renders sidebar with all navigation items", async ({ page }) => {
     await mockTauriCommands(page, BASE_MOCKS);
     await page.goto("/");

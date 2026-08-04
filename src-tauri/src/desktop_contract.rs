@@ -13,6 +13,10 @@ use proxybot_core::desktop_contract::DesktopContractType;
 use proxybot_core::{BreakpointTarget, InterceptedRequest, Rule, RuleAction, RulePattern, WsFrame};
 use std::fmt::Write;
 
+pub const CAPTURE_SESSION_COMMANDS: &[&str] = &["get_proxy_status", "start_proxy", "stop_proxy"];
+
+pub const CAPTURE_SESSION_EVENTS: &[&str] = &["capture-session:changed"];
+
 pub const TRAFFIC_COMMANDS: &[&str] = &[
     "export_har",
     "get_traffic_page",
@@ -74,6 +78,9 @@ pub fn render_typescript() -> String {
          }\n\n\
          export interface DesktopCommands {\n\
          \x20 acknowledge_alert: { args: { alertId: number }; result: Alert };\n\
+         \x20 get_proxy_status: { args: Record<string, never>; result: boolean };\n\
+         \x20 start_proxy: { args: Record<string, never>; result: string };\n\
+         \x20 stop_proxy: { args: Record<string, never>; result: string };\n\
          \x20 delete_rule: { args: { rule: Rule; filename: string }; result: undefined };\n\
          \x20 export_har: { args: { sessionName: string }; result: JsonValue };\n\
          \x20 get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };\n\
@@ -93,15 +100,22 @@ pub fn render_typescript() -> String {
          \x20 save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };\n\
          }\n\n\
          export interface DesktopEvents {\n\
+         \x20 \"capture-session:changed\": boolean;\n\
          \x20 \"intercepted-request\": InterceptedRequest;\n\
          \x20 \"ws-frame:new\": WsFrameEvent;\n\
          }\n\n",
     );
 
-    let command_names = TRAFFIC_COMMANDS
+    let command_names = CAPTURE_SESSION_COMMANDS
         .iter()
+        .chain(TRAFFIC_COMMANDS)
         .chain(RULE_COMMANDS)
         .chain(ALERT_COMMANDS)
+        .copied()
+        .collect::<Vec<_>>();
+    let event_names = CAPTURE_SESSION_EVENTS
+        .iter()
+        .chain(TRAFFIC_EVENTS)
         .copied()
         .collect::<Vec<_>>();
     write!(
@@ -110,7 +124,7 @@ pub fn render_typescript() -> String {
          export const desktopEventNames = {} as const;\n\
          export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\"] as const;\n",
         json_string_array(&command_names),
-        json_string_array(TRAFFIC_EVENTS),
+        json_string_array(&event_names),
     )
     .expect("writing to a String cannot fail");
 
@@ -130,6 +144,8 @@ mod tests {
         let first = render_typescript();
         assert_eq!(first, render_typescript());
         assert!(first.contains("export interface InterceptedRequest"));
+        assert!(first.contains("get_proxy_status"));
+        assert!(first.contains("\"capture-session:changed\""));
         assert!(first.contains("get_traffic_page"));
         assert!(first.contains("save_rule"));
         assert!(first.contains("export type RuleAction"));

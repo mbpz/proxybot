@@ -181,7 +181,8 @@ pub async fn start_proxy(
     config: State<'_, Arc<AppConfig>>,
     metrics: State<'_, Arc<ProxyMetrics>>,
 ) -> Result<String, String> {
-    start_proxy_runtime(
+    let event_app = app_handle.clone();
+    let message = start_proxy_runtime(
         app_handle,
         runtime_state.inner().clone(),
         cert_manager.inner().clone(),
@@ -193,7 +194,9 @@ pub async fn start_proxy(
         config.inner().clone(),
         metrics.inner().clone(),
     )
-    .await
+    .await?;
+    let _ = event_app.emit("capture-session:changed", true);
+    Ok(message)
 }
 
 #[tauri::command]
@@ -203,10 +206,13 @@ pub async fn get_proxy_status(runtime: State<'_, Arc<MitmRuntimeState>>) -> Resu
 
 #[tauri::command]
 pub async fn stop_proxy(
+    app_handle: AppHandle,
     runtime: State<'_, Arc<MitmRuntimeState>>,
     app_state: State<'_, Arc<AppState>>,
 ) -> Result<String, String> {
-    stop_proxy_runtime(runtime.inner().clone(), app_state.inner().clone()).await
+    let message = stop_proxy_runtime(runtime.inner().clone(), app_state.inner().clone()).await?;
+    let _ = app_handle.emit("capture-session:changed", false);
+    Ok(message)
 }
 
 #[cfg(test)]

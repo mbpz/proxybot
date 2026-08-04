@@ -40,6 +40,10 @@ _Avoid_: Routing Rule, network rule
 The running proxy that accepts client connections, terminates or bypasses TLS, applies Routing Rules and hooks, forwards transactions, and emits capture events.
 _Avoid_: Proxy state, listener wrapper
 
+**Capture Session**:
+The user-visible desktop lifecycle that observes, starts, and stops at most one MITM Runtime and reports actionable lifecycle failures consistently through window and tray Adapters.
+_Avoid_: Proxy toggle, running flag
+
 **Capture Event**:
 A stable-id lifecycle event emitted by the MITM Runtime for a Captured Request, WebSocket frame, or failure.
 _Avoid_: UI event, database row
@@ -104,6 +108,8 @@ _Avoid_: Running flag, detached server, raw descriptor
 - A **Plugin Dispatch Rule** maps an intercepted request to a plugin hook independently of **Routing Rules**
 - A **Network Condition Rule** maps a host to a simulated network profile independently of **Routing Rules**
 - The **MITM Runtime** turns client connections into zero or more **Captured Requests**
+- One **Capture Session** observes and controls at most one **MITM Runtime**
+- Window and tray Adapters publish the same **Capture Session** running state after successful lifecycle transitions
 - A **Captured Request** is reported through one or more **Capture Events** with the same stable id
 - Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
 - A **Captured Request** may receive one **Application Attribution**

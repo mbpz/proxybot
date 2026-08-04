@@ -129,6 +129,9 @@ export interface FilterPreset {
 
 export interface DesktopCommands {
   acknowledge_alert: { args: { alertId: number }; result: Alert };
+  get_proxy_status: { args: Record<string, never>; result: boolean };
+  start_proxy: { args: Record<string, never>; result: string };
+  stop_proxy: { args: Record<string, never>; result: string };
   delete_rule: { args: { rule: Rule; filename: string }; result: undefined };
   export_har: { args: { sessionName: string }; result: JsonValue };
   get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };
@@ -149,10 +152,11 @@ export interface DesktopCommands {
 }
 
 export interface DesktopEvents {
+  "capture-session:changed": boolean;
   "intercepted-request": InterceptedRequest;
   "ws-frame:new": WsFrameEvent;
 }
 
-export const desktopCommandNames = ["export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts"] as const;
-export const desktopEventNames = ["intercepted-request","ws-frame:new"] as const;
+export const desktopCommandNames = ["get_proxy_status","start_proxy","stop_proxy","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts"] as const;
+export const desktopEventNames = ["capture-session:changed","intercepted-request","ws-frame:new"] as const;
 export const unitCommandNames = ["delete_rule","reorder_rules","save_filter_preset","save_history","save_rule"] as const;

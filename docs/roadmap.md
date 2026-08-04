@@ -78,8 +78,9 @@ failure model, documentation, and a test through its real Adapter.
 The current repository contains valuable deep Modules, but the public product
 surface does not reflect them consistently:
 
-- The React application exposes 14 equal-weight navigation items, while its
-  mounted Layout has no visible Start/Stop Capture Session control.
+- The React application still exposes 14 equal-weight navigation items. The
+  mounted Layout now provides a shared Capture Session control, but the broader
+  first-use journey remains fragmented.
 - Device QR setup is separated from the certificate distribution lifecycle and
   depends on hidden ordering across pages.
 - The TUN Implementation creates and configures an interface but does not own a
@@ -121,8 +122,9 @@ exit gate.
    - Give it one Interface for status, prerequisites, start, stop, failure, and
      recovery.
    - Use the same Module from the desktop shell and tray Adapter.
-   - Remove unused Header, Footer, AppHeader, and lifecycle wrappers once their
-     behavior has moved behind the Module.
+   - The mounted shell, tray status event, and removal of unused Header, Footer,
+     AppHeader, and lifecycle wrappers form the first completed tracer slice.
+   - Next, move setup prerequisites and failure guidance behind the same Module.
 2. **Deepen the Device Onboarding Module.**
    - Own network discovery, certificate distribution, platform instructions,
      QR generation, verification, and cleanup in one place.

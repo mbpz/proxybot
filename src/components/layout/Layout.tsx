@@ -3,6 +3,10 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useUpdateCheck } from "../../hooks/useUpdateCheck";
 import { BreakpointPanel } from "../breakpoint/BreakpointPanel";
+import {
+  CaptureSessionBar,
+  CaptureSessionProvider,
+} from "../../features/capture-session/CaptureSession";
 
 export function Layout() {
   const { checkForUpdates } = useUpdateCheck();
@@ -16,12 +20,17 @@ export function Layout() {
   }, [checkForUpdates]);
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-auto bg-surface-primary p-6">
-        <Outlet />
-      </main>
-      <BreakpointPanel />
-    </div>
+    <CaptureSessionProvider>
+      <div className="flex h-screen">
+        <Sidebar />
+        <section className="flex min-w-0 flex-1 flex-col">
+          <CaptureSessionBar />
+          <main className="flex-1 overflow-auto bg-surface-primary p-6">
+            <Outlet />
+          </main>
+        </section>
+        <BreakpointPanel />
+      </div>
+    </CaptureSessionProvider>
   );
 }

@@ -106,8 +106,9 @@ export async function mockTauriCommands(
   page: Page,
   mocks: Record<string, unknown>,
 ): Promise<void> {
+  const commands = { get_proxy_status: false, ...mocks };
   // Build a function body that does a lookup
-  const entries = Object.entries(mocks).map(([k, v]) => [k, JSON.stringify(v)] as [string, string]);
+  const entries = Object.entries(commands).map(([k, v]) => [k, JSON.stringify(v)] as [string, string]);
   const switchCases = entries.map(([k, v]) => `case ${JSON.stringify(k)}: return ${v};`).join("\n");
   const fnBody = `switch(cmd) {\n${switchCases}\ndefault: throw new Error("Unhandled Tauri mock command: " + cmd);\n}`;
   await mockTauriIPC(page, fnBody);

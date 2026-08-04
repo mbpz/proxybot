@@ -69,10 +69,11 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-The main window does not yet expose the complete Capture Session lifecycle. In
-the development build, use the ProxyBot menu-bar item and choose **Start Proxy**
-or **Stop Proxy**. Follow the [getting started guide](docs/getting-started.md) to
-connect and clean up a device safely.
+Use the persistent Capture Session bar in the main window to start or stop
+capture and see lifecycle failures. The ProxyBot menu-bar item provides the same
+actions and stays synchronized with the window. Follow the
+[getting started guide](docs/getting-started.md) to connect and clean up a device
+safely.
 
 The default development build omits the native Frida runtime. Enable live Frida
 device and process operations only when working on the Labs SSL-bypass feature:
