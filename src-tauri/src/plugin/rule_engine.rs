@@ -212,18 +212,9 @@ impl PluginDispatchEngine {
         }
     }
 
-    /// Match request against rules, return first matching rule (highest priority)
-    pub fn match_request(&self, request: &InterceptedRequest) -> Option<PluginRule> {
-        let rules = self.rules.read().unwrap();
-        rules
-            .iter()
-            .filter(|r| r.enabled && r.pattern.matches(request))
-            .min_by_key(|r| r.priority)
-            .cloned()
-    }
-
-    /// Match request against all matching rules sorted by priority
-    pub fn match_all(&self, request: &InterceptedRequest) -> Vec<PluginRule> {
+    /// Match all enabled rules against one immutable request view.
+    /// Lower priorities run first; insertion order is stable for ties.
+    pub fn matching_rules(&self, request: &InterceptedRequest) -> Vec<PluginRule> {
         let rules = self.rules.read().unwrap();
         let mut matched: Vec<_> = rules
             .iter()
@@ -517,9 +508,8 @@ mod tests {
         });
 
         let request = make_request("api.weixin.qq.com", "GET", "https", "/", vec![]);
-        let matched = engine.match_request(&request);
-        assert!(matched.is_some());
-        assert_eq!(matched.unwrap().plugin_name, "plugin-b"); // higher priority
+        let matched = engine.matching_rules(&request);
+        assert_eq!(matched[0].plugin_name, "plugin-b"); // higher priority
     }
 
     #[test]
@@ -543,9 +533,9 @@ mod tests {
         });
 
         let request = make_request("api.qq.com", "GET", "https", "/", vec![]);
-        let matched = engine.match_request(&request);
-        assert!(matched.is_some());
-        assert_eq!(matched.unwrap().plugin_name, "plugin-b");
+        let matched = engine.matching_rules(&request);
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].plugin_name, "plugin-b");
     }
 
     #[test]
@@ -639,7 +629,7 @@ rules:
     }
 
     #[test]
-    fn test_rule_engine_match_all() {
+    fn test_rule_engine_matching_rules() {
         let engine = PluginDispatchEngine::new();
         engine.add_rule(PluginRule {
             id: 1,
@@ -659,7 +649,7 @@ rules:
         });
 
         let request = make_request("api.qq.com", "GET", "https", "/", vec![]);
-        let matched = engine.match_all(&request);
+        let matched = engine.matching_rules(&request);
         assert_eq!(matched.len(), 2);
         assert_eq!(matched[0].plugin_name, "plugin-b"); // priority 50 first
         assert_eq!(matched[1].plugin_name, "plugin-a");

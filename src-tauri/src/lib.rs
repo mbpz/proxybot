@@ -36,6 +36,7 @@ pub mod protobuf;
 pub mod proxy;
 pub mod replay;
 pub mod rules;
+pub mod runtime_extensions;
 pub mod scaffoldgen;
 pub mod scripting;
 pub mod ssl_bypass;

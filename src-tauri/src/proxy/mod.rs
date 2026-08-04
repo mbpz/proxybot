@@ -8,7 +8,6 @@
 mod capture_decode;
 mod classify;
 mod commands;
-mod hooks;
 mod listener;
 mod requests;
 mod runtime_adapter;

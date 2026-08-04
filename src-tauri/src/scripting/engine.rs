@@ -3,7 +3,7 @@ use crate::proxy::InterceptedRequest;
 use rhai::{Dynamic, Engine, Scope, AST};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Per-script-call slot for body rewrites emitted by the
 /// `rewrite_request_body` / `rewrite_response_body` Rhai functions.
@@ -28,6 +28,9 @@ pub struct ScriptEngine {
     /// write to. Set per call; consumed by `run_on_request` /
     /// `run_on_response` to produce `ScriptResult::RewriteBody`.
     rewrite_slot: RewriteSlot,
+    /// Rhai rewrite callbacks share one registered slot, so evaluation is
+    /// serialized while each call clears and consumes that slot.
+    execution_lock: Mutex<()>,
 }
 
 impl ScriptEngine {
@@ -88,6 +91,7 @@ impl ScriptEngine {
             engine,
             scripts: RwLock::new(HashMap::new()),
             rewrite_slot,
+            execution_lock: Mutex::new(()),
         }
     }
 
@@ -133,6 +137,10 @@ impl ScriptEngine {
         script_name: &str,
         request: &InterceptedRequest,
     ) -> Result<ScriptResult, String> {
+        let _execution = self
+            .execution_lock
+            .lock()
+            .map_err(|error| error.to_string())?;
         let scripts = self.scripts.read().unwrap();
         let (_path, ast) = scripts
             .get(script_name)
@@ -195,6 +203,10 @@ impl ScriptEngine {
         response: &InterceptedResponse,
         request: &InterceptedRequest,
     ) -> Result<ScriptResult, String> {
+        let _execution = self
+            .execution_lock
+            .lock()
+            .map_err(|error| error.to_string())?;
         let scripts = self.scripts.read().unwrap();
         let (_path, ast) = scripts
             .get(script_name)
@@ -246,6 +258,10 @@ impl ScriptEngine {
         hook_name: &str,
         args: &[Dynamic],
     ) -> Result<Dynamic, String> {
+        let _execution = self
+            .execution_lock
+            .lock()
+            .map_err(|error| error.to_string())?;
         let scripts = self.scripts.read().unwrap();
         let (_path, ast) = scripts
             .get(script_name)
@@ -264,67 +280,11 @@ impl ScriptEngine {
             .map_err(|e| format!("Hook '{}' error in '{}': {}", hook_name, script_name, e))
     }
 
-    /// Run on_request hooks for ALL loaded scripts against the given request.
-    /// Block wins over Continue; a RewriteBody from any script wins over
-    /// later Continues (but Block from any subsequent script overrides).
-    pub fn run_all_on_request(&self, request: &InterceptedRequest) -> ScriptResult {
-        let names = self.list_scripts();
-        let mut rewrite: Option<String> = None;
-        for name in &names {
-            match self.run_on_request(name, request) {
-                Ok(ScriptResult::Block) => {
-                    log::info!("Script '{}' blocked request to {}", name, request.host);
-                    return ScriptResult::Block;
-                }
-                Ok(ScriptResult::Continue) => continue,
-                Ok(ScriptResult::RewriteBody(body)) => {
-                    log::info!("Script '{}' rewrote request body", name);
-                    rewrite = Some(body);
-                }
-                Err(e) => {
-                    log::error!("{}", e);
-                }
-            }
-        }
-        match rewrite {
-            Some(body) => ScriptResult::RewriteBody(body),
-            None => ScriptResult::Continue,
-        }
-    }
-
-    /// Run on_response hooks for ALL loaded scripts.
-    pub fn run_all_on_response(
-        &self,
-        response: &InterceptedResponse,
-        request: &InterceptedRequest,
-    ) -> ScriptResult {
-        let names = self.list_scripts();
-        let mut rewrite: Option<String> = None;
-        for name in &names {
-            match self.run_on_response(name, response, request) {
-                Ok(ScriptResult::Block) => {
-                    log::info!("Script '{}' blocked response from {}", name, request.host);
-                    return ScriptResult::Block;
-                }
-                Ok(ScriptResult::Continue) => continue,
-                Ok(ScriptResult::RewriteBody(body)) => {
-                    log::info!("Script '{}' rewrote response body", name);
-                    rewrite = Some(body);
-                }
-                Err(e) => {
-                    log::error!("{}", e);
-                }
-            }
-        }
-        match rewrite {
-            Some(body) => ScriptResult::RewriteBody(body),
-            None => ScriptResult::Continue,
-        }
-    }
-
-    /// List all loaded script names.
+    /// List all loaded script names in deterministic execution order.
     pub fn list_scripts(&self) -> Vec<String> {
-        self.scripts.read().unwrap().keys().cloned().collect()
+        let mut names: Vec<_> = self.scripts.read().unwrap().keys().cloned().collect();
+        names.sort();
+        names
     }
 
     /// Unload a script by name.
@@ -566,15 +526,11 @@ mod tests {
     }
 
     #[test]
-    fn test_run_all_on_request() {
+    fn test_script_order_is_deterministic() {
         let engine = ScriptEngine::new();
-        engine.load_from_string("allow", "true").unwrap();
-        engine.load_from_string("block", "false").unwrap();
-
-        let req = InterceptedRequest::default();
-        // Scripts are iterated in hashmap order, so either allow or block
-        // We just verify it doesn't crash
-        let _result = engine.run_all_on_request(&req);
+        engine.load_from_string("z-last", "true").unwrap();
+        engine.load_from_string("a-first", "true").unwrap();
+        assert_eq!(engine.list_scripts(), ["a-first", "z-last"]);
     }
 
     #[test]

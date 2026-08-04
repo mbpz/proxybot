@@ -2,16 +2,13 @@
 
 use super::capture_decode::{try_decode_graphql_body, try_decode_grpc_body};
 use super::classify::classify_captured_request;
-use super::hooks::{call_on_connect_hooks, call_on_request_hooks, call_on_response_hooks};
 use super::requests::get_or_create_device;
 use super::{BreakpointRequest, WsFrameEvent};
 use crate::db::{DbState, NewCapturedRequest, NewWebSocketFrame};
 use crate::dns::DnsState;
 use crate::metrics::counters::ProxyMetrics;
-use crate::network::NetworkConditionEngine;
-use crate::plugin::registry::PluginRegistry;
-use crate::plugin::{InterceptedResponse, PluginDispatchEngine};
-use crate::scripting::engine::{ScriptEngine, ScriptResult};
+use crate::plugin::{ConnectDecision, InterceptedResponse};
+use crate::runtime_extensions::{RequestExtensionOutcome, RuntimeExtensionPipeline};
 use crate::state::AppState;
 use async_trait::async_trait;
 use proxybot_core::{
@@ -26,30 +23,18 @@ use tauri::{AppHandle, Emitter};
 use tokio::net::TcpStream;
 
 pub(super) struct DesktopRuntimeHooks {
-    plugins: Arc<PluginRegistry>,
-    plugin_rules: Arc<PluginDispatchEngine>,
-    scripts: Arc<ScriptEngine>,
-    network: Arc<NetworkConditionEngine>,
+    extensions: Arc<RuntimeExtensionPipeline>,
     breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
-    metrics: Arc<ProxyMetrics>,
 }
 
 impl DesktopRuntimeHooks {
     pub(super) fn new(
-        plugins: Arc<PluginRegistry>,
-        plugin_rules: Arc<PluginDispatchEngine>,
-        scripts: Arc<ScriptEngine>,
-        network: Arc<NetworkConditionEngine>,
+        extensions: Arc<RuntimeExtensionPipeline>,
         breakpoint_tx: tokio::sync::mpsc::Sender<BreakpointRequest>,
-        metrics: Arc<ProxyMetrics>,
     ) -> Self {
         Self {
-            plugins,
-            plugin_rules,
-            scripts,
-            network,
+            extensions,
             breakpoint_tx,
-            metrics,
         }
     }
 }
@@ -57,10 +42,10 @@ impl DesktopRuntimeHooks {
 #[async_trait]
 impl RuntimeHooks for DesktopRuntimeHooks {
     async fn on_connect(&self, host: &str, _port: u16) -> RuntimeConnectDecision {
-        match call_on_connect_hooks(&self.plugins, host, &self.metrics) {
-            None | Some(crate::plugin::ConnectDecision::Allow) => RuntimeConnectDecision::Allow,
-            Some(crate::plugin::ConnectDecision::Block) => RuntimeConnectDecision::Block,
-            Some(crate::plugin::ConnectDecision::Redirect(authority)) => {
+        match self.extensions.execute_connect(host) {
+            None | Some(ConnectDecision::Allow) => RuntimeConnectDecision::Allow,
+            Some(ConnectDecision::Block) => RuntimeConnectDecision::Block,
+            Some(ConnectDecision::Redirect(authority)) => {
                 RuntimeConnectDecision::Redirect(authority)
             }
         }
@@ -68,31 +53,16 @@ impl RuntimeHooks for DesktopRuntimeHooks {
 
     async fn on_request(&self, request: &mut RuntimeRequest) -> RuntimeHookDecision {
         let mut intercepted = request.as_intercepted();
-        call_on_request_hooks(
-            &self.plugins,
-            &self.plugin_rules,
-            &mut intercepted,
-            &self.metrics,
-        );
+        let outcome = self.extensions.execute_request(&mut intercepted).await;
         request.method = intercepted.method;
         request.path = intercepted.path;
         request.headers = intercepted.req_headers;
         request.body = intercepted.req_body.unwrap_or_default().into_bytes();
-
-        match self.scripts.run_all_on_request(&request.as_intercepted()) {
-            ScriptResult::Continue => RuntimeHookDecision::Continue,
-            ScriptResult::RewriteBody(body) => {
-                request.body = body.into_bytes();
-                RuntimeHookDecision::Continue
+        match outcome {
+            RequestExtensionOutcome::Continue => RuntimeHookDecision::Continue,
+            RequestExtensionOutcome::Respond(response) => {
+                RuntimeHookDecision::Respond(runtime_response(response))
             }
-            ScriptResult::Block => RuntimeHookDecision::Respond(RuntimeResponse {
-                status: 403,
-                headers: vec![(
-                    "Content-Type".to_owned(),
-                    "text/plain; charset=utf-8".to_owned(),
-                )],
-                body: b"ProxyBot script blocked this request\n".to_vec(),
-            }),
         }
     }
 
@@ -103,18 +73,9 @@ impl RuntimeHooks for DesktopRuntimeHooks {
             headers: response.headers.clone(),
             body: String::from_utf8(response.body.clone()).ok(),
         };
-        call_on_response_hooks(
-            &self.plugins,
-            &self.plugin_rules,
-            &mut intercepted,
-            &request,
-            &self.metrics,
-        );
-        if let ScriptResult::RewriteBody(body) =
-            self.scripts.run_all_on_response(&intercepted, &request)
-        {
-            intercepted.body = Some(body);
-        }
+        self.extensions
+            .execute_response(&request, &mut intercepted)
+            .await;
         if let Some(status) = intercepted.status {
             response.status = status;
         }
@@ -151,11 +112,19 @@ impl RuntimeHooks for DesktopRuntimeHooks {
         _direction: TrafficDirection,
         byte_count: usize,
     ) -> TrafficEffect {
-        let effect = self.network.apply_for_host(host, byte_count);
+        let effect = self.extensions.traffic_effect(host, byte_count);
         TrafficEffect {
             delay: Duration::from_millis(effect.delay_ms),
             drop: effect.drop,
         }
+    }
+}
+
+fn runtime_response(response: InterceptedResponse) -> RuntimeResponse {
+    RuntimeResponse {
+        status: response.status.unwrap_or(403),
+        headers: response.headers,
+        body: response.body.unwrap_or_default().into_bytes(),
     }
 }
 

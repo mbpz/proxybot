@@ -10,6 +10,7 @@ use crate::network::NetworkConditionEngine;
 use crate::plugin::registry::PluginRegistry;
 use crate::plugin::PluginDispatchEngine;
 use crate::rules::RulesEngine;
+use crate::runtime_extensions::RuntimeExtensionPipeline;
 use crate::scripting::ScriptEngine;
 use crate::state::AppState;
 use proxybot_core::{AppConfig, MitmRuntime, RunningMitm, RuntimeConfig};
@@ -97,14 +98,14 @@ pub(crate) async fn start_proxy_runtime(
     let scripts = Arc::new(ScriptEngine::new());
     load_or_create_example_scripts(&scripts, &config.scripts_dir);
     let (breakpoint_tx, mut breakpoint_rx) = tokio::sync::mpsc::channel::<BreakpointRequest>(100);
-    let hooks = Arc::new(DesktopRuntimeHooks::new(
+    let extensions = Arc::new(RuntimeExtensionPipeline::new(
         plugins,
         plugin_rules,
         scripts,
         network,
-        breakpoint_tx,
         metrics.clone(),
     ));
+    let hooks = Arc::new(DesktopRuntimeHooks::new(extensions, breakpoint_tx));
 
     let runtime = MitmRuntime::new(
         RuntimeConfig::from(config.as_ref()),

@@ -28,7 +28,9 @@ impl PluginRegistry {
     }
 
     pub fn list_plugins(&self) -> Vec<String> {
-        self.plugins.read().unwrap().keys().cloned().collect()
+        let mut names: Vec<_> = self.plugins.read().unwrap().keys().cloned().collect();
+        names.sort();
+        names
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Plugin>> {

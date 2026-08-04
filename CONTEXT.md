@@ -84,6 +84,10 @@ _Avoid_: Generator query, session rows
 A spec, mock, scaffold, vision-enhanced model, or deployment bundle derived from one Inference Session and written through validated naming and path rules.
 _Avoid_: Generated file, generator result
 
+**Runtime Extension Pipeline**:
+The ordered request, response, connection, and traffic-effect Module that applies Plugin Dispatch Rules, plugin hooks, Rhai scripts, metrics, and Network Condition Rules for the MITM Runtime.
+_Avoid_: Hook helper, desktop hook logic
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -105,6 +109,11 @@ _Avoid_: Generated file, generator result
 - One **Inference Session** supplies the same Inferred APIs and Captured Requests to spec, mock, scaffold, vision, and deployment adapters
 - A generation adapter transforms an **Inference Session** into a **Generated Artifact**; it does not reload or remap session persistence
 - Default **Generated Artifact** paths stay under their configured roots, while explicit output paths remain operator-selected
+- The **Runtime Extension Pipeline** matches enabled **Plugin Dispatch Rules** once, executes matching plugin hooks by ascending priority, then runs Rhai scripts by deterministic name order
+- Successful plugin mutations accumulate; a panicking or timed-out plugin hook fails open, records an error metric, and does not commit its partial mutation
+- Rhai rewrites accumulate in execution order, while a blocking script produces a stable 403 response
+- The desktop Runtime Adapter translates MITM Runtime types and delegates extension behavior to the **Runtime Extension Pipeline**
+- **Network Condition Rules** are evaluated by the **Runtime Extension Pipeline** when the MITM Runtime requests a traffic effect
 
 ## Example dialogue
 
