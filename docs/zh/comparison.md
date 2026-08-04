@@ -1,97 +1,47 @@
-# 功能对比
+# 产品对比与借鉴
 
-ProxyBot 与其他流行的 MITM 代理工具对比。
+ProxyBot 不以功能数量取胜。它的机会是成为一个聚焦的 macOS 移动应用流量调试
+工具，让测试设备尽快产生一条可信、可操作的 Captured Request。
 
-## 功能对比
+## 定位对比
 
-| 功能 | ProxyBot | mitmproxy | Proxyman | proxelar | anything-analyzer |
-|--------|:--------:|:---------:|:--------:|:--------:|:-----------------:|
-| TUI | - | mitmweb | - | ratatui | - |
-| GUI | Tauri+React | mitmweb | macOS 原生 | Web (axum) | Electron |
-| pf 透明代理 | macOS pf | - | - | - | - |
-| 应用分类 | DNS 关联 | - | - | - | - |
-| DNS 服务器 | 内置 DoH/UDP | - | - | - | - |
-| 脚本引擎 | Rhai | Python | Scripting | Lua | JS Hook |
-| AI 分析 | Gen tab | - | - | - | 5模式 AI |
-| MCP Server | - | - | - | - | Client+Server |
-| macOS 支持 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Windows 支持 | - | ✓ | ✓ | ✓ | ✓ |
-| Linux 支持 | - | ✓ | ✓ | ✓ | ✓ |
-| 规则引擎 | ✓ (5动作) | ✓ | ✓ | Lua only | - |
-| 断点调试 | ✓ | ✓ | ✓ | Lua | - |
-| HAR 导出 | ✓ | ✓ | ✓ | - | - |
-| Mock 生成 | ✓ Gen tab | - | Map Local | Lua | - |
-| 过滤 DSL | ✓ AND/OR/NOT | ✓ Flow | ✓ | column:value | 域名过滤 |
-| 代码导出 | ✓ cURL/fetch/Python/Go | ✓ | ✓ | - | - |
+| 项目 | 主要优势 | ProxyBot 应借鉴 | 不应照搬 |
+| --- | --- | --- | --- |
+| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 成熟、可编程，多种清晰分工的界面 | 明确的配置/证书/验证流程，逐步披露抓包模式 | 首次使用时展示所有高级模式 |
+| [HTTP Toolkit](https://github.com/httptoolkit/httptoolkit) | 引导用户只拦截目标客户端 | 一键配置思路和流量降噪 | 在 macOS 路径可靠前扩展平台 |
+| [Proxelar](https://github.com/emanuele-em/proxelar) | 脚本化本地流量工作台，Quick Start 简洁 | 证书安装页、冒烟请求、诚实限制、可复现打包 | 桌面主流程完成前维护多个同级界面 |
+| [whistle](https://github.com/avwo/whistle) | 规则与插件生态 | 深化规则语义和扩展点 | 把扩展复杂度暴露为主产品 |
+| [Anything Analyzer](https://github.com/DeepLifeStudio/anything-analyzer) | 统一 Session 与 AI 辅助分析 | 统一 Capture Session 边界 | AI-first 和全来源抓包范围 |
 
-## ProxyBot 优势
+## ProxyBot 应保留的聚焦优势
 
-1. **透明代理** — 无需逐应用配置代理。只需将手机的网关设置为 Mac，即可捕获所有流量。
+1. macOS 桌面应用与可复用 Rust MITM Runtime。
+2. Device-aware Captured Request，以及 DNS 支持的 Application Attribution。
+3. Routing Rule、断点、Replay、Composer 与导出组成一个调试闭环。
+4. 显式代理成功后，再按需启用透明路由和自动化 Adapter。
 
-2. **应用分类** — 通过将 DNS 查询与观察到的流量进行关联，按应用（微信、抖音、支付宝等）对请求进行分组。
+隐藏前置条件或不完整模式会直接破坏这一优势。
 
-3. **Rust + Tauri GUI 双界面** — 终端效率 + 桌面体验，竞品中独一无二。
+## 默认模式顺序
 
-4. **内置 DNS 服务器** — DoH + UDP，支持 hosts、阻止列表和查询日志用于 App 关联。
+1. **显式代理** — Core，默认且完整记录。
+2. **macOS `pf` + DNS** — Advanced，会修改主机网络且可能需要提权。
+3. **MCP、Dashboard、脚本** — Advanced 自动化 Adapter。
+4. **TUN、iOS VPN、SSL Bypass、AI、生成与部署** — Labs，直到真实端到端
+   路径和支持边界被验证。
 
-## proxelar (966 ⭐) — 最接近的 Rust 竞品
+## 持久的评估标准
 
-proxelar 是架构最相似的开源项目（Rust + MITM + 脚本）。
+后续对比不再使用易过期的 Star 数或巨大勾选矩阵，而是要求证据：
 
-**proxelar 优势:**
-1. **Lua 脚本** — 更成熟的生态，更多可用脚本
-2. **列作用域过滤** — `method:POST host:api status:200` 语法直观
-3. **三界面** — Terminal + TUI + Web GUI 单二进制
-4. **跨平台** — macOS, Linux, Windows
-5. **简易 CA 安装** — 通过代理访问 `http://proxel.ar`
+| 用户结果 | 所需证据 |
+| --- | --- |
+| 安装 | 签名/公证产物、校验和、干净 Mac 冒烟测试 |
+| 首次抓包 | 计时的设备配置流程，以已知 HTTPS 请求结束 |
+| 定位问题 | 稳定的详情和 device/host/method/status 筛选 |
+| 修改行为 | Routing Rule 或断点通过本地 fixture 验证 |
+| 复现问题 | Replay 结果和导出与原请求可比对 |
+| 清理 | 正常、失败和退出路径都能停止抓包并恢复网络 |
+| 扩展 | 具有契约测试的稳定 Interface，而不只是一个页面 |
 
-**ProxyBot 相对 proxelar 的优势:**
-1. **pf 透明代理** — proxelar 需手动配置代理
-2. **应用分类** — DNS 关联 + SNI + 域名规则
-3. **内置 DNS 服务器** — DoH + UDP 带日志
-4. **规则引擎** — YAML 5 动作规则 vs 仅 Lua
-5. **Gen tab** — Mock API / 前端脚手架 / Docker 生成
-6. **DAG 分析** — 请求依赖图和认证状态机
-7. **Tauri GUI** — 原生桌面体验 vs Web GUI
-8. **设备管理** — 逐设备追踪和策略覆盖
-
-## anything-analyzer (2,366 ⭐) — AI 优先竞品
-
-anything-analyzer 是首个将 AI 分析作为一等公民的抓包工具。
-
-**anything-analyzer 优势:**
-1. **AI 自动分析** — 5 种分析模式（API 逆向、安全审计、性能、JS 加密）
-2. **MCP Server** — 将代理能力暴露为 MCP 工具供 AI Agent 使用
-3. **JS Hook 注入** — crypto.subtle、CryptoJS、SM2/3/4 拦截
-4. **双通道捕获** — 浏览器 CDP + MITM 代理统一会话
-5. **内嵌浏览器** — 多标签 Chromium
-
-**ProxyBot 相对 anything-analyzer 的优势:**
-1. **Rust 性能** — Electron 内存/CPU 开销大
-2. **pf 透明代理** — 零配置移动端抓包
-3. **应用分类** — 自动 App 识别
-4. **原生桌面 GUI** — Tauri 更轻量
-5. **断点编辑** — 请求/响应修改（anything-analyzer 只读）
-6. **Rhai 脚本** — 服务端流量转换
-7. **Gen tab** — Mock 生成 + Docker 打包
-
-## mitmproxy 优势
-
-1. **跨平台** — 支持 macOS、Windows 和 Linux。
-2. **更加成熟** — 更长的开发历史，更多文档。
-3. **可脚本化** — Python 脚本支持复杂用例。
-4. **插件生态** — 最大的插件社区。
-
-## Proxyman 优势
-
-1. **原生 macOS 应用** — 简洁的原生 UI。
-2. **CA 安装便捷** — 一键在 iOS 上安装证书。
-3. **本地映射** — 便于开发过程中模拟 API 响应。
-4. **Atlantis** — iOS VPN 无代理抓包。
-
-## InterceptSuite 优势
-
-1. **传输层聚焦** — TCP/UDP/DTLS/TLS，不仅是 HTTP
-2. **IoT/Thick Client** — 非 Web 协议专用
-3. **Python 扩展** — 自定义协议解析器
-4. **PCAP 导出** — 兼容 Wireshark 分析
+具体执行顺序见[产品路线图](../roadmap.md)。

@@ -1,166 +1,80 @@
-# MCP Server Integration
+# MCP stdio Adapter
 
-ProxyBot v1.2+ ships an MCP Server (Model Context Protocol) that exposes proxy
-capabilities as tools consumable by any MCP-compatible AI agent — Claude Desktop,
-Cursor, Windsurf, Claude Code, and others.
+ProxyBot includes an experimental MCP stdio Adapter for reading persisted
+Captured Requests, classification data, Devices, and Alerts. It is an Advanced
+integration, not part of the supported first-capture workflow.
 
-## Quick Start
+## Current boundary
 
-### 1. Verify ProxyBot MCP mode
+- `--mcp-stdio` starts the MCP Adapter only. It does **not** start a Capture
+  Session or the desktop application.
+- There is no supported `--headless` capture mode.
+- Capture traffic with the desktop application before querying its persisted
+  data from MCP.
+- The Adapter exposes six tools. It does not expose `analyze_api` or
+  `get_session`.
+- `apply_rule` currently stores a request-scoped allow/block/log record. It does
+  not create the Routing Rules used by the MITM Runtime.
+- The `capture_traffic.filter` field is currently returned as metadata but is
+  not yet applied to the persistence query.
 
-```bash
-# ProxyBot starts in MCP stdio mode with --mcp-stdio
-proxybot --mcp-stdio
-```
+These gaps are tracked in the [product roadmap](roadmap.md). MCP should remain a
+thin Adapter over shared domain Modules rather than develop a second set of SQL
+and rule semantics.
 
-You should see no output — MCP uses stdio JSON-RPC, so it waits for
-the client to initiate the handshake.
+## Run from a source build
 
-### 2. Configure Claude Desktop
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "proxybot": {
-      "command": "/Applications/ProxyBot.app/Contents/MacOS/proxybot",
-      "args": ["--mcp-stdio"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop. You'll see a hammer icon 🔨 in the chat input indicating
-MCP tools are available.
-
-### 3. Configure Cursor
-
-In Cursor settings → MCP, add a new server:
-
-```json
-{
-  "mcpServers": {
-    "proxybot": {
-      "command": "/Applications/ProxyBot.app/Contents/MacOS/proxybot",
-      "args": ["--mcp-stdio"]
-    }
-  }
-}
-```
-
-### 4. Configure Windsurf
-
-Edit `~/.windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "proxybot": {
-      "command": "/Applications/ProxyBot.app/Contents/MacOS/proxybot",
-      "args": ["--mcp-stdio"]
-    }
-  }
-}
-```
-
-## Available Tools
-
-ProxyBot exposes 5+ MCP tools:
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `capture_traffic` | Get captured HTTP requests | `limit` (int, optional) |
-| `classify_request` | Classify a host by app | `host` (string) |
-| `apply_rule` | Apply a routing rule | `pattern`, `value`, `action`, `target` |
-| `get_devices` | List connected devices | — |
-| `get_alerts` | Get anomaly alerts | `severity` (optional: SEV1/SEV2/SEV3) |
-| `analyze_api` | Analyze captured API traffic | `session_id` (optional) |
-| `get_session` | Get current session info | — |
-
-### Example Claude Desktop Prompts
-
-After connecting ProxyBot MCP Server, try these prompts in Claude Desktop:
-
-**Capture and classify traffic:**
-> "Show me the last 20 captured requests from my phone, classified by app."
-
-Claude will call `capture_traffic(limit: 20)` then `classify_request(host: ...)` for each.
-
-**Add a routing rule:**
-> "Add a rule to reject all traffic to ad domains."
-
-Claude will call `apply_rule(pattern: "domain-suffix", value: "doubleclick.net", action: "REJECT")`.
-
-**Audit AI API usage:**
-> "Analyze the last 100 requests and show me which AI providers are being called and the estimated token cost."
-
-Claude will call `capture_traffic(limit: 100)` then `analyze_api()`.
-
-## Headless Mode
-
-ProxyBot can run in headless MCP-only mode without the GUI:
+Build the Rust binary:
 
 ```bash
-# Start proxy in the background, then launch MCP server
-proxybot --headless &
-proxybot --mcp-stdio
+cargo build -p proxybot --release --locked --no-default-features
 ```
 
-Or use a launchd plist for persistent background service:
+Start MCP stdio mode:
 
-```xml
-<!-- ~/Library/LaunchAgents/com.proxybot.mcp.plist -->
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.proxybot.mcp</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Applications/ProxyBot.app/Contents/MacOS/proxybot</string>
-        <string>--mcp-stdio</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-</dict>
-</plist>
+```bash
+./target/release/proxybot --mcp-stdio
 ```
 
-## Troubleshooting
+No normal console output is expected because stdin and stdout carry JSON-RPC.
 
-### "MCP Server not found"
-- Verify the proxybot binary path: `which proxybot`
-- For Tauri app bundle: use `/Applications/ProxyBot.app/Contents/MacOS/proxybot`
-- For Homebrew CLI: use `$(brew --prefix)/bin/proxybot`
+Use the absolute path to that binary in an MCP client configuration:
 
-### "Tool call failed: proxy not running"
-MCP tools require the proxy to be capturing traffic. Start the proxy first:
-- In GUI: click "Start Proxy"
-- In CLI: `proxybot --headless &`
+```json
+{
+  "mcpServers": {
+    "proxybot": {
+      "command": "/absolute/path/to/proxybot/target/release/proxybot",
+      "args": ["--mcp-stdio"]
+    }
+  }
+}
+```
 
-### "No traffic captured"
-1. Ensure your phone is configured to use your Mac as gateway and DNS
-2. Verify pf is enabled: `sudo pfctl -s nat | grep proxybot`
-3. Check DNS tab for incoming queries
-4. Open `http://example.com` in Safari on the phone
+Do not assume an installed application bundle uses the same executable path
+until the release workflow is standardized.
 
-### "Certificate error on phone"
-The CA certificate must be installed and trusted on the phone:
-1. Export CA from Certs tab → `~/.proxybot/ca.crt`
-2. AirDrop to phone
-3. Settings → General → About → Certificate Trust Settings → Enable full trust
+## Available tools
 
-Or use the QR code in the Tauri GUI Certs tab for one-scan install.
+| Tool | Purpose | Important inputs |
+| --- | --- | --- |
+| `capture_traffic` | Read recent persisted Captured Requests | `limit`, `since`; `filter` is not yet enforced |
+| `classify_request` | Calculate Application Attribution evidence | `host`, optional `sni`, optional `dns_query` |
+| `apply_rule` | Store a request-scoped app rule | `request_id`, `action`: `allow`, `block`, or `log` |
+| `get_devices` | List persisted Devices | none |
+| `get_alerts` | Query persisted Alerts | `since`, `limit`, `device_id`, `severity`, `acknowledged` |
+| `acknowledge_alert` | Persist an Alert Acknowledgement | `alert_id` |
 
-## Technical Details
+Alert Severity values are `Info`, `Warning`, and `Critical`.
 
-- **Transport**: stdio (stdin/stdout JSON-RPC 2.0)
-- **Protocol**: MCP 1.0 (Model Context Protocol)
-- **Binary**: Same `proxybot` binary, `--mcp-stdio` flag
-- **No network**: All communication is local over stdio pipes
-- **Concurrent**: Tools are called sequentially within a session (JSON-RPC req/resp)
+## Security
+
+An MCP client can read sensitive request metadata and change persisted state.
+Only configure a trusted local client, protect the database and binary paths,
+and do not paste captured secrets into remote models or public issues.
+
+## Verification
+
+The current Adapter uses MCP protocol version `2024-11-05`. A successful
+initialization and `tools/list` call prove only the stdio contract. They do not
+prove that desktop capture is running or that the release bundle is installable.

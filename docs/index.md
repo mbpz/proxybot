@@ -1,78 +1,53 @@
 # ProxyBot
 
-**macOS HTTPS MITM proxy for developers**
+**A macOS desktop traffic debugger for mobile application developers.**
 
-<div class="badges" style="text-align: center; margin: 30px 0;">
-[![macOS](https://img.shields.io/badge/macOS-✓-blue?style=for-the-badge)](https://github.com/mbpz/proxybot)
-[![Rust](https://img.shields.io/badge/Rust-✓-orange?style=for-the-badge)](https://github.com/mbpz/proxybot)
-[![Native GUI](https://img.shields.io/badge/Native GUI-✓-green?style=for-the-badge)](https://github.com/mbpz/proxybot)
-</div>
+ProxyBot connects an iOS or Android test device to a local Rust MITM Runtime so
+you can inspect, filter, modify, replay, and export HTTP, HTTPS, and WebSocket
+Captured Requests.
 
-## Features
+!!! warning "Development preview"
 
-<div class="grid cards" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+    The project is not yet a stable, notarized macOS distribution. Existing
+    GitHub releases are previews; build from source for the current supported
+    contributor workflow.
 
-- **Transparent Proxy** — No per-app proxy configuration. macOS `pf` redirects all traffic from your phone automatically.
+## The focused workflow
 
-- **App Classification** — Traffic automatically grouped by app: WeChat, Douyin, Alipay, and more.
+1. Start ProxyBot on a Mac.
+2. Connect a test device using an explicit proxy.
+3. Install and trust the local CA for HTTPS inspection.
+4. Verify a known request appears in Traffic.
+5. Inspect, change, replay, or export the Captured Request.
+6. Stop capture and restore the device network settings.
 
-- **Full HTTPS Decryption** — MITM with dynamically generated certificates. See encrypted traffic in plain text.
+[Get started](getting-started.md){ .md-button .md-button--primary }
+[Read the roadmap](roadmap.md){ .md-button }
 
-- **Native Desktop GUI** — Rust + Tauri desktop app. No Node.js dependency.
+## Core capabilities
 
-- **Rule Engine** — Direct, Proxy, Reject, MapRemote, MapLocal — full control over traffic.
+- HTTP, HTTPS, and WebSocket capture
+- Captured Request history, detail, filters, and export
+- Routing Rules, breakpoints, replay, and Composer
+- certificate export and a local device-setup server
+- DNS-supported Application Attribution
+- a reusable Rust `proxybot-core` crate
 
-</div>
+## Scope
 
-## Installation
+Explicit proxy is the default setup path. macOS `pf`, DNS, MCP, scripting, the
+mobile dashboard, and protocol analysis are Advanced capabilities. TUN/iOS VPN,
+SSL bypass, AI, and generation/deployment features are Labs and are not part of
+the supported first-capture journey.
 
-```bash
-brew install --cask mbpz/tap/proxybot
-```
+Use ProxyBot only on devices and networks you own or are authorized to test.
+Captured traffic and local CA material are sensitive.
 
-### Setup Steps
+## Learn more
 
-1. Connect your phone to the same WiFi network as your Mac
-2. Set your phone's gateway and DNS to your Mac's IP address
-3. Export CA certificate from the **Certs** tab → AirDrop to your phone
-4. Trust the CA in **Settings → General → About → Certificate Trust Settings**
-4. Launch ProxyBot and press **Start Proxy** to begin
-
-Find your Mac's IP address:
-
-```bash
-ipconfig getifaddr en0
-```
-
-## Architecture
-
-```
-Phone --[WiFi]--> Mac (pf redirect :80/:443) --> ProxyBot (MITM) --> Internet
-                                                            |
-                                                            +--> DNS Server (log queries, correlate with apps)
-```
-
-## Comparison
-
-| Feature | ProxyBot | mitmproxy | Proxyman |
-|---------|:--------:|:---------:|:--------:|
-| TUI | ratatui | mitmweb | - |
-| pf Transparent Proxy | macOS pf | - | - |
-| App Classification | DNS correlation | - | - |
-| Tauri GUI (Rust) | Yew WASM | - | - |
-| ADB Reverse Tunnel | Android USB | - | - |
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `r` | Start/Stop Proxy |
-| `p` | Toggle pf |
-| `n` | Toggle DNS |
-| `/` | Search |
-| `x` | Clear filters |
-| `q` | Quit |
-
-## Download
-
-[Download for macOS](https://github.com/mbpz/proxybot/releases){ .md-button .md-button--primary }
+- [Getting started](getting-started.md)
+- [Architecture](architecture.md)
+- [Product comparison and lessons](comparison.md)
+- [Product roadmap](roadmap.md)
+- [Contributing](https://github.com/mbpz/proxybot/blob/main/CONTRIBUTING.md)
+- [Security policy](https://github.com/mbpz/proxybot/blob/main/SECURITY.md)

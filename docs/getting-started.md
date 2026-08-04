@@ -1,59 +1,108 @@
-# Getting Started
+# Getting started
 
-## Prerequisites
+This guide uses explicit proxy mode because it is the smallest and most
+predictable setup. The current release artifacts are development previews, so
+the supported contributor path is a source build.
 
-- macOS (required for `pf` transparent proxy)
-- Rust toolchain (for building from source)
-- Homebrew (recommended installation method)
+## Before you start
 
-## Installation
+You need:
 
-### Homebrew (Recommended)
+- a Mac with Xcode Command Line Tools
+- a stable Rust toolchain
+- Node.js 20 or newer and pnpm 10
+- an iOS or Android test device on the same Wi-Fi network
+- permission to inspect the device and its traffic
 
-```bash
-brew install --cask mbpz/tap/proxybot
-```
+Do not install the ProxyBot CA on a personal or production device.
 
-### Build from Source
+## 1. Run ProxyBot
 
 ```bash
 git clone https://github.com/mbpz/proxybot.git
-cd proxybot/src-tauri
-cargo build --release --bin proxybot
-./target/release/proxybot
+cd proxybot
+pnpm install --frozen-lockfile
+pnpm tauri dev
 ```
 
-## Device Setup
+Use the ProxyBot icon in the macOS menu bar and choose **Start Proxy**. The
+current main window does not yet expose the full Capture Session control; this
+is tracked as P0 in the [roadmap](roadmap.md).
 
-### Step 1: Connect Phone to Mac's Network
+The default proxy port is `8088`.
 
-Ensure your iOS/Android device is on the same WiFi network as your Mac.
+## 2. Find the Mac's LAN address
 
-### Step 2: Configure Device Gateway
+For a typical Wi-Fi connection:
 
-On your phone, set:
-- **Gateway**: Your Mac's IP address
-- **DNS**: Your Mac's IP address
-
-Find your Mac's IP:
 ```bash
 ipconfig getifaddr en0
 ```
 
-### Step 3: Install CA Certificate
+If that produces no address, identify the active interface in macOS Network
+Settings. Do not use `127.0.0.1` on the phone; it refers to the phone itself.
 
-1. Launch ProxyBot from `/Applications`
-2. Navigate to the **Certs** tab
-3. Export the CA certificate
-3. AirDrop the certificate to your phone
-4. On iOS: **Settings → General → About → Certificate Trust Settings** → Enable full trust for the ProxyBot CA
+## 3. Configure an explicit proxy
 
-### Step 4: Start Proxying
+On the test device, edit the current Wi-Fi network and set its HTTP proxy to
+**Manual**:
 
-1. Click **Start Proxy** in ProxyBot
-2. Watch traffic flow from your phone in real-time
+- **Server:** the Mac LAN address from step 2
+- **Port:** `8088`
+- **Authentication:** off
 
-## Next Steps
+Do not change the device gateway or DNS for this first setup. Those settings are
+part of the Advanced `pf` + DNS mode.
 
-- Explore the [Architecture](architecture.md)
-- Compare with [other tools](comparison.md)
+Open `http://example.com` on the device. A Captured Request should appear on the
+Traffic page. If it does not, stop here and check that both devices are on the
+same network, the proxy is running, and the macOS firewall allows the app.
+
+## 4. Install the CA for HTTPS
+
+1. Open **Certs** in ProxyBot.
+2. Choose **Start CA Server** and note the displayed LAN URL.
+3. Open that URL on the test device and download the CA or platform profile.
+4. Install the profile on the test device.
+5. On iOS, also enable full trust under **Settings → General → About →
+   Certificate Trust Settings**.
+
+Android trust behavior depends on OS version and application configuration. Many
+apps do not trust user-installed CAs. Certificate-pinned apps may reject the
+connection on either platform; that is an application security boundary, not a
+guaranteed ProxyBot capability.
+
+Open `https://example.com`. The request and response should now appear in
+Traffic. Never publish the generated CA private key or a captured credential.
+
+## 5. Debug a request
+
+- Use Traffic to search by host, method, status, device, or application when
+  available.
+- Inspect headers and bodies in the request detail.
+- Use a Routing Rule or breakpoint when you need to modify behavior.
+- Use Replay or Composer to reproduce a request.
+- Export only after removing secrets and personal data.
+
+## 6. Clean up
+
+1. Choose **Stop Proxy** from the ProxyBot menu-bar item.
+2. Return the device Wi-Fi proxy setting to **Off**.
+3. Stop the CA server.
+4. Remove the ProxyBot profile and CA from the test device when no longer needed.
+5. If you enabled Advanced `pf` routing, disable it before quitting.
+
+## Known limitations
+
+- The application is a development preview and is not yet shipped through a
+  maintained Homebrew tap.
+- Existing GitHub ZIP releases do not yet represent the target signed,
+  notarized, and smoke-tested distribution pipeline.
+- Start/Stop is currently available from the macOS menu-bar item rather than the
+  mounted main-window Layout.
+- Browser Playwright tests use a mock desktop Adapter and do not prove this real
+  device journey.
+- TUN/iOS VPN and SSL-bypass flows are Labs, not supported setup paths.
+
+See [Architecture](architecture.md), [Product comparison](comparison.md), and the
+[Product roadmap](roadmap.md) for the next work.

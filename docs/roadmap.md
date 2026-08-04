@@ -1,522 +1,245 @@
-# ProxyBot
+# ProxyBot product roadmap
 
-## 1. Hero Section
+**Status:** active product-convergence plan
 
-**ProxyBot — macOS Desktop HTTPS MITM Proxy for Developers**
+**Last reviewed:** 2026-08-04
 
-ProxyBot is a **native macOS desktop application** that captures and decrypts all HTTPS/WSS traffic from mobile devices on the same LAN. Set your phone's gateway and DNS to your Mac's IP, install the CA certificate once, and watch every request flow through — classified by app (WeChat, Douyin, Alipay) and domain.
+**Primary user:** a mobile application developer debugging a test device from a Mac
 
-Unlike browser-based or Electron tools, ProxyBot runs as a **native Tauri desktop app** with a Rust-powered proxy core, giving you:
-- **pf transparent proxy** — zero-config on phone, no per-app proxy settings
-- **App classification** — automatic traffic grouping by app identity (not just hostname)
-- **Native macOS GUI** — React/shadcn desktop experience, ~15MB memory footprint
-- **Rust performance** — tokio async I/O, ~10x lower memory than Electron equivalents
+This document is the product and delivery source of truth. Historical plans under
+`docs/sdd/` and `docs/superpowers/` explain earlier experiments; they do not prove
+that a feature is supported or shipped.
 
-**Target user**: Mobile developers debugging API traffic, security researchers analyzing app behavior, API consumers auditing AI provider calls.
+## Product thesis
 
-**Demo concept:** Phone on the left, Mac running the ProxyBot GUI on the right. Traffic appears in real-time as you use apps on the phone — classified by app with WeChat/Douyin/Alipay badges.
+ProxyBot should be the shortest path from “my test device is behaving strangely”
+to a trustworthy Captured Request that a developer can inspect, change, replay,
+and export.
 
----
+The supported workflow is deliberately narrow:
 
----
+1. Start one Capture Session on macOS.
+2. Connect an iOS or Android test device by explicit proxy.
+3. Install and trust the local CA when HTTPS inspection is required.
+4. Verify one known HTTP request, then one known HTTPS request.
+5. Find a Captured Request by device, application, host, method, or status.
+6. Inspect, modify, replay, or export it.
+7. Stop capture and restore the device's network settings.
 
-## 2. What's Shipped (v1.3.x)
+The first successful decrypted request matters more than the number of pages,
+protocols, generators, or experimental capture modes.
 
-### Traffic Page
-Real-time request list with virtual scroll (TanStack Virtual), 60/40 split between request list and detail panel. Filter bar with method/host/search. App classification badges (WeChat/Douyin/Alipay).
+## Product contract
 
-### Rules Editor
-Five action types: **Direct** (bypass proxy), **Proxy** (forward to upstream), **Reject** (drop connection), **MapRemote** (forward to custom remote), **MapLocal** (serve from local file/mock). Hot-reload on file change. YAML-based rule engine.
-
-### Devices Management
-Per-device table showing MAC address, last seen, and bytes up/down. Per-device rule override. WeChat/Douyin/Alipay classification badge per device.
-
-### Certificate Management
-CA certificate generation and export. Shows fingerprint, expiry, and serial number. QR code CA distribution for mobile install. Regenerate CA with fresh key pair.
-
-### DNS Server
-Upstream resolver selector: plain UDP or DoH (DNS-over-HTTPS). Blocklist toggle. Hosts file entries. Live query log showing recent lookups with response latency.
-
-### Alerts & Anomaly Detection
-SEV1 (critical), SEV2 (warning), SEV3 (info) anomaly detection with baseline profiling. Alert table with source, description, severity badge. ACK/clear controls.
-
-### Replay Engine
-Replay targets table with start/stop controls. HAR export of captured traffic. Diff view comparing replayed response against original.
-
-### Graph & Visualization
-Request dependency graph (DAG), Auth state machine visualization, WaterfallChart. Token extraction for access_token, sessionId, auth_token detection.
-
-### AI & Generation
-Mock API generation from captured traffic. Frontend scaffold generator (React + TypeScript). Docker bundle generator. AI-powered API inference with Claude.
-
-### Filter DSL
-Column-scoped filter syntax: `method:GET AND status:2* OR host:*example.com`. Supports AND/OR/NOT operators with glob patterns.
-
-### Code Export
-Export requests as cURL, fetch(), Python requests, or Go http client code.
-
-### Client Setup
-Detect installed browsers/Node.js/Python, copy proxy configuration commands to clipboard.
-
-### App Classification
-TLS fingerprint + SNI pattern matching for app identification: TikTok, WeChat, Douyin, Alipay, Amazon, Apple, and AI providers.
-
-### MCP Server
-stdio transport for Claude Desktop integration. 5 tools: capture_traffic, classify_request, apply_rule, get_devices, get_alerts.
-
-### Mobile Web Dashboard
-Lightweight HTTP dashboard for viewing traffic from mobile devices. Accessible at localhost:port.
-
----
-
-## 2. Competitive Positioning
-
-**ProxyBot is the ONLY native macOS desktop MITM proxy with Rust core + Tauri GUI.**
-
-| | ProxyBot | mitmproxy | Proxyman | HTTP Toolkit |
-|--|--|--|--|--|
-| **Platform** | macOS native Tauri | Cross-platform Python | macOS native Swift | Electron (memory heavy) |
-| **UI** | React GUI | Web/TUI | macOS AppKit | Electron Web |
-| **Transparent proxy** | ✅ pf | CLI config | — | — |
-| **App classification** | ✅ DNS+SNI | — | — | — |
-| **Memory footprint** | ~15MB | ~80MB | ~30MB | ~200MB |
-| **Tauri GUI** | ✅ | — | — | — |
-| **Homebrew install** | ✅ `brew install mbpz/tap/proxybot` | pip | Mac App Store | npm |
-
-**ProxyBot's edge**: pf transparent proxy + app classification + native Tauri desktop = unique combination in the market. No other tool gives you zero-config phone setup + automatic app grouping + native macOS experience.
-
----
-
-## 4. Roadmap (Milestones)
-
-| Version | Focus | Features |
-|---------|-------|----------|
-| **v0.4.x (DONE)** | GUI foundation | All tabs shipped, pf + DNS, basic breakpoint intercept |
-| **v0.5.0 (DONE)** | Breakpoint Editing | Full TUI breakpoint UI — pause, edit request/response, continue. Android adb reverse support via USB |
-| **v0.6.0 (DONE)** | Tauri GUI Alpha | React UI traffic panel, CA wizard, system tray with notifications |
-| **v0.7.0 (DONE)** | Rules Engine | MapRemote/MapLocal/Respond rules integrated into handle_http pipeline. apply_request_rule() sync rule engine with hot-reload |
-| **v0.8.0 (DONE)** | Tauri GUI Complete | Full GUI: Rules editor, Devices management, Certs UI |
-| **v0.9.0 (DONE)** | Advanced Features | Filter DSL (AND/OR/NOT/glob), WS frame viewer (text/hex), Replay engine (reqwest), TLS fingerprint classifier (6 apps), Dependency graph (DAG/waterfall/auth), Traffic list (virtual scroll) |
-| **v0.10.0 (DONE)** | Quick Wins | Code export (cURL/fetch/Python/Go ✅), Request Composer (split-view ✅), Syntax highlighting (highlight.js ✅), Client setup wizard (detect browsers ✅) |
-| **v1.0.0 (DONE)** | Phase 2 Complete | Plugin system v2.0 ✅, Network conditions ✅, Team workspace ✅, Rhai scripting ✅, gRPC/Protobuf decoder ✅, iOS VPN ✅ |
-| **v1.1.0 (DONE)** | Phase 3 Start | GraphQL decoder ✅, Prometheus metrics ✅, LLM token tracking ✅, Web dashboard ✅, HTTP/3 research ✅ |
-| **v1.2.0 (DONE)** | AI + MCP | MCP Server (P0 ✅ stdio transport + 5 tools), AI two-phase analysis (P1 ✅ NoiseFilter+ApiAnalyzer+Cost), Column-scoped filter DSL (P1 ✅ `method:POST host:api` + text search), QR code CA distribution (P2 ✅ QR code SVG generation) |
-| **v1.3.0 ✅** | Architecture | proxybot-core standalone crate (✅ library-first), Project file management (✅ .proxybot workspace), Mobile web dashboard (✅ lightweight mitmweb-style) |
-| **v2.0.0** | Platform | Windows support (WFP transparent proxy), HTTP/3 & QUIC research/prototype, Transport-layer TCP/UDP proxy |
-
-### v1.2.0 Implementation Plans
-
-| Feature | Plan | Spec | Status |
-|---------|------|------|--------|
-| **MCP Server** (P0) | `plans/2026-05-10-mcp-server.md` | `specs/2026-05-10-mcp-server-design.md` | ✅ Implemented (src-tauri/src/mcp/) |
-| **AI Two-Phase Analysis** (P1) | `plans/2026-05-10-ai-two-phase-analysis.md` | `specs/2026-05-10-ai-pipeline-design.md` | ✅ Implemented (src-tauri/src/ai_pipeline/) |
-| **Column-Scoped Filter DSL** (P1) | `plans/2026-05-10-column-filter-dsl.md` | `specs/2025-05-09-advanced-filter-dsl.md` | ✅ Implemented (src-tauri/src/filter/) |
-| **QR Code CA Distribution** (P2) | `plans/2026-05-10-qr-ca-distribution.md` | `specs/2026-05-10-qr-ca-distribution.md` | ✅ Implemented (src-tauri/src/cert/qr.rs) |
-
-### MCP Server Implementation Details (v1.2.0 P0)
-
-**Files created:**
-- `src-tauri/src/mcp/mod.rs` — JSON-RPC 2.0 types, McpState struct, re-exports
-- `src-tauri/src/mcp/server.rs` — McpServer with 5 tool handlers (capture_traffic, classify_request, apply_rule, get_devices, get_alerts)
-- `src-tauri/src/mcp/transport.rs` — stdio transport with `start_stdio_mode()`
-- `src-tauri/src/mcp/protocol/mod.rs` — Protocol re-exports
-- `src-tauri/src/db.rs` — Added `new_in_memory()` for CLI mode
-
-**Tools exposed:**
-| Tool | Description | Status |
-|------|-------------|--------|
-| `capture_traffic` | Get recent HTTP/HTTPS requests with limit/filter/since | ✅ |
-| `classify_request` | Classify host/SNI to identify app (WeChat/Douyin/Alipay/AI) | ✅ |
-| `apply_rule` | Apply allow/block/log rule to a request | ✅ |
-| `get_devices` | List all connected devices | ✅ |
-| `get_alerts` | Get security/anomaly alerts | ✅ |
-
-**Usage:** `proxybot --mcp-stdio`
-
-## 3.1 Competitive Deep-Dive (May 2026)
-
-Researched 6 comparable projects for architecture, interaction, and product insights.
-
-| Project | Stars | Lang | UI | Key Differentiator |
-|---------|-------|------|----|--------------------|
-| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | 43.5k | Python | TUI+Web | Industry standard, addon system, Python scripting |
-| [whistle](https://github.com/avwo/whistle) | 15.5k | Node.js | Web UI | Plugin ecosystem, Weinre remote debugging, Composer |
-| [bandwhich](https://github.com/imsnif/bandwhich) | 11.7k | Rust | TUI | Process-level bandwidth attribution |
-| [Proxyman](https://github.com/ProxymanApp/Proxyman) | 6.8k | Swift | macOS native | SwiftNIO performance, iOS app, team workspace |
-| [HTTP Toolkit](https://github.com/httptoolkit/httptoolkit) | 3.5k | TS+React | Electron | Modular (mockttp lib), one-click client setup |
-| [proxy.py](https://github.com/abhinavsingh/proxy.py) | 3.5k | Python | CLI | Zero-dependency, plugin framework, GROUT tunnel |
-
-### Feature Gap Analysis
-
-| Feature | ProxyBot | mitmproxy | Proxyman | HTTP Toolkit | whistle | proxy.py |
-|---------|----------|-----------|----------|--------------|---------|----------|
-| Transparent proxy (pf) | ✅ | — | — | — | — | — |
-| App classification | ✅ | — | — | — | — | — |
-| TUI | ✅ ratatui | ✅ NCurses | — | — | — | — |
-| Tauri GUI | ✅ | — | — | — | — | — |
-| ADB tunnel | ✅ | — | — | — | — | — |
-| Plugin system | ✅ v2.0 | ✅ addons | — | — | ✅ plugins | ✅ plugins |
-| Scripting hooks | ✅ Rhai v1.0 | ✅ Python | ✅ Scripting | — | ✅ rules | ✅ plugins |
-| Request composer | ✅ v0.10 | — | ✅ Compose | ✅ Send | ✅ Composer | — |
-| Diff tool | — | — | ✅ | — | — | — |
-| DNS spoofing | — | — | ✅ | — | — | ✅ |
-| Network throttling | ✅ v1.0 | — | ✅ | ✅ | — | — |
-| Protobuf/gRPC | ✅ v1.0 | ✅ | ✅ | — | — | — |
-| GraphQL decoder | ✅ v1.1 | — | ✅ | — | — | — |
-| Prometheus metrics | ✅ v1.1 | — | — | — | — | — |
-| Team workspace | ✅ v1.0 | — | ✅ | — | — | — |
-| gRPC-web/WebSocket frame | ✅ WS | ✅ | ✅ | ✅ | ✅ | — |
-| HAR export | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Mock API generation | ✅ Gen tab | — | Map Local | ✅ mockttp | ✅ | ✅ |
-| Remote debugging | — | — | — | — | ✅ Weinre | — |
-| Tunnel (ngrok alt) | — | — | — | — | — | ✅ GROUT |
-| API diff / regression | — | — | — | — | — | — |
-| Code export (cURL/fetch) | ✅ v0.10 | ✅ | ✅ | ✅ | ✅ | — |
-| One-click client setup | ✅ v0.10 | ✅ | ✅ | ✅ | — | — |
-| iOS standalone app | — | — | ✅ | — | — | — |
-| Syntax highlighting | ✅ v0.10 | — | ✅ | ✅ | ✅ | — |
-
-### Five-Dimension Analysis
-
-#### 1. 技术架构 (Tech Stack)
-
-| Stack Type | Tools | ProxyBot Position |
-|------------|-------|------------------|
-| Python (async) | mitmproxy, proxy.py | v1.0 uses Rust async (tokio) — superior I/O performance |
-| Node.js | whistle, anyproxy | v1.0 Rust — no Node.js dependency, lower memory |
-| Go | Hetty, hyperfox, forwarder | Comparable performance; ProxyBot has TUI advantage |
-| Rust | proxelar, bandwhich, int3rceptor | **Only** Rust + Tauri + MITM combination |
-| Electron | HTTP Toolkit, anything-analyzer | ProxyBot (Tauri) has 10x lower memory footprint |
-| Swift native | Proxyman, Rockxy | ProxyBot Tauri is cross-platform |
-
-**Key finding: ProxyBot is the ONLY Tauri-based MITM proxy tool.** Clash Verge (116k stars) proves Tauri works for proxy/network tools but they are VPN routing tools — none do traffic interception/decryption. ProxyBot is first-mover in this space.
-
-#### 2. 原理 (Mechanism)
-
-| Mechanism | How It Works | ProxyBot |
-|-----------|--------------|----------|
-| **pf transparent proxy** | macOS pf redirects :80/:443 to local proxy | ✅ Unique — no manual proxy config on phone |
-| **MITM TLS termination** | Dynamic leaf certs signed by root CA | ✅ |
-| **DNS correlation** | Log DNS queries → correlate with connections → identify app | ✅ Unique — no competitor does this |
-| **SNI inspection** | TLS ClientHello domain extraction | ✅ |
-| **CDP capture** | Chrome DevTools Protocol browser interception | anything-analyzer (not ProxyBot) |
-| **Transport-layer** | TCP/UDP/DTLS interception (not just HTTP) | InterceptSuite only |
-
-**Mechanism Insight**: ProxyBot's pf transparent proxy + DNS correlation is a two-layer capture system no competitor has.
-
-#### 3. 实现方案 (Implementation)
-
-| Implementation | mitmproxy | Proxyman | HTTP Toolkit | ProxyBot |
-|---------------|-----------|----------|--------------|----------|
-| Proxy core | Python asyncio | SwiftNIO | Node.js mockttp | Rust tokio+hyper+rustls |
-| GUI framework | mitmweb (React) | AppKit | Electron | **Tauri v2 + React** |
-| TUI framework | NCurses | — | — | ratatui |
-| Script engine | Python | Scripting | — | Rhai |
-| Database | SQLite | SQLite | better-sqlite3 | SQLite |
-| Certificate | rcgen | Security framework | node-forge | rcgen |
-
-**Implementation Insight**: ProxyBot is the only MITM tool with Tauri GUI. Tauri provides native desktop experience without Electron overhead.
-
-#### 4. 交互 (UX/Interaction)
-
-| UX Pattern | Leader | ProxyBot Status |
-|-------------|--------|-----------------|
-| **Three-panel layout** (list/overview/detail) | HTTP Toolkit | v1.0 has 60/40 split — needs three-panel upgrade |
-| **Color-coded methods** (GET=green, POST=blue) | HTTP Toolkit | Implemented in GUI |
-| **One-click CA install** | Proxyman, HTTP Toolkit | Basic wizard — needs improvement |
-| **QR code CA distribution** | proxelar, hyperfox | ✅ Implemented |
-| **Column-scoped filter** | proxelar (`method:POST`) | ✅ Implemented |
-| **Keyboard-driven TUI** | ProxyBot (ratatui) | Removed — Tauri GUI only |
-| **Virtual scroll large lists** | HTTP Toolkit, Proxyman | TanStack Virtual — implemented |
-
-**UX Gap**: proxelar's `column:value` filter syntax is more intuitive than ProxyBot's regex. HTTP Toolkit's three-panel layout is the reference design.
-
-#### 5. 产品 (Positioning)
-
-| Positioning | Leader | ProxyBot |
-|-------------|--------|----------|
-| Target platform | mitmproxy (cross-platform) | macOS-only (Phase 1) |
-| Target user | Security researcher | Developer (mobile debugging) |
-| Primary differentiator | Addon ecosystem | App classification + pf transparent |
-| Pricing | Free (most) | MIT open source |
-| Enterprise features | Burp Suite ($449/yr) | Team workspace ✅ |
-| AI integration | anything-analyzer | Gen tab (LLM inference) |
-
-**Product Insight**: ProxyBot's positioning is "developer tool for mobile traffic debugging with app intelligence." This is unique — no competitor combines transparent proxy + app classification + mobile focus.
-
----
-
-## 3.2 Competitive Insights from Deep-Dive
-
-### From anything-analyzer (2,366 stars) — AI + MCP Architecture
-- **MCP Server integration** — exposes proxy as MCP tools for AI agents (Claude Desktop, Cursor)
-- **AI two-phase pipeline** — Phase 1 filters noise → Phase 2 deep analysis
-- **CDP + MITM dual capture** — browser interception unified with proxy interception
-- **ProxyBot opportunity**: P0 priority — implement MCP Server to expose capture/classify/rules as tools
-
-### From proxelar (966 stars) — Rust TUI + Column Filter
-- **Column-scoped DSL** — `method:POST host:api status:200` is more intuitive than regex
-- **Three interfaces** — terminal/TUI/Web GUI via single binary
-- **Lua scripting** — more mature ecosystem than Rhai
-- **ProxyBot opportunity**: Integrate column:value syntax into Filter DSL
-
-### From whistle (15.5k stars) — Plugin Architecture
-- **Hook chain model**: `onRequest → onResponse → onConnect → onServer → onSocket → onError`
-- **Rules-based routing**: `pattern pluginName` declarative dispatch
-- **Hot-reload**: Rules file changes trigger automatic reload
-- **ProxyBot opportunity**: Implement whistle-style hook priorities + rules-based plugin dispatch
-
-### From HTTP Toolkit (3.5k stars) — UI/UX Excellence
-- **Three-panel layout**: Request list | Overview | Details (tabs: Headers/Body/Timing)
-- **Color coding**: GET=green, POST=blue, DELETE=red; 2xx=green, 4xx=orange, 5xx=red
-- **CA wizard**: Platform detection → Visual guide → Verification → Confirmation
-- **ADB integration**: `adb reverse` + QR-coded WiFi proxy setup
-- **ProxyBot opportunity**: Adopt three-panel GUI, enhance CA wizard, improve ADB UX
-
-### From hyperfox (1,631 stars) — QR Code CA Distribution
-- **QR code CA install** — 手机扫码安装CA，降低移动端配置门槛
-- **移动端 Web Dashboard** — 适配手机屏幕的轻量界面
-- **ProxyBot opportunity**: P2 实现 QR code + 内置 HTTP 下载 CA
-
-### From Proxyman Atlantis — iOS VPN Simplification
-- **Minimal approach**: Don't do on-device MITM, just forward packets to Mac's existing MITM
-- **Protocol**: Raw IP over TCP (simplified) with length-prefixed framing
-- **Already has**: `ios/PacketTunnel/PacketTunnelProvider.swift` skeleton with entitlements
-- **ProxyBot opportunity**: TCP bridge MVP (2-3 weeks), skip on-device TLS termination
-
-### Competitive Gap Matrix (Updated)
-
-| Feature | ProxyBot | whistle | HTTP Toolkit | Proxyman | anything-analyzer | Gap Priority |
-|---------|----------|---------|--------------|----------|-------------------|--------------|
-| MCP Server | ✅ v1.2 | ❌ | ❌ | ❌ | ✅ | ✅ DONE |
-| AI two-phase analysis | ✅ v1.2 | ❌ | ❌ | ❌ | ✅ | ✅ DONE |
-| Plugin system | ✅ v2.0 | Full | — | — | — | ✅ DONE |
-| CA wizard | Basic | — | Full | One-click | — | P2 |
-| Column-scoped filter | ✅ v1.2 | — | — | ✅ | — | ✅ DONE |
-| QR code CA | ✅ v1.2 | — | — | — | — | ✅ DONE |
-| ADB integration | USB | — | Full | — | — | P2 |
-| iOS VPN | ✅ v1.0 | — | — | ✅ Atlantis | — | ✅ DONE |
-| Network conditions | ✅ v1.0 | — | ✅ | ✅ | — | ✅ DONE |
-| Team workspace | ✅ v1.0 | — | ✅ | — | — | ✅ DONE |
-| WebView debugging | CDP stub | ✅ | — | ✅ | ✅ | P3 |
-| CDP browser capture | ❌ | — | — | — | ✅ | P3 |
-| HTTP/3 QUIC | ❌ | ❌ | ❌ | ❌ | ❌ | P3 |
-
-**ProxyBot's moat remains intact**: App classification (WeChat/Douyin/Alipay/AI services), pf transparent proxy, native Tauri GUI. These are unique to ProxyBot.
-
----
-
-## 3.3 Emerging Competitors Round 3 (May 2026)
-
-Discovered 8 new projects filling gaps not covered by earlier research:
-
-| Project | Stars | Key Innovation |
-|---------|-------|---------------|
-| [TokenTap](https://github.com/jmuncor/tokentap) | 797 | LLM API traffic interceptor, token-aware, context window tracking |
-| [Rockxy](https://github.com/RockxyApp/Rockxy) | 404 | Native macOS Swift proxy, GraphQL introspection, Charles alternative |
-| [KtorMonitor](https://github.com/CosminMihuMDC/KtorMonitor) | 217 | SDK-level interceptor, Compose Multiplatform (not network proxy) |
-| [httpmon](https://github.com/kostyay/httpmon) | 80 | Go Bubble Tea TUI, .proto gRPC decoding, JS scripting hooks |
-| [int3rceptor](https://github.com/S1b-Team/int3rceptor) | 4 | Rust+Vue.js hybrid, pentesting-first (Burp alternative) |
-| [intercept](https://github.com/mrceha/intercept) | — | Go single-binary, web dashboard, zero-dependency |
-| [mitmproxy-rs](https://github.com/josexy/mitmproxy-rs) | — | Library-first MITM for Rust, embeddable |
-| [go-traffic-proxy-analyzer](https://github.com/tahsinmert/go-traffic-proxy-analyzer) | — | Built-in Prometheus metrics + alerting |
-
-### New Strategic Opportunities
-
-| Opportunity | Rationale | Gap |
-|-------------|-----------|-----|
-| **GraphQL decoder** | Rockxy has it; no open-source tool decodes GraphQL-WS subscription traffic | P1 |
-| **Prometheus metrics** | go-traffic-proxy-analyzer pattern; makes ProxyBot CI/CD-friendly | P1 |
-| **LLM token tracking** | TokenTap hit 797 stars in 4 months; ProxyBot already has AI signatures | P2 |
-| **Web dashboard** | intercept pattern; complementary to TUI+Tauri GUI | P2 |
-| **HTTP/3 & QUIC** | ZERO open-source proxies support it; major whitespace | P3 (research) |
-
----
-
-## 3.4 Emerging Competitors Round 4 (May 2026)
-
-Discovered 6 more high-value projects not covered in earlier rounds:
-
-| Project | Stars | Key Innovation |
-|---------|-------|---------------|
-| [proxelar](https://github.com/emanuele-em/proxelar) | 966 | Rust+ratatui+Lua MITM, column-scoped filter DSL, TUI+CLI+Web three interfaces |
-| [anything-analyzer](https://github.com/Mouseww/anything-analyzer) | 2,366 | AI-powered auto reverse-engineering, MCP Server for AI agents, CDP+MITM dual capture |
-| [hyperfox](https://github.com/malfunkt/hyperfox) | 1,631 | QR code CA distribution, per-session SQLite DB, mobile-friendly web UI |
-| [InterceptSuite](https://github.com/InterceptSuite/InterceptSuite) | 772 | TCP/UDP/DTLS/TLS transport-layer MITM, IoT/Thick Client focus, Python extensions |
-| [forwarder](https://github.com/saucelabs/forwarder) | 280 | PAC auto-config, HTTP/2/WebSocket/SSE/TCP, production use at Sauce Labs |
-| [gomitmproxy](https://github.com/AdguardTeam/gomitmproxy) | 344 | Library-first Go MITM by AdGuard, embeddable, custom cert storage |
-
-### New Strategic Opportunities (Round 4)
-
-| Opportunity | Rationale | Status |
-|-------------|-----------|--------|
-| **MCP Server** | anything-analyzer proves proxy-as-AI-tool is high-demand; ProxyBot exposed capture/classify/rules as MCP tools | ✅ DONE |
-| **AI two-phase analysis** | anything-analyzer's filter→deep-analysis pipeline improves Gen tab quality significantly | ✅ DONE |
-| **Column-scoped filter DSL** | proxelar's `method:POST host:api` syntax is more intuitive than regex; integrated into existing Filter DSL | ✅ DONE |
-| **QR code CA distribution** | hyperfox/proxelar both use QR codes for mobile CA install; implemented QR code SVG generation | ✅ DONE |
-| **proxybot-core crate** | gomitmproxy/mitmproxy-rs show library-first expands ecosystem; created standalone Rust crate | ✅ DONE |
-| **Project file management** | InterceptSuite saves/restores capture sessions; implemented .proxybot workspace export/import | ✅ DONE |
-| **HTTP/3 & QUIC** | Still zero open-source proxies support it; remains major whitespace opportunity | P3 (research) |
-| **Transport-layer proxy** | InterceptSuite proves demand for non-HTTP MITM (MQTT/CoAP/gaming/DB protocols) | P3 |
-
----
-
-## 3.2 新兴竞争格局 (2026)
-
-### AI 流量分类机会
-- LLM API 调用爆发（OpenAI/Anthropic/Azure/Groq）
-- AI 流量分类成为差异化功能（v1.0 已添加签名）
-- Token 成本估算功能（v1.0 已添加 ai_stats）
-
-### 移动端零配置趋势
-- Proxyman Atlantis: iOS 无代理抓包
-- HTTP Toolkit: Android adb 一键配置
-- ProxyBot 机会: 简化移动端配置流程
-
-### 竞品威胁
-- **mitmproxy** 生态持续扩展，Flow 表达式更强大
-- **Proxyman** 商业化加速，功能追赶
-- **HTTP Toolkit** Electron 性能问题可能转向 Tauri
-
----
-
-### Key Improvements for ProxyBot
-
-**Priority 2 — Architecture Upgrades (v0.11.0)**
-
-5. **Plugin system** — Rust trait-based plugin API
-   - `ProxyPlugin` trait: on_request, on_response, on_connect, on_error hooks
-   - Plugin discovery: scan `~/.proxybot/plugins/` for .wasm or .so files
-   - Hot-reload: watch plugin directory for changes
-   - Sandbox: WASM runtime for untrusted plugins
-   - Files: `src-tauri/src/plugin/` (loader, registry, sandbox, wasm_runtime)
-   - API surface: read/modify headers, read body, inject response, log
-
-6. **Scripting hooks** — Rhai scripting engine
-   - Rhai (Rust-native, no unsafe) for user-defined traffic transforms
-   - Editor UI with syntax highlighting and live validation
-   - Hook points: request received, response received, before forward
-   - Script API: `request.headers`, `request.body`, `response.status`, `ctx.log()`
-   - Files: `src-tauri/src/scripting/` (engine, api, sandbox), `src/components/scripts/ScriptEditor.tsx`
-
-7. **gRPC/Protobuf support** — Decode protobuf bodies
-   - Detect `content-type: application/grpc` and `application/x-protobuf`
-   - Protobuf descriptor discovery: upload .proto or auto-detect via reflection
-   - Decode protobuf to JSON display, show field names and types
-   - gRPC-Web support (base64 + binary frames)
-   - Files: `src-tauri/src/protobuf/` (decoder, descriptor, grpc_web)
-
-8. **Network condition simulation** — Throttle + latency + packet loss
-   - Presets: 3G (1.6Mbps/768kbps/300ms), 4G (20Mbps/10Mbps/100ms), Custom
-   - Per-host or global throttle rules
-   - Buffered delay with configurable jitter
-   - Visual indicator in status bar when throttling active
-   - Files: `src-tauri/src/network_conditions.rs`, `src/components/conditions/NetworkConditions.tsx`
-
-**Priority 3 — Product Expansion (v1.0.0+)**
-
-9. **Process-level attribution** — Which app sent this request
-   - ADB: run `ps` on device, map PID→package name
-   - iOS: use NEPacketTunnel flow metadata (iOS 15+)
-   - Show app icon + name in traffic list (AppBadge component already exists)
-   - Per-app traffic statistics: bytes, request count, latency distribution
-
-10. **Team collaboration** — Share proxy configurations
-    - Export/import: HAR, ProxyBot project file, CA certificate bundle
-    - Rule sets: share MapRemote/MapLocal configurations as YAML/JSON
-    - Mock configs: export generated mocks with Docker bundle
-
-11. **iOS VPN mode** — On-device capture
-    - NEPacketTunnel provider (Swift, packaged separately)
-    - Local VPN → forward to local proxy → MITM on device
-    - No Mac required for basic capture
-    - Certificate install via MDM profile
-
----
-
-## 4.1 Enhanced Detection (from rkn-block-checker analysis)
-
-Inspired by [rkn-block-checker](https://github.com/MayersScott/rkn-block-checker) architecture for deep censorship detection:
-
-### Multi-Layer Diagnosis System
-
-```
-check_url() progressive detection:
-├── DNS layer: system DNS vs DoH comparison → detect DNS poisoning
-├── TCP layer: port connectivity → detect IP blacklist/TCP reset
-├── TLS layer: SNI handshake → detect TLS DPI (SNI filtering)
-└── HTTP layer: status code + body signature → detect HTTP stub pages (451, ISP inject)
-```
-
-### Verdict + Confidence System
-
-| Verdict | Description | Confidence Calibration |
-|---------|-------------|------------------------|
-| `OK` | Connection normal | HIGH if all layers pass |
-| `DNS_BLOCK` | System DNS fails, DoH succeeds | HIGH - dual signal confirmation |
-| `TCP_RESET` | TCP RST received | MEDIUM - known censorship pattern |
-| `TLS_BLOCK` | TLS handshake dropped on ClientHello | MEDIUM - SNI-based DPI signature |
-| `HTTP_STUB` | HTTP 451 or ISP stub page marker | HIGH - explicit signal |
-| `TIMEOUT` | Connection timeout | LOW - ambiguous |
-| `DOWN` | Generic failure | LOW - multiple possible causes |
-
-### Stub Page Detection
-
-```python
-STUB_MARKERS = [...]  # ISP signature strings for body matching
-
-def looks_like_stub(body_snippet: str) -> bool:
-    return any(marker in body_snippet for marker in STUB_MARKERS)
-```
-
-### DNS Comparison (ProxyBot already has foundation)
-
-```rust
-// System DNS vs DoH对比检测DNS污染
-sys_ips = resolve_system_all(host)
-doh_ips = resolve_doh_all(host)
-
-if sys_ips.is_disjoint(doh_ips) {
-    → DNS mismatch detected (transparent DNS rewriting)
-}
-```
-
-### Implementation Priority
-
-1. **Stub page signatures** - Add ISP stub markers to response analyzer
-2. **Confidence scoring** - Add Verdict + Confidence to anomaly alerts
-3. **DNS对比检测** - Leverage existing DNS log for poisoning detection
-4. **TLS DPI detection** - Detect握手被重置的审查模式
-5. **流式诊断报告** - 分层展示诊断结果
-
----
-
-## 5. Installation
-
-```bash
-brew install --cask mbpz/tap/proxybot
-```
-
-Then connect your phone to the same WiFi network as your Mac:
-
-1. **Set gateway:** WiFi settings > Configure Proxy > Manual — set Server to your Mac IP, Port to `8088`
-2. **Set DNS:** WiFi settings > Configure DNS — set to your Mac IP
-3. **Install CA:** Launch ProxyBot, export CA from the Certs tab, AirDrop to phone, enable full trust in Settings > General > About > Certificate Trust Settings
-4. **Start capturing:** Launch ProxyBot and click **Start Proxy**
-
-Find your Mac IP with: `ipconfig getifaddr en0`
-
----
-
-## 6. Architecture
-
-```
-Phone --[WiFi]--> Mac (pf redirect :80/:443) --> ProxyBot (MITM) --> Internet
-                        |
-                        +--> DNS Server (log queries, correlate with apps)
-```
-
-- **pf** redirects all port 80/443 traffic from the phone to ProxyBot's local proxy port
-- **MITM** terminates TLS with dynamically-generated leaf certs signed by the root CA
-- **DNS server** logs queries from the phone, correlated with subsequent connections for app classification
-- **Classification engine** maps domains to apps: WeChat (`*.weixin.qq.com`, `*.wechat.com`), Douyin (`*.douyin.com`, `*.tiktokv.com`), Alipay (`*.alipay.com`, `*.alipayusercontent.com`)
+### Core
+
+Core is the supported path and must remain visible, documented, and covered by a
+real desktop acceptance test.
+
+| Area | User outcome | Target surface |
+| --- | --- | --- |
+| Capture | Start, stop, recover, and understand capture state | Persistent Capture Session control |
+| Setup | Connect a device, install the CA, verify traffic, and clean up | One guided Device Onboarding flow |
+| Inspect | Search and understand Captured Requests | Traffic workspace with contextual DNS and Application Attribution |
+| Modify | Apply a Routing Rule or breakpoint safely | Rules and inline breakpoint controls |
+| Reproduce | Send a request again or compose a new one | Replay and Composer |
+| Share | Export a useful, redacted artifact | HAR and request-code export |
+| Configure | Change ports, storage, TLS, and updates | Settings |
+
+### Advanced
+
+Advanced capabilities may be documented after the Core workflow is stable:
+
+- macOS `pf` transparent routing and the built-in DNS server
+- MCP stdio Adapter
+- Runtime Extension Pipeline and Rhai scripts
+- mobile dashboard
+- protocol decoding and traffic analysis
+
+Advanced features must not be required for first success.
+
+### Labs
+
+Labs are experiments, not product promises. They should be hidden behind an
+explicit opt-in and excluded from the default navigation and release claims:
+
+- TUN/iOS VPN experiments
+- Android SSL-bypass and APK patching
+- AI analysis
+- spec, mock, scaffold, and deployment generation
+- overlapping Graph and Topology views until they become one coherent analysis
+  workflow
+
+A Labs feature graduates only when it has an owner, a supported user journey, a
+failure model, documentation, and a test through its real Adapter.
+
+## Why convergence is required
+
+The current repository contains valuable deep Modules, but the public product
+surface does not reflect them consistently:
+
+- The React application exposes 14 equal-weight navigation items, while its
+  mounted Layout has no visible Start/Stop Capture Session control.
+- Device QR setup is separated from the certificate distribution lifecycle and
+  depends on hidden ordering across pages.
+- The TUN Implementation creates and configures an interface but does not own a
+  packet-forwarding path into the MITM Runtime.
+- The iOS VPN experiment refers to a Mac tunnel service and CLI that are not part
+  of the current composition root.
+- Browser E2E tests use a mock Tauri Adapter; they cannot prove that a packaged
+  app starts, captures traffic, or serves a certificate.
+- Package metadata, update checking, MCP metadata, tags, and the latest GitHub
+  release do not share one version source.
+- Release automation hand-builds and ad-hoc-signs an application ZIP instead of
+  producing the same signed and notarized Tauri bundle users are asked to run.
+
+These are product-trust problems, not missing-feature problems.
+
+## Lessons from comparable projects
+
+ProxyBot should borrow interaction principles, not copy competitors' breadth.
+
+| Project | Useful lesson | ProxyBot decision |
+| --- | --- | --- |
+| [mitmproxy](https://github.com/mitmproxy/mitmproxy) | Clear roles for each interface, a short configure/install/verify loop, and advanced capture modes disclosed progressively | Make explicit proxy the default path; move `pf`, DNS, and other modes behind Advanced |
+| [HTTP Toolkit](https://github.com/httptoolkit/httptoolkit) | Setup is organized around selecting and intercepting the relevant client, reducing unrelated traffic | Make Device Onboarding and device-scoped filtering part of the main workflow |
+| [Proxelar](https://github.com/emanuele-em/proxelar) | A concise quick start, a certificate install page, a smoke-test request, explicit limitations, and reproducible single-binary distribution | Add a deterministic first-capture check and state limitations next to setup |
+| [whistle](https://github.com/avwo/whistle) | A rule-first extension model can grow without expanding the basic workflow | Keep Routing Rules and extensions deep, but do not expose plugin complexity during onboarding |
+| [Anything Analyzer](https://github.com/DeepLifeStudio/anything-analyzer) | A unified Session gives capture and analysis a coherent boundary | Use one Capture Session concept; do not adopt an all-source or AI-first scope |
+
+Star counts and feature checklists are intentionally omitted: they age quickly
+and reward surface area rather than a reliable user journey.
+
+## Recommended execution order
+
+Work proceeds in order. A later stage cannot compensate for an unmet earlier
+exit gate.
+
+### P0 — Make first capture truthful and repeatable
+
+1. **Deepen the Capture Session Module.**
+   - Give it one Interface for status, prerequisites, start, stop, failure, and
+     recovery.
+   - Use the same Module from the desktop shell and tray Adapter.
+   - Remove unused Header, Footer, AppHeader, and lifecycle wrappers once their
+     behavior has moved behind the Module.
+2. **Deepen the Device Onboarding Module.**
+   - Own network discovery, certificate distribution, platform instructions,
+     QR generation, verification, and cleanup in one place.
+   - Lead with explicit proxy mode; introduce `pf` only after the basic path
+     succeeds.
+3. **Quarantine incomplete network experiments.**
+   - Remove TUN and iOS VPN from the default UI, release claims, and supported
+     documentation until a real packet-forwarding Adapter exists.
+4. **Establish one Release/Install/Update source of truth.**
+   - Derive Rust, Tauri, frontend, MCP, tag, and update metadata from one version.
+   - Build with the Tauri bundler; add Developer ID signing, notarization,
+     stapling, checksums, SBOM, release notes, and an install/start smoke test.
+   - Do not advertise Homebrew until a maintained tap and installation check
+     exist.
+5. **Add one real desktop acceptance journey.**
+   - Launch the packaged app, prepare the CA, start capture, make a local test
+     request, observe the Captured Request, stop, and restart.
+
+**P0 exit gate**
+
+- A new user can obtain the documented build and see a decrypted test request in
+  under five minutes without discovering an undocumented prerequisite.
+- The main window shows capture state and a recovery-oriented error message.
+- Every published version agrees across metadata, UI, MCP, tag, and artifacts.
+- No Core documentation describes a Labs feature as shipped.
+
+### P1 — Make the core debugging loop coherent
+
+1. Reduce the default navigation to Capture, Setup, Rules, Replay/Composer, and
+   Settings; place DNS, Alerts, and analysis in the context of a Capture Session.
+2. Make Captured Request persistence the single query seam for history, desktop,
+   MCP, and analysis.
+3. Unify the filter language and query semantics across Traffic, export, MCP,
+   Graph, Topology, and Alerts.
+4. Migrate production UI calls to the generated Desktop Contract Interface;
+   remove the shallow `safeInvoke` Adapter that converts failures into `null`.
+5. Add redaction-first HAR export and a reproducible issue-report bundle.
+
+**P1 exit gate**
+
+- The default sidebar has no duplicate destination or experimental product.
+- The same filter returns the same Captured Requests in every Adapter.
+- Tauri command failures are typed product states rather than silent empty data.
+- An issue report can include diagnostics without secrets or captured payloads by
+  default.
+
+### P2 — Increase reliability and architectural depth
+
+1. Make the running desktop MITM Module own the core runtime, Capture Event
+   bridge, breakpoint task, and deterministic shutdown.
+2. Keep SQLite Implementation details behind focused Captured Request, Alert,
+   Device, and Routing Rule Interfaces; avoid sharing `Mutex<Connection>` with
+   Adapters.
+3. Keep MCP as a headless Adapter over the same domain Modules. Remove duplicated
+   SQL and either implement a real headless Capture Session or delete the claim.
+4. Turn the BrowserMockAdapter suite into fast contract coverage and keep a
+   smaller real-Tauri acceptance lane for cross-Seam behavior.
+5. Define architecture decisions in `docs/adr/` when a change alters a public
+   Interface, persistence model, security boundary, or release contract.
+
+**P2 exit gate**
+
+- Stop returns only after all owned tasks and network resources are released.
+- Desktop and MCP expose the same persisted facts and terminology.
+- Major Interfaces have contract tests and one documented owner.
+- Security-sensitive configuration has a non-null CSP and minimal Tauri
+  capabilities.
+
+### P3 — Grow an open-source project, not a feature catalogue
+
+1. Publish a changelog, support matrix, compatibility policy, and release
+   cadence.
+2. Add screenshots or a short first-capture recording only after the P0 journey
+   is stable.
+3. Maintain good-first-issue and help-wanted work from the Core roadmap.
+4. Measure opt-in, privacy-preserving product outcomes: install success, time to
+   first Captured Request, setup failure stage, and crash-free Capture Sessions.
+5. Graduate one Labs capability at a time based on demonstrated user demand.
+
+**P3 exit gate**
+
+- A release has notes, checksums, a support statement, and a verified upgrade
+  path.
+- A contributor can select, build, test, and submit a Core issue using only
+  repository documentation.
+- Roadmap changes reference user evidence or an accepted architecture decision.
+
+## Architecture deepening candidates
+
+These are ordered by user impact and Leverage. They name the Module and Seam to
+deepen; detailed Interfaces belong in an accepted design or ADR.
+
+1. Capture Session lifecycle and shell/tray Adapters
+2. Device Onboarding and certificate distribution lifecycle
+3. Removal or isolation of incomplete TUN/iOS VPN Implementations
+4. Generated Desktop Contract adoption across the React application
+5. MCP as an Adapter over shared domain Modules
+6. Release/Install/Update as one reproducible Module
+7. Desktop MITM ownership of all child tasks
+8. Real user journey as an acceptance-test Interface
+
+## Non-goals for the current cycle
+
+- becoming a general-purpose VPN or packet analyzer
+- implementing every transport protocol
+- competing with security suites on exploit or evasion breadth
+- making AI, code generation, or deployment generation the primary product
+- adding Windows or Linux before the macOS first-capture path is reliable
+- promising interception of certificate-pinned or platform-protected apps
+
+## Roadmap governance
+
+- “Supported” requires a documented journey, real-Adapter test, maintained owner,
+  and failure/cleanup behavior.
+- “Done” requires the exit gate to pass on the release artifact, not only unit or
+  browser-mock tests.
+- Product additions must identify what leaves the default surface or why the new
+  complexity belongs in Core.
+- Historical plans may explain a decision but cannot override this roadmap,
+  `CONTEXT.md`, current code, or release evidence.

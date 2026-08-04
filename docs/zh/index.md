@@ -1,67 +1,50 @@
 # ProxyBot
 
-**面向开发者的 macOS HTTPS MITM 代理**
+**面向移动应用开发者的 macOS 桌面流量调试工具。**
 
-<div class="badges" style="text-align: center; margin: 30px 0;">
-[![macOS](https://img.shields.io/badge/macOS-✓-blue?style=for-the-badge)](https://github.com/mbpz/proxybot)
-[![Rust](https://img.shields.io/badge/Rust-✓-orange?style=for-the-badge)](https://github.com/mbpz/proxybot)
-[![Native GUI](https://img.shields.io/badge/Native GUI-✓-green?style=for-the-badge)](https://github.com/mbpz/proxybot)
-</div>
+ProxyBot 让 iOS 或 Android 测试设备连接到本机 Rust MITM Runtime，以便检查、
+筛选、修改、重放和导出 HTTP、HTTPS 与 WebSocket Captured Request。
 
-## 功能特点
+!!! warning "开发预览版"
 
-<div class="grid cards" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+    项目尚未形成稳定、经过公证的 macOS 分发。现有 GitHub Release 是预览产物；
+    当前面向贡献者的受支持方式是从源码运行。
 
-- **透明代理** — 无需逐应用配置代理。macOS `pf` 自动将手机所有流量重定向。
+## 收敛后的核心流程
 
-- **应用分类** — 流量按应用自动分组：微信、抖音、支付宝等。
+1. 在 Mac 上启动 ProxyBot。
+2. 通过显式代理连接测试设备。
+3. 需要检查 HTTPS 时安装并信任本地 CA。
+4. 验证一个已知请求出现在 Traffic 页面。
+5. 检查、修改、重放或导出 Captured Request。
+6. 停止抓包并恢复设备网络设置。
 
-- **完整 HTTPS 解密** — MITM + 动态生成证书。加密流量明文可见。
+[快速入门](getting-started.md){ .md-button .md-button--primary }
+[查看产品路线图](../roadmap.md){ .md-button }
 
-- **原生 macOS GUI** — Rust + Tauri 构建的桌面应用。无需 Node.js 依赖。
+## 核心能力
 
-- **规则引擎** — 直连、代理、拒绝、远程映射、本地映射 — 完全控制流量。
+- HTTP、HTTPS 与 WebSocket 抓取
+- Captured Request 历史、详情、筛选和导出
+- Routing Rule、断点、Replay 与 Composer
+- 证书导出和本地设备配置服务
+- DNS 支持的 Application Attribution
+- 可复用的 Rust `proxybot-core` crate
 
-</div>
+## 产品边界
 
-## 安装
+显式代理是默认配置方式。macOS `pf`、DNS、MCP、脚本、移动 Dashboard 与协议
+分析属于 Advanced。TUN/iOS VPN、SSL Bypass、AI、生成与部署功能属于 Labs，
+不在受支持的首次抓包路径内。
 
-```bash
-brew install --cask mbpz/tap/proxybot
-```
+ProxyBot 只能用于你拥有或明确获准测试的设备和网络。抓包内容和本地 CA 材料
+都属于敏感数据。
 
-### 设置步骤
+## 更多文档
 
-1. 将手机连接到与 Mac 相同的 WiFi 网络
-2. 将手机的网关和 DNS 设置为 Mac 的 IP 地址
-3. 从 **证书** 标签页导出 CA 证书 → AirDrop 到手机
-4. 在 **设置 → 通用 → 关于 → 证书信任设置** 中信任 CA
-5. 启动 ProxyBot 并点击 **启动代理**
-
-查看 Mac 的 IP 地址：
-
-```bash
-ipconfig getifaddr en0
-```
-
-## 架构
-
-```
-手机 --[WiFi]--> Mac (pf 重定向 :80/:443) --> ProxyBot (MITM) --> 互联网
-                                                             |
-                                                             +--> DNS 服务器（记录查询，关联应用）
-```
-
-## 功能对比
-
-| 功能 | ProxyBot | mitmproxy | Proxyman |
-|------|:--------:|:---------:|:--------:|
-| GUI | Tauri + React | mitmweb | macOS 原生 |
-| pf 透明代理 | macOS pf | - | - |
-| 应用分类 | DNS 关联 | - | - |
-| MCP Server | ✅ | - | - |
-| ADB 反向隧道 | Android USB | - | - |
-
-## 下载
-
-[下载 macOS 版本](https://github.com/mbpz/proxybot/releases){ .md-button .md-button--primary }
+- [快速入门](getting-started.md)
+- [架构](architecture.md)
+- [产品对比与借鉴](comparison.md)
+- [产品路线图](../roadmap.md)
+- [贡献指南](https://github.com/mbpz/proxybot/blob/main/CONTRIBUTING.md)
+- [安全策略](https://github.com/mbpz/proxybot/blob/main/SECURITY.md)

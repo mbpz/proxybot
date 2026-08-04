@@ -21,7 +21,6 @@ theme:
     text: Roboto
     code: Roboto Mono
   features:
-    - navigation.instant
     - navigation.tracking
     - navigation.sections
     - navigation.expand
@@ -46,7 +45,7 @@ plugins:
         - en
         - zh
   - i18n:
-      docs_structure: suffix
+      docs_structure: folder
       fallback_to_default: true
       languages:
         - locale: en
@@ -59,18 +58,11 @@ plugins:
           build: true
 
 nav:
-  - Home:
-      - index.md
-      - zh/index.md
-  - Getting Started:
-      - getting-started.md
-      - zh/getting-started.md
-  - Keyboard Shortcuts:
-      - keyboard-shortcuts.md
-      - zh/keyboard-shortcuts.md
-  - Comparison:
-      - comparison.md
-      - zh/comparison.md
-  - Architecture:
-      - architecture.md
-      - zh/architecture.md
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Product Roadmap: roadmap.md
+  - Comparison: comparison.md
+  - Architecture: architecture.md
+  - Advanced:
+      - Application Attribution: app-classification.md
+      - MCP stdio Adapter: mcp-integration.md

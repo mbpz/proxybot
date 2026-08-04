@@ -4,34 +4,63 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mbpz.github.io/proxybot/)
 
-ProxyBot is a macOS desktop proxy for inspecting HTTP, HTTPS, and WebSocket traffic from devices on the same network. It combines a Rust proxy core, a Tauri desktop application, DNS correlation, and application-aware traffic classification.
+ProxyBot is an early-stage macOS desktop traffic debugger for mobile application
+developers. It helps an iOS or Android test device connect to a local Rust MITM
+Runtime, then inspect, filter, modify, replay, and export HTTP, HTTPS, and
+WebSocket Captured Requests.
 
-> **Project status:** ProxyBot is under active development. Interfaces, on-disk data, and capture behavior may change before a stable release.
+> **Development preview:** interfaces, on-disk data, capture behavior, and
+> release packaging may change before the first stable release. Existing GitHub
+> release artifacts are previews; the supported contributor path is currently a
+> source build.
 
-> **Authorized use only:** TLS interception exposes sensitive traffic and changes the device trust model. Use ProxyBot only on devices, applications, and networks you own or are explicitly authorized to test. Never share captured payloads, private keys, certificates, or access tokens in public issues.
+> **Authorized use only:** TLS interception exposes sensitive traffic and
+> changes the device trust model. Use ProxyBot only on devices, applications,
+> and networks you own or are explicitly authorized to test. Never share
+> captured payloads, private keys, certificates, or access tokens in public
+> issues.
 
-## Capabilities
+## Product focus
 
-- Transparent macOS routing through `pf`, plus explicit proxy workflows
-- HTTP/HTTPS interception with a locally generated certificate authority
-- WebSocket capture, replay, breakpoints, and request/response rules
-- DNS logging and traffic classification by host, SNI, and known application domains
-- React + TypeScript desktop interface delivered by Tauri
-- Reusable `proxybot-core` Rust crate without GUI dependencies
-- MCP stdio mode, mobile dashboard, filters, export, and protocol decoders
-- Optional Android SSL-bypass and APK-patching tools
+ProxyBot is converging on one dependable workflow:
 
-Some applications use certificate pinning or platform protections that intentionally prevent decryption. ProxyBot can still expose DNS/SNI metadata in many of those cases, but it cannot guarantee payload access.
+1. Start a Capture Session on a Mac.
+2. Connect a test device with an explicit proxy.
+3. Install and trust the local CA when HTTPS inspection is needed.
+4. Verify a known request.
+5. Inspect, filter, modify, replay, or export the Captured Request.
+6. Stop capture and restore the device network settings.
+
+The following capabilities support that workflow:
+
+- Rust MITM Runtime with HTTP, HTTPS, and WebSocket Capture Events
+- React + TypeScript desktop application delivered by Tauri
+- Captured Request history, detail, filtering, breakpoints, replay, and Composer
+- Routing Rules for direct, upstream proxy, reject, mapping, and breakpoint
+  outcomes
+- DNS observations and application-aware traffic attribution
+- certificate export and local device-setup server
+- HAR and request-code export
+- reusable `proxybot-core` crate without GUI dependencies
+
+macOS `pf`, the DNS server, MCP stdio, scripting, the mobile dashboard, and
+protocol analysis are Advanced capabilities. TUN/iOS VPN, Android SSL bypass,
+AI analysis, and generation/deployment screens are Labs until their complete
+user journey is proven. See the [product roadmap](docs/roadmap.md).
+
+Some applications use certificate pinning or platform protections that
+intentionally prevent decryption. ProxyBot may still expose DNS or SNI metadata,
+but it cannot guarantee payload access.
 
 ## Build from source
 
 ProxyBot currently targets macOS. You need:
 
 - Xcode Command Line Tools
-- A stable Rust toolchain
+- a stable Rust toolchain
 - Node.js 20 or newer
 - pnpm 10
-- The [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+- the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
 git clone https://github.com/mbpz/proxybot.git
@@ -40,49 +69,75 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-The default development build omits the native Frida runtime. Enable live
-Frida device and process operations when needed with:
+The main window does not yet expose the complete Capture Session lifecycle. In
+the development build, use the ProxyBot menu-bar item and choose **Start Proxy**
+or **Stop Proxy**. Follow the [getting started guide](docs/getting-started.md) to
+connect and clean up a device safely.
+
+The default development build omits the native Frida runtime. Enable live Frida
+device and process operations only when working on the Labs SSL-bypass feature:
 
 ```bash
 pnpm tauri dev --features frida-runtime
 ```
 
-Create a release bundle with:
+Create a local release bundle with:
 
 ```bash
 pnpm build:tauri
 ```
 
-The bundle step downloads pinned Apktool and Frida Gadget assets for the optional APK patcher. They are verified against SHA-256 digests in [`src-tauri/resources/resources.lock`](src-tauri/resources/resources.lock) and are not stored in Git. Run `pnpm resources:fetch` explicitly to prepare an offline bundle, or `pnpm resources:check` to verify an existing cache without network access.
+The bundle step downloads pinned Apktool and Frida Gadget assets for the optional
+APK patcher. They are verified against SHA-256 digests in
+[`src-tauri/resources/resources.lock`](src-tauri/resources/resources.lock) and
+are not stored in Git. Run `pnpm resources:fetch` to prepare an offline bundle,
+or `pnpm resources:check` to verify an existing cache without network access.
 
-Release tooling explicitly enables the optional `frida-runtime` Cargo feature. The first such build downloads the matching Frida Core development kit through `frida-rust`. Core development and CI use `--no-default-features`, which keeps the same IPC commands but returns a clear capability error for live Frida operations and can build fully offline after Cargo dependencies are cached.
+Release tooling enables the optional `frida-runtime` Cargo feature. The first
+such build downloads the matching Frida Core development kit through
+`frida-rust`. Core development and CI use `--no-default-features`; live Frida
+commands then return an explicit capability error.
 
-## How traffic reaches ProxyBot
+## Traffic path
+
+Explicit proxy is the recommended first-capture mode:
 
 ```text
-Phone ──Wi-Fi──> Mac (pf / explicit proxy) ──> ProxyBot ──> upstream server
-                         │                       │
-                         └── built-in DNS ───────┘
-                             correlation
+Test device --Wi-Fi explicit proxy--> Mac --MITM Runtime--> upstream server
+                                         |
+                                         +--> Captured Request
 ```
 
-On first use, ProxyBot creates a local CA. Install and trust that CA only on a test device. Configure the device to use the Mac as its proxy/gateway and DNS server, then start capture from the desktop application. See the [getting started guide](docs/getting-started.md) for the full setup and cleanup procedure.
+Advanced `pf` routing and DNS observation add host-level network changes:
+
+```text
+Test device --Wi-Fi--> macOS pf --> MITM Runtime --> upstream server
+                          |
+                          +--> DNS server --> Application Attribution
+```
+
+Install and trust the ProxyBot CA only on a test device, and remove it when the
+session is finished.
 
 ## Repository layout
 
 ```text
-proxybot-core/   reusable proxy, certificate, classification, and spec modules
-src-tauri/       single desktop bootstrap, Tauri commands, platform integration, and storage
-src/             React application and browser-side tests
-e2e/             Playwright end-to-end coverage
-docs/            MkDocs sources and architecture notes
-ios/             experimental iOS packet-tunnel code
+proxybot-core/   reusable MITM Runtime, certificates, rules, and analysis models
+src-tauri/       composition root, desktop Adapters, persistence, and macOS integration
+src/             React desktop application and Browser Adapter tests
+e2e/             browser-mock Playwright coverage
+docs/            current user and architecture documentation
+ios/             unsupported historical VPN experiment
 scripts/         development and reproducible asset tooling
 ```
 
+Historical plans under `docs/sdd/` and `docs/superpowers/` are research records,
+not a list of supported features.
+
 ## Development checks
 
-The local CI command covers formatting, Rust tests and lints, TypeScript checks, UI tests, and the frontend production build:
+The local CI command covers formatting, Rust tests and lints, TypeScript checks,
+UI tests, and the frontend production build:
 
 ```bash
 pnpm ci:local
@@ -100,8 +155,15 @@ pnpm test:e2e
 pnpm build
 ```
 
+Playwright currently exercises a BrowserMockAdapter, not a packaged Tauri app.
+Passing it does not by itself prove real certificate distribution or capture.
+
 ## Contributing and security
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Use the issue forms for reproducible bugs and focused feature requests. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), and follow the [Code of Conduct](CODE_OF_CONDUCT.md) in all project spaces.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Use the
+issue forms for reproducible bugs and focused feature requests. Report
+vulnerabilities privately as described in [SECURITY.md](SECURITY.md), and follow
+the [Code of Conduct](CODE_OF_CONDUCT.md) in all project spaces.
 
-ProxyBot is available under the [MIT License](LICENSE). Downloaded Apktool and Frida assets remain under their respective upstream licenses.
+ProxyBot is available under the [MIT License](LICENSE). Downloaded Apktool and
+Frida assets remain under their respective upstream licenses.

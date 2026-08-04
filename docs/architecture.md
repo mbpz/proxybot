@@ -1,54 +1,149 @@
 # Architecture
 
-## Overview
+ProxyBot separates a reusable MITM Runtime from platform and presentation
+Adapters. The architecture goal is not more layers; it is to keep capture,
+persistence, desktop behavior, and experiments behind deep Modules with small
+Interfaces.
 
-ProxyBot acts as a transparent HTTPS MITM proxy on your Mac. When your iOS/Android device is configured to use your Mac as the gateway, all HTTP/HTTPS traffic flows through ProxyBot, which can decrypt, inspect, and log the traffic.
+The canonical domain language is defined in
+[`CONTEXT.md`](https://github.com/mbpz/proxybot/blob/main/CONTEXT.md).
 
-## Traffic Flow
+## Runtime composition
 
+```text
+Process Config
+     |
+     v
+desktop composition root ---------------------- MCP stdio Adapter
+     |                                                |
+     +--> macOS / Tauri Adapters                      |
+     +--> SQLite Adapters <---------------------------+
+     +--> certificate and DNS resources
+     |
+     v
+MITM Runtime --> Capture Event --> desktop Runtime Adapter
+     |                                  |
+     |                                  +--> Captured Request persistence
+     |                                  +--> Application Attribution
+     |                                  +--> Alerts and analysis
+     |                                  +--> desktop event delivery
+     v
+upstream server
 ```
-Phone --[WiFi]--> Mac (pf redirect :80/:443) --> ProxyBot (MITM) --> Internet
-                                                            |
-                                                            +--> DNS Server (log queries, correlate with apps)
+
+`src-tauri/src/bootstrap.rs` is the single composition root. It parses Process
+Config, selects the desktop or MCP launch Adapter, creates shared resources, and
+owns process shutdown.
+
+## Modules and seams
+
+### `proxybot-core`
+
+The reusable core owns:
+
+- validated Process Config and Runtime Config
+- the MITM Runtime and its lifecycle handle
+- TLS certificate generation and interception decisions
+- Routing Rule models and matching
+- Capture Event types
+- Application Attribution and analysis models
+- specification-generation primitives
+
+The MITM Runtime exposes `RuntimeHooks` and `OriginalDestination` Seams instead
+of depending on Tauri, SQLite, or macOS `pf`.
+
+### Desktop Runtime Adapter
+
+`src-tauri` supplies the desktop Implementations. The Runtime Adapter translates
+Capture Events into persisted Captured Requests, WebSocket records, application
+attribution, alerts, analysis inputs, and Tauri events.
+
+The Runtime Extension Pipeline owns ordered plugin dispatch, Rhai scripts,
+metrics, and Network Condition Rules. It is separate from Routing Rules.
+
+### Persistence
+
+SQLite stores Captured Requests, Devices, Alerts, DNS Observations, configuration,
+and generation state. Focused query Modules should own SQL and mapping. Desktop
+and MCP Adapters should consume those Interfaces instead of sharing raw
+`Mutex<Connection>` access.
+
+### React desktop Adapter
+
+The React application renders the desktop product. A generated Desktop Contract
+provides typed command and event metadata plus a BrowserMockAdapter for fast UI
+tests. Migration is incomplete: some screens still call Tauri directly or use a
+shallow Adapter that converts errors into `null`.
+
+## Network modes
+
+### Explicit proxy — Core
+
+The device sends HTTP and HTTPS connections directly to the MITM Runtime. This
+is the default because its configuration and cleanup are local to the test
+device.
+
+### macOS `pf` and DNS — Advanced
+
+The desktop Adapter can install a dedicated `pf` redirect and run a DNS server
+for DNS Observation and Application Attribution. This mode changes host network
+state, may require elevated privileges, and needs explicit cleanup.
+
+### TUN and iOS VPN — Labs
+
+The current TUN Implementation can create a device but does not provide a
+complete packet-forwarding path into the MITM Runtime. The iOS experiment also
+depends on a missing Mac tunnel peer. Neither is a supported transport path.
+
+## Capture lifecycle
+
+The intended ownership model is:
+
+1. a retained resource is reported running only after its listener binds or its
+   device setup completes;
+2. repeated start fails clearly;
+3. stop is idempotent;
+4. stop returns only after owned tasks, listeners, and handles are released;
+5. process exit drains the MITM Runtime and desktop network resources.
+
+The core runtime already owns its listener handle. The desktop layer still needs
+to make the Capture Event bridge and breakpoint task part of the same retained
+Capture Session Module.
+
+## Captured Request data flow
+
+```text
+client connection
+    --> MITM Runtime
+    --> stable-id Capture Event
+    --> desktop Runtime Adapter
+    --> Application Attribution
+    --> SQLite Captured Request
+    --> Desktop Contract event
+    --> Traffic workspace
 ```
 
-## Components
+Analysis Implementations consume an immutable Captured Request Analysis view so
+Graph, Topology, authentication, and anomaly logic do not each reinterpret raw
+database rows.
 
-### 1. Packet Filter (pf)
+## Security boundaries
 
-macOS's built-in firewall redirects all HTTP/HTTPS traffic from the phone to the local proxy port (8088). This is transparent to the phone — no per-app proxy configuration needed.
+- The local CA private key and captured credentials are secrets.
+- Explicit proxy is preferred before host-wide routing changes.
+- `pf`, DNS, TUN, certificate distribution, dashboard, and MITM listeners are
+  Desktop Network Resources with explicit ownership and cleanup.
+- MCP stdio is a local Adapter but can expose sensitive persisted data to its
+  client.
+- Android SSL-bypass tooling changes applications and belongs in Labs.
+- The current Tauri global API and null CSP are migration debt; the target is a
+  minimal capability set and non-null policy.
 
-### 2. MITM Proxy (Rust)
+## Verification boundary
 
-The core proxy written in Rust using:
-- `hyper` for HTTP parsing
-- `rustls` for TLS (MITM with dynamically generated leaf certificates)
-- `tokio` for async I/O
+Rust and UI tests cover Modules and the BrowserMockAdapter. Current Playwright
+tests start Vite rather than a packaged Tauri application. A release is not
+considered proven until a real desktop acceptance lane covers install, start,
+certificate setup, capture, stop, restart, and cleanup.
 
-### 3. Certificate Authority (CA)
-
-On first launch, ProxyBot generates a root CA certificate. This CA must be installed and trusted on the phone. For each HTTPS connection, ProxyBot dynamically generates a leaf certificate signed by the root CA.
-
-### 4. DNS Server
-
-A built-in DNS server on port 53 logs all DNS queries from the phone. This is used to correlate DNS lookups with observed traffic for app classification.
-
-### 5. App Classification
-
-By analyzing SNI (Server Name Indication) in TLS ClientHello messages and correlating with DNS query logs, ProxyBot groups traffic by application (WeChat, Douyin, Alipay, etc.).
-
-### 6. Rule Engine
-
-Domain rules determine how traffic is handled:
-- **DIRECT** — Forward without MITM (for banking apps, etc.)
-- **PROXY** — Route through an upstream proxy
-- **REJECT** — Drop the connection
-- **MAPREMOTE** — Map to a different remote host
-- **MAPLOCAL** — Map to a local file or mock response
-- **BREAKPOINT** — Pause for inspection before proceeding
-
-## Data Storage
-
-- **SQLite** (`~/.proxybot/proxybot.db`) stores request/response history, device registry, and alert state
-- **Certificate storage** (`~/.proxybot/certs/`) for CA and generated leaf certificates
-- **Rule files** (`~/.proxybot/rules/`) in YAML format, hot-reloaded on change
+See the [product roadmap](roadmap.md) for the ordered deepening work.
