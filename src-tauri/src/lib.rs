@@ -20,6 +20,7 @@ pub mod dns;
 pub mod error;
 pub mod filter;
 pub mod frida;
+pub mod generation;
 pub mod graphql;
 pub mod har;
 pub mod history;

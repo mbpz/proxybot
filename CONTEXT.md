@@ -76,6 +76,14 @@ _Avoid_: Global config, settings state
 The MITM Runtime's bind, TLS, timeout, size, and reverse-target inputs derived from Process Config before the listener starts.
 _Avoid_: App config, proxy state
 
+**Inference Session**:
+An immutable snapshot of one session's Inferred APIs and Captured Requests used as the shared input for generated outputs.
+_Avoid_: Generator query, session rows
+
+**Generated Artifact**:
+A spec, mock, scaffold, vision-enhanced model, or deployment bundle derived from one Inference Session and written through validated naming and path rules.
+_Avoid_: Generated file, generator result
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -94,6 +102,9 @@ _Avoid_: App config, proxy state
 - One **Process Config** supplies every process-lifetime path and listener port to desktop or MCP adapters
 - **Runtime Config** is derived from **Process Config**; it does not read environment variables or desktop state
 - DNS upstream selection, TLS Rules, and spec-generation settings are mutable runtime state, not **Process Config**
+- One **Inference Session** supplies the same Inferred APIs and Captured Requests to spec, mock, scaffold, vision, and deployment adapters
+- A generation adapter transforms an **Inference Session** into a **Generated Artifact**; it does not reload or remap session persistence
+- Default **Generated Artifact** paths stay under their configured roots, while explicit output paths remain operator-selected
 
 ## Example dialogue
 
@@ -105,6 +116,9 @@ _Avoid_: App config, proxy state
 
 > **Dev:** "Can the desktop PF adapter and the **MITM Runtime** use different proxy ports?"
 > **Domain expert:** "No — both receive the same **Process Config**, and the **MITM Runtime** derives its **Runtime Config** from it."
+
+> **Dev:** "Can the mock and deployment generators observe different rows for the same run?"
+> **Domain expert:** "No — each transformation receives one immutable **Inference Session** snapshot and does not query persistence itself."
 
 ## Flagged ambiguities
 

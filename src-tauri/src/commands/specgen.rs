@@ -16,13 +16,10 @@
 use std::sync::Arc;
 use tauri::State;
 
-use proxybot_core::{
-    build_spec, SpecConfig, SpecOutput, SpecRequest, SpecResult, TrafficKind, TrafficRecord,
-};
+use proxybot_core::{build_spec, SpecConfig, SpecOutput, SpecRequest, SpecResult, TrafficRecord};
 
-use crate::db::{
-    CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState, SessionScope,
-};
+use crate::db::DbState;
+use crate::generation::{ArtifactTarget, InferenceSessionSnapshot};
 use crate::state::AppState;
 
 use proxybot_core::specgen::replay::run_replay as core_run_replay;
@@ -49,21 +46,20 @@ pub async fn generate_spec(
     traffic_records: Option<Vec<TrafficRecord>>,
 ) -> Result<SpecResult, String> {
     let config = app_state.specgen_config_snapshot();
-    let records = resolve_records(&db_state, &session_id, traffic_records)?;
+    let snapshot = db_state.inference_session(&session_id)?;
+    let records = resolve_records(&snapshot, traffic_records);
     let req = SpecRequest {
         session_id: session_id.clone(),
         traffic_records: records,
-        inferred: None,
+        inferred: snapshot.inferred_semantics(),
     };
     let result = build_spec(req, &config).await.map_err(|e| e.to_string())?;
 
     // Persist the full result to disk so export_spec and
     // run_replay_validation can read it back later.
-    let dir = app_state.specs_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join(format!("{session_id}.json"));
+    let target = ArtifactTarget::session_file(&app_state.specs_dir(), &session_id, "json")?;
     let json = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    target.write_file(json)?;
 
     Ok(result)
 }
@@ -85,8 +81,8 @@ pub async fn export_spec(
     state: State<'_, Arc<AppState>>,
     session_id: String,
 ) -> Result<String, String> {
-    let path = state.specs_dir().join(format!("{session_id}.json"));
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let target = ArtifactTarget::session_file(&state.specs_dir(), &session_id, "json")?;
+    let bytes = std::fs::read(target.path()).map_err(|e| e.to_string())?;
     let result: SpecResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
 
     let mut out = String::new();
@@ -123,8 +119,8 @@ pub async fn run_replay_validation(
     traffic_records: Option<Vec<TrafficRecord>>,
 ) -> Result<ReplayReport, String> {
     let config = app_state.specgen_config_snapshot();
-    let path = app_state.specs_dir().join(format!("{session_id}.json"));
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let target = ArtifactTarget::session_file(&app_state.specs_dir(), &session_id, "json")?;
+    let bytes = std::fs::read(target.path()).map_err(|e| e.to_string())?;
     let result: SpecResult = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
 
     let openapi_yaml = match result.openapi.as_ref() {
@@ -132,7 +128,8 @@ pub async fn run_replay_validation(
         _ => return Err("no openapi spec".to_string()),
     };
     let port = config.mock_port;
-    let records = resolve_records(&db_state, &session_id, traffic_records)?;
+    let snapshot = db_state.inference_session(&session_id)?;
+    let records = resolve_records(&snapshot, traffic_records);
     core_run_replay(&openapi_yaml, &records, port)
         .await
         .map_err(|e| e.to_string())
@@ -146,16 +143,15 @@ pub async fn run_replay_validation(
 /// has no way to distinguish "I have nothing" from "I want you to
 /// look in the DB" via the JSON wire.
 fn resolve_records(
-    db_state: &State<'_, Arc<DbState>>,
-    session_id: &str,
+    snapshot: &InferenceSessionSnapshot,
     provided: Option<Vec<TrafficRecord>>,
-) -> Result<Vec<TrafficRecord>, String> {
+) -> Vec<TrafficRecord> {
     if let Some(recs) = provided {
         if !recs.is_empty() {
-            return Ok(recs);
+            return recs;
         }
     }
-    load_traffic_records(db_state, session_id)
+    snapshot.traffic_records()
 }
 
 /// Update the spec-generation configuration at runtime.
@@ -216,72 +212,15 @@ pub fn get_active_session(state: State<'_, Arc<AppState>>) -> Result<Option<Stri
 /// with a session (column NULL) are returned when the caller asks for
 /// the empty-string session `""`.
 ///
-/// The query is bounded by a sensible cap (500) so the UI can't
-/// accidentally request an unbounded blob from the database.
+/// The records come from the same immutable inference-session snapshot used by
+/// every generated-artifact adapter, preserving one authoritative ordering and
+/// body projection.
 #[tauri::command]
 pub fn get_traffic_records(
     state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<Vec<TrafficRecord>, String> {
-    load_traffic_records(&state, &session_id)
-}
-
-/// Pure DB read used by both the public [`get_traffic_records`]
-/// command and the in-Rust fallback inside [`generate_spec`] /
-/// [`run_replay_validation`] for when the UI omits the records.
-/// Centralising the query keeps the SQL string + row decoder in
-/// one place, so a schema tweak only has to change one query.
-fn load_traffic_records(
-    db_state: &DbState,
-    session_id: &str,
-) -> Result<Vec<TrafficRecord>, String> {
-    let session = if session_id.is_empty() {
-        SessionScope::Unassigned
-    } else {
-        SessionScope::Exact(session_id.to_owned())
-    };
-    let query = CapturedRequestQuery {
-        session,
-        order: CapturedRequestOrder::IdAscending,
-        limit: Some(500),
-        ..Default::default()
-    };
-    Ok(db_state
-        .captured_requests(&query)?
-        .iter()
-        .map(traffic_record)
-        .collect())
-}
-
-fn traffic_record(record: &CapturedRequestRecord) -> TrafficRecord {
-    let timestamp = record.captured_at().unwrap_or_else(chrono::Utc::now);
-    TrafficRecord {
-        method: record.method.to_uppercase(),
-        path: record.path.clone(),
-        host: record.host.clone(),
-        request_body: record.request_body.as_deref().and_then(decode_body),
-        response_status: record.response_status.unwrap_or(0),
-        response_body: record.response_body.as_deref().and_then(decode_body),
-        timestamp,
-        kind: if record.is_websocket {
-            TrafficKind::WebSocket
-        } else {
-            TrafficKind::Http
-        },
-    }
-}
-
-/// Decode a stored request/response body into a UTF-8 string when
-/// possible. Binary bodies come back as `None`; the spec generator
-/// handles `None` gracefully (it only inspects JSON-ish payloads).
-fn decode_body(bytes: &[u8]) -> Option<String> {
-    if bytes.is_empty() {
-        return None;
-    }
-    match std::str::from_utf8(bytes) {
-        Ok(s) => Some(s.to_string()),
-        Err(_) => Some(format!("[binary {} bytes]", bytes.len())),
-    }
+    Ok(state.inference_session(&session_id)?.traffic_records())
 }
 
 #[cfg(test)]
@@ -340,10 +279,13 @@ mod tests {
     /// blobs come back as a size-tagged placeholder.
     #[test]
     fn decode_body_handles_utf8_empty_and_binary() {
-        assert_eq!(decode_body(b""), None);
-        assert_eq!(decode_body(b"hello"), Some("hello".to_string()));
+        assert_eq!(crate::generation::decode_body(b""), None);
+        assert_eq!(
+            crate::generation::decode_body(b"hello"),
+            Some("hello".to_string())
+        );
         let binary = vec![0xff, 0xfe, 0xfd];
-        let decoded = decode_body(&binary).unwrap();
+        let decoded = crate::generation::decode_body(&binary).unwrap();
         assert!(decoded.contains("3 bytes"), "got {decoded}");
     }
 }

@@ -4,6 +4,7 @@
 //! Output: JSON with interfaces and modules, stored in inferred_apis table.
 
 use crate::db::{CapturedRequestQuery, DbState, SessionScope};
+pub use crate::generation::InferredApi;
 use crate::normalize::{normalize_captured_record, NormalizedRecord};
 use reqwest::Client;
 use rusqlite::params;
@@ -50,21 +51,6 @@ pub struct EvaluationResult {
     pub valid: bool,
     pub errors: Vec<String>,
     pub score: f64,
-}
-
-/// Inferred API stored in database.
-#[derive(Debug, Clone, Serialize)]
-pub struct InferredApi {
-    pub id: i64,
-    pub session_id: String,
-    pub name: String,
-    pub method: String,
-    pub path: String,
-    pub params: String,
-    pub auth_required: bool,
-    pub request_ids: String,
-    pub score: Option<f64>,
-    pub created_at: String,
 }
 
 // ============================================================================
@@ -438,41 +424,16 @@ pub fn get_inferred_apis(
     db_state: State<'_, Arc<DbState>>,
     session_id: Option<String>,
 ) -> Result<Vec<InferredApi>, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    get_inferred_apis_internal(&conn, session_id.as_deref())
+    db_state.inferred_apis(session_id.as_deref())
 }
 
 /// Get stored inference results using a borrowed connection.
+#[cfg(test)]
 pub(crate) fn get_inferred_apis_internal(
     conn: &rusqlite::Connection,
     session_id: Option<&str>,
 ) -> Result<Vec<InferredApi>, String> {
-    let query = "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
-                 FROM inferred_apis WHERE (?1 = '' OR session_id = ?1) ORDER BY id";
-
-    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
-
-    let sid_param = session_id.unwrap_or_default();
-    let apis = stmt
-        .query_map(params![sid_param], |row| {
-            Ok(InferredApi {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                name: row.get(2)?,
-                method: row.get(3)?,
-                path: row.get(4)?,
-                params: row.get(5)?,
-                auth_required: row.get::<_, i32>(6)? != 0,
-                request_ids: row.get(7)?,
-                score: row.get(8)?,
-                created_at: row.get(9)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(apis)
+    crate::generation::load_inferred_apis(conn, session_id)
 }
 
 /// Get OpenAPI spec from inferred APIs.
@@ -505,34 +466,7 @@ pub async fn evaluate_inference(
 ) -> Result<EvaluationResult, String> {
     let api_key = get_anthropic_api_key().ok_or("ANTHROPIC_API_KEY not set")?;
 
-    // Get stored inferences for the session directly
-    let apis = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        let query = "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
-                     FROM inferred_apis WHERE session_id = ?1 ORDER BY id";
-
-        let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
-
-        let result: Result<Vec<InferredApi>, _> = stmt
-            .query_map(params![session_id], |row| {
-                Ok(InferredApi {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    name: row.get(2)?,
-                    method: row.get(3)?,
-                    path: row.get(4)?,
-                    params: row.get(5)?,
-                    auth_required: row.get::<_, i32>(6)? != 0,
-                    request_ids: row.get(7)?,
-                    score: row.get(8)?,
-                    created_at: row.get(9)?,
-                })
-            })
-            .map_err(|e| e.to_string())?
-            .collect();
-
-        result.map_err(|e| e.to_string())?
-    };
+    let apis = db_state.inferred_apis(Some(&session_id))?;
 
     if apis.is_empty() {
         return Err("No inferred APIs found for this session".to_string());

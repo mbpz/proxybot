@@ -1,11 +1,11 @@
 //! React scaffold generator for ProxyBot.
 
-use crate::db::{CapturedRequestOrder, CapturedRequestQuery, DbState, SessionScope};
-use crate::infer::{ApiInterface, InferredApi};
+use crate::db::DbState;
+use crate::generation::{validate_artifact_name, ArtifactTarget, InferredApi};
+use crate::infer::ApiInterface;
 use crate::replay::compute_diff;
 use crate::vision::{ComponentTree, VisionComponent};
 use reqwest::Client;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -494,41 +494,17 @@ test('{} shows content',async{{page}})=>{{await page.goto('{}');await page.waitF
     )
 }
 
-fn get_apis(conn: &rusqlite::Connection, sid: &str) -> Result<Vec<InferredApi>, String> {
-    let mut s = conn.prepare("SELECT id,session_id,name,method,path,params,auth_required,request_ids,score,created_at FROM inferred_apis WHERE session_id=?1 ORDER BY id").map_err(|e| e.to_string())?;
-    let rows = s
-        .query_map(params![sid], |row| {
-            Ok(InferredApi {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                name: row.get(2)?,
-                method: row.get(3)?,
-                path: row.get(4)?,
-                params: row.get(5)?,
-                auth_required: row.get::<_, i32>(6)? != 0,
-                request_ids: row.get(7)?,
-                score: row.get(8)?,
-                created_at: row.get(9)?,
-            })
-        })
-        .map_err(|e| e.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 pub fn generate_scaffold_project(
     db: State<'_, Arc<DbState>>,
     session_id: String,
     name: Option<String>,
 ) -> Result<ScaffoldProject, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    let apis = get_apis(&conn, &session_id)?;
-    if apis.is_empty() {
-        return Err("No inferred APIs. Run inference first.".to_string());
-    }
+    let snapshot = db.inference_session(&session_id)?;
+    let apis = snapshot.require_inferred_apis()?;
     let n = name.unwrap_or_else(|| "proxybot_frontend".to_string());
-    let map = group_by_prefix(&apis);
+    validate_artifact_name("project name", &n)?;
+    let map = group_by_prefix(apis);
     let mut comps = Vec::new();
     let mut stores = Vec::new();
     let mut files = HashMap::new();
@@ -609,11 +585,8 @@ pub fn generate_scaffold_with_vision(
     name: Option<String>,
     vision_json: Option<String>,
 ) -> Result<ScaffoldProject, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    let apis = get_apis(&conn, &session_id)?;
-    if apis.is_empty() {
-        return Err("No inferred APIs. Run inference first.".to_string());
-    }
+    let snapshot = db.inference_session(&session_id)?;
+    let apis = snapshot.require_inferred_apis()?;
 
     // Parse optional vision ComponentTree
     let vision_tree: Option<ComponentTree> = vision_json
@@ -621,7 +594,8 @@ pub fn generate_scaffold_with_vision(
         .and_then(|j| serde_json::from_str::<ComponentTree>(j).ok());
 
     let n = name.unwrap_or_else(|| "proxybot_frontend".to_string());
-    let map = group_by_prefix(&apis);
+    validate_artifact_name("project name", &n)?;
+    let map = group_by_prefix(apis);
     let mut comps = Vec::new();
     let mut stores = Vec::new();
     let mut files: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -723,20 +697,13 @@ pub fn write_scaffold_project(
     name: Option<String>,
     dir: Option<String>,
 ) -> Result<String, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    let apis = get_apis(&conn, &session_id)?;
-    if apis.is_empty() {
-        return Err("No inferred APIs. Run inference first.".to_string());
-    }
+    let snapshot = db.inference_session(&session_id)?;
+    let apis = snapshot.require_inferred_apis()?;
     let n = name.unwrap_or_else(|| "proxybot_frontend".to_string());
-    let base = dir.unwrap_or_else(|| {
-        config
-            .scaffold_projects_dir
-            .join(&n)
-            .to_string_lossy()
-            .into_owned()
-    });
-    let bp = PathBuf::from(&base);
+    let target =
+        ArtifactTarget::project_directory(&config.scaffold_projects_dir, &n, dir.as_deref())?;
+    target.prepare_directory()?;
+    let bp = target.path();
     let src = bp.join("src");
     let pages = src.join("pages");
     let hooks = src.join("hooks");
@@ -746,7 +713,7 @@ pub fn write_scaffold_project(
     fs::create_dir_all(&hooks).map_err(|e| e.to_string())?;
     fs::create_dir_all(&stores).map_err(|e| e.to_string())?;
     fs::create_dir_all(&e2e).map_err(|e| e.to_string())?;
-    let map = group_by_prefix(&apis);
+    let map = group_by_prefix(apis);
     let mut routes = Vec::new();
     for (mn, idx) in &map {
         let mas: Vec<&InferredApi> = idx.iter().filter_map(|&i| apis.get(i)).collect();
@@ -785,6 +752,7 @@ pub fn write_scaffold_project(
         )
         .map_err(|e| e.to_string())?;
     }
+    let base = target.display();
     log::info!("Scaffold written to {}", base);
     Ok(base)
 }
@@ -796,25 +764,23 @@ pub fn write_scaffold_project_with_vision(
     output_dir: Option<String>,
     config: State<'_, Arc<proxybot_core::AppConfig>>,
 ) -> Result<String, String> {
-    let base = output_dir.unwrap_or_else(|| {
-        config
-            .scaffold_projects_dir
-            .join(&project.name)
-            .to_string_lossy()
-            .into_owned()
-    });
-    let bp = PathBuf::from(&base);
-    fs::create_dir_all(&bp).map_err(|e| e.to_string())?;
+    let target = ArtifactTarget::project_directory(
+        &config.scaffold_projects_dir,
+        &project.name,
+        output_dir.as_deref(),
+    )?;
+    target.prepare_directory()?;
 
     // Write all files from the project
     for (path, content) in &project.files {
-        let file_path = bp.join(path);
+        let file_path = target.child_file(path)?;
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         fs::write(&file_path, content).map_err(|e| e.to_string())?;
     }
 
+    let base = target.display();
     log::info!("Vision scaffold written to {}", base);
     Ok(base)
 }
@@ -1121,13 +1087,10 @@ pub async fn evaluate_scaffold_project(
     path: String,
 ) -> Result<(bool, f64, Vec<String>), String> {
     let exchanges = db
-        .captured_requests(&CapturedRequestQuery {
-            session: SessionScope::Exact(session_id),
-            order: CapturedRequestOrder::IdAscending,
-            limit: Some(30),
-            ..Default::default()
-        })?
+        .inference_session(&session_id)?
+        .captured_requests
         .into_iter()
+        .take(30)
         .map(|record| RecordedExchange {
             method: record.method,
             path: record.path,

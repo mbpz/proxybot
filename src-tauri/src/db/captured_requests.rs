@@ -294,7 +294,7 @@ fn find_request(connection: &Connection, id: i64) -> Result<Option<CapturedReque
     }
 }
 
-fn query_requests(
+pub(crate) fn query_requests(
     connection: &Connection,
     query: &CapturedRequestQuery,
 ) -> Result<Vec<CapturedRequestRecord>, String> {

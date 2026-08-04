@@ -3,11 +3,9 @@
 //! Generates a working mock API server from OpenAPI spec and recorded responses.
 //! Supports ordered sequences, conditional responses, and Docker deployment.
 
-use crate::db::{
-    CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState, SessionScope,
-};
-use crate::infer::{generate_openapi_spec, InferredApi};
-use rusqlite::params;
+use crate::db::{CapturedRequestRecord, DbState};
+use crate::generation::{validate_artifact_name, ArtifactTarget, InferenceSessionSnapshot};
+use crate::infer::generate_openapi_spec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -145,17 +143,6 @@ fn extract_conditionals(
     }
 
     Ok(conditionals_map)
-}
-
-fn session_captured_requests(
-    db_state: &DbState,
-    session_id: &str,
-) -> Result<Vec<CapturedRequestRecord>, String> {
-    db_state.captured_requests(&CapturedRequestQuery {
-        session: SessionScope::Exact(session_id.to_owned()),
-        order: CapturedRequestOrder::IdAscending,
-        ..Default::default()
-    })
 }
 
 // ============================================================================
@@ -425,45 +412,29 @@ fn generate_readme(project_name: &str, endpoints: &[MockEndpoint]) -> String {
 }
 
 // ============================================================================
-// Helper to collect inferred APIs
-// ============================================================================
-
-fn get_inferred_apis(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-) -> Result<Vec<InferredApi>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
-             FROM inferred_apis WHERE session_id = ?1 ORDER BY id",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let apis: Vec<InferredApi> = stmt
-        .query_map(params![session_id], |row| {
-            Ok(InferredApi {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                name: row.get(2)?,
-                method: row.get(3)?,
-                path: row.get(4)?,
-                params: row.get(5)?,
-                auth_required: row.get::<_, i32>(6)? != 0,
-                request_ids: row.get(7)?,
-                score: row.get(8)?,
-                created_at: row.get(9)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(apis)
-}
-
-// ============================================================================
 // Tauri Commands
 // ============================================================================
+
+fn mock_endpoints_from_session(
+    snapshot: &InferenceSessionSnapshot,
+) -> Result<Vec<MockEndpoint>, String> {
+    let apis = snapshot.require_inferred_apis()?;
+    let fixtures_map = get_endpoint_fixtures(&snapshot.captured_requests)?;
+    let conditionals_map = extract_conditionals(&snapshot.captured_requests)?;
+    Ok(apis
+        .iter()
+        .map(|api| {
+            let key = format!("{}:{}", api.method.to_uppercase(), api.path);
+            MockEndpoint {
+                method: api.method.clone(),
+                path: api.path.clone(),
+                name: api.name.clone(),
+                fixtures: fixtures_map.get(&key).cloned().unwrap_or_default(),
+                conditionals: conditionals_map.get(&key).cloned().unwrap_or_default(),
+            }
+        })
+        .collect())
+}
 
 /// Generate a mock API project from session traffic.
 #[tauri::command]
@@ -472,48 +443,22 @@ pub fn generate_mock_project(
     session_id: String,
     project_name: Option<String>,
 ) -> Result<MockProject, String> {
-    let apis = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        get_inferred_apis(&conn, &session_id)?
-    };
-
-    if apis.is_empty() {
-        return Err(
-            "No inferred APIs found for this session. Run API inference first.".to_string(),
-        );
-    }
-
-    // Get fixtures and conditionals
-    let records = session_captured_requests(&db_state, &session_id)?;
-    let fixtures_map = get_endpoint_fixtures(&records)?;
-    let conditionals_map = extract_conditionals(&records)?;
-
-    // Build mock endpoints
-    let mut endpoints = Vec::new();
-    for api in &apis {
-        let key = format!("{}:{}", api.method.to_uppercase(), api.path);
-        let fixtures = fixtures_map.get(&key).cloned().unwrap_or_default();
-        let conditionals = conditionals_map.get(&key).cloned().unwrap_or_default();
-
-        endpoints.push(MockEndpoint {
-            method: api.method.clone(),
-            path: api.path.clone(),
-            name: api.name.clone(),
-            fixtures,
-            conditionals,
-        });
-    }
+    let snapshot = db_state.inference_session(&session_id)?;
+    let endpoints = mock_endpoints_from_session(&snapshot)?;
+    let spec_title = project_name.as_deref().unwrap_or("ProxyBot").to_owned();
+    let name = project_name.unwrap_or_else(|| "proxybot_mock".to_owned());
+    validate_artifact_name("project name", &name)?;
 
     // Generate OpenAPI spec
     let spec = generate_openapi_spec(
-        &apis,
+        &snapshot.inferred_apis,
         &[],
-        &format!("{} Mock API", project_name.as_deref().unwrap_or("ProxyBot")),
+        &format!("{} Mock API", spec_title),
     );
     let spec_str = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
 
     Ok(MockProject {
-        name: project_name.unwrap_or_else(|| "proxybot_mock".to_string()),
+        name,
         base_path: String::new(),
         endpoints,
         openapi_spec: spec_str,
@@ -529,66 +474,30 @@ pub fn write_mock_project(
     project_name: Option<String>,
     output_dir: Option<String>,
 ) -> Result<String, String> {
-    let apis = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        get_inferred_apis(&conn, &session_id)?
-    };
-
-    if apis.is_empty() {
-        return Err("No inferred APIs found for this session.".to_string());
-    }
-
+    let snapshot = db_state.inference_session(&session_id)?;
+    snapshot.require_inferred_apis()?;
     let name = project_name.unwrap_or_else(|| "proxybot_mock".to_string());
-    let base = output_dir.unwrap_or_else(|| {
-        config
-            .mock_projects_dir
-            .join(&name)
-            .to_string_lossy()
-            .into_owned()
-    });
-
-    let base_path = PathBuf::from(&base);
+    let target =
+        ArtifactTarget::project_directory(&config.mock_projects_dir, &name, output_dir.as_deref())?;
+    target.prepare_directory()?;
+    let base_path = target.path();
     let fixtures_dir = base_path.join("fixtures");
     fs::create_dir_all(&fixtures_dir).map_err(|e| e.to_string())?;
 
-    // Get fixtures and conditionals
-    let records = session_captured_requests(&db_state, &session_id)?;
-    let fixtures_map = get_endpoint_fixtures(&records)?;
-    let conditionals_map = extract_conditionals(&records)?;
-
-    // Build endpoints and write files
-    let mut endpoints = Vec::new();
-    for api in &apis {
-        let key = format!("{}:{}", api.method.to_uppercase(), api.path);
-        let fixtures = fixtures_map.get(&key).cloned().unwrap_or_default();
-        let conditionals = conditionals_map.get(&key).cloned().unwrap_or_default();
-
+    let endpoints = mock_endpoints_from_session(&snapshot)?;
+    for endpoint in &endpoints {
         // Write fixture file
-        let path_slug = api.path.trim_start_matches('/').replace(['/', '-'], "_");
+        let path_slug = endpoint
+            .path
+            .trim_start_matches('/')
+            .replace(['/', '-'], "_");
         let fixture_path = fixtures_dir.join(format!("fixture_{}.json", path_slug));
-        let fixture_json = generate_fixture_json(
-            &MockEndpoint {
-                method: api.method.clone(),
-                path: api.path.clone(),
-                name: api.name.clone(),
-                fixtures: fixtures.clone(),
-                conditionals: conditionals.clone(),
-            },
-            &conditionals,
-        );
+        let fixture_json = generate_fixture_json(endpoint, &endpoint.conditionals);
         fs::write(
             &fixture_path,
             serde_json::to_string_pretty(&fixture_json).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-
-        endpoints.push(MockEndpoint {
-            method: api.method.clone(),
-            path: api.path.clone(),
-            name: api.name.clone(),
-            fixtures,
-            conditionals,
-        });
     }
 
     // Write main.py
@@ -611,10 +520,11 @@ pub fn write_mock_project(
     .map_err(|e| e.to_string())?;
 
     // Write OpenAPI spec
-    let spec = generate_openapi_spec(&apis, &[], &format!("{} Mock API", name));
+    let spec = generate_openapi_spec(&snapshot.inferred_apis, &[], &format!("{} Mock API", name));
     let spec_str = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
     fs::write(base_path.join("openapi.json"), &spec_str).map_err(|e| e.to_string())?;
 
+    let base = target.display();
     log::info!("Mock project written to {}", base);
 
     Ok(base)
@@ -626,35 +536,8 @@ pub fn get_mock_endpoints(
     db_state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<Vec<MockEndpoint>, String> {
-    let apis = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        get_inferred_apis(&conn, &session_id)?
-    };
-
-    if apis.is_empty() {
-        return Err("No inferred APIs found for this session.".to_string());
-    }
-
-    let records = session_captured_requests(&db_state, &session_id)?;
-    let fixtures_map = get_endpoint_fixtures(&records)?;
-    let conditionals_map = extract_conditionals(&records)?;
-
-    let mut endpoints = Vec::new();
-    for api in apis {
-        let key = format!("{}:{}", api.method.to_uppercase(), api.path);
-        let fixtures = fixtures_map.get(&key).cloned().unwrap_or_default();
-        let conditionals = conditionals_map.get(&key).cloned().unwrap_or_default();
-
-        endpoints.push(MockEndpoint {
-            method: api.method,
-            path: api.path,
-            name: api.name,
-            fixtures,
-            conditionals,
-        });
-    }
-
-    Ok(endpoints)
+    let snapshot = db_state.inference_session(&session_id)?;
+    mock_endpoints_from_session(&snapshot)
 }
 
 /// Start the mock server from a generated project for testing.

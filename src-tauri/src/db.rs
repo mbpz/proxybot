@@ -10,6 +10,7 @@ use tauri::State;
 
 mod captured_requests;
 
+pub(crate) use captured_requests::query_requests as captured_requests_with;
 pub use captured_requests::{
     parse_captured_timestamp, CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord,
     NewCapturedRequest, NewWebSocketFrame, SessionScope,

@@ -3,11 +3,10 @@
 //! Produces a complete Docker Compose deployment with mock API, frontend, and postgres.
 //! Initializes a git repo and sets up GitHub Actions CI for Playwright E2E tests.
 
-use crate::db::{
-    CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState, SessionScope,
-};
-use crate::infer::InferredApi;
-use rusqlite::params;
+use crate::db::{CapturedRequestRecord, DbState};
+#[cfg(test)]
+use crate::generation::load_inference_session;
+use crate::generation::{validate_artifact_name, ArtifactTarget, InferredApi};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -441,65 +440,8 @@ test-results/
 }
 
 // ============================================================================
-// Helper: Collect inferred APIs
-// ============================================================================
-
-fn get_inferred_apis(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-) -> Result<Vec<InferredApi>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, session_id, name, method, path, params, auth_required, request_ids, score, created_at \
-             FROM inferred_apis WHERE session_id = ?1 ORDER BY id",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let apis: Vec<InferredApi> = stmt
-        .query_map(params![session_id], |row| {
-            Ok(InferredApi {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                name: row.get(2)?,
-                method: row.get(3)?,
-                path: row.get(4)?,
-                params: row.get(5)?,
-                auth_required: row.get::<_, i32>(6)? != 0,
-                request_ids: row.get(7)?,
-                score: row.get(8)?,
-                created_at: row.get(9)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(apis)
-}
-
-// ============================================================================
 // Mock API File Generation (subset of mockgen)
 // ============================================================================
-
-#[cfg(test)]
-fn get_mock_endpoints_from_db(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-) -> Result<Vec<(String, String)>, String> {
-    let mut stmt = conn
-        .prepare("SELECT method, path FROM http_requests WHERE session_id = ?1 GROUP BY method, path ORDER BY path")
-        .map_err(|e| e.to_string())?;
-
-    let rows: Vec<(String, String)> = stmt
-        .query_map(params![session_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(rows)
-}
 
 fn mock_endpoints(records: &[CapturedRequestRecord]) -> Vec<(String, String)> {
     let mut endpoints: Vec<_> = records
@@ -511,26 +453,11 @@ fn mock_endpoints(records: &[CapturedRequestRecord]) -> Vec<(String, String)> {
     endpoints
 }
 
-fn session_captured_requests(
-    db: &DbState,
-    session_id: &str,
-) -> Result<Vec<CapturedRequestRecord>, String> {
-    db.captured_requests(&CapturedRequestQuery {
-        session: SessionScope::Exact(session_id.to_owned()),
-        order: CapturedRequestOrder::IdAscending,
-        ..Default::default()
-    })
-}
-
 // ============================================================================
 // Frontend Route Extraction
 // ============================================================================
 
-fn get_frontend_routes(
-    conn: &rusqlite::Connection,
-    session_id: &str,
-) -> Result<Vec<(String, String)>, String> {
-    let apis = get_inferred_apis(conn, session_id)?;
+fn get_frontend_routes(apis: &[InferredApi]) -> Vec<(String, String)> {
     let mut routes: Vec<(String, String)> = apis
         .iter()
         .map(|api| {
@@ -541,7 +468,7 @@ fn get_frontend_routes(
         .collect();
     routes.sort();
     routes.dedup();
-    Ok(routes)
+    routes
 }
 
 // ============================================================================
@@ -611,14 +538,11 @@ pub fn generate_deployment_bundle(
     project_name: Option<String>,
 ) -> Result<DeploymentBundle, String> {
     let name = project_name.unwrap_or_else(|| "proxybot_deployment".to_string());
+    validate_artifact_name("project name", &name)?;
+    let snapshot = db.inference_session(&session_id)?;
 
-    let records = session_captured_requests(&db, &session_id)?;
-    let mock_endpoints = mock_endpoints(&records);
-
-    let frontend_routes = {
-        let conn = db.conn.lock().map_err(|e| e.to_string())?;
-        get_frontend_routes(&conn, &session_id)?
-    };
+    let mock_endpoints = mock_endpoints(&snapshot.captured_requests);
+    let frontend_routes = get_frontend_routes(&snapshot.inferred_apis);
 
     // Generate docker-compose
     let docker_compose_content = generate_docker_compose(&name);
@@ -651,23 +575,17 @@ pub fn write_deployment_bundle(
     init_git: bool,
 ) -> Result<DeploymentResult, String> {
     let name = project_name.unwrap_or_else(|| "proxybot_deployment".to_string());
-    let base = output_dir.unwrap_or_else(|| {
-        config
-            .deployments_dir
-            .join(&name)
-            .to_string_lossy()
-            .into_owned()
-    });
-
-    let records = session_captured_requests(&db, &session_id)?;
-    let mock_endpoints = mock_endpoints(&records);
+    let target =
+        ArtifactTarget::project_directory(&config.deployments_dir, &name, output_dir.as_deref())?;
+    let snapshot = db.inference_session(&session_id)?;
+    let mock_endpoints = mock_endpoints(&snapshot.captured_requests);
+    let frontend_routes = get_frontend_routes(&snapshot.inferred_apis);
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    let frontend_routes = get_frontend_routes(&conn, &session_id)?;
     write_deployment_bundle_from_inputs(
         &conn,
         &session_id,
         &name,
-        Path::new(&base),
+        target.path(),
         init_git,
         &mock_endpoints,
         &frontend_routes,
@@ -685,8 +603,9 @@ pub fn write_deployment_bundle_inner(
     base_path: &Path,
     init_git: bool,
 ) -> Result<DeploymentResult, String> {
-    let mock_endpoints = get_mock_endpoints_from_db(conn, session_id)?;
-    let frontend_routes = get_frontend_routes(conn, session_id)?;
+    let snapshot = load_inference_session(conn, session_id)?;
+    let mock_endpoints = mock_endpoints(&snapshot.captured_requests);
+    let frontend_routes = get_frontend_routes(&snapshot.inferred_apis);
     write_deployment_bundle_from_inputs(
         conn,
         session_id,

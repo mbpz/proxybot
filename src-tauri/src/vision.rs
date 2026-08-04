@@ -4,6 +4,7 @@
 //! and produce component structure JSON for scaffold generation.
 
 use crate::db::DbState;
+use crate::generation::InferenceSessionSnapshot;
 use base64::Engine;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -278,7 +279,7 @@ fn delete_vision_analysis_internal(conn: &rusqlite::Connection, id: i64) -> Resu
 /// Fuse vision component tree with inferred API to produce enhanced scaffold data (internal).
 fn fuse_vision_with_api_internal(
     conn: &rusqlite::Connection,
-    session_id: &str,
+    snapshot: &InferenceSessionSnapshot,
 ) -> Result<ComponentTree, String> {
     // Get latest vision analysis
     let vision_components = {
@@ -288,7 +289,8 @@ fn fuse_vision_with_api_internal(
             )
             .map_err(|e| e.to_string())?;
 
-        let result: Result<String, _> = stmt.query_row(params![session_id], |row| row.get(0));
+        let result: Result<String, _> =
+            stmt.query_row(params![snapshot.session_id.as_str()], |row| row.get(0));
 
         match result {
             Ok(json) => serde_json::from_str::<Vec<VisionComponent>>(&json).unwrap_or_default(),
@@ -297,20 +299,11 @@ fn fuse_vision_with_api_internal(
     };
 
     // Get inferred APIs for route suggestions
-    let suggested_routes = {
-        let mut stmt = conn
-            .prepare("SELECT path FROM inferred_apis WHERE session_id = ?1 ORDER BY id")
-            .map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map(params![session_id], |row| {
-                let path: String = row.get(0)?;
-                Ok(path)
-            })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
-    };
+    let suggested_routes = snapshot
+        .inferred_apis
+        .iter()
+        .map(|api| api.path.clone())
+        .collect();
 
     // Build layout JSON from component tree
     let layout_json = serde_json::to_string_pretty(&vision_components).unwrap_or_default();
@@ -394,8 +387,9 @@ pub fn fuse_vision_with_api(
     db: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<ComponentTree, String> {
+    let snapshot = db.inference_session(&session_id)?;
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    fuse_vision_with_api_internal(&conn, &session_id)
+    fuse_vision_with_api_internal(&conn, &snapshot)
 }
 
 #[cfg(test)]
@@ -705,7 +699,8 @@ mod tests {
         )
         .unwrap();
 
-        let tree = fuse_vision_with_api_internal(&conn, "s1").unwrap();
+        let snapshot = crate::generation::load_inference_session(&conn, "s1").unwrap();
+        let tree = fuse_vision_with_api_internal(&conn, &snapshot).unwrap();
 
         assert_eq!(tree.components.len(), 2);
         assert_eq!(tree.components[0].component_type, "button");
@@ -722,7 +717,8 @@ mod tests {
     fn test_fuse_vision_with_api_empty_session() {
         let conn = test_db();
 
-        let tree = fuse_vision_with_api_internal(&conn, "nonexistent").unwrap();
+        let snapshot = crate::generation::load_inference_session(&conn, "nonexistent").unwrap();
+        let tree = fuse_vision_with_api_internal(&conn, &snapshot).unwrap();
 
         assert_eq!(
             tree.components.len(),
@@ -760,7 +756,8 @@ mod tests {
         )
         .unwrap();
 
-        let tree = fuse_vision_with_api_internal(&conn, "s1").unwrap();
+        let snapshot = crate::generation::load_inference_session(&conn, "s1").unwrap();
+        let tree = fuse_vision_with_api_internal(&conn, &snapshot).unwrap();
         assert_eq!(tree.components.len(), 1);
         assert_eq!(tree.components[0].text, Some("New".to_string()));
     }
