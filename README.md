@@ -130,7 +130,6 @@ src-tauri/       composition root, desktop Adapters, persistence, and macOS inte
 src/             React desktop application and Browser Adapter tests
 e2e/             browser-mock Playwright coverage
 docs/            current user and architecture documentation
-ios/             unsupported historical VPN experiment
 scripts/         development and reproducible asset tooling
 ```
 

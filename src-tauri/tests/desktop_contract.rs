@@ -155,6 +155,11 @@ fn unsupported_tun_product_surface_is_absent() {
     let readme = fs::read_to_string(workspace_root.join("README.md")).unwrap();
 
     assert!(!tauri_root.join("src/tun.rs").exists());
+    assert!(!workspace_root.join("ios/project.yml").exists());
+    assert!(!workspace_root
+        .join("ios/PacketTunnel/PacketTunnelProvider.swift")
+        .exists());
+    assert!(!workspace_root.join("ios/vpn-config.mobileconfig").exists());
     assert!(!manifest.contains("\ntun ="));
     assert!(!bootstrap.contains("setup_tun"));
     assert!(!bootstrap.contains("TunState"));

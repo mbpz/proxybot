@@ -138,8 +138,8 @@ exit gate.
 3. **Quarantine incomplete network experiments.**
    - Remove TUN and iOS VPN from the default UI, release claims, and supported
      documentation until a real packet-forwarding Adapter exists.
-   - The unsupported TUN state, commands, dependency, settings control, and
-     shutdown branch have been removed; no iOS VPN path is advertised.
+   - The unsupported TUN state, commands, dependency, settings control, shutdown
+     branch, and disconnected iOS PacketTunnel sample have been removed.
 4. **Establish one Release/Install/Update source of truth.**
    - Derive Rust, Tauri, frontend, MCP, tag, and update metadata from one version.
    - Build with the Tauri bundler; add Developer ID signing, notarization,
