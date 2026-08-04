@@ -393,6 +393,14 @@ impl DbState {
                 CREATE INDEX IF NOT EXISTS idx_tls_rules_sort ON tls_decryption_rules(sort_order);
                 "#,
             ),
+            (
+                7,
+                "Persist Captured Request network endpoints for query parity",
+                r#"
+                ALTER TABLE http_requests ADD COLUMN client_ip TEXT;
+                ALTER TABLE http_requests ADD COLUMN upstream_ip TEXT;
+                "#,
+            ),
         ];
 
         for (version, description, sql) in migrations {
@@ -1226,6 +1234,29 @@ mod tests {
             )
             .unwrap();
         assert_eq!(size, 1024);
+    }
+
+    #[test]
+    fn test_migration_adds_captured_request_network_endpoints() {
+        let conn = Connection::open_in_memory().unwrap();
+        DbState::init_schema(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO http_requests
+             (timestamp, method, scheme, host, path, client_ip, upstream_ip)
+             VALUES ('2026-08-04', 'GET', 'https', 'example.com', '/',
+                     '10.0.0.2', '203.0.113.8')",
+            [],
+        )
+        .unwrap();
+        let endpoints: (String, String) = conn
+            .query_row(
+                "SELECT client_ip, upstream_ip FROM http_requests LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(endpoints, ("10.0.0.2".to_owned(), "203.0.113.8".to_owned()));
     }
 
     #[test]

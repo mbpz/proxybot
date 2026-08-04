@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { FilterPreset, ParseResult } from "./types";
+import { desktop } from "../../desktop/contract";
+import type { FilterPreset } from "../../generated/desktop-contract";
 import { SavePresetButton } from "./SavePresetButton";
 
 interface FilterInputProps {
@@ -37,7 +37,7 @@ export function FilterInput({
     }
     const handle = setTimeout(async () => {
       try {
-        const result = await invoke<ParseResult>("parse_filter", { expr: value });
+        const result = await desktop.call("parse_filter", { expr: value });
         if (!result.ok) {
           setError(result.error ?? "Invalid expression");
         } else {

@@ -12,7 +12,8 @@ import { desktop } from "../../desktop/contract";
 import type {
   FilterPreset,
   InterceptedRequest,
-  NormalizedRecord,
+  TrafficPage as TrafficPageResult,
+  TrafficQuery,
 } from "../../generated/desktop-contract";
 
 interface FilterState {
@@ -22,6 +23,15 @@ interface FilterState {
   appTag?: string;
   search?: string;
 }
+
+const EMPTY_PAGE: TrafficPageResult = {
+  records: [],
+  normalized_records: [],
+  total: 0,
+  page: 0,
+  page_size: 50,
+  has_more: false,
+};
 
 export function TrafficPage() {
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
@@ -34,10 +44,11 @@ export function TrafficPage() {
   const [harName, setHarName] = useState("");
   const [showHarDialog, setShowHarDialog] = useState(false);
   const [normalizedView, setNormalizedView] = useState(false);
-  const [normalizedData, setNormalizedData] = useState<NormalizedRecord[]>([]);
-  const [normPage, setNormPage] = useState(0);
-  const [normTotal, setNormTotal] = useState(0);
-  const [normLoading, setNormLoading] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<InterceptedRequest[] | null>(null);
+  const [resultPage, setResultPage] = useState<TrafficPageResult>(EMPTY_PAGE);
+  const [queryPage, setQueryPage] = useState(0);
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   async function loadPresets() {
     try {
@@ -52,11 +63,16 @@ export function TrafficPage() {
   }, []);
 
   useEffect(() => {
-    // Start with empty list - requests will come via events
-    setLoading(false);
-
+    // Capture Events invalidate the persisted result set. The desktop Adapter
+    // persists each request before emitting, so the debounced query can read it.
     const subscription = desktop.subscribe("intercepted-request", {
-      next: (request) => setRequests((current) => [request, ...current].slice(0, 999)),
+      next: (request) => {
+        setRequests((current) => [request, ...current].slice(0, 999));
+        setHistoryRecords((current) =>
+          current === null ? null : [request, ...current].slice(0, 999),
+        );
+        setRefreshVersion((version) => version + 1);
+      },
       error: (error) => console.error("Invalid intercepted request event:", error),
     });
     void subscription.ready.catch((error) => console.error("Traffic subscription failed:", error));
@@ -64,72 +80,56 @@ export function TrafficPage() {
     return () => subscription.dispose();
   }, []);
 
-  const filteredRequests = useMemo(() => {
-    let result = requests;
-
-    if (filters.method) {
-      result = result.filter((r) => r.method === filters.method);
-    }
-    if (filters.host) {
-      const pattern = filters.host.replace(/\*/g, ".*");
-      result = result.filter((r) => new RegExp(pattern).test(r.host));
-    }
-    if (filters.status) {
-      result = result.filter((r) => r.status === filters.status);
-    }
-    if (filters.appTag) {
-      result = result.filter((r) => r.app_name === filters.appTag);
-    }
-    if (filters.search) {
-      const search = filters.search.toLowerCase();
-      result = result.filter(
-        (r) =>
-          r.path.toLowerCase().includes(search) ||
-          r.host.toLowerCase().includes(search)
-      );
-    }
-
-    return result;
-  }, [requests, filters]);
-
-  // Apply DSL filter on top of the simple FilterBar result. When the
-  // DSL is empty, dslFilteredRequests == filteredRequests so behaviour
-  // is unchanged.
-  const [dslFilteredRequests, setDslFilteredRequests] =
-    useState<InterceptedRequest[]>(filteredRequests);
+  const query = useMemo<TrafficQuery>(
+    () => ({
+      expression: dslExpr,
+      method: filters.method ?? null,
+      host: filters.host ?? null,
+      status: filters.status ?? null,
+      application: filters.appTag ?? null,
+      search: filters.search ?? null,
+      order: "newest",
+      page: queryPage,
+      page_size: 50,
+    }),
+    [dslExpr, filters, queryPage],
+  );
 
   useEffect(() => {
-    if (!dslExpr.trim()) {
-      setDslFilteredRequests(filteredRequests);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const out: InterceptedRequest[] = [];
-      for (const r of filteredRequests) {
+    let active = true;
+    const handle = setTimeout(() => {
+      setQueryLoading(true);
+      void (async () => {
         try {
-          const matches = await desktop.call("evaluate_filter", {
-            expr: dslExpr,
-            request: r,
+          const page = await desktop.call("get_traffic_page", {
+            query,
+            records: historyRecords,
           });
-          if (matches) out.push(r);
-        } catch {
-          // Skip rows that fail to evaluate (e.g. parse error mid-typing).
+          if (active) setResultPage(page);
+        } catch (error) {
+          // FilterInput renders malformed-expression errors. Keep the previous
+          // result set while the user is still editing the expression.
+          console.error("Traffic query failed:", error);
+        } finally {
+          if (active) {
+            setLoading(false);
+            setQueryLoading(false);
+          }
         }
-      }
-      if (!cancelled) setDslFilteredRequests(out);
-    })();
+      })();
+    }, 100);
     return () => {
-      cancelled = true;
+      active = false;
+      clearTimeout(handle);
     };
-  }, [filteredRequests, dslExpr]);
+  }, [historyRecords, query, refreshVersion]);
 
   const displayedRequests = useMemo(
     () =>
       normalizedView
-        ? normalizedData.map(normalizedRecordToListItem)
-        : dslFilteredRequests.map(capturedRequestToListItem),
-    [normalizedView, normalizedData, dslFilteredRequests],
+        ? resultPage.normalized_records.map(normalizedRecordToListItem)
+        : resultPage.records.map(capturedRequestToListItem),
+    [normalizedView, resultPage],
   );
 
   const selectedRequest = useMemo(
@@ -137,28 +137,22 @@ export function TrafficPage() {
     [displayedRequests, selectedId],
   );
 
-  async function loadNormalized(page = normPage) {
-    try {
-      setNormLoading(true);
-      const result = await desktop.call("get_traffic_page", { page, pageSize: 50 });
-      setNormalizedData(result.records);
-      setNormTotal(result.total);
-    } catch (err) {
-      alert("Normalized load failed: " + String(err));
-    } finally {
-      setNormLoading(false);
+  useEffect(() => {
+    if (selectedId && !displayedRequests.some((request) => request.id === selectedId)) {
+      setSelectedId(null);
     }
-  }
+  }, [displayedRequests, selectedId]);
 
-  async function toggleNormalized() {
-    const next = !normalizedView;
-    setNormalizedView(next);
-    if (next) loadNormalized();
+  function toggleNormalized() {
+    setNormalizedView((current) => !current);
   }
 
   async function loadHistory() {
     try {
-      setRequests(await desktop.call("load_history", {}));
+      const history = await desktop.call("load_history", {});
+      setRequests(history);
+      setHistoryRecords(history);
+      setQueryPage(0);
     } catch (err) {
       alert("Load history failed: " + String(err));
     }
@@ -166,7 +160,7 @@ export function TrafficPage() {
 
   async function saveHistory() {
     try {
-      await desktop.call("save_history", { requests });
+      await desktop.call("save_history", { requests: historyRecords ?? requests });
       alert("Traffic history saved");
     } catch (err) {
       alert("Save failed: " + String(err));
@@ -196,16 +190,28 @@ export function TrafficPage() {
     <div className="flex flex-col h-screen">
       <FilterInput
         value={dslExpr}
-        onChange={setDslExpr}
+        onChange={(expression) => {
+          setDslExpr(expression);
+          setQueryPage(0);
+        }}
         presets={presets}
-        onSelectPreset={(p) => setDslExpr(p.expr)}
+        onSelectPreset={(preset) => {
+          setDslExpr(preset.expr);
+          setQueryPage(0);
+        }}
         onPresetsChange={loadPresets}
       />
-      <FilterBar filters={filters} onChange={setFilters} />
+      <FilterBar
+        filters={filters}
+        onChange={(nextFilters) => {
+          setFilters(nextFilters);
+          setQueryPage(0);
+        }}
+      />
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface-primary">
-        <span className="text-xs text-text-muted">{dslFilteredRequests.length} requests</span>
+        <span className="text-xs text-text-muted">{resultPage.total} requests</span>
         <div className="flex-1" />
         <Button variant="secondary" size="sm" onClick={loadHistory}>
           <FolderOpen size={14} /> Load
@@ -217,7 +223,7 @@ export function TrafficPage() {
           <Table2 size={14} />
           {normalizedView ? "Raw" : "Normalized"}
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => setShowHarDialog(true)} disabled={requests.length === 0}>
+        <Button variant="secondary" size="sm" onClick={() => setShowHarDialog(true)} disabled={resultPage.total === 0}>
           <Download size={14} />
           Export HAR
         </Button>
@@ -245,7 +251,7 @@ export function TrafficPage() {
         <div className="w-3/5 border-r border-border flex flex-col">
           <div className="flex-1 overflow-hidden">
             <ErrorBoundary>
-              {loading || normLoading ? (
+              {loading || queryLoading ? (
                 <SkeletonTable rows={10} />
               ) : (
                 <RequestTable
@@ -256,12 +262,12 @@ export function TrafficPage() {
               )}
             </ErrorBoundary>
           </div>
-          {normalizedView && normTotal > 0 && (
+          {resultPage.total > 0 && (
             <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-surface-primary text-xs text-text-muted">
-              <span>Page {normPage + 1} of {Math.ceil(normTotal / 50)} ({normTotal} total)</span>
+              <span>Page {queryPage + 1} of {Math.ceil(resultPage.total / 50)} ({resultPage.total} total)</span>
               <div className="flex gap-1">
-                <Button variant="secondary" size="sm" disabled={normPage <= 0} onClick={() => { const page = normPage - 1; setNormPage(page); void loadNormalized(page); }}>Prev</Button>
-                <Button variant="secondary" size="sm" disabled={(normPage + 1) * 50 >= normTotal} onClick={() => { const page = normPage + 1; setNormPage(page); void loadNormalized(page); }}>Next</Button>
+                <Button variant="secondary" size="sm" disabled={queryPage <= 0} onClick={() => setQueryPage((page) => Math.max(0, page - 1))}>Prev</Button>
+                <Button variant="secondary" size="sm" disabled={!resultPage.has_more} onClick={() => setQueryPage((page) => page + 1)}>Next</Button>
               </div>
             </div>
           )}

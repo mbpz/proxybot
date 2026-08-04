@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Save } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { desktop } from "../../desktop/contract";
 import { Button } from "../ui/Button";
 
 interface SavePresetButtonProps {
@@ -36,7 +36,7 @@ export function SavePresetButton({ currentExpr, onSaved }: SavePresetButtonProps
     setSaving(true);
     setError(null);
     try {
-      await invoke("save_filter_preset", {
+      await desktop.call("save_filter_preset", {
         preset: {
           id: crypto.randomUUID(),
           name: name.trim(),

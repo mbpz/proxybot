@@ -213,7 +213,6 @@ define_desktop_commands![
     crate::commands::ssl_bypass::check_adb_installed,
     crate::commands::ssl_bypass::patch_apk,
     crate::commands::filter::parse_filter,
-    crate::commands::filter::evaluate_filter,
     crate::commands::filter::list_filter_presets,
     crate::commands::filter::save_filter_preset,
     crate::commands::filter::delete_filter_preset,

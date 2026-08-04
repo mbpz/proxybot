@@ -158,9 +158,6 @@ export function createDesktopContract(adapter: DesktopAdapter): DesktopContract 
 
 function validateCommandResult(command: keyof DesktopCommands, value: unknown): void {
   switch (command) {
-    case "evaluate_filter":
-      assert(typeof value === "boolean", command, "result must be a boolean");
-      return;
     case "export_har":
       assertJsonValue(value, command);
       return;
@@ -189,6 +186,13 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
       return;
     case "match_host":
       if (value !== null) assertRuleAction(value, command);
+      return;
+    case "parse_filter":
+      assertRecord(value, command);
+      assert(typeof value.ok === "boolean", `${command}.ok`, "must be a boolean");
+      assertNullableString(value.error, `${command}.error`);
+      return;
+    case "save_filter_preset":
       return;
     case "save_har_file":
       assertString(value, command);
@@ -276,6 +280,7 @@ function assertInterceptedRequest(value: unknown, path: string): asserts value i
   assertNullableNumber(value.device_id, `${path}.device_id`);
   assertNullableString(value.device_name, `${path}.device_name`);
   assertNullableString(value.client_ip, `${path}.client_ip`);
+  assertNullableString(value.upstream_ip, `${path}.upstream_ip`);
   assert(typeof value.is_websocket === "boolean", path, "is_websocket must be a boolean");
   if (value.ws_frames !== null) assertArray(value.ws_frames, `${path}.ws_frames`, assertWsFrame);
   assertNullableString(value.grpc_decoded, `${path}.grpc_decoded`);
@@ -300,25 +305,28 @@ function assertWsFrameEvent(value: unknown, path: string): asserts value is WsFr
 
 function assertTrafficPage(value: unknown, path: string): asserts value is TrafficPage {
   assertRecord(value, path);
-  assertArray(value.records, `${path}.records`, (record, recordPath) => {
-    assertRecord(record, recordPath);
-    assertNumber(record.id, `${recordPath}.id`);
-    assertString(record.timestamp, `${recordPath}.timestamp`);
-    assertString(record.method, `${recordPath}.method`);
-    assertString(record.path, `${recordPath}.path`);
-    assertJsonValue(record.query, `${recordPath}.query`);
-    assertJsonValue(record.request_headers, `${recordPath}.request_headers`);
-    assertJsonValue(record.request_body, `${recordPath}.request_body`);
-    assertNumber(record.response_status, `${recordPath}.response_status`);
-    assertJsonValue(record.response_headers, `${recordPath}.response_headers`);
-    assertJsonValue(record.response_body, `${recordPath}.response_body`);
-    assertNumber(record.timing_ms, `${recordPath}.timing_ms`);
-    assertNullableNumber(record.device_id, `${recordPath}.device_id`);
-  });
+  assertArray(value.records, `${path}.records`, assertInterceptedRequest);
+  assertArray(value.normalized_records, `${path}.normalized_records`, assertNormalizedRecord);
   assertNumber(value.total, `${path}.total`);
   assertNumber(value.page, `${path}.page`);
   assertNumber(value.page_size, `${path}.page_size`);
   assert(typeof value.has_more === "boolean", path, "has_more must be a boolean");
+}
+
+function assertNormalizedRecord(value: unknown, path: string): void {
+  assertRecord(value, path);
+  assertNumber(value.id, `${path}.id`);
+  assertString(value.timestamp, `${path}.timestamp`);
+  assertString(value.method, `${path}.method`);
+  assertString(value.path, `${path}.path`);
+  assertJsonValue(value.query, `${path}.query`);
+  assertJsonValue(value.request_headers, `${path}.request_headers`);
+  assertJsonValue(value.request_body, `${path}.request_body`);
+  assertNumber(value.response_status, `${path}.response_status`);
+  assertJsonValue(value.response_headers, `${path}.response_headers`);
+  assertJsonValue(value.response_body, `${path}.response_body`);
+  assertNumber(value.timing_ms, `${path}.timing_ms`);
+  assertNullableNumber(value.device_id, `${path}.device_id`);
 }
 
 function assertJsonValue(value: unknown, path: string): asserts value is JsonValue {

@@ -189,6 +189,8 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
             response_size: None,
             is_websocket: false,
             session_id: None,
+            client_ip: None,
+            upstream_ip: None,
         });
     }
     export_har_records(&records)

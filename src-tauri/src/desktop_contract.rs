@@ -4,6 +4,8 @@
 //! generated TypeScript is committed so frontend builds do not need Rust, and
 //! CI regenerates it in check mode to catch drift.
 
+use crate::commands::filter::ParseResult;
+use crate::filter::query::TrafficQuery;
 use crate::normalize::{NormalizedRecord, TrafficPage};
 use crate::proxy::WsFrameEvent;
 use proxybot_core::desktop_contract::DesktopContractType;
@@ -11,14 +13,15 @@ use proxybot_core::{BreakpointTarget, InterceptedRequest, Rule, RuleAction, Rule
 use std::fmt::Write;
 
 pub const TRAFFIC_COMMANDS: &[&str] = &[
-    "evaluate_filter",
     "export_har",
     "get_traffic_page",
     "get_ws_frames",
     "list_filter_presets",
     "load_history",
+    "parse_filter",
     "save_har_file",
     "save_history",
+    "save_filter_preset",
 ];
 
 pub const TRAFFIC_EVENTS: &[&str] = &["intercepted-request", "ws-frame:new"];
@@ -45,7 +48,9 @@ pub fn render_typescript() -> String {
         WsFrame::type_script_declaration(),
         WsFrameEvent::type_script_declaration(),
         NormalizedRecord::type_script_declaration(),
+        TrafficQuery::type_script_declaration(),
         TrafficPage::type_script_declaration(),
+        ParseResult::type_script_declaration(),
         BreakpointTarget::type_script_declaration(),
         RulePattern::type_script_declaration(),
         RuleAction::type_script_declaration(),
@@ -63,16 +68,17 @@ pub fn render_typescript() -> String {
          }\n\n\
          export interface DesktopCommands {\n\
          \x20 delete_rule: { args: { rule: Rule; filename: string }; result: undefined };\n\
-         \x20 evaluate_filter: { args: { expr: string; request: InterceptedRequest }; result: boolean };\n\
          \x20 export_har: { args: { sessionName: string }; result: JsonValue };\n\
-         \x20 get_traffic_page: { args: { page: number; pageSize: number }; result: TrafficPage };\n\
+         \x20 get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };\n\
          \x20 get_rules: { args: { filename: string }; result: Rule[] };\n\
          \x20 get_ws_frames: { args: { requestId: string }; result: WsFrame[] };\n\
          \x20 list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };\n\
          \x20 list_rule_files: { args: Record<string, never>; result: string[] };\n\
          \x20 load_history: { args: Record<string, never>; result: InterceptedRequest[] };\n\
          \x20 match_host: { args: { host: string; ip: string | null }; result: RuleAction | null };\n\
+         \x20 parse_filter: { args: { expr: string }; result: ParseResult };\n\
          \x20 reorder_rules: { args: { fromIndex: number; toIndex: number; filename: string }; result: undefined };\n\
+         \x20 save_filter_preset: { args: { preset: FilterPreset }; result: undefined };\n\
          \x20 save_har_file: { args: { harJson: string; sessionName: string }; result: string };\n\
          \x20 save_history: { args: { requests: InterceptedRequest[] }; result: undefined };\n\
          \x20 save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };\n\
@@ -92,7 +98,7 @@ pub fn render_typescript() -> String {
         output,
         "export const desktopCommandNames = {} as const;\n\
          export const desktopEventNames = {} as const;\n\
-         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_history\",\"save_rule\"] as const;\n",
+         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\"] as const;\n",
         json_string_array(&command_names),
         json_string_array(TRAFFIC_EVENTS),
     )

@@ -12,7 +12,7 @@ use rusqlite::{params_from_iter, types::Value, Connection, Row};
 
 const REQUEST_COLUMNS: &str = "id, timestamp, method, scheme, host, path, \
     req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms, \
-    device_id, app_tag, response_size, is_websocket, session_id";
+    device_id, app_tag, response_size, is_websocket, session_id, client_ip, upstream_ip";
 
 /// A Captured Request as stored by the desktop application.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,6 +34,8 @@ pub struct CapturedRequestRecord {
     pub response_size: Option<i64>,
     pub is_websocket: bool,
     pub session_id: Option<String>,
+    pub client_ip: Option<String>,
+    pub upstream_ip: Option<String>,
 }
 
 impl CapturedRequestRecord {
@@ -67,8 +69,8 @@ impl CapturedRequestRecord {
             app_icon: None,
             device_id: self.device_id,
             device_name: None,
-            client_ip: None,
-            upstream_ip: None,
+            client_ip: self.client_ip.clone(),
+            upstream_ip: self.upstream_ip.clone(),
             is_websocket: self.is_websocket,
             ws_frames: None,
             grpc_decoded: None,
@@ -119,6 +121,8 @@ pub struct NewCapturedRequest<'a> {
     pub device_id: Option<i64>,
     pub app_tag: Option<&'a str>,
     pub session_id: Option<&'a str>,
+    pub client_ip: Option<&'a str>,
+    pub upstream_ip: Option<&'a str>,
 }
 
 impl<'a> NewCapturedRequest<'a> {
@@ -139,6 +143,8 @@ impl<'a> NewCapturedRequest<'a> {
             device_id: request.device_id,
             app_tag: request.app_name.as_deref(),
             session_id: None,
+            client_ip: request.client_ip.as_deref(),
+            upstream_ip: request.upstream_ip.as_deref(),
         }
     }
 }
@@ -250,9 +256,9 @@ fn insert_request(connection: &Connection, request: NewCapturedRequest<'_>) -> R
             r#"INSERT INTO http_requests
                (timestamp, method, scheme, host, path, req_headers, req_body,
                 resp_status, resp_headers, resp_body, duration_ms, device_id, app_tag,
-                session_id, response_size, is_websocket)
+                session_id, response_size, is_websocket, client_ip, upstream_ip)
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                       ?13, ?14, ?15, ?16)"#,
+                       ?13, ?14, ?15, ?16, ?17, ?18)"#,
             rusqlite::params![
                 request.timestamp,
                 request.method,
@@ -270,6 +276,8 @@ fn insert_request(connection: &Connection, request: NewCapturedRequest<'_>) -> R
                 request.session_id,
                 request.response_size,
                 0_i64,
+                request.client_ip,
+                request.upstream_ip,
             ],
         )
         .map_err(|error| error.to_string())?;
@@ -394,6 +402,8 @@ fn map_request(row: &Row<'_>) -> rusqlite::Result<CapturedRequestRecord> {
         response_size: row.get(14)?,
         is_websocket: is_websocket != 0,
         session_id: row.get(16)?,
+        client_ip: row.get(17)?,
+        upstream_ip: row.get(18)?,
     })
 }
 
@@ -469,6 +479,8 @@ mod tests {
             latency_ms: Some(12),
             app_name: Some("Example".to_owned()),
             device_id: Some(7),
+            client_ip: Some("10.0.0.2".to_owned()),
+            upstream_ip: Some("203.0.113.8".to_owned()),
             ..Default::default()
         }
     }
@@ -498,6 +510,8 @@ mod tests {
         assert_eq!(intercepted.query_params.as_deref(), Some("limit=2"));
         assert_eq!(intercepted.app_name.as_deref(), Some("Example"));
         assert_eq!(intercepted.resp_size, Some(42));
+        assert_eq!(intercepted.client_ip.as_deref(), Some("10.0.0.2"));
+        assert_eq!(intercepted.upstream_ip.as_deref(), Some("203.0.113.8"));
     }
 
     #[test]

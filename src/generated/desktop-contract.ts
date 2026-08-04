@@ -59,12 +59,30 @@ export interface NormalizedRecord {
   device_id: number | null;
 }
 
+export interface TrafficQuery {
+  expression: string;
+  method: string | null;
+  host: string | null;
+  status: number | null;
+  application: string | null;
+  search: string | null;
+  order: "newest" | "oldest" | "slowest" | "largest";
+  page: number;
+  page_size: number;
+}
+
 export interface TrafficPage {
-  records: Array<NormalizedRecord>;
+  records: Array<InterceptedRequest>;
+  normalized_records: Array<NormalizedRecord>;
   total: number;
   page: number;
   page_size: number;
   has_more: boolean;
+}
+
+export interface ParseResult {
+  ok: boolean;
+  error: string | null;
 }
 
 export type BreakpointTarget = "REQUEST" | "RESPONSE" | "BOTH";
@@ -97,16 +115,17 @@ export interface FilterPreset {
 
 export interface DesktopCommands {
   delete_rule: { args: { rule: Rule; filename: string }; result: undefined };
-  evaluate_filter: { args: { expr: string; request: InterceptedRequest }; result: boolean };
   export_har: { args: { sessionName: string }; result: JsonValue };
-  get_traffic_page: { args: { page: number; pageSize: number }; result: TrafficPage };
+  get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };
   get_rules: { args: { filename: string }; result: Rule[] };
   get_ws_frames: { args: { requestId: string }; result: WsFrame[] };
   list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };
   list_rule_files: { args: Record<string, never>; result: string[] };
   load_history: { args: Record<string, never>; result: InterceptedRequest[] };
   match_host: { args: { host: string; ip: string | null }; result: RuleAction | null };
+  parse_filter: { args: { expr: string }; result: ParseResult };
   reorder_rules: { args: { fromIndex: number; toIndex: number; filename: string }; result: undefined };
+  save_filter_preset: { args: { preset: FilterPreset }; result: undefined };
   save_har_file: { args: { harJson: string; sessionName: string }; result: string };
   save_history: { args: { requests: InterceptedRequest[] }; result: undefined };
   save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };
@@ -117,6 +136,6 @@ export interface DesktopEvents {
   "ws-frame:new": WsFrameEvent;
 }
 
-export const desktopCommandNames = ["evaluate_filter","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","save_har_file","save_history","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule"] as const;
+export const desktopCommandNames = ["export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule"] as const;
 export const desktopEventNames = ["intercepted-request","ws-frame:new"] as const;
-export const unitCommandNames = ["delete_rule","reorder_rules","save_history","save_rule"] as const;
+export const unitCommandNames = ["delete_rule","reorder_rules","save_filter_preset","save_history","save_rule"] as const;

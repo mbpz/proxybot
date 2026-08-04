@@ -95,6 +95,53 @@ describe("Desktop contract Adapter conformance", () => {
     });
   });
 
+  it("validates the complete Captured Request query contract", async () => {
+    const adapter = new BrowserMockAdapter({
+      get_traffic_page: ({ query }) => ({
+        records: query.expression === "method:GET" ? [request] : [],
+        normalized_records: [],
+        total: query.expression === "method:GET" ? 1 : 0,
+        page: query.page,
+        page_size: query.page_size,
+        has_more: false,
+      }),
+      parse_filter: ({ expr }) => ({ ok: expr === "method:GET", error: null }),
+      save_filter_preset: () => undefined,
+    });
+    const query = {
+      expression: "method:GET",
+      method: null,
+      host: null,
+      status: null,
+      application: null,
+      search: null,
+      order: "newest" as const,
+      page: 0,
+      page_size: 50,
+    };
+
+    await expect(
+      adapter.contract.call("get_traffic_page", { query, records: null }),
+    ).resolves.toMatchObject({ records: [request], total: 1 });
+    await expect(adapter.contract.call("parse_filter", { expr: "method:GET" })).resolves.toEqual({
+      ok: true,
+      error: null,
+    });
+    await expect(
+      adapter.contract.call("save_filter_preset", {
+        preset: { id: "one", name: "GET", expr: "method:GET" },
+      }),
+    ).resolves.toBeUndefined();
+
+    const invalid = new BrowserMockAdapter({
+      get_traffic_page: () =>
+        ({ records: [], total: 0, page: 0, page_size: 50, has_more: false }) as never,
+    });
+    await expect(
+      invalid.contract.call("get_traffic_page", { query, records: null }),
+    ).rejects.toMatchObject({ kind: "contract" });
+  });
+
   it("preserves event order and makes disposal idempotent", async () => {
     const adapter = new BrowserMockAdapter();
     const received: string[] = [];

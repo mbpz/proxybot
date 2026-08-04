@@ -137,6 +137,8 @@ async fn handle_http3_stream(
                 // QUIC still lands in the unassigned session until it routes
                 // through the shared Capture Event Adapter.
                 session_id: None,
+                client_ip: None,
+                upstream_ip: None,
             });
         }
         Ok(None) => {

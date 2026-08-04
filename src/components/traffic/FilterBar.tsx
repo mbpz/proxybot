@@ -12,7 +12,8 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ filters, onChange }: FilterBarProps) {
-  const hasFilters = filters.method || filters.host || filters.search || filters.appTag;
+  const hasFilters =
+    filters.method || filters.host || filters.status !== undefined || filters.search || filters.appTag;
 
   return (
     <div className="flex items-center gap-3 px-4 py-2 bg-surface-secondary border-b border-border">
@@ -50,7 +51,7 @@ export function FilterBar({ filters, onChange }: FilterBarProps) {
       {/* Host filter */}
       <input
         type="text"
-        placeholder="host:*.example.com"
+        placeholder="*.example.com"
         value={filters.host || ""}
         onChange={(e) =>
           onChange({ ...filters, host: e.target.value || undefined })

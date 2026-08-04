@@ -65,11 +65,11 @@ impl Lexer {
                 }
                 let word: String = self.input[start..self.pos].iter().collect();
 
-                if word == "AND" {
+                if word.eq_ignore_ascii_case("AND") {
                     tokens.push(Token::And);
-                } else if word == "OR" {
+                } else if word.eq_ignore_ascii_case("OR") {
                     tokens.push(Token::Or);
-                } else if word == "NOT" {
+                } else if word.eq_ignore_ascii_case("NOT") {
                     tokens.push(Token::Not);
                 } else if self.pos < self.input.len() && self.input[self.pos] == ':' {
                     self.pos += 1;
@@ -102,33 +102,66 @@ impl Lexer {
                             self.pos = nstart;
                         }
                     }
-                    let op = if self.pos < self.input.len() && self.input[self.pos] == '*' {
-                        self.pos += 1;
-                        FilterOp::Glob
-                    } else if self.pos < self.input.len() && self.input[self.pos] == '~' {
-                        self.pos += 1;
-                        FilterOp::Regex
-                    } else {
-                        FilterOp::Eq
+                    let mut glob_prefix = false;
+                    let op = match self.input.get(self.pos).copied() {
+                        Some('*') => {
+                            glob_prefix = true;
+                            self.pos += 1;
+                            FilterOp::Glob
+                        }
+                        Some('~') => {
+                            self.pos += 1;
+                            FilterOp::Regex
+                        }
+                        Some('>') => {
+                            self.pos += 1;
+                            if self.input.get(self.pos) == Some(&'=') {
+                                self.pos += 1;
+                                FilterOp::Gte
+                            } else {
+                                FilterOp::Gt
+                            }
+                        }
+                        Some('<') => {
+                            self.pos += 1;
+                            if self.input.get(self.pos) == Some(&'=') {
+                                self.pos += 1;
+                                FilterOp::Lte
+                            } else {
+                                FilterOp::Lt
+                            }
+                        }
+                        _ => FilterOp::Eq,
                     };
-                    // Consume the value after the operator
-                    let start = self.pos;
-                    while self.pos < self.input.len()
-                        && (self.input[self.pos].is_alphanumeric()
-                            || self.input[self.pos] == '_'
-                            || self.input[self.pos] == '.'
-                            || self.input[self.pos] == '-'
-                            || self.input[self.pos] == '*'
-                            || self.input[self.pos] == '/'
-                            || self.input[self.pos] == '?'
-                            || self.input[self.pos] == '&'
-                            || self.input[self.pos] == '='
-                            || self.input[self.pos] == '>'
-                            || self.input[self.pos] == '<')
-                    {
+                    // Values consume the full token so regex characters and
+                    // URL punctuation remain intact. Quoted values may contain
+                    // whitespace; a closing quote is mandatory.
+                    let mut value = if matches!(self.input.get(self.pos), Some('"' | '\'')) {
+                        let quote = self.input[self.pos];
                         self.pos += 1;
+                        let start = self.pos;
+                        while self.pos < self.input.len() && self.input[self.pos] != quote {
+                            self.pos += 1;
+                        }
+                        if self.pos == self.input.len() {
+                            return Err("Unclosed quoted value".to_string());
+                        }
+                        let value: String = self.input[start..self.pos].iter().collect();
+                        self.pos += 1;
+                        value
+                    } else {
+                        let start = self.pos;
+                        while self.pos < self.input.len()
+                            && !self.input[self.pos].is_whitespace()
+                            && self.input[self.pos] != ')'
+                        {
+                            self.pos += 1;
+                        }
+                        self.input[start..self.pos].iter().collect()
+                    };
+                    if glob_prefix {
+                        value.insert(0, '*');
                     }
-                    let value: String = self.input[start..self.pos].iter().collect();
                     if value.is_empty() {
                         return Err("Expected value after operator".to_string());
                     }
@@ -201,7 +234,11 @@ pub fn parse(input: &str) -> Result<FilterExpr, String> {
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize()?;
     let mut parser = Parser { tokens, pos: 0 };
-    parser.parse_expr()
+    let expression = parser.parse_expr()?;
+    if parser.peek() != &Token::EOF {
+        return Err("Unexpected trailing token".to_string());
+    }
+    Ok(expression)
 }
 
 struct Parser {
@@ -237,8 +274,18 @@ impl Parser {
     fn parse_and(&mut self) -> Result<FilterExpr, String> {
         let mut left = self.parse_not()?;
 
-        while self.peek() == &Token::And {
-            self.advance();
+        loop {
+            let explicit = self.peek() == &Token::And;
+            let implicit = matches!(
+                self.peek(),
+                Token::Field(_) | Token::Text(_) | Token::LParen | Token::Not
+            );
+            if !explicit && !implicit {
+                break;
+            }
+            if explicit {
+                self.advance();
+            }
             let right = self.parse_not()?;
             left = FilterExpr::And(Box::new(left), Box::new(right));
         }
@@ -369,14 +416,13 @@ mod tests {
 
     #[test]
     fn test_parse_body_field() {
-        // body:*token* — lexer strips the first `*` (used as glob op
-        // marker) and the value scan consumes the rest, giving
-        // value="token*". The parser emits a BodyText AST node.
+        // The leading wildcard is both the glob operator marker and part of
+        // the pattern so suffix/substring matching remains meaningful.
         let result = parse("body:*token*");
         assert!(result.is_ok());
         if let Ok(FilterExpr::BodyText { op, value }) = result {
             assert_eq!(op, FilterOp::Glob);
-            assert_eq!(value, "token*");
+            assert_eq!(value, "*token*");
         } else {
             panic!("Expected BodyText expr, got: {:?}", result);
         }
@@ -423,17 +469,26 @@ mod tests {
 
     #[test]
     fn test_status_comparison() {
-        // status:>400 parses as status field with value ">400"
-        // The > is part of the value in column-scoped syntax
-        let result = parse("status:>400");
-        assert!(result.is_ok());
+        assert!(matches!(
+            parse("status:>400"),
+            Ok(FilterExpr::Field {
+                op: FilterOp::Gt,
+                value,
+                ..
+            }) if value == "400"
+        ));
     }
 
     #[test]
     fn test_comparison_op() {
-        // Standalone comparison: status>400 (no space, column syntax)
-        let result = parse("status:>400");
-        assert!(result.is_ok());
+        assert!(matches!(
+            parse("status:>=400"),
+            Ok(FilterExpr::Field {
+                op: FilterOp::Gte,
+                value,
+                ..
+            }) if value == "400"
+        ));
     }
 
     #[test]
@@ -462,26 +517,22 @@ mod tests {
         assert_eq!(tokens.len(), 4);
         assert_eq!(tokens[0], Token::Field("host".to_string()));
         assert_eq!(tokens[1], Token::Op(FilterOp::Glob));
-        assert_eq!(tokens[2], Token::Value("example.com".to_string()));
+        assert_eq!(tokens[2], Token::Value("*example.com".to_string()));
         assert_eq!(tokens[3], Token::EOF);
     }
 
     #[test]
     fn test_tokenize_regex_pattern() {
-        // Regex patterns don't work fully because special chars like ^ are not allowed in values
-        // path:~^/api/ -> the value stops at ^ since ^ is not alphanumeric or in allowed chars
-        // This results in empty value error
         let mut lexer = Lexer::new("path:~^/api/");
-        let result = lexer.tokenize();
-        assert!(result.is_err()); // ^ not allowed in value, so empty value error
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[1], Token::Op(FilterOp::Regex));
+        assert_eq!(tokens[2], Token::Value("^/api/".to_string()));
     }
 
     #[test]
     fn test_parse_regex_field() {
-        // Regex field parsing doesn't work because special chars aren't in allowed value chars
         let result = parse("path:~^/api/");
-        // The lexer fails to parse the value after ~ because ^ is not allowed
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -528,19 +579,16 @@ mod tests {
 
     #[test]
     fn test_tokenize_quoted_string_double() {
-        // Quoted strings in field:value are NOT supported - quote char becomes part of value
-        // The lexer does not properly handle quoted strings as values
         let mut lexer = Lexer::new("path:\"foo bar\"");
-        let result = lexer.tokenize();
-        // Quote chars are not in the allowed value chars, so value is empty -> error
-        assert!(result.is_err());
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[2], Token::Value("foo bar".to_string()));
     }
 
     #[test]
     fn test_tokenize_quoted_string_single() {
         let mut lexer = Lexer::new("host:'example.com'");
-        let result = lexer.tokenize();
-        assert!(result.is_err());
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[2], Token::Value("example.com".to_string()));
     }
 
     #[test]
@@ -649,31 +697,24 @@ mod tests {
 
     #[test]
     fn test_parse_regex_field_missing_chars() {
-        // Regex field parsing doesn't work because special chars aren't in allowed value chars
         let result = parse("path:~^/api/");
-        // The lexer fails to parse the value after ~ because ^ is not allowed
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]
     fn test_parse_mixed_and_text() {
-        // method:POST followed by bare text "api"
-        // This parses as FilterExpr::And(Field, Text) only if there's AND
-        // Otherwise it just takes the first field
         let result = parse("method:POST api");
-        // Without explicit AND, the parser takes first token and ignores bare text
         assert!(result.is_ok());
-        if let Ok(FilterExpr::Field { field, .. }) = result {
-            assert_eq!(field, "method");
-        }
+        assert!(matches!(result, Ok(FilterExpr::And(_, _))));
     }
 
     #[test]
     fn test_parse_quoted_value() {
-        // Note: quoted values in field:value syntax are NOT properly supported
-        // This test documents the current behavior (error case)
         let result = parse("path:\"hello world\"");
-        assert!(result.is_err()); // Quoted strings not supported as field values
+        assert!(matches!(
+            result,
+            Ok(FilterExpr::Field { value, .. }) if value == "hello world"
+        ));
     }
 
     #[test]
@@ -683,9 +724,14 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_rejects_unconsumed_tokens() {
+        assert!(parse("method:GET status:").is_err());
+        assert!(parse("method:GET)").is_err());
+    }
+
+    #[test]
     fn test_parse_empty_input() {
         let result = parse("");
-        // Empty input - lexer produces EOF token, parser may error or return empty text
-        assert!(result.is_ok() || result.is_err());
+        assert!(result.is_err());
     }
 }

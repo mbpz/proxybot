@@ -4,6 +4,8 @@
 //! Body parser detects JSON, Protobuf (base64), and GraphQL variants.
 
 use crate::db::{CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState};
+use crate::filter::query::{CompiledTrafficQuery, TrafficQuery};
+use proxybot_core::InterceptedRequest;
 #[cfg(test)]
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
@@ -56,7 +58,8 @@ proxybot_core::desktop_contract_type! {
     /// Paginated traffic response.
     #[derive(Debug, Clone, Serialize)]
     pub struct TrafficPage {
-        pub records: Vec<NormalizedRecord>,
+        pub records: Vec<InterceptedRequest>,
+        pub normalized_records: Vec<NormalizedRecord>,
         pub total: i64,
         pub page: i64,
         pub page_size: i64,
@@ -377,66 +380,61 @@ fn get_normalized_traffic_internal(
 #[tauri::command]
 pub fn get_traffic_page(
     db_state: State<'_, Arc<DbState>>,
-    page: i64,
-    page_size: i64,
+    query: TrafficQuery,
+    records: Option<Vec<InterceptedRequest>>,
 ) -> Result<TrafficPage, String> {
-    let safe_page = page.max(0);
-    let safe_page_size = page_size.max(0);
-    let query = CapturedRequestQuery {
-        order: CapturedRequestOrder::IdDescending,
-        limit: Some(safe_page_size as usize),
-        offset: safe_page.saturating_mul(safe_page_size) as usize,
-        ..Default::default()
-    };
-    let total = db_state.count_captured_requests(&query)?;
-    let records = db_state
-        .captured_requests(&query)?
-        .iter()
-        .map(normalize_captured_record)
-        .collect();
-    Ok(TrafficPage {
-        records,
-        total,
-        page: safe_page,
-        page_size: safe_page_size,
-        has_more: safe_page.saturating_add(1).saturating_mul(safe_page_size) < total,
-    })
+    query_traffic_page(&db_state, &query, records)
 }
 
-/// Get paginated traffic records (takes `&Connection` for testability).
-#[cfg(test)]
-fn get_traffic_page_internal(
-    conn: &Connection,
-    page: i64,
-    page_size: i64,
+fn query_traffic_page(
+    db_state: &DbState,
+    query: &TrafficQuery,
+    records: Option<Vec<InterceptedRequest>>,
 ) -> Result<TrafficPage, String> {
-    let total: i64 = conn
-        .query_row("SELECT COUNT(*) FROM http_requests", [], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
+    let compiled = CompiledTrafficQuery::compile(query)?;
+    if let Some(records) = records {
+        let page = compiled.execute(records);
+        let normalized_records = page
+            .records
+            .iter()
+            .map(normalize_intercepted_record)
+            .collect();
+        return Ok(TrafficPage {
+            records: page.records,
+            normalized_records,
+            total: page.total,
+            page: page.page,
+            page_size: page.page_size,
+            has_more: page.has_more,
+        });
+    }
 
-    let offset = page * page_size;
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, timestamp, method, path, req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms, device_id
-             FROM http_requests ORDER BY id DESC LIMIT ?1 OFFSET ?2",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let records = stmt
-        .query_map(params![page_size, offset], row_to_normalized)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    let has_more = (page + 1) * page_size < total;
-
+    let persisted = db_state.captured_requests(&CapturedRequestQuery {
+        order: CapturedRequestOrder::IdAscending,
+        ..Default::default()
+    })?;
+    let page = compiled.execute(persisted.iter().map(CapturedRequestRecord::as_intercepted));
+    let by_id = persisted
+        .iter()
+        .map(|record| (record.id.to_string(), record))
+        .collect::<std::collections::HashMap<_, _>>();
+    let normalized_records = page
+        .records
+        .iter()
+        .map(|record| {
+            by_id.get(&record.id).map_or_else(
+                || normalize_intercepted_record(record),
+                |record| normalize_captured_record(record),
+            )
+        })
+        .collect();
     Ok(TrafficPage {
-        records,
-        total,
-        page,
-        page_size,
-        has_more,
+        records: page.records,
+        normalized_records,
+        total: page.total,
+        page: page.page,
+        page_size: page.page_size,
+        has_more: page.has_more,
     })
 }
 
@@ -485,6 +483,26 @@ pub(crate) fn normalize_captured_record(record: &CapturedRequestRecord) -> Norma
         &response_headers,
         record.response_body.as_deref(),
         record.duration_ms,
+        record.device_id,
+    )
+}
+
+fn normalize_intercepted_record(record: &InterceptedRequest) -> NormalizedRecord {
+    let request_headers = serde_json::to_string(&record.req_headers).unwrap_or_default();
+    let response_headers = serde_json::to_string(&record.resp_headers).unwrap_or_default();
+    normalize_http_record(
+        record.id.parse().unwrap_or_default(),
+        &record.timestamp,
+        &record.method,
+        &record.path,
+        &request_headers,
+        record.req_body.as_deref().map(str::as_bytes),
+        record.status.map(i64::from),
+        &response_headers,
+        record.resp_body.as_deref().map(str::as_bytes),
+        record
+            .latency_ms
+            .and_then(|value| i64::try_from(value).ok()),
         record.device_id,
     )
 }
@@ -1001,102 +1019,59 @@ mod tests {
         assert_eq!(records[0].response_body["b"], 2);
     }
 
-    // ------------------------------------------------------------------
-    // DB helpers — get_traffic_page_internal
-    // ------------------------------------------------------------------
-
     #[test]
-    fn test_get_traffic_page_internal_empty_db_has_no_more() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
+    fn traffic_query_keeps_live_and_persisted_pages_equivalent() {
+        use crate::db::NewCapturedRequest;
+        use crate::filter::query::{TrafficOrder, TrafficQuery};
 
-        let page = get_traffic_page_internal(&conn, 0, 50).unwrap();
-        assert_eq!(page.total, 0, "Empty DB should have total=0");
-        assert_eq!(page.records.len(), 0);
-        assert!(!page.has_more, "Empty DB must not advertise more pages");
-        assert_eq!(page.page, 0);
-        assert_eq!(page.page_size, 50);
-    }
-
-    #[test]
-    fn test_get_traffic_page_internal_paginates_in_id_desc_order() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        // Insert 7 rows so we can paginate at page_size=3 across 3 pages.
-        let mut ids = Vec::new();
-        for i in 0..7 {
-            ids.push(insert_http_row(
-                &conn,
-                "2026-06-04 00:00:00",
-                "GET",
-                &format!("/p{}", i),
-                None,
-                Some(200),
-                None,
-                None,
-            ));
+        let db = DbState::new_in_memory(std::sync::Mutex::new(())).unwrap();
+        let live = [("GET", 200_u16), ("POST", 500_u16), ("GET", 404_u16)]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (method, status))| InterceptedRequest {
+                id: (index + 1).to_string(),
+                timestamp: format!("170406720{index}.000"),
+                method: method.to_owned(),
+                scheme: "https".to_owned(),
+                host: "api.example.com".to_owned(),
+                path: format!("/items/{index}"),
+                status: Some(status),
+                resp_size: Some(100 + index),
+                client_ip: Some("10.0.0.2".to_owned()),
+                upstream_ip: Some("203.0.113.8".to_owned()),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+        for request in &live {
+            db.record_captured_request(NewCapturedRequest::from_intercepted(request))
+                .unwrap();
         }
+        let query = TrafficQuery {
+            expression: "status:>=400 AND client_ip:10.0.0.2".to_owned(),
+            host: Some("*.example.com".to_owned()),
+            order: TrafficOrder::Newest,
+            page_size: 50,
+            ..Default::default()
+        };
 
-        // Page 0: newest 3 (ids 7, 6, 5) — has_more=true
-        let page0 = get_traffic_page_internal(&conn, 0, 3).unwrap();
-        assert_eq!(page0.total, 7);
-        assert_eq!(page0.records.len(), 3);
-        assert_eq!(page0.records[0].id, ids[6]);
-        assert_eq!(page0.records[1].id, ids[5]);
-        assert_eq!(page0.records[2].id, ids[4]);
-        assert!(page0.has_more, "Page 0 of 3-of-7 should have more");
+        let persisted_page = query_traffic_page(&db, &query, None).unwrap();
+        let live_page = query_traffic_page(&db, &query, Some(live)).unwrap();
+        let persisted_ids = persisted_page
+            .records
+            .iter()
+            .map(|record| &record.id)
+            .collect::<Vec<_>>();
+        let live_ids = live_page
+            .records
+            .iter()
+            .map(|record| &record.id)
+            .collect::<Vec<_>>();
 
-        // Page 1: next 3 (ids 4, 3, 2) — has_more=true
-        let page1 = get_traffic_page_internal(&conn, 1, 3).unwrap();
-        assert_eq!(page1.records.len(), 3);
-        assert_eq!(page1.records[0].id, ids[3]);
-        assert!(page1.has_more);
-
-        // Page 2: last 1 (id 1) — has_more=false
-        let page2 = get_traffic_page_internal(&conn, 2, 3).unwrap();
-        assert_eq!(page2.records.len(), 1);
-        assert_eq!(page2.records[0].id, ids[0]);
-        assert!(!page2.has_more, "Last page must not advertise more");
-
-        // Page 3: empty
-        let page3 = get_traffic_page_internal(&conn, 3, 3).unwrap();
-        assert_eq!(page3.records.len(), 0);
-        assert!(!page3.has_more);
-    }
-
-    #[test]
-    fn test_get_traffic_page_internal_has_more_boundary_at_exact_fit() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        // Insert exactly 4 rows; page_size=2 → exactly 2 pages, no third.
-        for i in 0..4 {
-            insert_http_row(
-                &conn,
-                "2026-06-04 00:00:00",
-                "GET",
-                &format!("/p{}", i),
-                None,
-                Some(200),
-                None,
-                None,
-            );
-        }
-
-        let page0 = get_traffic_page_internal(&conn, 0, 2).unwrap();
-        assert_eq!(page0.records.len(), 2);
-        assert!(
-            page0.has_more,
-            "page 0 of exact-fit 2-of-4 should have more"
-        );
-
-        let page1 = get_traffic_page_internal(&conn, 1, 2).unwrap();
-        assert_eq!(page1.records.len(), 2);
-        // (1+1)*2 = 4 = total — not strictly less, so has_more is false.
-        assert!(
-            !page1.has_more,
-            "Boundary page (consumes all rows) must NOT have_more"
+        assert_eq!(persisted_ids, live_ids);
+        assert_eq!(persisted_page.total, 2);
+        assert_eq!(
+            persisted_page.records.len(),
+            persisted_page.normalized_records.len()
         );
     }
 }
