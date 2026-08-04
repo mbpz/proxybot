@@ -44,6 +44,10 @@ _Avoid_: Proxy state, listener wrapper
 The user-visible desktop lifecycle that observes, starts, and stops at most one MITM Runtime and reports actionable lifecycle failures consistently through window and tray Adapters.
 _Avoid_: Proxy toggle, running flag
 
+**Device Onboarding**:
+The user-visible preparation and verification lifecycle that discovers the active LAN Interface, owns temporary certificate distribution, supplies explicit-proxy inputs and platform-specific CA guidance, and cleans up its server.
+_Avoid_: QR panel, certificate tab, mobile profile
+
 **Capture Event**:
 A stable-id lifecycle event emitted by the MITM Runtime for a Captured Request, WebSocket frame, or failure.
 _Avoid_: UI event, database row
@@ -110,6 +114,8 @@ _Avoid_: Running flag, detached server, raw descriptor
 - The **MITM Runtime** turns client connections into zero or more **Captured Requests**
 - One **Capture Session** observes and controls at most one **MITM Runtime**
 - Window and tray Adapters publish the same **Capture Session** running state after successful lifecycle transitions
+- One **Device Onboarding** flow prepares certificate distribution independently of the **Capture Session** so either lifecycle can fail or stop without misreporting the other
+- Core **Device Onboarding** uses an explicit Wi-Fi proxy and CA-only delivery; managed DNS, `pf`, TUN, and VPN setup remain Advanced or Labs capabilities
 - A **Captured Request** is reported through one or more **Capture Events** with the same stable id
 - Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
 - A **Captured Request** may receive one **Application Attribution**
@@ -132,7 +138,7 @@ _Avoid_: Running flag, detached server, raw descriptor
 - Analysis time windows use epoch milliseconds and include both start and end boundaries
 - DAG, Graph, Topology, Auth, and anomaly algorithms share **Captured Request Analysis** facts but retain independent Implementations and desktop wire contracts
 - A retained **Desktop Network Resource** is published as running only after its listener binds or device setup completes successfully
-- Repeated start of a running **Desktop Network Resource** fails, while stop is idempotent and returns only after owned tasks, listeners, and device handles are released
+- Repeated start of a running **Desktop Network Resource** either returns the identical prepared configuration or rejects a conflicting configuration; stop is idempotent and returns only after owned tasks, listeners, and device handles are released
 - The desktop composition root drains the **MITM Runtime**, DNS, dashboard, certificate distribution, and TUN **Desktop Network Resources** before process exit
 - The **MITM Runtime** is the supported transport path; speculative transport and VPN Implementations without a composition-root path are not retained
 

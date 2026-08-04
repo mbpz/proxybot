@@ -18,11 +18,6 @@ pub fn export_cert(cert_manager: State<'_, Arc<CertManager>>) -> Result<String, 
 }
 
 #[tauri::command]
-pub fn get_ca_cert_path(config: State<'_, Arc<proxybot_core::AppConfig>>) -> String {
-    config.ca_dir.join("ca.pem").to_string_lossy().to_string()
-}
-
-#[tauri::command]
 pub fn get_ca_cert_pem(cert_manager: State<Arc<CertManager>>) -> String {
     cert_manager.get_ca_cert_pem()
 }

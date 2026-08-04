@@ -130,7 +130,7 @@ impl AppConfig {
             db_path: base_dir.join("proxybot.db"),
             rules_dir: base_dir.join("rules"),
             ca_dir: base_dir.join("ca"),
-            ca_cert_path: base_dir.join("ca.crt"),
+            ca_cert_path: base_dir.join("ca").join("ca.pem"),
             hosts_path: base_dir.join("hosts"),
             blocklist_path: base_dir.join("blocklist.txt"),
             app_rules_path: base_dir.join("app_rules.json"),
@@ -206,6 +206,7 @@ mod tests {
         assert_eq!(config.base_dir, PathBuf::from("/users/test/.proxybot"));
         assert_eq!(config.proxy_port, DEFAULT_PROXY_PORT);
         assert_eq!(config.dns_port, DEFAULT_DNS_PORT);
+        assert_eq!(config.ca_cert_path, config.ca_dir.join("ca.pem"));
         assert_eq!(
             config.app_signatures_path,
             config.base_dir.join("app_signatures.json")

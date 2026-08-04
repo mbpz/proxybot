@@ -130,6 +130,11 @@ exit gate.
      QR generation, verification, and cleanup in one place.
    - Lead with explicit proxy mode; introduce `pf` only after the basic path
      succeeds.
+   - The Rust-first preparation contract, temporary server lifecycle, mounted
+     Setup page, CA-only iOS delivery, Android trust guidance, and removal of
+     duplicate Certificate/QR entry points form the completed tracer slice.
+   - Next, validate this path on physical iOS and Android devices and preserve
+     the results as release evidence.
 3. **Quarantine incomplete network experiments.**
    - Remove TUN and iOS VPN from the default UI, release claims, and supported
      documentation until a real packet-forwarding Adapter exists.

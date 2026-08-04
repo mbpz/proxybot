@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { DesktopError } from "./contract";
 import { BrowserMockAdapter } from "./testing";
-import type { Alert, InterceptedRequest, Rule, WsFrame } from "../generated/desktop-contract";
+import type {
+  Alert,
+  DeviceOnboarding,
+  InterceptedRequest,
+  Rule,
+  WsFrame,
+} from "../generated/desktop-contract";
 
 const frame: WsFrame = {
   direction: "incoming",
@@ -57,6 +63,17 @@ const alert: Alert = {
   details: "Resource accessed before authentication",
   created_at: "2026-08-04 12:00:00",
   acknowledged: false,
+};
+
+const onboarding: DeviceOnboarding = {
+  platform: "ios",
+  interface: "en0",
+  lan_ip: "192.168.1.40",
+  proxy_port: 8088,
+  server_url: "http://192.168.1.40:19876",
+  setup_url: "http://192.168.1.40:19876/ca.crt",
+  ca_url: "http://192.168.1.40:19876/ca.crt",
+  qr_svg: "<svg />",
 };
 
 describe("Desktop contract Adapter conformance", () => {
@@ -133,6 +150,25 @@ describe("Desktop contract Adapter conformance", () => {
       acknowledged: null,
       limit: 100,
     })).rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
+  });
+
+  it("validates Device Onboarding preparation and cleanup", async () => {
+    const adapter = new BrowserMockAdapter({
+      prepare_device_onboarding: ({ platform }) => ({ ...onboarding, platform }),
+      stop_device_onboarding: () => undefined,
+    });
+
+    await expect(
+      adapter.contract.call("prepare_device_onboarding", { platform: "ios" }),
+    ).resolves.toEqual(onboarding);
+    await expect(adapter.contract.call("stop_device_onboarding", {})).resolves.toBeUndefined();
+
+    const invalid = new BrowserMockAdapter({
+      prepare_device_onboarding: () => ({ ...onboarding, proxy_port: "8088" }) as never,
+    });
+    await expect(
+      invalid.contract.call("prepare_device_onboarding", { platform: "ios" }),
+    ).rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
   });
 
   it("validates the complete Captured Request query contract", async () => {

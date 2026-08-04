@@ -17,6 +17,17 @@ const BASE_MOCKS = {
   list_rule_files: [],
   start_proxy: "Proxy listening on 0.0.0.0:8088",
   stop_proxy: "Proxy stopped",
+  prepare_device_onboarding: {
+    platform: "ios",
+    interface: "en0",
+    lan_ip: "192.168.1.100",
+    proxy_port: 8088,
+    server_url: "http://192.168.1.100:19876",
+    setup_url: "http://192.168.1.100:19876/ca.crt",
+    ca_url: "http://192.168.1.100:19876/ca.crt",
+    qr_svg: "<svg><rect width=\"10\" height=\"10\" /></svg>",
+  },
+  stop_device_onboarding: null,
 };
 
 test.describe("App shell", () => {
@@ -35,9 +46,9 @@ test.describe("App shell", () => {
     await mockTauriCommands(page, BASE_MOCKS);
     await page.goto("/");
 
-    const expectedLinks = ["Traffic", "Rules", "Certs", "Devices", "DNS", "Alerts", "Replay", "Graph", "Gen"];
+    const expectedLinks = ["Traffic", "Setup", "Rules", "DNS", "Alerts", "Replay", "Graph", "Gen"];
     for (const name of expectedLinks) {
-      await expect(page.getByRole("link", { name })).toBeVisible();
+      await expect(page.locator("aside").getByRole("link", { name, exact: true })).toBeVisible();
     }
   });
 
@@ -64,7 +75,7 @@ test.describe("App shell", () => {
 
     // Filter bar should be visible with method/app selectors
     await expect(page.locator("select").first()).toBeVisible();
-    await expect(page.getByPlaceholder("host:*.example.com", { exact: true })).toBeVisible();
+    await expect(page.getByPlaceholder("*.example.com", { exact: true })).toBeVisible();
     await expect(page.getByPlaceholder("Search path...")).toBeVisible();
   });
 
@@ -88,5 +99,16 @@ test.describe("App shell", () => {
     await page.goto("/devices");
 
     await expect(page.locator("aside")).toBeVisible();
+  });
+
+  test("prepares explicit-proxy device setup from one page", async ({ page }) => {
+    await mockTauriCommands(page, BASE_MOCKS);
+    await page.goto("/setup");
+
+    await page.getByRole("button", { name: "Prepare iOS Setup" }).click();
+    await expect(page.getByText("192.168.1.100")).toBeVisible();
+    await expect(page.getByText("8088")).toBeVisible();
+    await expect(page.getByText(/downloads only the ProxyBot CA certificate/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop Setup Server" })).toBeVisible();
   });
 });

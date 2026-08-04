@@ -7,6 +7,7 @@ import {
   type DesktopCommands,
   type DesktopEvents,
   type Alert,
+  type DeviceOnboarding,
   type InterceptedRequest,
   type JsonValue,
   type Rule,
@@ -180,6 +181,9 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "get_proxy_status":
       assert(typeof value === "boolean", command, "must be a boolean");
       return;
+    case "prepare_device_onboarding":
+      assertDeviceOnboarding(value, command);
+      return;
     case "get_ws_frames":
       assertArray(value, command, assertWsFrame);
       return;
@@ -217,6 +221,25 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
       assertString(value, command);
       return;
   }
+}
+
+function assertDeviceOnboarding(
+  value: unknown,
+  path: string,
+): asserts value is DeviceOnboarding {
+  assertRecord(value, path);
+  assert(
+    value.platform === "ios" || value.platform === "android",
+    `${path}.platform`,
+    "must be ios or android",
+  );
+  assertString(value.interface, `${path}.interface`);
+  assertString(value.lan_ip, `${path}.lan_ip`);
+  assertNumber(value.proxy_port, `${path}.proxy_port`);
+  assertString(value.server_url, `${path}.server_url`);
+  assertString(value.setup_url, `${path}.setup_url`);
+  assertString(value.ca_url, `${path}.ca_url`);
+  assertString(value.qr_svg, `${path}.qr_svg`);
 }
 
 function assertAlert(value: unknown, path: string): asserts value is Alert {

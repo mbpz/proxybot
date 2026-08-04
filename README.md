@@ -71,7 +71,9 @@ pnpm tauri dev
 
 Use the persistent Capture Session bar in the main window to start or stop
 capture and see lifecycle failures. The ProxyBot menu-bar item provides the same
-actions and stays synchronized with the window. Follow the
+actions and stays synchronized with the window. Open **Setup** to discover the
+Mac's active LAN address, start the temporary CA server, and follow the exact
+explicit-proxy and verification steps for iOS or Android. Follow the
 [getting started guide](docs/getting-started.md) to connect and clean up a device
 safely.
 

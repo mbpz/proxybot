@@ -5,6 +5,7 @@
 //! CI regenerates it in check mode to catch drift.
 
 use crate::alerts::{Alert, AlertSeverity, AlertType};
+use crate::commands::device_setup::{DeviceOnboarding, DevicePlatform};
 use crate::commands::filter::ParseResult;
 use crate::filter::query::TrafficQuery;
 use crate::normalize::{NormalizedRecord, TrafficPage};
@@ -16,6 +17,9 @@ use std::fmt::Write;
 pub const CAPTURE_SESSION_COMMANDS: &[&str] = &["get_proxy_status", "start_proxy", "stop_proxy"];
 
 pub const CAPTURE_SESSION_EVENTS: &[&str] = &["capture-session:changed"];
+
+pub const DEVICE_ONBOARDING_COMMANDS: &[&str] =
+    &["prepare_device_onboarding", "stop_device_onboarding"];
 
 pub const TRAFFIC_COMMANDS: &[&str] = &[
     "export_har",
@@ -65,6 +69,8 @@ pub fn render_typescript() -> String {
         AlertSeverity::type_script_declaration(),
         AlertType::type_script_declaration(),
         Alert::type_script_declaration(),
+        DevicePlatform::type_script_declaration(),
+        DeviceOnboarding::type_script_declaration(),
     ] {
         output.push_str(&declaration);
         output.push('\n');
@@ -81,6 +87,8 @@ pub fn render_typescript() -> String {
          \x20 get_proxy_status: { args: Record<string, never>; result: boolean };\n\
          \x20 start_proxy: { args: Record<string, never>; result: string };\n\
          \x20 stop_proxy: { args: Record<string, never>; result: string };\n\
+         \x20 prepare_device_onboarding: { args: { platform: DevicePlatform }; result: DeviceOnboarding };\n\
+         \x20 stop_device_onboarding: { args: Record<string, never>; result: undefined };\n\
          \x20 delete_rule: { args: { rule: Rule; filename: string }; result: undefined };\n\
          \x20 export_har: { args: { sessionName: string }; result: JsonValue };\n\
          \x20 get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };\n\
@@ -108,6 +116,7 @@ pub fn render_typescript() -> String {
 
     let command_names = CAPTURE_SESSION_COMMANDS
         .iter()
+        .chain(DEVICE_ONBOARDING_COMMANDS)
         .chain(TRAFFIC_COMMANDS)
         .chain(RULE_COMMANDS)
         .chain(ALERT_COMMANDS)
@@ -122,7 +131,7 @@ pub fn render_typescript() -> String {
         output,
         "export const desktopCommandNames = {} as const;\n\
          export const desktopEventNames = {} as const;\n\
-         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\"] as const;\n",
+         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\",\"stop_device_onboarding\"] as const;\n",
         json_string_array(&command_names),
         json_string_array(&event_names),
     )
@@ -145,6 +154,9 @@ mod tests {
         assert_eq!(first, render_typescript());
         assert!(first.contains("export interface InterceptedRequest"));
         assert!(first.contains("get_proxy_status"));
+        assert!(first.contains("export interface DeviceOnboarding"));
+        assert!(first.contains("export type DevicePlatform = \"ios\" | \"android\""));
+        assert!(first.contains("prepare_device_onboarding"));
         assert!(first.contains("\"capture-session:changed\""));
         assert!(first.contains("get_traffic_page"));
         assert!(first.contains("save_rule"));

@@ -17,6 +17,7 @@ import { GenPage } from "./components/gen/GenPage";
 import { DeployPage } from "./components/deploy/DeployPage";
 import { SslBypassPage } from "./components/ssl-bypass/SslBypassPage";
 import { SettingsPage } from "./components/settings/SettingsPage";
+import { DeviceOnboardingPage } from "./features/device-onboarding/DeviceOnboardingPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<TrafficPage />} />
+          <Route path="setup" element={<DeviceOnboardingPage />} />
           <Route path="rules" element={<RulesPage />} />
           <Route path="certs" element={<CertsPage />} />
           <Route path="devices" element={<DevicesPage />} />

@@ -4,9 +4,10 @@ import { test, expect } from "@playwright/test";
 // All invoke() calls will fail gracefully (error states shown),
 // but the page structure (tabs, buttons, inputs) should still render.
 
-test.describe("Navigation — All 12 Pages", () => {
+test.describe("Navigation — Product Pages", () => {
   const pages = [
     { name: "Traffic", path: "/" },
+    { name: "Setup", path: "/setup" },
     { name: "Rules", path: "/rules" },
     { name: "Certs", path: "/certs" },
     { name: "Devices", path: "/devices" },
@@ -37,7 +38,7 @@ test.describe("Navigation — All 12 Pages", () => {
 test.describe("Sidebar Navigation", () => {
   test("sidebar has all nav items", async ({ page }) => {
     await page.goto("/");
-    const labels = ["Traffic", "Rules", "Certs", "Devices", "DNS", "Alerts", "Replay", "Graph", "Composer", "Gen", "AI", "Deploy"];
+    const labels = ["Traffic", "Setup", "Rules", "DNS", "Alerts", "Replay", "Graph", "Composer", "Gen", "AI", "Deploy"];
     for (const label of labels) {
       // Sidebar links use Link components with text
       await expect(page.locator("aside").getByText(label)).toBeVisible();
@@ -94,7 +95,7 @@ test.describe("Certs Page", () => {
     await expect(page.getByText("Root CA Certificate")).toBeVisible();
     await expect(page.getByText("Export CA")).toBeVisible();
     await expect(page.getByText("Regenerate CA")).toBeVisible();
-    await expect(page.getByText("Start CA Server")).toBeVisible();
+    await expect(page.getByText("Back to Device Setup")).toBeVisible();
   });
 });
 
@@ -117,8 +118,8 @@ test.describe("DNS Page", () => {
 test.describe("Alerts Page", () => {
   test("has severity filter buttons", async ({ page }) => {
     await page.goto("/alerts");
-    await expect(page.getByText("All")).toBeVisible();
-    await expect(page.getByText("Scan Now")).toBeVisible();
+    await expect(page.getByRole("button", { name: "All", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Scan Now" })).toBeVisible();
   });
 
   test("has baseline tab", async ({ page }) => {
@@ -203,7 +204,7 @@ test.describe("AI Page", () => {
 test.describe("Settings Page", () => {
   test("has all settings tabs", async ({ page }) => {
     await page.goto("/settings");
-    for (const tab of ["General", "Network", "DNS", "Certificate", "About"]) {
+    for (const tab of ["General", "Network", "DNS", "About"]) {
       await expect(page.locator("button.tab", { hasText: tab })).toBeVisible();
     }
   });
@@ -234,15 +235,15 @@ test.describe("Data Binding", () => {
   test("alerts page shows severity filters", async ({ page }) => {
     await page.goto("/alerts");
     // Severity filter buttons should always render
-    await expect(page.getByText("All")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Scan Now")).toBeVisible();
+    await expect(page.getByRole("button", { name: "All", exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: "Scan Now" })).toBeVisible();
   });
 
-  test("cert page shows Export/Regenerate/Start buttons", async ({ page }) => {
+  test("advanced cert page shows the destructive CA controls", async ({ page }) => {
     await page.goto("/certs");
     await expect(page.getByText("Export CA")).toBeVisible();
     await expect(page.getByText("Regenerate CA")).toBeVisible();
-    await expect(page.getByText("Start CA Server")).toBeVisible();
+    await expect(page.getByText("Back to Device Setup")).toBeVisible();
   });
 
   test("devices page shows refresh", async ({ page }) => {

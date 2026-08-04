@@ -102,6 +102,7 @@ fn generated_contract_matches_rust_and_registered_commands() {
         .collect();
     let missing: Vec<_> = proxybot_lib::desktop_contract::CAPTURE_SESSION_COMMANDS
         .iter()
+        .chain(proxybot_lib::desktop_contract::DEVICE_ONBOARDING_COMMANDS)
         .chain(proxybot_lib::desktop_contract::TRAFFIC_COMMANDS)
         .chain(proxybot_lib::desktop_contract::RULE_COMMANDS)
         .chain(proxybot_lib::desktop_contract::ALERT_COMMANDS)
@@ -123,6 +124,7 @@ fn migrated_slices_only_use_the_desktop_adapter() {
         "components/ws-frames",
         "components/rules",
         "features/capture-session",
+        "features/device-onboarding",
     ] {
         let root = frontend_root.join(directory);
         visit_source_files(&root, &["ts", "tsx"], &mut |path, source| {

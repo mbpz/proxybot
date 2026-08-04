@@ -25,30 +25,31 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-Choose **Start Capture** in the persistent bar at the top of the ProxyBot window.
-The macOS menu-bar item provides the same Start/Stop actions and remains
-synchronized with the main window.
+Open **Setup**, choose iOS or Android, then complete the numbered steps on one
+page. **Start Capture** controls the MITM Runtime. **Prepare iOS/Android Setup**
+separately discovers the active LAN Interface and starts the temporary CA
+download server. A failure in one does not imply that the other is running.
 
-The default proxy port is `8088`.
+The macOS menu-bar item provides the same Capture Session Start/Stop actions and
+remains synchronized with the main window.
 
-## 2. Find the Mac's LAN address
+## 2. Prepare the Mac
 
-For a typical Wi-Fi connection:
+Choose **Prepare iOS Setup** or **Prepare Android Setup**. ProxyBot displays the
+exact LAN server address and proxy port for the active Interface. Do not use
+`127.0.0.1` on the phone; it refers to the phone itself.
 
-```bash
-ipconfig getifaddr en0
-```
+If preparation fails, check that the Mac has an active LAN address and that the
+firewall allows ProxyBot. If the Mac changes networks, stop the Setup Server and
+prepare again.
 
-If that produces no address, identify the active interface in macOS Network
-Settings. Do not use `127.0.0.1` on the phone; it refers to the phone itself.
-
-## 3. Configure an explicit proxy
+## 3. Configure the explicit proxy
 
 On the test device, edit the current Wi-Fi network and set its HTTP proxy to
 **Manual**:
 
-- **Server:** the Mac LAN address from step 2
-- **Port:** `8088`
+- **Server:** the LAN address displayed by Setup
+- **Port:** the port displayed by Setup (default `8088`)
 - **Authentication:** off
 
 Do not change the device gateway or DNS for this first setup. Those settings are
@@ -60,11 +61,12 @@ same network, the proxy is running, and the macOS firewall allows the app.
 
 ## 4. Install the CA for HTTPS
 
-1. Open **Certs** in ProxyBot.
-2. Choose **Start CA Server** and note the displayed LAN URL.
-3. Open that URL on the test device and download the CA or platform profile.
-4. Install the profile on the test device.
-5. On iOS, also enable full trust under **Settings → General → About →
+Scan the QR code shown by Setup while the temporary Setup Server is running.
+iOS downloads only the ProxyBot CA; ProxyBot does not change Wi-Fi or DNS through
+a managed profile. Android opens a local guide and CA download.
+
+Install the CA on the test device. On iOS, also enable full trust under
+**Settings → General → About →
    Certificate Trust Settings**.
 
 Android trust behavior depends on OS version and application configuration. Many
@@ -74,6 +76,7 @@ guaranteed ProxyBot capability.
 
 Open `https://example.com`. The request and response should now appear in
 Traffic. Never publish the generated CA private key or a captured credential.
+After installation, choose **Stop Setup Server**; this does not stop capture.
 
 ## 5. Debug a request
 
@@ -89,7 +92,7 @@ Traffic. Never publish the generated CA private key or a captured credential.
 1. Choose **Stop Capture** in the main window, or **Stop Proxy** from the
    ProxyBot menu-bar item.
 2. Return the device Wi-Fi proxy setting to **Off**.
-3. Stop the CA server.
+3. Choose **Stop Setup Server** if it is still running.
 4. Remove the ProxyBot profile and CA from the test device when no longer needed.
 5. If you enabled Advanced `pf` routing, disable it before quitting.
 

@@ -3,7 +3,6 @@ pub mod ai_stats;
 pub mod app_fingerprint;
 pub mod breakpoint;
 pub mod cdp_server;
-pub mod client_setup;
 pub mod compose;
 pub mod device_setup;
 pub mod filter;

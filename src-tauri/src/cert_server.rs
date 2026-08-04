@@ -5,11 +5,11 @@ use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
-use tauri::State;
 
 struct RunningCertServer {
     shutdown_tx: mpsc::Sender<()>,
     task: JoinHandle<()>,
+    base_url: String,
 }
 
 pub struct CertServerState {
@@ -34,6 +34,7 @@ impl CertServerState {
     fn start(
         &self,
         address: &str,
+        base_url: String,
         cert_path: &Path,
         local_ip: String,
         proxy_port: u16,
@@ -75,8 +76,66 @@ impl CertServerState {
             }
             log::info!("Certificate server stopped");
         });
-        *slot = Some(RunningCertServer { shutdown_tx, task });
+        *slot = Some(RunningCertServer {
+            shutdown_tx,
+            task,
+            base_url,
+        });
         Ok(())
+    }
+
+    pub(crate) fn ensure_started(
+        &self,
+        address: &str,
+        base_url: String,
+        cert_path: &Path,
+        local_ip: String,
+        proxy_port: u16,
+        dns_port: u16,
+    ) -> Result<String, String> {
+        if let Some(current_url) = self
+            .running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|running| !running.task.is_finished())
+            .map(|running| running.base_url.clone())
+        {
+            if current_url == base_url {
+                return Ok(current_url);
+            }
+            return Err(format!(
+                "Device setup server is already running at {current_url}; stop it before switching networks"
+            ));
+        }
+
+        let start_result = self.start(
+            address,
+            base_url.clone(),
+            cert_path,
+            local_ip,
+            proxy_port,
+            dns_port,
+        );
+        if start_result.is_ok() {
+            return Ok(base_url);
+        }
+
+        // A concurrent preparation may have published the same listener after
+        // the first check. Treat that identical configuration as idempotent.
+        if let Some(current_url) = self
+            .running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|running| !running.task.is_finished())
+            .map(|running| running.base_url.clone())
+        {
+            if current_url == base_url {
+                return Ok(current_url);
+            }
+        }
+        start_result.map(|()| base_url)
     }
 
     pub(crate) fn stop(&self) -> Result<(), String> {
@@ -95,38 +154,6 @@ impl Default for CertServerState {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Start certificate distribution after both the listener bind and CA read
-/// succeed. Repeated starts return an error and never create a second listener.
-#[tauri::command]
-pub fn start_cert_server(
-    cert_path: String,
-    local_ip: String,
-    state: State<'_, Arc<CertServerState>>,
-    config: State<'_, Arc<proxybot_core::AppConfig>>,
-) -> Result<String, String> {
-    let port = config.cert_server_port;
-    let server_url = format!("http://{local_ip}:{port}");
-    state.start(
-        &format!("{local_ip}:{port}"),
-        Path::new(&cert_path),
-        local_ip,
-        config.proxy_port,
-        config.dns_port,
-    )?;
-    log::info!("Certificate server listening on {server_url}");
-    Ok(server_url)
-}
-
-#[tauri::command]
-pub fn stop_cert_server(state: State<'_, Arc<CertServerState>>) -> Result<(), String> {
-    state.stop()
-}
-
-#[tauri::command]
-pub fn is_cert_server_running(state: State<'_, Arc<CertServerState>>) -> bool {
-    state.is_running()
 }
 
 fn handle_request(
@@ -156,13 +183,16 @@ fn handle_request(
             )
             .unwrap(),
         ),
-        "/android-setup" => tiny_http::Response::from_string(wizard::build_android_wizard(
-            local_ip, proxy_port, dns_port,
-        ))
-        .with_header(
-            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
-                .unwrap(),
-        ),
+        "/android-setup" => {
+            tiny_http::Response::from_string(wizard::build_android_wizard(local_ip, proxy_port))
+                .with_header(
+                    tiny_http::Header::from_bytes(
+                        &b"Content-Type"[..],
+                        &b"text/html; charset=utf-8"[..],
+                    )
+                    .unwrap(),
+                )
+        }
         _ => tiny_http::Response::from_data(ca_pem.as_bytes().to_vec())
             .with_header(
                 tiny_http::Header::from_bytes(
@@ -196,28 +226,47 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_starts_after_bind_rejects_repeat_and_waits_for_stop() {
+    fn lifecycle_is_idempotent_for_one_network_and_waits_for_stop() {
         let state = CertServerState::new();
         let cert = cert_file();
-        state
-            .start(
-                "127.0.0.1:0",
-                cert.path(),
-                "127.0.0.1".to_owned(),
-                9090,
-                5300,
-            )
-            .unwrap();
+        assert_eq!(
+            state
+                .ensure_started(
+                    "127.0.0.1:0",
+                    "http://127.0.0.1:0".to_owned(),
+                    cert.path(),
+                    "127.0.0.1".to_owned(),
+                    9090,
+                    5300,
+                )
+                .unwrap(),
+            "http://127.0.0.1:0"
+        );
         assert!(state.is_running());
+        assert_eq!(
+            state
+                .ensure_started(
+                    "127.0.0.1:0",
+                    "http://127.0.0.1:0".to_owned(),
+                    cert.path(),
+                    "127.0.0.1".to_owned(),
+                    9090,
+                    5300,
+                )
+                .unwrap(),
+            "http://127.0.0.1:0"
+        );
         assert!(state
-            .start(
+            .ensure_started(
                 "127.0.0.1:0",
+                "http://192.168.1.5:19876".to_owned(),
                 cert.path(),
-                "127.0.0.1".to_owned(),
+                "192.168.1.5".to_owned(),
                 9090,
                 5300,
             )
-            .is_err());
+            .unwrap_err()
+            .contains("stop it before switching networks"));
         state.stop().unwrap();
         assert!(!state.is_running());
         state.stop().unwrap();
@@ -230,13 +279,21 @@ mod tests {
         let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = occupied.local_addr().unwrap().to_string();
         assert!(state
-            .start(&address, cert.path(), "127.0.0.1".to_owned(), 9090, 5300,)
+            .start(
+                &address,
+                format!("http://{address}"),
+                cert.path(),
+                "127.0.0.1".to_owned(),
+                9090,
+                5300,
+            )
             .is_err());
         assert!(!state.is_running());
 
         assert!(state
             .start(
                 "127.0.0.1:0",
+                "http://127.0.0.1:0".to_owned(),
                 Path::new("/missing/ca.pem"),
                 "127.0.0.1".to_owned(),
                 9090,

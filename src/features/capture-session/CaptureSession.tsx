@@ -189,9 +189,9 @@ export function CaptureSessionBar() {
 
         <div className="flex shrink-0 items-center gap-2">
           <Link
-            to="/certs"
+            to="/setup"
             className="btn btn-secondary btn-sm"
-            aria-label="Open certificate setup"
+            aria-label="Open device setup"
           >
             <KeyRound size={15} />
             Setup
