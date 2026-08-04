@@ -5,6 +5,7 @@ pub mod adb;
 pub mod ai;
 pub mod ai_pipeline;
 pub mod alerts;
+pub mod analysis;
 pub mod anomaly;
 mod bootstrap;
 pub mod cdp;

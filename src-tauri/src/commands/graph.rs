@@ -4,7 +4,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::db::{parse_captured_timestamp, CapturedRequestQuery, DbState};
+use crate::analysis::CapturedRequestAnalysis;
+use crate::db::{CapturedRequestQuery, DbState};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestNode {
@@ -32,20 +33,8 @@ pub struct GraphData {
     pub edges: Vec<Edge>,
 }
 
-struct RawRequest {
-    id: i64,
-    host: String,
-    path: String,
-    method: String,
-    resp_status: Option<u16>,
-    duration_ms: Option<u64>,
-    timestamp: String,
-    req_headers: String,
-}
-
-fn extract_referer_host(req_headers: &str) -> Option<String> {
-    let headers: Vec<(String, String)> = serde_json::from_str(req_headers).ok()?;
-    for (name, value) in &headers {
+fn extract_referer_host(headers: &[(String, String)]) -> Option<String> {
+    for (name, value) in headers {
         if name.eq_ignore_ascii_case("referer") || name.eq_ignore_ascii_case("referrer") {
             // Parse host from URL like "https://example.com/path"
             let rest = value
@@ -65,44 +54,23 @@ pub fn get_graph_data(
     db_state: State<'_, Arc<DbState>>,
     max_requests: usize,
 ) -> Result<GraphData, String> {
-    let raw: Vec<RawRequest> = db_state
-        .captured_requests(&CapturedRequestQuery {
-            limit: Some(max_requests.min(500)),
-            ..Default::default()
-        })?
-        .into_iter()
-        .map(|record| RawRequest {
-            id: record.id,
-            host: record.host,
-            path: record.path,
-            method: record.method,
-            resp_status: record.response_status,
-            duration_ms: record
-                .duration_ms
-                .and_then(|value| u64::try_from(value).ok()),
-            timestamp: record.timestamp,
-            req_headers: serde_json::to_string(&record.request_headers).unwrap_or_default(),
-        })
-        .collect();
+    let requests = db_state.analysis_requests(&CapturedRequestQuery {
+        limit: Some(max_requests.min(500)),
+        ..Default::default()
+    })?;
+    Ok(build_graph_data(&requests))
+}
 
-    // Build a lookup: host+path → most recent request id (for referer resolution)
-    let mut host_path_to_id: HashMap<String, String> = HashMap::new();
-    for r in &raw {
-        let key = format!("{}{}", r.host, r.path);
-        host_path_to_id
-            .entry(key)
-            .or_insert_with(|| r.id.to_string());
-    }
-
+pub(crate) fn build_graph_data(raw: &[CapturedRequestAnalysis]) -> GraphData {
     // Build nodes and edges
     let mut edges = Vec::new();
     let mut parent_map: HashMap<String, Option<String>> = HashMap::new();
 
-    for r in &raw {
+    for r in raw {
         let id_str = r.id.to_string();
 
         // Find parent via Referer header
-        if let Some(ref_host) = extract_referer_host(&r.req_headers) {
+        if let Some(ref_host) = extract_referer_host(&r.request_headers) {
             // Try to find a matching request by referer host
             // Use the most recent request to that host as parent
             if let Some(parent_id) = raw
@@ -120,8 +88,8 @@ pub fn get_graph_data(
     }
 
     // Also add edges for same-host sequential requests (navigations)
-    let mut by_host: HashMap<String, Vec<&RawRequest>> = HashMap::new();
-    for r in &raw {
+    let mut by_host: HashMap<String, Vec<&CapturedRequestAnalysis>> = HashMap::new();
+    for r in raw {
         by_host.entry(r.host.clone()).or_default().push(r);
     }
     for reqs in by_host.values() {
@@ -149,19 +117,39 @@ pub fn get_graph_data(
             host: r.host.clone(),
             path: r.path.clone(),
             method: r.method.clone(),
-            status: r.resp_status,
-            duration_ms: r.duration_ms.unwrap_or(0),
-            timestamp: parse_captured_timestamp(&r.timestamp)
-                .map(|timestamp| timestamp.timestamp())
-                .unwrap_or(0),
+            status: r.response_status,
+            duration_ms: r.duration_ms,
+            timestamp: r.captured_at_seconds(),
             parent_id: parent_map.get(&r.id.to_string()).cloned().flatten(),
         })
         .collect();
 
-    Ok(GraphData { requests, edges })
+    GraphData { requests, edges }
 }
 
 // Non-command test function
 pub fn test_graph_helper() -> i32 {
     42
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_analysis_fixture_preserves_graph_facts_and_referer_edge() {
+        let fixture = crate::analysis::fixed_analysis_fixture();
+        let graph = build_graph_data(&fixture);
+        assert_eq!(graph.requests.len(), 2);
+        assert_eq!(graph.requests[0].status, Some(200));
+        assert_eq!(graph.requests[0].duration_ms, 12);
+        assert_eq!(
+            graph.requests[0].timestamp,
+            fixture[0].captured_at_seconds()
+        );
+        assert!(graph
+            .edges
+            .iter()
+            .any(|edge| edge.from == "1" && edge.to == "2"));
+    }
 }

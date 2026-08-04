@@ -8,6 +8,7 @@
 #![allow(clippy::manual_is_multiple_of)]
 
 use crate::alerts::{AlertSeverity, AlertType, NewAlert};
+use crate::analysis::CapturedRequestAnalysis;
 use crate::db::DbState;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -391,6 +392,21 @@ impl AnomalyDetector {
         req_body: Option<&str>,
         resp_body: Option<&str>,
     ) -> Result<AnomalyScanResult, String> {
+        let request =
+            CapturedRequestAnalysis::live_anomaly_input(device_id, host, ip, req_body, resp_body);
+        self.scan_analysis(&request)
+    }
+
+    /// Analyze one stable Captured Request projection.
+    pub fn scan_analysis(
+        &self,
+        request: &CapturedRequestAnalysis,
+    ) -> Result<AnomalyScanResult, String> {
+        let device_id = request.device_id;
+        let host = request.host.as_str();
+        let ip = request.upstream_ip.as_deref();
+        let req_body = request.request_body.as_deref();
+        let resp_body = request.response_body.as_deref();
         let mut result = AnomalyScanResult {
             new_domains: Vec::new(),
             new_ips: Vec::new(),
@@ -876,6 +892,23 @@ mod tests {
             "expected no new_domains on second scan, got {:?}",
             result2.new_domains
         );
+    }
+
+    #[test]
+    fn shared_analysis_fixture_supplies_anomaly_facts() {
+        let dir = tempdir().unwrap();
+        let alerts = Arc::new(DbState::new_in_memory(std::sync::Mutex::new(())).unwrap());
+        let baseline = Arc::new(BaselineStore::with_path(dir.path().join("baseline.json")));
+        let detector = AnomalyDetector::with_stores(alerts, baseline);
+        let fixture = crate::analysis::fixed_analysis_fixture();
+
+        let result = detector.scan_analysis(&fixture[0]).unwrap();
+        assert_eq!(result.new_domains, ["api.example.com"]);
+        assert_eq!(result.new_ips, ["203.0.113.10"]);
+        assert!(result
+            .privacy_findings
+            .iter()
+            .any(|finding| finding.pattern == PrivacyPattern::PhoneNumber));
     }
 
     // ------------------------------------------------------------------

@@ -3,7 +3,8 @@
 //! Builds a dependency graph of HTTP requests based on token passing.
 //! Edges are created when a later request uses a token that was returned by an earlier request.
 
-use crate::db::{CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState};
+use crate::analysis::CapturedRequestAnalysis;
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, DbState};
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -83,23 +84,6 @@ pub struct TrafficDag {
     pub edges: Vec<DagEdge>,
     pub adjacency_list: HashMap<i64, Vec<i64>>,
 }
-
-/// Database projection consumed by the DAG builder.
-pub type HttpRequestRow = (
-    i64,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    i64,
-    Option<String>,
-    Option<String>,
-    Option<i64>,
-);
-
-type NodeRequestData = (String, Option<String>, u16, String, Option<String>);
 
 // ============================================================================
 // Token Extraction Functions
@@ -263,52 +247,25 @@ pub fn extract_tokens(
 // DAG Building
 // ============================================================================
 
-/// Build DAG from all HTTP requests in the database.
-pub fn build_dag_from_requests(requests: &[HttpRequestRow]) -> TrafficDag {
-    let mut nodes: Vec<DagNode> = Vec::new();
-    let mut node_by_id: HashMap<i64, usize> = HashMap::new();
-
-    // Collect request data for token extraction
-    let mut node_request_data: HashMap<i64, NodeRequestData> = HashMap::new();
-
-    // First pass: create nodes and collect request data
-    for (
-        id,
-        timestamp,
-        method,
-        host,
-        path,
-        req_headers,
-        req_body,
-        resp_status,
-        resp_headers,
-        resp_body,
-        device_id,
-    ) in requests
-    {
-        let node = DagNode {
-            id: *id,
-            timestamp: timestamp.clone(),
-            method: method.clone(),
-            path: path.clone(),
-            host: host.clone(),
-            device_id: *device_id,
-        };
-
-        node_by_id.insert(*id, nodes.len());
-        nodes.push(node);
-
-        node_request_data.insert(
-            *id,
-            (
-                req_headers.clone().unwrap_or_default(),
-                req_body.clone(),
-                *resp_status as u16,
-                resp_headers.clone().unwrap_or_else(|| "{}".to_string()),
-                resp_body.clone(),
-            ),
-        );
-    }
+/// Build a DAG from the shared Captured Request analysis facts.
+pub fn build_dag_from_requests(requests: &[CapturedRequestAnalysis]) -> TrafficDag {
+    let mut ordered: Vec<_> = requests.iter().collect();
+    ordered.sort_by(|a, b| {
+        a.captured_at
+            .cmp(&b.captured_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let nodes: Vec<DagNode> = ordered
+        .iter()
+        .map(|request| DagNode {
+            id: request.id,
+            timestamp: request.timestamp.clone(),
+            method: request.method.clone(),
+            path: request.path.clone(),
+            host: request.host.clone(),
+            device_id: request.device_id,
+        })
+        .collect();
 
     // Second pass: build edges based on token passing
     let mut edges: Vec<DagEdge> = Vec::new();
@@ -317,79 +274,59 @@ pub fn build_dag_from_requests(requests: &[HttpRequestRow]) -> TrafficDag {
     // Token to node mapping (which node produced which token)
     let mut token_producers: HashMap<String, i64> = HashMap::new();
 
-    // Sort nodes by timestamp to ensure proper ordering
-    let mut node_indices: Vec<usize> = (0..nodes.len()).collect();
-    node_indices.sort_by(|&a, &b| {
-        let node_a = &nodes[a];
-        let node_b = &nodes[b];
-        node_a.timestamp.cmp(&node_b.timestamp)
-    });
-
     // First pass: identify token producers (responses that return tokens)
-    for &idx in &node_indices {
-        let node = &nodes[idx];
-        if let Some((req_headers_str, req_body_str, resp_status, resp_headers_str, resp_body_str)) =
-            node_request_data.get(&node.id)
-        {
-            let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
-                .ok()
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            let req_body_json: Option<serde_json::Value> = req_body_str
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok());
-            let resp_headers_json: serde_json::Value = serde_json::from_str(resp_headers_str)
-                .ok()
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            let resp_body_json: Option<serde_json::Value> = resp_body_str
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok());
+    for request in &ordered {
+        let req_headers_json = headers_json(&request.request_headers);
+        let req_body_json = request
+            .request_body
+            .as_deref()
+            .and_then(|body| serde_json::from_str(body).ok());
+        let resp_headers_json = headers_json(&request.response_headers);
+        let resp_body_json = request
+            .response_body
+            .as_deref()
+            .and_then(|body| serde_json::from_str(body).ok());
 
-            let (_, resp_tokens) = extract_tokens(
-                &req_headers_json,
-                req_body_json.as_ref(),
-                *resp_status,
-                &resp_headers_json,
-                resp_body_json.as_ref(),
-            );
+        let (_, resp_tokens) = extract_tokens(
+            &req_headers_json,
+            req_body_json.as_ref(),
+            request.response_status.unwrap_or(0),
+            &resp_headers_json,
+            resp_body_json.as_ref(),
+        );
 
-            for token in resp_tokens {
-                // Only store if this is the first time we've seen this token
-                token_producers.entry(token.value).or_insert(node.id);
-            }
+        for token in resp_tokens {
+            token_producers.entry(token.value).or_insert(request.id);
         }
     }
 
     // Second pass: create edges for token consumers
-    for &idx in &node_indices {
-        let node = &nodes[idx];
-        if let Some((req_headers_str, req_body_str, _, _, _)) = node_request_data.get(&node.id) {
-            let req_headers_json: serde_json::Value = serde_json::from_str(req_headers_str)
-                .ok()
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            let req_body_json: Option<serde_json::Value> = req_body_str
-                .as_ref()
-                .and_then(|s| serde_json::from_str(s).ok());
+    for request in &ordered {
+        let req_headers_json = headers_json(&request.request_headers);
+        let req_body_json = request
+            .request_body
+            .as_deref()
+            .and_then(|body| serde_json::from_str(body).ok());
+        let (req_tokens, _) = extract_tokens(
+            &req_headers_json,
+            req_body_json.as_ref(),
+            0,
+            &serde_json::Value::Object(serde_json::Map::new()),
+            None,
+        );
 
-            let (req_tokens, _) = extract_tokens(
-                &req_headers_json,
-                req_body_json.as_ref(),
-                0, // No response status needed for request token extraction
-                &serde_json::Value::Object(serde_json::Map::new()),
-                None,
-            );
-
-            for token in req_tokens {
-                if let Some(&producer_id) = token_producers.get(&token.value) {
-                    if producer_id != node.id {
-                        // Found a dependency
-                        edges.push(DagEdge {
-                            from_node_id: producer_id,
-                            to_node_id: node.id,
-                            token_value: token.value.clone(),
-                        });
-
-                        adjacency_list.entry(producer_id).or_default().push(node.id);
-                    }
+        for token in req_tokens {
+            if let Some(&producer_id) = token_producers.get(&token.value) {
+                if producer_id != request.id {
+                    edges.push(DagEdge {
+                        from_node_id: producer_id,
+                        to_node_id: request.id,
+                        token_value: token.value.clone(),
+                    });
+                    adjacency_list
+                        .entry(producer_id)
+                        .or_default()
+                        .push(request.id);
                 }
             }
         }
@@ -400,6 +337,15 @@ pub fn build_dag_from_requests(requests: &[HttpRequestRow]) -> TrafficDag {
         edges,
         adjacency_list,
     }
+}
+
+fn headers_json(headers: &[(String, String)]) -> serde_json::Value {
+    serde_json::Value::Object(
+        headers
+            .iter()
+            .map(|(name, value)| (name.clone(), serde_json::Value::String(value.clone())))
+            .collect(),
+    )
 }
 
 // ============================================================================
@@ -507,39 +453,13 @@ fn get_stored_dag_internal(conn: &Connection) -> Result<TrafficDag, String> {
 // Tauri Commands
 // ============================================================================
 
-fn captured_request_row(record: CapturedRequestRecord) -> HttpRequestRow {
-    (
-        record.id,
-        record.timestamp,
-        record.method,
-        record.host,
-        record.path,
-        Some(serde_json::to_string(&record.request_headers).unwrap_or_default()),
-        record
-            .request_body
-            .as_deref()
-            .map(|body| String::from_utf8_lossy(body).into_owned()),
-        i64::from(record.response_status.unwrap_or(0)),
-        Some(serde_json::to_string(&record.response_headers).unwrap_or_default()),
-        record
-            .response_body
-            .as_deref()
-            .map(|body| String::from_utf8_lossy(body).into_owned()),
-        record.device_id,
-    )
-}
-
 /// Build and store the DAG from current traffic data.
 #[tauri::command]
 pub fn build_traffic_dag(db_state: State<'_, Arc<DbState>>) -> Result<TrafficDag, String> {
-    let requests: Vec<_> = db_state
-        .captured_requests(&CapturedRequestQuery {
-            order: CapturedRequestOrder::TimestampAscending,
-            ..Default::default()
-        })?
-        .into_iter()
-        .map(captured_request_row)
-        .collect();
+    let requests = db_state.analysis_requests(&CapturedRequestQuery {
+        order: CapturedRequestOrder::TimestampAscending,
+        ..Default::default()
+    })?;
 
     let dag = build_dag_from_requests(&requests);
     store_dag(&db_state, &dag)?;
@@ -559,15 +479,11 @@ pub fn get_device_dag(
     db_state: State<'_, Arc<DbState>>,
     device_id: i64,
 ) -> Result<TrafficDag, String> {
-    let requests: Vec<_> = db_state
-        .captured_requests(&CapturedRequestQuery {
-            device_id: Some(device_id),
-            order: CapturedRequestOrder::TimestampAscending,
-            ..Default::default()
-        })?
-        .into_iter()
-        .map(captured_request_row)
-        .collect();
+    let requests = db_state.analysis_requests(&CapturedRequestQuery {
+        device_id: Some(device_id),
+        order: CapturedRequestOrder::TimestampAscending,
+        ..Default::default()
+    })?;
 
     let dag = build_dag_from_requests(&requests);
     Ok(dag)
@@ -606,36 +522,7 @@ mod tests {
 
     #[test]
     fn test_build_dag_simple() {
-        // Two requests: first returns a token, second uses it
-        let requests = vec![
-            (
-                1,
-                "2024-01-01T00:00:00".to_string(),
-                "POST".to_string(),
-                "api.example.com".to_string(),
-                "/login".to_string(),
-                Some(r#"{" Content-Type":"application/json"}"#.to_string()),
-                Some(r#"{"username":"test"}"#.to_string()),
-                200,
-                Some(r#"{"Content-Type":"application/json"}"#.to_string()),
-                None,
-                None,
-            ),
-            (
-                2,
-                "2024-01-01T00:00:01".to_string(),
-                "GET".to_string(),
-                "api.example.com".to_string(),
-                "/profile".to_string(),
-                Some(r#"{"Authorization":"Bearer token123"}"#.to_string()),
-                None,
-                200,
-                None,
-                None,
-                None,
-            ),
-        ];
-
+        let requests = crate::analysis::fixed_analysis_fixture();
         let dag = build_dag_from_requests(&requests);
         assert_eq!(dag.nodes.len(), 2);
     }
@@ -751,20 +638,8 @@ mod tests {
 
     #[test]
     fn test_build_dag_from_requests_single_request() {
-        let requests = vec![(
-            1,
-            "2024-01-01T00:00:00".to_string(),
-            "GET".to_string(),
-            "api.example.com".to_string(),
-            "/test".to_string(),
-            Some("{}".to_string()),
-            None,
-            200,
-            None,
-            None,
-            None,
-        )];
-        let dag = build_dag_from_requests(&requests);
+        let requests = crate::analysis::fixed_analysis_fixture();
+        let dag = build_dag_from_requests(&requests[..1]);
         assert_eq!(dag.nodes.len(), 1, "One request should produce one node");
         assert_eq!(
             dag.edges.len(),
@@ -779,34 +654,7 @@ mod tests {
         // Request 2: GET /profile sends that access_token in a Cookie header
         //            (key=value format, which the `access_token[=:]` regex matches).
         // The DAG must contain a single edge from request 1 -> request 2.
-        let requests = vec![
-            (
-                1,
-                "2024-01-01T00:00:00".to_string(),
-                "POST".to_string(),
-                "api.example.com".to_string(),
-                "/login".to_string(),
-                Some(r#"{"Content-Type":"application/json"}"#.to_string()),
-                Some(r#"{"username":"test","password":"secret"}"#.to_string()),
-                200,
-                Some(r#"{"Content-Type":"application/json"}"#.to_string()),
-                Some(r#"{"access_token":"abc123token456def789"}"#.to_string()),
-                None,
-            ),
-            (
-                2,
-                "2024-01-01T00:00:01".to_string(),
-                "GET".to_string(),
-                "api.example.com".to_string(),
-                "/profile".to_string(),
-                Some(r#"{"Cookie":"access_token=abc123token456def789"}"#.to_string()),
-                None,
-                200,
-                None,
-                None,
-                None,
-            ),
-        ];
+        let requests = crate::analysis::fixed_analysis_fixture();
 
         let dag = build_dag_from_requests(&requests);
         assert_eq!(dag.nodes.len(), 2, "Should have 2 nodes");

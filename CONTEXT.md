@@ -88,6 +88,10 @@ _Avoid_: Generated file, generator result
 The ordered request, response, connection, and traffic-effect Module that applies Plugin Dispatch Rules, plugin hooks, Rhai scripts, metrics, and Network Condition Rules for the MITM Runtime.
 _Avoid_: Hook helper, desktop hook logic
 
+**Captured Request Analysis**:
+The immutable, normalized view of a Captured Request consumed by DAG, Graph, Topology, Auth, and anomaly analysis Implementations.
+_Avoid_: Raw request, HTTP tuple, analysis row
+
 ## Relationships
 
 - A **Rule File** contains zero or more **Routing Rules**
@@ -114,6 +118,9 @@ _Avoid_: Hook helper, desktop hook logic
 - Rhai rewrites accumulate in execution order, while a blocking script produces a stable 403 response
 - The desktop Runtime Adapter translates MITM Runtime types and delegates extension behavior to the **Runtime Extension Pipeline**
 - **Network Condition Rules** are evaluated by the **Runtime Extension Pipeline** when the MITM Runtime requests a traffic effect
+- **Captured Request Analysis** converts accepted persisted timestamps to UTC once, maps invalid timestamps to Unix epoch, clamps invalid negative durations to zero, and preserves optional response status and device association
+- Analysis time windows use epoch milliseconds and include both start and end boundaries
+- DAG, Graph, Topology, Auth, and anomaly algorithms share **Captured Request Analysis** facts but retain independent Implementations and desktop wire contracts
 
 ## Example dialogue
 

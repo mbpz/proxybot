@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::db::{parse_captured_timestamp, CapturedRequestOrder, CapturedRequestQuery, DbState};
+use crate::analysis::{analysis_timestamp_millis, AnalysisWindow, CapturedRequestAnalysis};
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, DbState};
 
 use super::types::*;
 
@@ -12,7 +13,7 @@ pub fn build_topology_graph(
     db: &Arc<DbState>,
     filter: &TopologyFilter,
 ) -> Result<TopologyGraph, String> {
-    let (start_ts, end_ts) = resolve_time_window(filter.time_window.as_ref());
+    let window = resolve_time_window(filter.time_window.as_ref());
 
     // 1. Query device rows
     let device_rows: Vec<(i64, String, String)> = {
@@ -47,59 +48,17 @@ pub fn build_topology_graph(
             avg_latency_ms: 0.0,
             error_count: 0,
             error_rate: 0.0,
-            last_seen: parse_timestamp(last_seen),
+            last_seen: parse_device_timestamp(last_seen),
         })
         .collect();
 
-    // 2. Aggregate canonical Captured Request records. The persistence Module
-    // owns SQLite; this analysis Implementation keeps its existing projection.
-    let records = db.captured_requests(&CapturedRequestQuery {
+    // 2. Aggregate the shared Captured Request Analysis projection while this
+    // Topology Implementation retains its independent grouping algorithm.
+    let records = db.analysis_requests(&CapturedRequestQuery {
         order: CapturedRequestOrder::IdAscending,
         ..Default::default()
     })?;
-    let mut grouped = std::collections::BTreeMap::<(i64, String, String), RawAggRow>::new();
-    for record in records {
-        let timestamp = parse_timestamp(&record.timestamp);
-        if timestamp < start_ts || timestamp > end_ts {
-            continue;
-        }
-        if filter
-            .host_contains
-            .as_ref()
-            .is_some_and(|needle| !record.host.contains(needle))
-        {
-            continue;
-        }
-        if filter.device_ids.as_ref().is_some_and(|ids| {
-            !ids.is_empty()
-                && !record
-                    .device_id
-                    .is_some_and(|id| ids.contains(&id.to_string()))
-        }) {
-            continue;
-        }
-        let device_id = record.device_id.unwrap_or(0);
-        let app_tag = record.app_tag.unwrap_or_else(|| "unknown".to_owned());
-        let key = (device_id, app_tag.clone(), record.host.clone());
-        let row = grouped.entry(key).or_insert_with(|| RawAggRow {
-            device_id,
-            app_tag,
-            host: record.host.clone(),
-            req_count: 0,
-            total_bytes: 0,
-            avg_latency: 0.0,
-            err_count: 0,
-            last_seen: 0,
-        });
-        let previous_duration = row.avg_latency * row.req_count as f64;
-        row.req_count += 1;
-        row.total_bytes += record.response_body.as_ref().map_or(0, Vec::len) as i64;
-        row.avg_latency =
-            (previous_duration + record.duration_ms.unwrap_or(0) as f64) / row.req_count as f64;
-        row.err_count += i64::from(record.response_status.is_some_and(|status| status >= 400));
-        row.last_seen = row.last_seen.max(timestamp);
-    }
-    let agg_rows: Vec<_> = grouped.into_values().collect();
+    let agg_rows = aggregate_analysis_requests(&records, filter, window);
 
     // 3. Build aggregated (device, app_tag, host) nodes + edges
     let mut app_nodes: std::collections::BTreeMap<String, TopologyNode> =
@@ -233,7 +192,7 @@ pub fn build_topology_graph(
             .iter()
             .filter(|n| n.kind == NodeKind::Host)
             .count() as u32,
-        time_range: (start_ts, end_ts),
+        time_range: (window.start_ms, window.end_ms),
         built_at: now_unix_ms(),
     };
 
@@ -242,6 +201,58 @@ pub fn build_topology_graph(
         edges,
         meta,
     })
+}
+
+fn aggregate_analysis_requests(
+    records: &[CapturedRequestAnalysis],
+    filter: &TopologyFilter,
+    window: AnalysisWindow,
+) -> Vec<RawAggRow> {
+    let mut grouped = std::collections::BTreeMap::<(i64, String, String), RawAggRow>::new();
+    for record in records {
+        if !window.contains(record) {
+            continue;
+        }
+        let timestamp = record.captured_at_millis();
+        if filter
+            .host_contains
+            .as_ref()
+            .is_some_and(|needle| !record.host.contains(needle))
+        {
+            continue;
+        }
+        if filter.device_ids.as_ref().is_some_and(|ids| {
+            !ids.is_empty()
+                && !record
+                    .device_id
+                    .is_some_and(|id| ids.contains(&id.to_string()))
+        }) {
+            continue;
+        }
+        let device_id = record.device_id.unwrap_or(0);
+        let app_tag = record
+            .app_tag
+            .clone()
+            .unwrap_or_else(|| "unknown".to_owned());
+        let key = (device_id, app_tag.clone(), record.host.clone());
+        let row = grouped.entry(key).or_insert_with(|| RawAggRow {
+            device_id,
+            app_tag,
+            host: record.host.clone(),
+            req_count: 0,
+            total_bytes: 0,
+            avg_latency: 0.0,
+            err_count: 0,
+            last_seen: 0,
+        });
+        let previous_duration = row.avg_latency * row.req_count as f64;
+        row.req_count += 1;
+        row.total_bytes += record.response_bytes() as i64;
+        row.avg_latency = (previous_duration + record.duration_ms as f64) / row.req_count as f64;
+        row.err_count += i64::from(record.is_error());
+        row.last_seen = row.last_seen.max(timestamp);
+    }
+    grouped.into_values().collect()
 }
 
 struct RawAggRow {
@@ -255,15 +266,16 @@ struct RawAggRow {
     last_seen: i64,
 }
 
-fn resolve_time_window(window: Option<&TimeWindow>) -> (i64, i64) {
+fn resolve_time_window(window: Option<&TimeWindow>) -> AnalysisWindow {
     let now = now_unix_ms();
-    match window {
+    let (start, end) = match window {
         Some(TimeWindow::Last5Min) => (now - 5 * 60 * 1000, now),
         Some(TimeWindow::Last1Hour) => (now - 60 * 60 * 1000, now),
         Some(TimeWindow::Session) => (0, now),
         Some(TimeWindow::Custom { start, end }) => (*start, *end),
         None => (0, now),
-    }
+    };
+    AnalysisWindow::inclusive(start, end)
 }
 
 fn now_unix_ms() -> i64 {
@@ -273,10 +285,8 @@ fn now_unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn parse_timestamp(ts: &str) -> i64 {
-    parse_captured_timestamp(ts)
-        .map(|timestamp| timestamp.timestamp_millis())
-        .unwrap_or(0)
+fn parse_device_timestamp(ts: &str) -> i64 {
+    analysis_timestamp_millis(ts)
 }
 
 /// Escape SQL `LIKE` wildcards (`%` and `_`) plus the escape character itself
@@ -302,7 +312,7 @@ pub fn get_topology_node_detail(
     node_id: &str,
     filter: &TopologyFilter,
 ) -> Result<NodeDetail, String> {
-    let (start_ts, end_ts) = resolve_time_window(filter.time_window.as_ref());
+    let window = resolve_time_window(filter.time_window.as_ref());
 
     // Parse node id of the form "kind:key" (e.g. "host:api.weixin.qq.com").
     let (kind_str, key) = node_id.split_once(':').ok_or("invalid node id")?;
@@ -329,12 +339,9 @@ pub fn get_topology_node_detail(
         ..Default::default()
     };
     let matching: Vec<_> = db
-        .captured_requests(&query)?
+        .analysis_requests(&query)?
         .into_iter()
-        .filter(|record| {
-            let timestamp = parse_timestamp(&record.timestamp);
-            timestamp >= start_ts && timestamp <= end_ts
-        })
+        .filter(|record| window.contains(record))
         .collect();
     let requests: Vec<RecentRequest> = matching
         .iter()
@@ -345,8 +352,8 @@ pub fn get_topology_node_detail(
             host: record.host.clone(),
             path: record.path.clone(),
             status: record.response_status,
-            duration_ms: record.duration_ms.unwrap_or(0).max(0) as u64,
-            timestamp: parse_timestamp(&record.timestamp),
+            duration_ms: record.duration_ms,
+            timestamp: record.captured_at_millis(),
         })
         .collect();
     let mut counts = [0_u64; 4];
@@ -419,4 +426,25 @@ pub fn get_topology_node_detail(
         recent_requests: requests,
         status_breakdown,
     })
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+
+    #[test]
+    fn shared_analysis_fixture_supplies_topology_status_device_and_timing() {
+        let fixture = crate::analysis::fixed_analysis_fixture();
+        let window = AnalysisWindow::inclusive(
+            fixture[0].captured_at_millis(),
+            fixture[1].captured_at_millis(),
+        );
+        let rows = aggregate_analysis_requests(&fixture, &TopologyFilter::default(), window);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].device_id, 7);
+        assert_eq!(rows[0].req_count, 2);
+        assert_eq!(rows[0].err_count, 1);
+        assert_eq!(rows[0].avg_latency, 15.0);
+        assert_eq!(rows[0].last_seen, fixture[1].captured_at_millis());
+    }
 }

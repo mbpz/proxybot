@@ -4,14 +4,13 @@
 //! Outputs Mermaid markdown diagrams and flags anomalous transitions.
 
 use crate::alerts::{AlertSeverity, AlertType, NewAlert};
+use crate::analysis::CapturedRequestAnalysis;
 use crate::db::{CapturedRequestOrder, CapturedRequestQuery, DbState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
 
-/// A DAG node: (id, timestamp_ms, method, host, path).
-type DagNode = (i64, String, String, String, String);
 /// A DAG edge: (from_node_id, to_node_id, token_value).
 type DagEdge = (i64, i64, String);
 
@@ -84,8 +83,8 @@ impl AuthFlowExtractor {
     /// Extract auth states and transitions from DAG nodes and edges.
     pub fn extract_auth_flow(
         &mut self,
-        nodes: &[(i64, String, String, String, String)], // id, timestamp, method, host, path
-        edges: &[(i64, i64, String)],                    // from_node_id, to_node_id, token_value
+        nodes: &[CapturedRequestAnalysis],
+        edges: &[(i64, i64, String)],
     ) -> (Vec<AuthState>, Vec<AuthTransition>, Vec<Anomaly>) {
         let mut states: Vec<AuthState> = Vec::new();
         let mut transitions: Vec<AuthTransition> = Vec::new();
@@ -106,20 +105,24 @@ impl AuthFlowExtractor {
 
         // Sort nodes by timestamp
         let mut sorted_nodes: Vec<_> = nodes.iter().enumerate().collect();
-        sorted_nodes.sort_by(|a, b| a.1 .1.cmp(&b.1 .1));
+        sorted_nodes.sort_by(|a, b| {
+            a.1.captured_at
+                .cmp(&b.1.captured_at)
+                .then_with(|| a.1.id.cmp(&b.1.id))
+        });
 
-        for (idx, (id, _timestamp, method, host, path)) in sorted_nodes {
-            let full_path = format!("{}://{}{}", "https", host, path);
+        for (idx, request) in sorted_nodes {
+            let full_path = format!("{}://{}{}", request.scheme, request.host, request.path);
 
             // Classify the request
-            let (state_type, _token_type) = self.classify_request(method, path);
+            let (state_type, _token_type) = self.classify_request(&request.method, &request.path);
 
             match state_type {
                 AuthStateType::Login => {
                     if login_state.is_none() {
                         let ls = AuthState {
-                            id: format!("login_{}", id),
-                            label: format!("Login ({})", method),
+                            id: format!("login_{}", request.id),
+                            label: format!("Login ({})", request.method),
                             state_type: AuthStateType::Login,
                         };
                         login_state = Some(ls.clone());
@@ -129,8 +132,8 @@ impl AuthFlowExtractor {
                         transitions.push(AuthTransition {
                             from_state: initial_state.id.clone(),
                             to_state: ls.id.clone(),
-                            request_id: *id,
-                            method: method.clone(),
+                            request_id: request.id,
+                            method: request.method.clone(),
                             path: full_path.clone(),
                             token_type: None,
                             is_anomalous: false,
@@ -139,10 +142,10 @@ impl AuthFlowExtractor {
                     }
 
                     // Check for response tokens (access_token, sessionId, etc.)
-                    for edge in edges.iter().filter(|e| e.0 == *id) {
+                    for edge in edges.iter().filter(|edge| edge.0 == request.id) {
                         let token_value = &edge.2;
                         if Self::is_auth_token(token_value) {
-                            let as_id = format!("auth_{}_{}", id, edge.1);
+                            let as_id = format!("auth_{}_{}", request.id, edge.1);
                             let as_state = AuthState {
                                 id: as_id.clone(),
                                 label: format!(
@@ -158,8 +161,8 @@ impl AuthFlowExtractor {
                             transitions.push(AuthTransition {
                                 from_state: login_state.as_ref().unwrap().id.clone(),
                                 to_state: as_state.id.clone(),
-                                request_id: *id,
-                                method: method.clone(),
+                                request_id: request.id,
+                                method: request.method.clone(),
                                 path: full_path.clone(),
                                 token_type: Some(token_value.clone()),
                                 is_anomalous: false,
@@ -170,16 +173,16 @@ impl AuthFlowExtractor {
                 }
                 AuthStateType::Resource => {
                     // Check if we have authenticated state
-                    let requires_auth = self.requires_auth_token(path);
+                    let requires_auth = self.requires_auth_token(&request.path);
                     if requires_auth {
                         if authenticated_state.is_none() {
                             // Anomaly: resource accessed before login
                             let anomaly = Anomaly {
-                                request_id: *id,
+                                request_id: request.id,
                                 anomaly_type: "AUTH_ANOMALY".to_string(),
                                 description: format!(
                                     "Request to {} {} appears to require auth but no login was detected",
-                                    method, path
+                                    request.method, request.path
                                 ),
                                 severity: AlertSeverity::Warning,
                             };
@@ -187,8 +190,8 @@ impl AuthFlowExtractor {
 
                             // Still create the state but mark as anomalous transition
                             let rs = AuthState {
-                                id: format!("resource_{}_{}", id, idx),
-                                label: format!("Resource ({})", method),
+                                id: format!("resource_{}_{}", request.id, idx),
+                                label: format!("Resource ({})", request.method),
                                 state_type: AuthStateType::Resource,
                             };
                             states.push(rs.clone());
@@ -200,8 +203,8 @@ impl AuthFlowExtractor {
                             transitions.push(AuthTransition {
                                 from_state,
                                 to_state: rs.id.clone(),
-                                request_id: *id,
-                                method: method.clone(),
+                                request_id: request.id,
+                                method: request.method.clone(),
                                 path: full_path.clone(),
                                 token_type: None,
                                 is_anomalous: true,
@@ -212,8 +215,8 @@ impl AuthFlowExtractor {
                         } else {
                             // Normal authenticated resource access
                             let rs = AuthState {
-                                id: format!("resource_{}_{}", id, idx),
-                                label: format!("Resource ({})", method),
+                                id: format!("resource_{}_{}", request.id, idx),
+                                label: format!("Resource ({})", request.method),
                                 state_type: AuthStateType::Resource,
                             };
                             states.push(rs.clone());
@@ -222,8 +225,8 @@ impl AuthFlowExtractor {
                                 #[allow(clippy::unnecessary_unwrap)]
                                 from_state: authenticated_state.as_ref().unwrap().id.clone(),
                                 to_state: rs.id.clone(),
-                                request_id: *id,
-                                method: method.clone(),
+                                request_id: request.id,
+                                method: request.method.clone(),
                                 path: full_path.clone(),
                                 token_type: None,
                                 is_anomalous: false,
@@ -233,8 +236,8 @@ impl AuthFlowExtractor {
                     } else {
                         // Public resource
                         let rs = AuthState {
-                            id: format!("resource_{}_{}", id, idx),
-                            label: format!("Resource ({})", method),
+                            id: format!("resource_{}_{}", request.id, idx),
+                            label: format!("Resource ({})", request.method),
                             state_type: AuthStateType::Resource,
                         };
                         states.push(rs.clone());
@@ -242,8 +245,8 @@ impl AuthFlowExtractor {
                         transitions.push(AuthTransition {
                             from_state: initial_state.id.clone(),
                             to_state: rs.id.clone(),
-                            request_id: *id,
-                            method: method.clone(),
+                            request_id: request.id,
+                            method: request.method.clone(),
                             path: full_path.clone(),
                             token_type: None,
                             is_anomalous: false,
@@ -261,9 +264,9 @@ impl AuthFlowExtractor {
                 self.token_states.insert(token.clone(), state.clone());
             }
         }
-        for (id, _timestamp, method, _host, path) in nodes {
+        for request in nodes {
             self.request_paths
-                .insert(*id, (method.clone(), path.clone()));
+                .insert(request.id, (request.method.clone(), request.path.clone()));
         }
 
         (states, transitions, anomalies)
@@ -371,7 +374,7 @@ pub fn generate_mermaid_md(states: &[AuthState], transitions: &[AuthTransition])
 
 /// Build auth state machine from DAG data.
 pub fn build_auth_state_machine(
-    nodes: &[(i64, String, String, String, String)],
+    nodes: &[CapturedRequestAnalysis],
     edges: &[(i64, i64, String)],
     device_id: Option<i64>,
 ) -> AuthStateMachine {
@@ -393,24 +396,12 @@ pub fn build_auth_state_machine(
 fn get_dag_data_for_device(
     db_state: &DbState,
     device_id: Option<i64>,
-) -> Result<(Vec<DagNode>, Vec<DagEdge>), String> {
-    let nodes = db_state
-        .captured_requests(&CapturedRequestQuery {
-            device_id,
-            order: CapturedRequestOrder::TimestampAscending,
-            ..Default::default()
-        })?
-        .into_iter()
-        .map(|record| {
-            (
-                record.id,
-                record.timestamp,
-                record.method,
-                record.host,
-                record.path,
-            )
-        })
-        .collect();
+) -> Result<(Vec<CapturedRequestAnalysis>, Vec<DagEdge>), String> {
+    let nodes = db_state.analysis_requests(&CapturedRequestQuery {
+        device_id,
+        order: CapturedRequestOrder::TimestampAscending,
+        ..Default::default()
+    })?;
 
     // Get edges
     let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
@@ -589,6 +580,24 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert!(transitions.is_empty());
         assert!(anomalies.is_empty());
+    }
+
+    #[test]
+    fn shared_analysis_fixture_supplies_auth_order_and_request_facts() {
+        let fixture = crate::analysis::fixed_analysis_fixture();
+        let edges = vec![(1, 2, "abc123token456def789".to_owned())];
+        let machine = build_auth_state_machine(&fixture, &edges, Some(7));
+        assert_eq!(machine.device_id, Some(7));
+        assert!(machine
+            .transitions
+            .iter()
+            .any(|transition| transition.request_id == 1 && transition.method == "POST"));
+        assert!(machine
+            .transitions
+            .iter()
+            .any(|transition| transition.request_id == 2
+                && transition.path == "https://api.example.com/profile"));
+        assert!(machine.anomalies.is_empty());
     }
 
     #[test]
