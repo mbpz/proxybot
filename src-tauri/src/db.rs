@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
+mod captured_requests;
+
+pub use captured_requests::{
+    parse_captured_timestamp, CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord,
+    NewCapturedRequest, NewWebSocketFrame, SessionScope,
+};
+
 /// Database state managed by Tauri.
 pub struct DbState {
     pub conn: Mutex<Connection>,
@@ -725,6 +732,7 @@ pub(crate) fn is_leap_year(year: u64) -> bool {
 // This is a row-shaped persistence boundary; keeping columns explicit makes
 // schema changes reviewable alongside the INSERT below.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn record_http_request(
     conn: &Connection,
     timestamp: &str,
@@ -776,6 +784,7 @@ pub fn record_http_request(
 }
 
 /// Get recent HTTP requests for TUI display.
+#[cfg(test)]
 pub fn get_recent_requests(conn: &Connection, limit: i64) -> Result<Vec<RecentRequest>, String> {
     let mut stmt = conn
         .prepare(
@@ -811,6 +820,7 @@ pub fn get_recent_requests(conn: &Connection, limit: i64) -> Result<Vec<RecentRe
 }
 
 /// Timestamp formatted as "YYYY-MM-DD HH:MM:SS" for WS frame recording.
+#[cfg(test)]
 pub fn timestamp_now_for_ws() -> String {
     chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
@@ -818,6 +828,7 @@ pub fn timestamp_now_for_ws() -> String {
 /// Record a WebSocket frame to the database.
 // This is a row-shaped persistence boundary; arguments mirror table columns.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn record_ws_frame(
     conn: &Connection,
     request_id: &str,
@@ -848,6 +859,7 @@ pub fn record_ws_frame(
 }
 
 /// Mark an HTTP request as a WebSocket connection.
+#[cfg(test)]
 pub fn mark_request_websocket(conn: &Connection, request_id: &str) -> Result<(), String> {
     conn.execute(
         "UPDATE http_requests SET is_websocket = 1 WHERE id = ?1",
@@ -858,6 +870,7 @@ pub fn mark_request_websocket(conn: &Connection, request_id: &str) -> Result<(),
 }
 
 /// Retrieve all WebSocket frames for a request, ordered by timestamp ascending.
+#[cfg(test)]
 pub fn get_ws_frames(
     conn: &Connection,
     request_id: &str,
@@ -893,6 +906,7 @@ pub fn get_ws_frames(
 
 /// Lightweight request struct for TUI list view.
 #[derive(Debug, Clone, serde::Serialize)]
+#[cfg(test)]
 pub struct RecentRequest {
     pub id: i64,
     pub timestamp: String,

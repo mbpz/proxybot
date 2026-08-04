@@ -5,7 +5,7 @@ use super::classify::classify_captured_request;
 use super::hooks::{call_on_connect_hooks, call_on_request_hooks, call_on_response_hooks};
 use super::requests::get_or_create_device;
 use super::{BreakpointRequest, WsFrameEvent};
-use crate::db::{mark_request_websocket, record_http_request, record_ws_frame, DbState};
+use crate::db::{DbState, NewCapturedRequest, NewWebSocketFrame};
 use crate::dns::DnsState;
 use crate::metrics::counters::ProxyMetrics;
 use crate::network::NetworkConditionEngine;
@@ -261,53 +261,34 @@ pub(super) async fn bridge_capture_events(
                 request.graphql_op =
                     try_decode_graphql_body(&request.req_headers, request.req_body.as_deref());
 
-                if let Ok(connection) = db.conn.lock() {
-                    let session_id = app_state.active_session_id_snapshot();
-                    match record_http_request(
-                        &connection,
-                        &request.timestamp,
-                        &request.method,
-                        &request.scheme,
-                        &request.host,
-                        &request.path,
-                        &request.req_headers,
-                        request.req_body.as_deref(),
-                        request.status,
-                        &request.resp_headers,
-                        request.resp_body.as_deref(),
-                        request.latency_ms,
-                        request.device_id,
-                        request.app_name.as_deref(),
-                        session_id.as_deref(),
-                    ) {
-                        Ok(row_id) => {
-                            let desktop_id = row_id.to_string();
-                            request_ids.insert(runtime_id, desktop_id.clone());
-                            request.id = desktop_id.clone();
-                            if request.is_websocket {
-                                let _ = mark_request_websocket(&connection, &desktop_id);
-                            }
+                let session_id = app_state.active_session_id_snapshot();
+                let mut persisted = NewCapturedRequest::from_intercepted(&request);
+                persisted.session_id = session_id.as_deref();
+                match db.record_captured_request(persisted) {
+                    Ok(row_id) => {
+                        let desktop_id = row_id.to_string();
+                        request_ids.insert(runtime_id, desktop_id.clone());
+                        request.id = desktop_id.clone();
+                        if request.is_websocket {
+                            let _ = db.mark_captured_request_websocket(&desktop_id);
                         }
-                        Err(error) => log::error!("Failed to persist Captured Request: {error}"),
                     }
+                    Err(error) => log::error!("Failed to persist Captured Request: {error}"),
                 }
                 let _ = app_handle.emit("intercepted-request", &request);
                 ai_tracker.process_request(&request);
             }
             CaptureEvent::Frame { request_id, frame } => {
                 let desktop_id = request_ids.get(&request_id).cloned().unwrap_or(request_id);
-                if let Ok(connection) = db.conn.lock() {
-                    let _ = record_ws_frame(
-                        &connection,
-                        &desktop_id,
-                        &frame.direction,
-                        frame.opcode,
-                        &frame.payload,
-                        None,
-                        frame.size,
-                        &frame.timestamp,
-                    );
-                }
+                let _ = db.record_websocket_frame(NewWebSocketFrame {
+                    request_id: &desktop_id,
+                    direction: &frame.direction,
+                    opcode: frame.opcode,
+                    payload: &frame.payload,
+                    payload_binary: None,
+                    size: frame.size,
+                    timestamp: &frame.timestamp,
+                });
                 let _ = app_handle.emit(
                     "ws-frame:new",
                     WsFrameEvent {

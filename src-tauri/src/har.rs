@@ -2,7 +2,10 @@
 //!
 //! Generates HAR 1.2 format files from recorded HTTP requests.
 
-use crate::db::DbState;
+use crate::db::{
+    parse_captured_timestamp, CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord,
+    DbState,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -107,6 +110,7 @@ pub struct HarTimings {
 }
 
 /// Internal helper: export recorded HTTP requests to HAR 1.2 format from a raw connection.
+#[cfg(test)]
 fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
     let mut stmt = conn
         .prepare(
@@ -146,7 +150,7 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
         })
         .map_err(|e| e.to_string())?;
 
-    let mut entries = Vec::new();
+    let mut records = Vec::new();
 
     for row in rows {
         let (
@@ -163,13 +167,42 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
             duration_ms,
         ) = row.map_err(|e| e.to_string())?;
 
-        // Parse request headers
         let req_headers: Vec<(String, String)> =
             serde_json::from_str(&req_headers_json).unwrap_or_default();
-        let request_url = format!("{}://{}{}", scheme, host, path);
+        let resp_headers: Vec<(String, String)> =
+            serde_json::from_str(&resp_headers_json).unwrap_or_default();
+        records.push(CapturedRequestRecord {
+            id: records.len() as i64 + 1,
+            timestamp,
+            method,
+            scheme,
+            host,
+            path,
+            request_headers: req_headers,
+            request_body: req_body,
+            response_status: resp_status,
+            response_headers: resp_headers,
+            response_body: resp_body,
+            duration_ms,
+            device_id: None,
+            app_tag: None,
+            response_size: None,
+            is_websocket: false,
+            session_id: None,
+        });
+    }
+    export_har_records(&records)
+}
+
+fn export_har_records(records: &[CapturedRequestRecord]) -> Result<HarFile, String> {
+    let mut entries = Vec::new();
+
+    for record in records {
+        let req_headers = record.request_headers.clone();
+        let request_url = format!("{}://{}{}", record.scheme, record.host, record.path);
 
         // Build request query string from path
-        let query_string: Vec<HarQueryParam> = if let Some(query) = path.split('?').nth(1) {
+        let query_string: Vec<HarQueryParam> = if let Some(query) = record.path.split('?').nth(1) {
             query
                 .split('&')
                 .map(|param| {
@@ -185,7 +218,8 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
         };
 
         // Parse request body
-        let req_body_text = req_body
+        let req_body_text = record
+            .request_body
             .as_ref()
             .map(|b| String::from_utf8_lossy(b).to_string());
         let req_content_type = req_headers
@@ -207,23 +241,30 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
             .iter()
             .map(|(n, v)| n.len() + v.len() + 4) // "name: value\r\n"
             .sum::<usize>() as i64;
-        let req_body_size = req_body.map(|b| b.len() as i64).unwrap_or(-1);
+        let req_body_size = record
+            .request_body
+            .as_ref()
+            .map(|body| body.len() as i64)
+            .unwrap_or(-1);
 
-        // Parse response headers
-        let resp_headers: Vec<(String, String)> =
-            serde_json::from_str(&resp_headers_json).unwrap_or_default();
+        let resp_headers = record.response_headers.clone();
         let resp_content_type = resp_headers
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
             .map(|(_, v)| v.clone());
 
         // Parse response body
-        let resp_body_text = resp_body
+        let resp_body_text = record
+            .response_body
             .as_ref()
             .map(|b| String::from_utf8_lossy(b).to_string());
-        let resp_body_size = resp_body.map(|b| b.len() as i64).unwrap_or(-1);
+        let resp_body_size = record
+            .response_body
+            .as_ref()
+            .map(|body| body.len() as i64)
+            .unwrap_or(-1);
 
-        let resp_status_text = match resp_status.unwrap_or(0) {
+        let resp_status_text = match record.response_status.unwrap_or(0) {
             200 => "OK",
             201 => "Created",
             204 => "No Content",
@@ -246,17 +287,17 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
             .sum::<usize>() as i64;
 
         // Convert timestamp to HAR format (ISO 8601)
-        let started_date_time = parse_timestamp_to_iso(&timestamp);
+        let started_date_time = parse_timestamp_to_iso(&record.timestamp);
 
         // Calculate time in milliseconds
-        let time = duration_ms.unwrap_or(0) as f64;
+        let time = record.duration_ms.unwrap_or(0) as f64;
 
         // Build HAR entry
         let entry = HarEntry {
             started_date_time,
             time,
             request: HarRequest {
-                method,
+                method: record.method.clone(),
                 url: request_url,
                 http_version: "HTTP/1.1".to_string(),
                 headers: req_headers
@@ -269,7 +310,7 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
                 body_size: req_body_size,
             },
             response: HarResponse {
-                status: resp_status.unwrap_or(0),
+                status: record.response_status.unwrap_or(0),
                 status_text: resp_status_text.to_string(),
                 http_version: "HTTP/1.1".to_string(),
                 headers: resp_headers
@@ -316,26 +357,22 @@ fn export_har_internal(conn: &rusqlite::Connection) -> Result<HarFile, String> {
 #[tauri::command]
 pub fn export_har(state: State<'_, Arc<DbState>>, session_name: String) -> Result<HarFile, String> {
     log::info!("Exporting HAR for session: {}", session_name);
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    export_har_internal(&conn)
+    let records = state.captured_requests(&CapturedRequestQuery {
+        order: CapturedRequestOrder::TimestampAscending,
+        ..Default::default()
+    })?;
+    export_har_records(&records)
 }
 
 /// Parse timestamp string (Unix epoch with milliseconds) to ISO 8601 format.
 fn parse_timestamp_to_iso(timestamp: &str) -> String {
-    // Format: "1234567890.123"
-    let parts: Vec<&str> = timestamp.split('.').collect();
-    let secs: i64 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let millis: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-
-    // Convert to ISO 8601
-    let dt = chrono_lite_to_datetime(secs);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        dt.0, dt.1, dt.2, dt.3, dt.4, dt.5, millis
-    )
+    parse_captured_timestamp(timestamp)
+        .unwrap_or(chrono::DateTime::UNIX_EPOCH)
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 /// Convert Unix timestamp to (year, month, day, hour, minute, second).
+#[cfg(test)]
 fn chrono_lite_to_datetime(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let mut remaining = secs as u64;
 
@@ -383,6 +420,7 @@ fn chrono_lite_to_datetime(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     )
 }
 
+#[cfg(test)]
 fn is_leap_year(year: u64) -> bool {
     (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }

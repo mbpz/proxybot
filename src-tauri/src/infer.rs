@@ -3,8 +3,8 @@
 //! Calls Claude API with traffic data to infer API semantics.
 //! Output: JSON with interfaces and modules, stored in inferred_apis table.
 
-use crate::db::DbState;
-use crate::normalize::{normalize_http_record, NormalizedRecord};
+use crate::db::{CapturedRequestQuery, DbState, SessionScope};
+use crate::normalize::{normalize_captured_record, NormalizedRecord};
 use reqwest::Client;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -335,64 +335,19 @@ pub async fn infer_api_semantics(
     let api_key = get_anthropic_api_key().ok_or("ANTHROPIC_API_KEY not set")?;
 
     // Get traffic records from database
-    let records = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-
-        let mut conditions = Vec::new();
-        if let Some(ref sid) = session_id {
-            conditions.push(format!("session_id = '{}'", sid));
-        }
-        if let Some(d) = device_id {
-            conditions.push(format!("device_id = {}", d));
-        }
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", conditions.join(" AND "))
-        };
-
-        let query = format!(
-            "SELECT id, timestamp, method, path, req_headers, req_body, resp_status, \
-             resp_headers, resp_body, duration_ms, device_id \
-             FROM http_requests{} ORDER BY id DESC LIMIT 100",
-            where_clause
-        );
-
-        let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
-        let records = stmt
-            .query_map(params![], |row| {
-                let id: i64 = row.get(0)?;
-                let timestamp: String = row.get(1)?;
-                let method: String = row.get(2)?;
-                let path: String = row.get(3)?;
-                let req_headers: String = row.get(4)?;
-                let req_body: Option<Vec<u8>> = row.get(5)?;
-                let resp_status: Option<i64> = row.get(6)?;
-                let resp_headers: String = row.get(7)?;
-                let resp_body: Option<Vec<u8>> = row.get(8)?;
-                let duration_ms: Option<i64> = row.get(9)?;
-                let device_id: Option<i64> = row.get(10)?;
-
-                Ok(normalize_http_record(
-                    id,
-                    &timestamp,
-                    &method,
-                    &path,
-                    &req_headers,
-                    req_body.as_deref(),
-                    resp_status,
-                    &resp_headers,
-                    resp_body.as_deref(),
-                    duration_ms,
-                    device_id,
-                ))
-            })
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        records
+    let query = CapturedRequestQuery {
+        session: session_id
+            .map(SessionScope::Exact)
+            .unwrap_or(SessionScope::Any),
+        device_id,
+        limit: Some(100),
+        ..Default::default()
     };
+    let records: Vec<NormalizedRecord> = db_state
+        .captured_requests(&query)?
+        .iter()
+        .map(normalize_captured_record)
+        .collect();
 
     if records.is_empty() {
         return Err("No traffic records to analyze".to_string());

@@ -3,7 +3,9 @@
 //! Generates a working mock API server from OpenAPI spec and recorded responses.
 //! Supports ordered sequences, conditional responses, and Docker deployment.
 
-use crate::db::DbState;
+use crate::db::{
+    CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState, SessionScope,
+};
 use crate::infer::{generate_openapi_spec, InferredApi};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -61,42 +63,19 @@ pub struct MockProject {
 
 /// Get recorded responses grouped by endpoint (method + path).
 fn get_endpoint_fixtures(
-    conn: &rusqlite::Connection,
-    session_id: &str,
+    records: &[CapturedRequestRecord],
 ) -> Result<HashMap<String, Vec<ResponseFixture>>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT method, path, resp_status, resp_headers, resp_body
-             FROM http_requests
-             WHERE session_id = ?1
-             ORDER BY id ASC",
-        )
-        .map_err(|e| e.to_string())?;
-
     let mut fixtures_map: HashMap<String, Vec<ResponseFixture>> = HashMap::new();
     let mut order_index: HashMap<String, usize> = HashMap::new();
-
-    let rows = stmt
-        .query_map(params![session_id], |row| {
-            let method: String = row.get(0)?;
-            let path: String = row.get(1)?;
-            let status: Option<u16> = row.get(2)?;
-            let headers_json: String = row.get(3)?;
-            let body: Option<Vec<u8>> = row.get(4)?;
-            Ok((method, path, status, headers_json, body))
-        })
-        .map_err(|e| e.to_string())?;
-
-    for row in rows {
-        let (method, path, status, headers_json, body) = row.map_err(|e| e.to_string())?;
-        let key = format!("{}:{}", method.to_uppercase(), path);
+    for record in records {
+        let key = format!("{}:{}", record.method.to_uppercase(), record.path);
         let idx = order_index.entry(key.clone()).or_insert(0);
         let current_idx = *idx;
         *idx += 1;
 
-        let headers: HashMap<String, String> =
-            serde_json::from_str(&headers_json).unwrap_or_default();
-        let body_str = body
+        let headers: HashMap<String, String> = record.response_headers.iter().cloned().collect();
+        let body_str = record
+            .response_body
             .as_ref()
             .map(|b| String::from_utf8_lossy(b).to_string());
         let body_type = body_str
@@ -115,7 +94,7 @@ fn get_endpoint_fixtures(
 
         fixtures_map.entry(key).or_default().push(ResponseFixture {
             variant_id: format!("variant_{}", current_idx),
-            status: status.unwrap_or(200),
+            status: record.response_status.unwrap_or(200),
             headers,
             body: body_str,
             body_type,
@@ -130,37 +109,14 @@ fn get_endpoint_fixtures(
 /// If multiple requests to same endpoint have different bodies,
 /// we treat them as conditional variants.
 fn extract_conditionals(
-    conn: &rusqlite::Connection,
-    session_id: &str,
+    records: &[CapturedRequestRecord],
 ) -> Result<HashMap<String, Vec<ConditionalResponse>>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT method, path, req_headers, req_body
-             FROM http_requests
-             WHERE session_id = ?1 AND req_body IS NOT NULL
-             ORDER BY id ASC",
-        )
-        .map_err(|e| e.to_string())?;
-
     let mut conditionals_map: HashMap<String, Vec<ConditionalResponse>> = HashMap::new();
     let mut variant_index: HashMap<String, usize> = HashMap::new();
-
-    let rows = stmt
-        .query_map(params![session_id], |row| {
-            let method: String = row.get(0)?;
-            let path: String = row.get(1)?;
-            let headers_json: String = row.get(2)?;
-            let body: Option<Vec<u8>> = row.get(3)?;
-            Ok((method, path, headers_json, body))
-        })
-        .map_err(|e| e.to_string())?;
-
-    for row in rows {
-        let (method, path, _headers_json, body) = row.map_err(|e| e.to_string())?;
-        let key = format!("{}:{}", method.to_uppercase(), path);
-
-        let body_str = match body {
-            Some(b) => String::from_utf8_lossy(&b).to_string(),
+    for record in records {
+        let key = format!("{}:{}", record.method.to_uppercase(), record.path);
+        let body_str = match &record.request_body {
+            Some(body) => String::from_utf8_lossy(body).to_string(),
             None => continue,
         };
 
@@ -189,6 +145,17 @@ fn extract_conditionals(
     }
 
     Ok(conditionals_map)
+}
+
+fn session_captured_requests(
+    db_state: &DbState,
+    session_id: &str,
+) -> Result<Vec<CapturedRequestRecord>, String> {
+    db_state.captured_requests(&CapturedRequestQuery {
+        session: SessionScope::Exact(session_id.to_owned()),
+        order: CapturedRequestOrder::IdAscending,
+        ..Default::default()
+    })
 }
 
 // ============================================================================
@@ -505,10 +472,10 @@ pub fn generate_mock_project(
     session_id: String,
     project_name: Option<String>,
 ) -> Result<MockProject, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-
-    // Get inferred APIs for this session
-    let apis = get_inferred_apis(&conn, &session_id)?;
+    let apis = {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        get_inferred_apis(&conn, &session_id)?
+    };
 
     if apis.is_empty() {
         return Err(
@@ -517,8 +484,9 @@ pub fn generate_mock_project(
     }
 
     // Get fixtures and conditionals
-    let fixtures_map = get_endpoint_fixtures(&conn, &session_id)?;
-    let conditionals_map = extract_conditionals(&conn, &session_id)?;
+    let records = session_captured_requests(&db_state, &session_id)?;
+    let fixtures_map = get_endpoint_fixtures(&records)?;
+    let conditionals_map = extract_conditionals(&records)?;
 
     // Build mock endpoints
     let mut endpoints = Vec::new();
@@ -561,10 +529,10 @@ pub fn write_mock_project(
     project_name: Option<String>,
     output_dir: Option<String>,
 ) -> Result<String, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-
-    // Get inferred APIs
-    let apis = get_inferred_apis(&conn, &session_id)?;
+    let apis = {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        get_inferred_apis(&conn, &session_id)?
+    };
 
     if apis.is_empty() {
         return Err("No inferred APIs found for this session.".to_string());
@@ -584,8 +552,9 @@ pub fn write_mock_project(
     fs::create_dir_all(&fixtures_dir).map_err(|e| e.to_string())?;
 
     // Get fixtures and conditionals
-    let fixtures_map = get_endpoint_fixtures(&conn, &session_id)?;
-    let conditionals_map = extract_conditionals(&conn, &session_id)?;
+    let records = session_captured_requests(&db_state, &session_id)?;
+    let fixtures_map = get_endpoint_fixtures(&records)?;
+    let conditionals_map = extract_conditionals(&records)?;
 
     // Build endpoints and write files
     let mut endpoints = Vec::new();
@@ -657,17 +626,18 @@ pub fn get_mock_endpoints(
     db_state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<Vec<MockEndpoint>, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-
-    // Get inferred APIs
-    let apis = get_inferred_apis(&conn, &session_id)?;
+    let apis = {
+        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+        get_inferred_apis(&conn, &session_id)?
+    };
 
     if apis.is_empty() {
         return Err("No inferred APIs found for this session.".to_string());
     }
 
-    let fixtures_map = get_endpoint_fixtures(&conn, &session_id)?;
-    let conditionals_map = extract_conditionals(&conn, &session_id)?;
+    let records = session_captured_requests(&db_state, &session_id)?;
+    let fixtures_map = get_endpoint_fixtures(&records)?;
+    let conditionals_map = extract_conditionals(&records)?;
 
     let mut endpoints = Vec::new();
     for api in apis {

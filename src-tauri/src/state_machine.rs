@@ -3,7 +3,7 @@
 //! Extracts login → token → resource lifecycle from DAG.
 //! Outputs Mermaid markdown diagrams and flags anomalous transitions.
 
-use crate::db::{chrono_lite_timestamp, DbState};
+use crate::db::{chrono_lite_timestamp, CapturedRequestOrder, CapturedRequestQuery, DbState};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -582,51 +582,29 @@ pub fn build_auth_state_machine(
 
 /// Get DAG data for state machine building.
 fn get_dag_data_for_device(
-    conn: &rusqlite::Connection,
+    db_state: &DbState,
     device_id: Option<i64>,
 ) -> Result<(Vec<DagNode>, Vec<DagEdge>), String> {
-    // Get nodes - collect inside each branch to avoid lifetime issues
-    let nodes: Vec<DagNode> = if let Some(did) = device_id {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, timestamp, method, host, path FROM http_requests WHERE device_id = ?1 ORDER BY timestamp",
+    let nodes = db_state
+        .captured_requests(&CapturedRequestQuery {
+            device_id,
+            order: CapturedRequestOrder::TimestampAscending,
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(|record| {
+            (
+                record.id,
+                record.timestamp,
+                record.method,
+                record.host,
+                record.path,
             )
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(params![did], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
-    } else {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, timestamp, method, host, path FROM http_requests ORDER BY timestamp",
-            )
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
-    };
+        })
+        .collect();
 
     // Get edges
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT from_node_id, to_node_id, token_value FROM dag_edges")
         .map_err(|e| e.to_string())?;
@@ -649,10 +627,7 @@ pub fn get_auth_state_machine(
     db_state: State<'_, Arc<DbState>>,
     device_id: Option<i64>,
 ) -> Result<AuthStateMachine, String> {
-    let (nodes, edges) = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        get_dag_data_for_device(&conn, device_id)?
-    };
+    let (nodes, edges) = get_dag_data_for_device(&db_state, device_id)?;
 
     let machine = build_auth_state_machine(&nodes, &edges, device_id);
 

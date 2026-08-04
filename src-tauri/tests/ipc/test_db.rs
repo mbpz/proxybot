@@ -1,7 +1,7 @@
 //! Integration tests for database operations.
 //! Tests the DbState schema and query functions.
 
-use proxybot_lib::db::DbState;
+use proxybot_lib::db::{CapturedRequestQuery, DbState};
 use std::sync::{Arc, Mutex};
 
 fn make_db() -> Arc<DbState> {
@@ -157,8 +157,12 @@ fn test_insert_dns_query() {
 #[test]
 fn test_get_recent_requests_empty() {
     let db = make_db();
-    let conn = db.conn.lock().unwrap();
-    let requests = proxybot_lib::db::get_recent_requests(&conn, 10).unwrap();
+    let requests = db
+        .captured_requests(&CapturedRequestQuery {
+            limit: Some(10),
+            ..Default::default()
+        })
+        .unwrap();
     assert!(requests.is_empty());
 }
 
@@ -187,8 +191,14 @@ fn test_get_recent_requests_with_data() {
         ],
     )
     .unwrap();
+    drop(conn);
 
-    let requests = proxybot_lib::db::get_recent_requests(&conn, 10).unwrap();
+    let requests = db
+        .captured_requests(&CapturedRequestQuery {
+            limit: Some(10),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].host, "api.douyin.com");
     assert_eq!(requests[0].method, "POST");

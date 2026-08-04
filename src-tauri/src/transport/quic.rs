@@ -117,31 +117,27 @@ async fn handle_http3_stream(
         Ok(Some(n)) => {
             log::info!("HTTP/3 stream: {} bytes", n);
 
-            // Record to database
-            if let Ok(conn) = db.conn.lock() {
-                let _ = crate::db::record_http_request(
-                    &conn,
-                    &chrono::Utc::now().to_rfc3339(),
-                    "GET",
-                    "https",
-                    "quic",
-                    "/",
-                    &[],
-                    None,
-                    Some(200),
-                    &[],
-                    Some(&format!("QUIC: {} bytes", n)),
-                    Some(0),
-                    None,
-                    Some("HTTP/3"),
-                    // QUIC entry point: this stub doesn't yet share the
-                    // proxy's `active_session_id` Arc. Stamp NULL so
-                    // captures land in the "untagged" bucket; wire
-                    // through the Capture Event Adapter if/when QUIC routes
-                    // through the same runtime Interface as HTTP/HTTPS.
-                    None,
-                );
-            }
+            let timestamp = chrono::Utc::now().to_rfc3339();
+            let response_body = format!("QUIC: {} bytes", n);
+            let _ = db.record_captured_request(crate::db::NewCapturedRequest {
+                timestamp: &timestamp,
+                method: "GET",
+                scheme: "https",
+                host: "quic",
+                path: "/",
+                request_headers: &[],
+                request_body: None,
+                response_status: Some(200),
+                response_headers: &[],
+                response_body: Some(&response_body),
+                response_size: Some(n),
+                duration_ms: Some(0),
+                device_id: None,
+                app_tag: Some("HTTP/3"),
+                // QUIC still lands in the unassigned session until it routes
+                // through the shared Capture Event Adapter.
+                session_id: None,
+            });
         }
         Ok(None) => {
             log::info!("QUIC stream closed");

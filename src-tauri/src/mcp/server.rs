@@ -197,53 +197,30 @@ impl McpServer {
         let since = args.get("since").and_then(|v| v.as_str());
         // Bound the limit so a malicious client cannot request an unbounded
         // result set. Cap matches the historical default used elsewhere.
-        let limit = limit.min(1000) as i64;
-
-        let conn = self
+        let query = crate::db::CapturedRequestQuery {
+            since: since.map(str::to_owned),
+            order: crate::db::CapturedRequestOrder::TimestampDescending,
+            limit: Some(limit.min(1000) as usize),
+            ..Default::default()
+        };
+        let requests: Vec<Value> = self
             .state
             .db
-            .conn
-            .lock()
-            .map_err(|e| JsonRpcError::internal_error(&e.to_string()))?;
-
-        // Parameterized query: `since` is bound as a value, `limit` is a
-        // bounded i64. No string interpolation into the SQL — closes the
-        // SQL injection surface the previous format!-based version had.
-        let (sql, params): (&str, Vec<&dyn rusqlite::ToSql>) = match since {
-            Some(_) => (
-                "SELECT id, method, host, path, resp_status, timestamp, app_tag \
-                 FROM http_requests \
-                 WHERE timestamp > ?1 \
-                 ORDER BY timestamp DESC LIMIT ?2",
-                vec![&since, &limit],
-            ),
-            None => (
-                "SELECT id, method, host, path, resp_status, timestamp, app_tag \
-                 FROM http_requests \
-                 ORDER BY timestamp DESC LIMIT ?1",
-                vec![&limit],
-            ),
-        };
-
-        let mut stmt = conn
-            .prepare(sql)
-            .map_err(|e| JsonRpcError::internal_error(&e.to_string()))?;
-
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(params), |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, i64>(0)?,
-                    "method": row.get::<_, String>(1)?,
-                    "host": row.get::<_, String>(2)?,
-                    "path": row.get::<_, String>(3)?,
-                    "status": row.get::<_, Option<u16>>(4)?,
-                    "timestamp": row.get::<_, String>(5)?,
-                    "app": row.get::<_, Option<String>>(6)?,
-                }))
+            .captured_requests(&query)
+            .map_err(|error| JsonRpcError::internal_error(&error))?
+            .into_iter()
+            .map(|record| {
+                serde_json::json!({
+                    "id": record.id,
+                    "method": record.method,
+                    "host": record.host,
+                    "path": record.path,
+                    "status": record.response_status,
+                    "timestamp": record.timestamp,
+                    "app": record.app_tag,
+                })
             })
-            .map_err(|e| JsonRpcError::internal_error(&e.to_string()))?;
-
-        let requests: Vec<Value> = rows.filter_map(|r| r.ok()).collect();
+            .collect();
         let total = requests.len() as u32;
 
         Ok(serde_json::json!({

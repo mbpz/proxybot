@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::db::DbState;
+use crate::db::{parse_captured_timestamp, CapturedRequestOrder, CapturedRequestQuery, DbState};
 
 use super::types::*;
 
@@ -12,19 +12,21 @@ pub fn build_topology_graph(
     db: &Arc<DbState>,
     filter: &TopologyFilter,
 ) -> Result<TopologyGraph, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let (start_ts, end_ts) = resolve_time_window(filter.time_window.as_ref());
 
     // 1. Query device rows
-    let mut device_stmt = conn
-        .prepare("SELECT id, name, last_seen_at FROM devices")
-        .map_err(|e| e.to_string())?;
-    let device_rows: Vec<(i64, String, String)> = device_stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    drop(device_stmt);
+    let device_rows: Vec<(i64, String, String)> = {
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        let mut statement = conn
+            .prepare("SELECT id, name, last_seen_at FROM devices")
+            .map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        rows
+    };
 
     // Apply device filter
     let device_filter = filter.device_ids.as_ref();
@@ -49,43 +51,55 @@ pub fn build_topology_graph(
         })
         .collect();
 
-    // 2. Aggregate request rows
-    let start_ts_str = format_ts_for_sql(start_ts);
-    let end_ts_str = format_ts_for_sql(end_ts);
-    let mut sql = String::from(
-        "SELECT device_id, COALESCE(app_tag, 'unknown') AS app_tag, host,
-                COUNT(*) AS req_count, COALESCE(SUM(COALESCE(LENGTH(resp_body),0)),0) AS total_bytes,
-                AVG(COALESCE(duration_ms,0)) AS avg_lat,
-                SUM(CASE WHEN resp_status >= 400 THEN 1 ELSE 0 END) AS err_count,
-                MAX(timestamp) AS max_ts
-         FROM http_requests
-         WHERE timestamp >= ?1 AND timestamp <= ?2",
-    );
-    let mut params_vec: Vec<String> = vec![start_ts_str, end_ts_str];
-    let mut next_idx: usize = 3;
-    if let Some(needle) = &filter.host_contains {
-        sql.push_str(&format!(" AND host LIKE ?{} ESCAPE '\\'", next_idx));
-        params_vec.push(format!("%{}%", escape_like(needle)));
-        next_idx += 1;
-    }
-    if let Some(ids) = &filter.device_ids {
-        if !ids.is_empty() {
-            let placeholders: Vec<String> = (0..ids.len())
-                .map(|i| format!("?{}", next_idx + i))
-                .collect();
-            sql.push_str(&format!(" AND device_id IN ({})", placeholders.join(",")));
-            params_vec.extend(ids.iter().cloned());
+    // 2. Aggregate canonical Captured Request records. The persistence Module
+    // owns SQLite; this analysis Implementation keeps its existing projection.
+    let records = db.captured_requests(&CapturedRequestQuery {
+        order: CapturedRequestOrder::IdAscending,
+        ..Default::default()
+    })?;
+    let mut grouped = std::collections::BTreeMap::<(i64, String, String), RawAggRow>::new();
+    for record in records {
+        let timestamp = parse_timestamp(&record.timestamp);
+        if timestamp < start_ts || timestamp > end_ts {
+            continue;
         }
+        if filter
+            .host_contains
+            .as_ref()
+            .is_some_and(|needle| !record.host.contains(needle))
+        {
+            continue;
+        }
+        if filter.device_ids.as_ref().is_some_and(|ids| {
+            !ids.is_empty()
+                && !record
+                    .device_id
+                    .is_some_and(|id| ids.contains(&id.to_string()))
+        }) {
+            continue;
+        }
+        let device_id = record.device_id.unwrap_or(0);
+        let app_tag = record.app_tag.unwrap_or_else(|| "unknown".to_owned());
+        let key = (device_id, app_tag.clone(), record.host.clone());
+        let row = grouped.entry(key).or_insert_with(|| RawAggRow {
+            device_id,
+            app_tag,
+            host: record.host.clone(),
+            req_count: 0,
+            total_bytes: 0,
+            avg_latency: 0.0,
+            err_count: 0,
+            last_seen: 0,
+        });
+        let previous_duration = row.avg_latency * row.req_count as f64;
+        row.req_count += 1;
+        row.total_bytes += record.response_body.as_ref().map_or(0, Vec::len) as i64;
+        row.avg_latency =
+            (previous_duration + record.duration_ms.unwrap_or(0) as f64) / row.req_count as f64;
+        row.err_count += i64::from(record.response_status.is_some_and(|status| status >= 400));
+        row.last_seen = row.last_seen.max(timestamp);
     }
-    sql.push_str(" GROUP BY device_id, app_tag, host");
-
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let agg_rows: Vec<RawAggRow> = stmt
-        .query_map(rusqlite::params_from_iter(params_vec.iter()), map_agg_row)
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    drop(stmt);
+    let agg_rows: Vec<_> = grouped.into_values().collect();
 
     // 3. Build aggregated (device, app_tag, host) nodes + edges
     let mut app_nodes: std::collections::BTreeMap<String, TopologyNode> =
@@ -241,20 +255,6 @@ struct RawAggRow {
     last_seen: i64,
 }
 
-fn map_agg_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawAggRow> {
-    let max_ts: String = row.get(7)?;
-    Ok(RawAggRow {
-        device_id: row.get(0)?,
-        app_tag: row.get(1)?,
-        host: row.get(2)?,
-        req_count: row.get(3)?,
-        total_bytes: row.get(4)?,
-        avg_latency: row.get(5)?,
-        err_count: row.get(6)?,
-        last_seen: parse_timestamp(&max_ts),
-    })
-}
-
 fn resolve_time_window(window: Option<&TimeWindow>) -> (i64, i64) {
     let now = now_unix_ms();
     match window {
@@ -274,17 +274,15 @@ fn now_unix_ms() -> i64 {
 }
 
 fn parse_timestamp(ts: &str) -> i64 {
-    // http_requests.timestamp is stored as the "YYYY-MM-DD HH:MM:SS" TEXT
-    // literal defined in db.rs schema. Anything else (including the literal
-    // "0" we emit for missing values) parses to 0 via the fallback.
-    chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
-        .map(|dt| dt.and_utc().timestamp_millis())
+    parse_captured_timestamp(ts)
+        .map(|timestamp| timestamp.timestamp_millis())
         .unwrap_or(0)
 }
 
 /// Escape SQL `LIKE` wildcards (`%` and `_`) plus the escape character itself
 /// so user-supplied `host_contains` text matches literally. Pairs with the
 /// `ESCAPE '\'` clause added to the `LIKE` expression.
+#[cfg(test)]
 pub(crate) fn escape_like(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -299,22 +297,11 @@ pub(crate) fn escape_like(s: &str) -> String {
     out
 }
 
-/// Format a unix-millis timestamp as the `"YYYY-MM-DD HH:MM:SS"` literal
-/// that `http_requests.timestamp` is stored in (see db.rs schema).
-/// Only called on values produced by `resolve_time_window`, which always
-/// yields a valid i64 unix-millis — so failure here is a logic bug.
-fn format_ts_for_sql(ts: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ts)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .expect("resolve_time_window should always produce a valid unix-millis")
-}
-
 pub fn get_topology_node_detail(
     db: &Arc<DbState>,
     node_id: &str,
     filter: &TopologyFilter,
 ) -> Result<NodeDetail, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let (start_ts, end_ts) = resolve_time_window(filter.time_window.as_ref());
 
     // Parse node id of the form "kind:key" (e.g. "host:api.weixin.qq.com").
@@ -326,104 +313,75 @@ pub fn get_topology_node_detail(
         _ => return Err(format!("unknown node kind: {}", kind_str)),
     };
 
-    // Build a kind-specific filter clause plus its bind value. All values
-    // are normalised to String so they can share a single Vec<String> for
-    // rusqlite::params_from_iter (matches the pattern in build_topology_graph).
-    let (where_clause, params_vec): (String, Vec<String>) = match kind {
-        NodeKind::Device => {
-            let id = key
-                .parse::<i64>()
-                .map_err(|_| format!("invalid device id: {}", key))?;
-            ("device_id = ?3".to_string(), vec![id.to_string()])
-        }
-        NodeKind::App => ("app_tag = ?3".to_string(), vec![key.to_string()]),
-        NodeKind::Host => ("host = ?3".to_string(), vec![key.to_string()]),
+    let device_id = if kind == NodeKind::Device {
+        Some(
+            key.parse::<i64>()
+                .map_err(|_| format!("invalid device id: {}", key))?,
+        )
+    } else {
+        None
     };
-
-    // C1 fix: bind timestamps as the "YYYY-MM-DD HH:MM:SS" TEXT literal that
-    // http_requests.timestamp stores, not as i64 unix-millis (which would
-    // compare lexically and exclude every real row).
-    let start_ts_str = format_ts_for_sql(start_ts);
-    let end_ts_str = format_ts_for_sql(end_ts);
-    let mut all_params: Vec<String> = vec![start_ts_str, end_ts_str];
-    all_params.extend(params_vec);
-
-    // Fetch up to 20 most recent requests matching the node.
-    let sql = format!(
-        "SELECT id, method, host, path, resp_status, duration_ms, timestamp
-         FROM http_requests
-         WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}
-         ORDER BY id DESC LIMIT 20",
-        where_clause
-    );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let requests: Vec<RecentRequest> = stmt
-        .query_map(rusqlite::params_from_iter(all_params.iter()), |row| {
-            Ok(RecentRequest {
-                id: row.get::<_, i64>(0)?.to_string(),
-                method: row.get(1)?,
-                host: row.get(2)?,
-                path: row.get(3)?,
-                status: row.get::<_, Option<i64>>(4)?.map(|s| s as u16),
-                duration_ms: row.get::<_, Option<i64>>(5)?.unwrap_or(0) as u64,
-                timestamp: parse_timestamp(&row.get::<_, String>(6)?),
-            })
+    let query = CapturedRequestQuery {
+        device_id,
+        host: (kind == NodeKind::Host).then(|| key.to_owned()),
+        app_tag: (kind == NodeKind::App).then(|| key.to_owned()),
+        order: CapturedRequestOrder::IdDescending,
+        ..Default::default()
+    };
+    let matching: Vec<_> = db
+        .captured_requests(&query)?
+        .into_iter()
+        .filter(|record| {
+            let timestamp = parse_timestamp(&record.timestamp);
+            timestamp >= start_ts && timestamp <= end_ts
         })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    drop(stmt);
-
-    // Status-code class breakdown + full-window count in one query. SUM()
-    // returns NULL when the WHERE clause matches no rows, so the column types
-    // are Option<i64> and we unwrap.
-    let counts_sql = format!(
-        "SELECT
-            SUM(CASE WHEN resp_status >= 200 AND resp_status < 300 THEN 1 ELSE 0 END) AS s2xx,
-            SUM(CASE WHEN resp_status >= 300 AND resp_status < 400 THEN 1 ELSE 0 END) AS s3xx,
-            SUM(CASE WHEN resp_status >= 400 AND resp_status < 500 THEN 1 ELSE 0 END) AS s4xx,
-            SUM(CASE WHEN resp_status >= 500 THEN 1 ELSE 0 END) AS s5xx,
-            COUNT(*) AS total
-         FROM http_requests
-         WHERE timestamp >= ?1 AND timestamp <= ?2 AND {}",
-        where_clause
-    );
-    let mut s_stmt = conn.prepare(&counts_sql).map_err(|e| e.to_string())?;
-    let counts: (Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64) = s_stmt
-        .query_row(rusqlite::params_from_iter(all_params.iter()), |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
+        .collect();
+    let requests: Vec<RecentRequest> = matching
+        .iter()
+        .take(20)
+        .map(|record| RecentRequest {
+            id: record.id.to_string(),
+            method: record.method.clone(),
+            host: record.host.clone(),
+            path: record.path.clone(),
+            status: record.response_status,
+            duration_ms: record.duration_ms.unwrap_or(0).max(0) as u64,
+            timestamp: parse_timestamp(&record.timestamp),
         })
-        .unwrap_or((None, None, None, None, 0));
-    drop(s_stmt);
+        .collect();
+    let mut counts = [0_u64; 4];
+    for record in &matching {
+        match record.response_status.unwrap_or(0) {
+            200..=299 => counts[0] += 1,
+            300..=399 => counts[1] += 1,
+            400..=499 => counts[2] += 1,
+            500.. => counts[3] += 1,
+            _ => {}
+        }
+    }
 
     let status_breakdown = vec![
         StatusCount {
             status_class: "2xx".into(),
-            count: counts.0.unwrap_or(0) as u64,
+            count: counts[0],
         },
         StatusCount {
             status_class: "3xx".into(),
-            count: counts.1.unwrap_or(0) as u64,
+            count: counts[1],
         },
         StatusCount {
             status_class: "4xx".into(),
-            count: counts.2.unwrap_or(0) as u64,
+            count: counts[2],
         },
         StatusCount {
             status_class: "5xx".into(),
-            count: counts.3.unwrap_or(0) as u64,
+            count: counts[3],
         },
     ];
 
     // The recent_requests Vec above is capped at 20; this COUNT(*) gives
     // the true full-window total for the drawer.
-    let full_count = counts.4;
+    let full_count = matching.len() as i64;
 
     // The drawer shows a representative node; request_count is the full-window
     // total (from the COUNT above), not the 20-row recent_requests sample.

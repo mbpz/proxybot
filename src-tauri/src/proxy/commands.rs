@@ -92,55 +92,20 @@ pub fn get_request_detail(
     db_state: State<'_, Arc<DbState>>,
     id: String,
 ) -> Result<InterceptedRequest, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare("SELECT id, timestamp, method, scheme, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, duration_ms, app_name, app_icon FROM http_requests WHERE id = ?1")
-        .map_err(|e| e.to_string())?;
-    stmt.query_row([&id], |row| {
-        let resp_headers: Vec<(String, String)> =
-            serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default();
-        let req_headers: Vec<(String, String)> =
-            serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default();
-        let req_body: Option<String> = row
-            .get::<_, Option<Vec<u8>>>(7)?
-            .map(|b| String::from_utf8_lossy(&b).to_string());
-        let resp_body_bytes: Option<Vec<u8>> = row.get::<_, Option<Vec<u8>>>(10)?;
-        let resp_body_str = resp_body_bytes
-            .as_ref()
-            .map(|b| String::from_utf8_lossy(b).to_string());
-        let grpc_decoded = resp_body_bytes
-            .as_deref()
-            .and_then(|body| try_decode_grpc_body(&resp_headers, body));
-        let graphql_op = try_decode_graphql_body(&req_headers, req_body.as_deref());
-
-        Ok(InterceptedRequest {
-            id: row.get(0)?,
-            timestamp: row.get(1)?,
-            method: row.get(2)?,
-            scheme: row.get(3)?,
-            host: row.get(4)?,
-            path: row.get(5)?,
-            query_params: None,
-            status: row.get(8)?,
-            latency_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
-            req_headers,
-            req_body,
-            resp_headers,
-            resp_body: resp_body_str,
-            resp_size: None,
-            app_name: row.get(12)?,
-            app_icon: row.get(13)?,
-            device_id: None,
-            device_name: None,
-            client_ip: None,
-            upstream_ip: None,
-            is_websocket: false,
-            ws_frames: None,
-            grpc_decoded,
-            graphql_op,
-        })
-    })
-    .map_err(|e| e.to_string())
+    let id = id
+        .parse::<i64>()
+        .map_err(|_| format!("Invalid Captured Request id: {id}"))?;
+    let record = db_state
+        .captured_request(id)?
+        .ok_or_else(|| format!("Captured Request not found: {id}"))?;
+    let mut request = record.as_intercepted();
+    request.grpc_decoded = record
+        .response_body
+        .as_deref()
+        .and_then(|body| try_decode_grpc_body(&record.response_headers, body));
+    request.graphql_op =
+        try_decode_graphql_body(&record.request_headers, request.req_body.as_deref());
+    Ok(request)
 }
 
 #[tauri::command]
@@ -156,8 +121,7 @@ pub fn get_ws_frames(
     db_state: State<'_, Arc<DbState>>,
     request_id: String,
 ) -> Result<Vec<super::WsFrame>, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    crate::db::get_ws_frames(&conn, &request_id)
+    db_state.websocket_frames(&request_id)
 }
 
 #[tauri::command]
@@ -189,32 +153,11 @@ pub fn hide_window(app_handle: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn replay_request(db_state: State<'_, Arc<DbState>>, id: i64) -> Result<String, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    let (method, host, path, req_headers_json, req_body): (
-        String,
-        String,
-        String,
-        String,
-        Option<Vec<u8>>,
-    ) = conn
-        .query_row(
-            "SELECT method, host, path, req_headers, req_body FROM http_requests WHERE id = ?1",
-            rusqlite::params![id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
-        )
-        .map_err(|e| format!("Request not found: {}", e))?;
-
-    let url = format!("https://{}{}", host, path);
-    let headers: Vec<(String, String)> =
-        serde_json::from_str(&req_headers_json).unwrap_or_default();
+    let record = db_state
+        .captured_request(id)?
+        .ok_or_else(|| format!("Request not found: {id}"))?;
+    let method = record.method;
+    let url = format!("{}://{}{}", record.scheme, record.host, record.path);
 
     let client = reqwest::blocking::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -225,10 +168,10 @@ pub fn replay_request(db_state: State<'_, Arc<DbState>>, id: i64) -> Result<Stri
         reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET),
         &url,
     );
-    for (k, v) in &headers {
+    for (k, v) in &record.request_headers {
         req = req.header(k.as_str(), v.as_str());
     }
-    if let Some(body) = &req_body {
+    if let Some(body) = &record.request_body {
         req = req.body(body.clone());
     }
 

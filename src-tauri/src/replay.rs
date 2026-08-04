@@ -2,7 +2,8 @@
 //!
 //! Replays recorded HTTP requests against a local mock server and computes diffs.
 
-use crate::db::DbState;
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState};
+#[cfg(test)]
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -127,11 +128,40 @@ impl Default for ReplayState {
 /// Get all hosts that have recorded requests.
 #[tauri::command]
 pub fn get_replay_targets(state: State<'_, Arc<DbState>>) -> Result<Vec<ReplayTarget>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    get_replay_targets_internal(&conn)
+    let records = state.captured_requests(&CapturedRequestQuery {
+        order: CapturedRequestOrder::IdAscending,
+        ..Default::default()
+    })?;
+    Ok(replay_targets(&records))
+}
+
+fn replay_targets(records: &[CapturedRequestRecord]) -> Vec<ReplayTarget> {
+    let mut hosts =
+        std::collections::HashMap::<String, (usize, std::collections::HashSet<String>)>::new();
+    for record in records {
+        let entry = hosts.entry(record.host.clone()).or_default();
+        entry.0 += 1;
+        entry.1.insert(record.path.clone());
+    }
+    let mut targets: Vec<_> = hosts
+        .into_iter()
+        .map(|(host, (request_count, paths))| ReplayTarget {
+            host,
+            request_count,
+            path_count: paths.len(),
+        })
+        .collect();
+    targets.sort_by(|left, right| {
+        right
+            .request_count
+            .cmp(&left.request_count)
+            .then_with(|| left.host.cmp(&right.host))
+    });
+    targets
 }
 
 /// Get all hosts that have recorded requests (takes `&Connection` for testability).
+#[cfg(test)]
 pub(crate) fn get_replay_targets_internal(conn: &Connection) -> Result<Vec<ReplayTarget>, String> {
     let mut stmt = conn
         .prepare(
@@ -163,8 +193,26 @@ pub fn get_requests_for_replay(
     state: State<'_, Arc<DbState>>,
     host: String,
 ) -> Result<Vec<ReplayRequest>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    get_requests_for_replay_internal(&conn, &host)
+    let records = state.captured_requests(&CapturedRequestQuery {
+        host: Some(host),
+        order: CapturedRequestOrder::TimestampAscending,
+        ..Default::default()
+    })?;
+    Ok(records.iter().map(replay_request_record).collect())
+}
+
+fn replay_request_record(record: &CapturedRequestRecord) -> ReplayRequest {
+    ReplayRequest {
+        id: record.id,
+        method: record.method.clone(),
+        url: format!("{}{}", record.host, record.path),
+        path: record.path.clone(),
+        req_headers: record.request_headers.clone(),
+        req_body: record
+            .request_body
+            .as_deref()
+            .map(|body| String::from_utf8_lossy(body).into_owned()),
+    }
 }
 
 /// Get requests for a specific host (takes `&Connection` for testability).
@@ -173,6 +221,7 @@ pub fn get_requests_for_replay(
 /// scheme-less, authority+path string like `api.example.com/v1/users`. This is
 /// a display field only (the real HTTP target in `start_replay` is built from
 /// the loopback `mock_url` constant), but a UI consumer may expect a full URL.
+#[cfg(test)]
 pub(crate) fn get_requests_for_replay_internal(
     conn: &Connection,
     host: &str,
@@ -223,8 +272,24 @@ pub fn get_recorded_responses(
     state: State<'_, Arc<DbState>>,
     request_ids: Vec<i64>,
 ) -> Result<HashMap<i64, RecordedResponse>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    get_recorded_responses_internal(&conn, &request_ids)
+    let mut responses = HashMap::new();
+    for id in request_ids {
+        if let Some(record) = state.captured_request(id)? {
+            responses.insert(id, recorded_response(&record));
+        }
+    }
+    Ok(responses)
+}
+
+fn recorded_response(record: &CapturedRequestRecord) -> RecordedResponse {
+    RecordedResponse {
+        status: record.response_status.unwrap_or(0),
+        headers: record.response_headers.clone(),
+        body: record
+            .response_body
+            .as_deref()
+            .map(|body| String::from_utf8_lossy(body).into_owned()),
+    }
 }
 
 /// Get recorded responses for requests (takes `&Connection` for testability).
@@ -232,6 +297,7 @@ pub fn get_recorded_responses(
 /// NOTE: For unknown `request_ids`, the function silently omits them from the
 /// returned map (no error, no entry). The `unwrap_or_default()` calls for
 /// header JSON parsing also silently swallow malformed JSON.
+#[cfg(test)]
 pub(crate) fn get_recorded_responses_internal(
     conn: &Connection,
     request_ids: &[i64],

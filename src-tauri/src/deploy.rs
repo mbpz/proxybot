@@ -3,7 +3,9 @@
 //! Produces a complete Docker Compose deployment with mock API, frontend, and postgres.
 //! Initializes a git repo and sets up GitHub Actions CI for Playwright E2E tests.
 
-use crate::db::DbState;
+use crate::db::{
+    CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState, SessionScope,
+};
 use crate::infer::InferredApi;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -479,6 +481,7 @@ fn get_inferred_apis(
 // Mock API File Generation (subset of mockgen)
 // ============================================================================
 
+#[cfg(test)]
 fn get_mock_endpoints_from_db(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -496,6 +499,27 @@ fn get_mock_endpoints_from_db(
         .map_err(|e| e.to_string())?;
 
     Ok(rows)
+}
+
+fn mock_endpoints(records: &[CapturedRequestRecord]) -> Vec<(String, String)> {
+    let mut endpoints: Vec<_> = records
+        .iter()
+        .map(|record| (record.method.clone(), record.path.clone()))
+        .collect();
+    endpoints.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+    endpoints.dedup();
+    endpoints
+}
+
+fn session_captured_requests(
+    db: &DbState,
+    session_id: &str,
+) -> Result<Vec<CapturedRequestRecord>, String> {
+    db.captured_requests(&CapturedRequestQuery {
+        session: SessionScope::Exact(session_id.to_owned()),
+        order: CapturedRequestOrder::IdAscending,
+        ..Default::default()
+    })
 }
 
 // ============================================================================
@@ -586,15 +610,15 @@ pub fn generate_deployment_bundle(
     session_id: String,
     project_name: Option<String>,
 ) -> Result<DeploymentBundle, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-
     let name = project_name.unwrap_or_else(|| "proxybot_deployment".to_string());
 
-    // Get mock endpoints
-    let mock_endpoints = get_mock_endpoints_from_db(&conn, &session_id)?;
+    let records = session_captured_requests(&db, &session_id)?;
+    let mock_endpoints = mock_endpoints(&records);
 
-    // Get frontend routes
-    let frontend_routes = get_frontend_routes(&conn, &session_id)?;
+    let frontend_routes = {
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        get_frontend_routes(&conn, &session_id)?
+    };
 
     // Generate docker-compose
     let docker_compose_content = generate_docker_compose(&name);
@@ -626,8 +650,6 @@ pub fn write_deployment_bundle(
     output_dir: Option<String>,
     init_git: bool,
 ) -> Result<DeploymentResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-
     let name = project_name.unwrap_or_else(|| "proxybot_deployment".to_string());
     let base = output_dir.unwrap_or_else(|| {
         config
@@ -637,12 +659,25 @@ pub fn write_deployment_bundle(
             .into_owned()
     });
 
-    write_deployment_bundle_inner(&conn, &session_id, &name, Path::new(&base), init_git)
+    let records = session_captured_requests(&db, &session_id)?;
+    let mock_endpoints = mock_endpoints(&records);
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let frontend_routes = get_frontend_routes(&conn, &session_id)?;
+    write_deployment_bundle_from_inputs(
+        &conn,
+        &session_id,
+        &name,
+        Path::new(&base),
+        init_git,
+        &mock_endpoints,
+        &frontend_routes,
+    )
 }
 
 /// Inner testable logic for `write_deployment_bundle`.
 /// Splits the Tauri-State wrapper so we can unit-test the file-I/O path
 /// without spinning up a Tauri runtime.
+#[cfg(test)]
 pub fn write_deployment_bundle_inner(
     conn: &rusqlite::Connection,
     session_id: &str,
@@ -650,13 +685,31 @@ pub fn write_deployment_bundle_inner(
     base_path: &Path,
     init_git: bool,
 ) -> Result<DeploymentResult, String> {
+    let mock_endpoints = get_mock_endpoints_from_db(conn, session_id)?;
+    let frontend_routes = get_frontend_routes(conn, session_id)?;
+    write_deployment_bundle_from_inputs(
+        conn,
+        session_id,
+        name,
+        base_path,
+        init_git,
+        &mock_endpoints,
+        &frontend_routes,
+    )
+}
+
+fn write_deployment_bundle_from_inputs(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    name: &str,
+    base_path: &Path,
+    init_git: bool,
+    mock_endpoints: &[(String, String)],
+    frontend_routes: &[(String, String)],
+) -> Result<DeploymentResult, String> {
     let base = base_path.to_string_lossy().to_string();
     let base_path = base_path.to_path_buf();
     fs::create_dir_all(&base_path).map_err(|e| format!("Failed to create base dir: {}", e))?;
-
-    // Get mock endpoints and frontend routes
-    let mock_endpoints = get_mock_endpoints_from_db(conn, session_id)?;
-    let frontend_routes = get_frontend_routes(conn, session_id)?;
 
     // Write docker-compose.yml
     fs::write(
@@ -672,7 +725,7 @@ pub fn write_deployment_bundle_inner(
     // Write README.md
     fs::write(
         base_path.join("README.md"),
-        generate_readme(name, &mock_endpoints, &frontend_routes),
+        generate_readme(name, mock_endpoints, frontend_routes),
     )
     .map_err(|e| format!("Failed to write README.md: {}", e))?;
 
@@ -690,7 +743,7 @@ pub fn write_deployment_bundle_inner(
         .map_err(|e| format!("Failed to create fixtures dir: {}", e))?;
 
     // Write mock-api files (simplified FastAPI stub)
-    let mock_main = generate_mock_main(&mock_endpoints);
+    let mock_main = generate_mock_main(mock_endpoints);
     fs::write(mock_api_dir.join("main.py"), mock_main)
         .map_err(|e| format!("Failed to write main.py: {}", e))?;
 
@@ -809,7 +862,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     .map_err(|e| format!("Failed to write main.tsx: {}", e))?;
 
     // Generate App.tsx with routes from frontend_routes
-    let app_content = generate_frontend_app(&frontend_routes);
+    let app_content = generate_frontend_app(frontend_routes);
     fs::write(frontend_src.join("App.tsx"), app_content)
         .map_err(|e| format!("Failed to write App.tsx: {}", e))?;
 

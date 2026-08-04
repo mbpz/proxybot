@@ -20,7 +20,9 @@ use proxybot_core::{
     build_spec, SpecConfig, SpecOutput, SpecRequest, SpecResult, TrafficKind, TrafficRecord,
 };
 
-use crate::db::DbState;
+use crate::db::{
+    CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState, SessionScope,
+};
 use crate::state::AppState;
 
 use proxybot_core::specgen::replay::run_replay as core_run_replay;
@@ -34,7 +36,7 @@ use proxybot_core::ReplayReport;
 /// caller so the UI can display it without a second round-trip.
 ///
 /// `traffic_records` is optional: when omitted (or empty) the
-/// command pulls captured records straight out of `http_requests`
+/// command pulls records from the Captured Request persistence Module
 /// using the same query as [`get_traffic_records`]. The UI normally
 /// passes `None` so we don't pay the cost of round-tripping every
 /// record through JSON twice; tests can still inject a synthetic
@@ -137,7 +139,7 @@ pub async fn run_replay_validation(
 }
 
 /// Pull traffic records to feed into specgen. The UI sends `None`
-/// so we read the SQLite `http_requests` table ourselves; tests
+/// so we read the Captured Request persistence Module; tests
 /// inject a synthetic vector via `Some(...)`. An empty `Some(vec![])`
 /// is treated the same as `None` because handing the heuristic a
 /// truly empty vector errors out with `EmptySession`, and the UI
@@ -153,8 +155,7 @@ fn resolve_records(
             return Ok(recs);
         }
     }
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    load_traffic_records(&conn, session_id)
+    load_traffic_records(db_state, session_id)
 }
 
 /// Update the spec-generation configuration at runtime.
@@ -181,9 +182,8 @@ pub fn get_specgen_config(state: State<'_, Arc<AppState>>) -> Result<SpecConfig,
 
 /// Mark a UI-selected `session_id` as the *active* session.
 ///
-/// The desktop Capture Event Adapter reads this value and stamps every newly-recorded
-/// `http_requests` row with it. Pass `None` to clear and have
-/// subsequent rows recorded with NULL `session_id`.
+/// The desktop Capture Event Adapter reads this value and attributes every
+/// newly recorded Captured Request to it. Pass `None` to clear attribution.
 ///
 /// The UI calls this from `SpecGenPanel` whenever the user changes
 /// the session id field, so further captures land under the new
@@ -207,9 +207,8 @@ pub fn get_active_session(state: State<'_, Arc<AppState>>) -> Result<Option<Stri
     Ok(state.active_session_id_snapshot())
 }
 
-/// Load captured traffic records for a given session from the SQLite
-/// `http_requests` table. Used by the SpecGenPanel to fetch the records
-/// it should hand to [`generate_spec`] / [`run_replay_validation`]
+/// Load captured traffic records for a given session. Used by the SpecGenPanel
+/// to fetch the records it should hand to [`generate_spec`] / [`run_replay_validation`]
 /// without requiring the UI to pipe them through itself.
 ///
 /// `session_id` matches the `session_id` column added by DB migration
@@ -224,8 +223,7 @@ pub fn get_traffic_records(
     state: State<'_, Arc<DbState>>,
     session_id: String,
 ) -> Result<Vec<TrafficRecord>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    load_traffic_records(&conn, &session_id)
+    load_traffic_records(&state, &session_id)
 }
 
 /// Pure DB read used by both the public [`get_traffic_records`]
@@ -234,81 +232,43 @@ pub fn get_traffic_records(
 /// Centralising the query keeps the SQL string + row decoder in
 /// one place, so a schema tweak only has to change one query.
 fn load_traffic_records(
-    conn: &rusqlite::Connection,
+    db_state: &DbState,
     session_id: &str,
 ) -> Result<Vec<TrafficRecord>, String> {
-    let limit: i64 = 500;
-
-    // For an empty session_id we surface untagged records; otherwise
-    // we filter by exact match. Index `idx_http_requests_session_id`
-    // (added in migration 5) covers the typical case.
-    let sql = if session_id.is_empty() {
-        r#"SELECT timestamp, method, host, path, req_body, resp_status, resp_body, is_websocket
-           FROM http_requests
-           WHERE session_id IS NULL OR session_id = ''
-           ORDER BY id ASC
-           LIMIT ?1"#
+    let session = if session_id.is_empty() {
+        SessionScope::Unassigned
     } else {
-        r#"SELECT timestamp, method, host, path, req_body, resp_status, resp_body, is_websocket
-           FROM http_requests
-           WHERE session_id = ?1
-           ORDER BY id ASC
-           LIMIT ?2"#
+        SessionScope::Exact(session_id.to_owned())
     };
-
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-
-    let row_to_record = |row: &rusqlite::Row<'_>| -> rusqlite::Result<TrafficRecord> {
-        let timestamp_str: String = row.get(0)?;
-        let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
-            .map(|dt| dt.with_timezone(&chrono::Utc))
-            .or_else(|_| {
-                // Fall back to SQLite's "YYYY-MM-DD HH:MM:SS" format used
-                // by `timestamp_now_for_ws` and most older rows.
-                chrono::NaiveDateTime::parse_from_str(&timestamp_str, "%Y-%m-%d %H:%M:%S").map(
-                    |ndt| {
-                        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc)
-                    },
-                )
-            })
-            .unwrap_or_else(|_| chrono::Utc::now());
-
-        let req_body: Option<Vec<u8>> = row.get(4)?;
-        let resp_body: Option<Vec<u8>> = row.get(6)?;
-        let is_websocket: i64 = row.get(7)?;
-
-        Ok(TrafficRecord {
-            method: row.get::<_, String>(1)?.to_uppercase(),
-            path: row.get::<_, String>(3)?,
-            host: row.get::<_, String>(2)?,
-            request_body: req_body.and_then(|b| decode_body(&b)),
-            response_status: row.get::<_, Option<i64>>(5)?.map(|s| s as u16).unwrap_or(0),
-            response_body: resp_body.and_then(|b| decode_body(&b)),
-            timestamp,
-            kind: if is_websocket != 0 {
-                TrafficKind::WebSocket
-            } else {
-                TrafficKind::Http
-            },
-        })
+    let query = CapturedRequestQuery {
+        session,
+        order: CapturedRequestOrder::IdAscending,
+        limit: Some(500),
+        ..Default::default()
     };
+    Ok(db_state
+        .captured_requests(&query)?
+        .iter()
+        .map(traffic_record)
+        .collect())
+}
 
-    let rows = if session_id.is_empty() {
-        stmt.query_map([limit], row_to_record)
-    } else {
-        stmt.query_map(rusqlite::params![session_id, limit], row_to_record)
+fn traffic_record(record: &CapturedRequestRecord) -> TrafficRecord {
+    let timestamp = record.captured_at().unwrap_or_else(chrono::Utc::now);
+    TrafficRecord {
+        method: record.method.to_uppercase(),
+        path: record.path.clone(),
+        host: record.host.clone(),
+        request_body: record.request_body.as_deref().and_then(decode_body),
+        response_status: record.response_status.unwrap_or(0),
+        response_body: record.response_body.as_deref().and_then(decode_body),
+        timestamp,
+        kind: if record.is_websocket {
+            TrafficKind::WebSocket
+        } else {
+            TrafficKind::Http
+        },
     }
-    .map_err(|e| e.to_string())?;
-
-    let mut out = Vec::new();
-    for row in rows {
-        match row {
-            Ok(r) => out.push(r),
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-
-    Ok(out)
 }
 
 /// Decode a stored request/response body into a UTF-8 string when

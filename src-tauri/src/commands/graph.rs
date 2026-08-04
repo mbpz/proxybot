@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::db::DbState;
+use crate::db::{parse_captured_timestamp, CapturedRequestQuery, DbState};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestNode {
@@ -44,18 +43,6 @@ struct RawRequest {
     req_headers: String,
 }
 
-/// Parse a timestamp string into a sortable i64 (seconds since epoch or 0).
-fn parse_timestamp(ts: &str) -> i64 {
-    // Try parsing as float seconds (e.g. "1713000000.123")
-    if let Ok(f) = ts.parse::<f64>() {
-        return f as i64;
-    }
-    // Try parsing as ISO-like "YYYY-MM-DD HH:MM:SS"
-    chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
-        .map(|dt| dt.and_utc().timestamp())
-        .unwrap_or(0)
-}
-
 fn extract_referer_host(req_headers: &str) -> Option<String> {
     let headers: Vec<(String, String)> = serde_json::from_str(req_headers).ok()?;
     for (name, value) in &headers {
@@ -78,37 +65,25 @@ pub fn get_graph_data(
     db_state: State<'_, Arc<DbState>>,
     max_requests: usize,
 ) -> Result<GraphData, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-
-    let limit = max_requests.min(500) as i64;
-
-    let mut stmt = conn
-        .prepare(
-            r#"SELECT id, host, path, method, resp_status, duration_ms, timestamp, req_headers
-               FROM http_requests
-               ORDER BY id DESC
-               LIMIT ?1"#,
-        )
-        .map_err(|e| e.to_string())?;
-
-    let raw: Vec<RawRequest> = stmt
-        .query_map(params![limit], |row| {
-            Ok(RawRequest {
-                id: row.get(0)?,
-                host: row.get(1)?,
-                path: row.get(2)?,
-                method: row.get(3)?,
-                resp_status: row.get(4)?,
-                duration_ms: row.get::<_, Option<i64>>(5)?.map(|v| v as u64),
-                timestamp: row.get(6)?,
-                req_headers: row.get(7)?,
-            })
+    let raw: Vec<RawRequest> = db_state
+        .captured_requests(&CapturedRequestQuery {
+            limit: Some(max_requests.min(500)),
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(|record| RawRequest {
+            id: record.id,
+            host: record.host,
+            path: record.path,
+            method: record.method,
+            resp_status: record.response_status,
+            duration_ms: record
+                .duration_ms
+                .and_then(|value| u64::try_from(value).ok()),
+            timestamp: record.timestamp,
+            req_headers: serde_json::to_string(&record.request_headers).unwrap_or_default(),
         })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    drop(stmt);
+        .collect();
 
     // Build a lookup: host+path → most recent request id (for referer resolution)
     let mut host_path_to_id: HashMap<String, String> = HashMap::new();
@@ -176,7 +151,9 @@ pub fn get_graph_data(
             method: r.method.clone(),
             status: r.resp_status,
             duration_ms: r.duration_ms.unwrap_or(0),
-            timestamp: parse_timestamp(&r.timestamp),
+            timestamp: parse_captured_timestamp(&r.timestamp)
+                .map(|timestamp| timestamp.timestamp())
+                .unwrap_or(0),
             parent_id: parent_map.get(&r.id.to_string()).cloned().flatten(),
         })
         .collect();

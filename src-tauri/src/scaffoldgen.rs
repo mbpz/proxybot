@@ -1,6 +1,6 @@
 //! React scaffold generator for ProxyBot.
 
-use crate::db::DbState;
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, DbState, SessionScope};
 use crate::infer::{ApiInterface, InferredApi};
 use crate::replay::compute_diff;
 use crate::vision::{ComponentTree, VisionComponent};
@@ -1120,41 +1120,29 @@ pub async fn evaluate_scaffold_project(
     session_id: String,
     path: String,
 ) -> Result<(bool, f64, Vec<String>), String> {
-    // Query full exchange data for evaluation
-    let exchanges: Vec<RecordedExchange> = {
-        let conn = db.conn.lock().map_err(|e| e.to_string())?;
-        let mut s = conn
-            .prepare(
-                "SELECT method, path, req_body, resp_status, resp_headers, resp_body \
-             FROM http_requests WHERE session_id=?1 LIMIT 30",
-            )
-            .map_err(|e| e.to_string())?;
-        let rows: Vec<RecordedExchange> = s
-            .query_map(params![session_id], |row| {
-                let method: String = row.get(0)?;
-                let path: String = row.get(1)?;
-                let req_body_opt: Option<Vec<u8>> = row.get(2)?;
-                let resp_status: Option<u16> = row.get(3)?;
-                let resp_headers_json: String = row.get(4)?;
-                let resp_body_opt: Option<Vec<u8>> = row.get(5)?;
-                let req_body = req_body_opt.map(|b| String::from_utf8_lossy(&b).to_string());
-                let resp_headers: Vec<(String, String)> =
-                    serde_json::from_str(&resp_headers_json).unwrap_or_default();
-                let resp_body = resp_body_opt.map(|b| String::from_utf8_lossy(&b).to_string());
-                Ok(RecordedExchange {
-                    method,
-                    path,
-                    req_body,
-                    resp_status: resp_status.unwrap_or(200),
-                    resp_headers,
-                    resp_body,
-                })
-            })
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        rows
-    };
+    let exchanges = db
+        .captured_requests(&CapturedRequestQuery {
+            session: SessionScope::Exact(session_id),
+            order: CapturedRequestOrder::IdAscending,
+            limit: Some(30),
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(|record| RecordedExchange {
+            method: record.method,
+            path: record.path,
+            req_body: record
+                .request_body
+                .as_deref()
+                .map(|body| String::from_utf8_lossy(body).into_owned()),
+            resp_status: record.response_status.unwrap_or(200),
+            resp_headers: record.response_headers,
+            resp_body: record
+                .response_body
+                .as_deref()
+                .map(|body| String::from_utf8_lossy(body).into_owned()),
+        })
+        .collect();
 
     eval_scaffold(&path, exchanges).await
 }

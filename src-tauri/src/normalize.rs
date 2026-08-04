@@ -3,7 +3,8 @@
 //! Converts HTTP traffic into structured records for AI analysis.
 //! Body parser detects JSON, Protobuf (base64), and GraphQL variants.
 
-use crate::db::DbState;
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState};
+#[cfg(test)]
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -337,11 +338,19 @@ pub fn get_normalized_traffic(
     db_state: State<'_, Arc<DbState>>,
     limit: Option<i64>,
 ) -> Result<Vec<NormalizedRecord>, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    get_normalized_traffic_internal(&conn, limit)
+    let query = CapturedRequestQuery {
+        limit: Some(limit.unwrap_or(1000).max(0) as usize),
+        ..Default::default()
+    };
+    Ok(db_state
+        .captured_requests(&query)?
+        .iter()
+        .map(normalize_captured_record)
+        .collect())
 }
 
 /// Get all normalized traffic records (takes `&Connection` for testability).
+#[cfg(test)]
 fn get_normalized_traffic_internal(
     conn: &Connection,
     limit: Option<i64>,
@@ -371,11 +380,31 @@ pub fn get_traffic_page(
     page: i64,
     page_size: i64,
 ) -> Result<TrafficPage, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    get_traffic_page_internal(&conn, page, page_size)
+    let safe_page = page.max(0);
+    let safe_page_size = page_size.max(0);
+    let query = CapturedRequestQuery {
+        order: CapturedRequestOrder::IdDescending,
+        limit: Some(safe_page_size as usize),
+        offset: safe_page.saturating_mul(safe_page_size) as usize,
+        ..Default::default()
+    };
+    let total = db_state.count_captured_requests(&query)?;
+    let records = db_state
+        .captured_requests(&query)?
+        .iter()
+        .map(normalize_captured_record)
+        .collect();
+    Ok(TrafficPage {
+        records,
+        total,
+        page: safe_page,
+        page_size: safe_page_size,
+        has_more: safe_page.saturating_add(1).saturating_mul(safe_page_size) < total,
+    })
 }
 
 /// Get paginated traffic records (takes `&Connection` for testability).
+#[cfg(test)]
 fn get_traffic_page_internal(
     conn: &Connection,
     page: i64,
@@ -413,6 +442,7 @@ fn get_traffic_page_internal(
 
 /// Decode a `http_requests` row into a [`NormalizedRecord`]. Shared by
 /// `get_normalized_traffic_internal` and `get_traffic_page_internal`.
+#[cfg(test)]
 fn row_to_normalized(row: &Row<'_>) -> rusqlite::Result<NormalizedRecord> {
     let id: i64 = row.get(0)?;
     let timestamp: String = row.get(1)?;
@@ -439,6 +469,24 @@ fn row_to_normalized(row: &Row<'_>) -> rusqlite::Result<NormalizedRecord> {
         duration_ms,
         device_id,
     ))
+}
+
+pub(crate) fn normalize_captured_record(record: &CapturedRequestRecord) -> NormalizedRecord {
+    let request_headers = serde_json::to_string(&record.request_headers).unwrap_or_default();
+    let response_headers = serde_json::to_string(&record.response_headers).unwrap_or_default();
+    normalize_http_record(
+        record.id,
+        &record.timestamp,
+        &record.method,
+        &record.path,
+        &request_headers,
+        record.request_body.as_deref(),
+        record.response_status.map(i64::from),
+        &response_headers,
+        record.response_body.as_deref(),
+        record.duration_ms,
+        record.device_id,
+    )
 }
 
 #[cfg(test)]

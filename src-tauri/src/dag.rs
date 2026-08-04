@@ -3,7 +3,7 @@
 //! Builds a dependency graph of HTTP requests based on token passing.
 //! Edges are created when a later request uses a token that was returned by an earlier request.
 
-use crate::db::DbState;
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, CapturedRequestRecord, DbState};
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -507,39 +507,39 @@ fn get_stored_dag_internal(conn: &Connection) -> Result<TrafficDag, String> {
 // Tauri Commands
 // ============================================================================
 
-/// Get all HTTP requests for DAG building.
-fn get_all_requests(conn: &rusqlite::Connection) -> Result<Vec<HttpRequestRow>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id
-         FROM http_requests ORDER BY timestamp",
-    )?;
-
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
-            row.get(3)?,
-            row.get(4)?,
-            row.get(5)?,
-            row.get(6)?,
-            row.get(7)?,
-            row.get(8)?,
-            row.get(9)?,
-            row.get(10)?,
-        ))
-    })?;
-
-    rows.collect()
+fn captured_request_row(record: CapturedRequestRecord) -> HttpRequestRow {
+    (
+        record.id,
+        record.timestamp,
+        record.method,
+        record.host,
+        record.path,
+        Some(serde_json::to_string(&record.request_headers).unwrap_or_default()),
+        record
+            .request_body
+            .as_deref()
+            .map(|body| String::from_utf8_lossy(body).into_owned()),
+        i64::from(record.response_status.unwrap_or(0)),
+        Some(serde_json::to_string(&record.response_headers).unwrap_or_default()),
+        record
+            .response_body
+            .as_deref()
+            .map(|body| String::from_utf8_lossy(body).into_owned()),
+        record.device_id,
+    )
 }
 
 /// Build and store the DAG from current traffic data.
 #[tauri::command]
 pub fn build_traffic_dag(db_state: State<'_, Arc<DbState>>) -> Result<TrafficDag, String> {
-    let requests = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        get_all_requests(&conn).map_err(|e| e.to_string())?
-    };
+    let requests: Vec<_> = db_state
+        .captured_requests(&CapturedRequestQuery {
+            order: CapturedRequestOrder::TimestampAscending,
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(captured_request_row)
+        .collect();
 
     let dag = build_dag_from_requests(&requests);
     store_dag(&db_state, &dag)?;
@@ -559,37 +559,15 @@ pub fn get_device_dag(
     db_state: State<'_, Arc<DbState>>,
     device_id: i64,
 ) -> Result<TrafficDag, String> {
-    let requests: Vec<HttpRequestRow> = {
-        let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn.prepare(
-            "SELECT id, timestamp, method, host, path, req_headers, req_body, resp_status, resp_headers, resp_body, device_id
-             FROM http_requests WHERE device_id = ?1 ORDER BY timestamp"
-        ).map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map(params![device_id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                    row.get(9)?,
-                    row.get(10)?,
-                ))
-            })
-            .map_err(|e| e.to_string())?;
-
-        let result: Vec<_> = rows.collect();
-        result
-            .into_iter()
-            .map(|r| r.map_err(|e| e.to_string()))
-            .collect::<Result<Vec<_>, String>>()?
-    };
+    let requests: Vec<_> = db_state
+        .captured_requests(&CapturedRequestQuery {
+            device_id: Some(device_id),
+            order: CapturedRequestOrder::TimestampAscending,
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(captured_request_row)
+        .collect();
 
     let dag = build_dag_from_requests(&requests);
     Ok(dag)
