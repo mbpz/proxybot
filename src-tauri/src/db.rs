@@ -35,6 +35,7 @@ impl DbState {
         }
 
         let conn = Connection::open(&db_path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         // Enable WAL mode for concurrent read/write
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
@@ -52,6 +53,7 @@ impl DbState {
     /// Does not persist data - useful for standalone tools.
     pub fn new_in_memory(_guard: std::sync::Mutex<()>) -> SqlResult<Self> {
         let conn = Connection::open_in_memory()?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         // Initialize schema
         Self::init_schema(&conn)?;
@@ -399,6 +401,25 @@ impl DbState {
                 r#"
                 ALTER TABLE http_requests ADD COLUMN client_ip TEXT;
                 ALTER TABLE http_requests ADD COLUMN upstream_ip TEXT;
+                "#,
+            ),
+            (
+                8,
+                "Track one-time legacy data imports",
+                r#"
+                CREATE TABLE IF NOT EXISTS legacy_imports (
+                    name        TEXT PRIMARY KEY,
+                    imported_at TEXT NOT NULL
+                );
+                "#,
+            ),
+            (
+                9,
+                "Add idempotent Alert occurrence identity",
+                r#"
+                ALTER TABLE alerts ADD COLUMN occurrence_key TEXT;
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_occurrence_key
+                    ON alerts(occurrence_key) WHERE occurrence_key IS NOT NULL;
                 "#,
             ),
         ];

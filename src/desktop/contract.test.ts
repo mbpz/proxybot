@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DesktopError } from "./contract";
 import { BrowserMockAdapter } from "./testing";
-import type { InterceptedRequest, Rule, WsFrame } from "../generated/desktop-contract";
+import type { Alert, InterceptedRequest, Rule, WsFrame } from "../generated/desktop-contract";
 
 const frame: WsFrame = {
   direction: "incoming",
@@ -49,6 +49,16 @@ const rule: Rule = {
   comment: "",
 };
 
+const alert: Alert = {
+  id: 7,
+  device_id: null,
+  severity: "Warning",
+  alert_type: "AuthAnomaly",
+  details: "Resource accessed before authentication",
+  created_at: "2026-08-04 12:00:00",
+  acknowledged: false,
+};
+
 describe("Desktop contract Adapter conformance", () => {
   it("types, validates and records command calls", async () => {
     const adapter = new BrowserMockAdapter({
@@ -93,6 +103,36 @@ describe("Desktop contract Adapter conformance", () => {
     await expect(invalid.contract.call("get_rules", { filename: "custom.yaml" })).rejects.toMatchObject({
       kind: "contract",
     });
+  });
+
+  it("validates Alert reads and acknowledgement through the same contract", async () => {
+    const adapter = new BrowserMockAdapter({
+      get_alerts: () => [alert],
+      get_alert_count: () => 1,
+      acknowledge_alert: ({ alertId }) => ({ ...alert, id: alertId, acknowledged: true }),
+    });
+
+    await expect(adapter.contract.call("get_alerts", {
+      deviceId: null,
+      severity: null,
+      since: null,
+      acknowledged: null,
+      limit: 100,
+    })).resolves.toEqual([alert]);
+    await expect(adapter.contract.call("get_alert_count", {})).resolves.toBe(1);
+    await expect(adapter.contract.call("acknowledge_alert", { alertId: alert.id }))
+      .resolves.toMatchObject({ id: alert.id, acknowledged: true });
+
+    const invalid = new BrowserMockAdapter({
+      get_alerts: () => [{ ...alert, severity: "urgent" } as unknown as Alert],
+    });
+    await expect(invalid.contract.call("get_alerts", {
+      deviceId: null,
+      severity: null,
+      since: null,
+      acknowledged: null,
+      limit: 100,
+    })).rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
   });
 
   it("validates the complete Captured Request query contract", async () => {

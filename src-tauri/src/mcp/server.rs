@@ -1,6 +1,7 @@
 // MCP Server implementation - handles JSON-RPC 2.0 requests via stdio transport
 
 use super::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpState};
+use crate::alerts::{Alert, AlertQuery, AlertSeverity};
 use proxybot_core::{AppConfig, ApplicationClassifier};
 use std::sync::Arc;
 
@@ -151,8 +152,33 @@ impl McpServer {
                             "limit": {
                                 "type": "number",
                                 "description": "Max alerts to return (default: 50)"
+                            },
+                            "device_id": {
+                                "type": "number",
+                                "description": "Only return alerts attributed to this device"
+                            },
+                            "severity": {
+                                "type": "string",
+                                "enum": ["Info", "Warning", "Critical"]
+                            },
+                            "acknowledged": {
+                                "type": "boolean"
                             }
                         }
+                    }
+                },
+                {
+                    "name": "acknowledge_alert",
+                    "description": "Acknowledge one persisted ProxyBot alert",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "alert_id": {
+                                "type": "number",
+                                "description": "Persisted alert identifier"
+                            }
+                        },
+                        "required": ["alert_id"]
                     }
                 }
             ]
@@ -182,6 +208,7 @@ impl McpServer {
             "apply_rule" => self.tool_apply_rule(arguments),
             "get_devices" => self.tool_get_devices(arguments),
             "get_alerts" => self.tool_get_alerts(arguments),
+            "acknowledge_alert" => self.tool_acknowledge_alert(arguments),
             _ => Err(JsonRpcError::method_not_found(name)),
         }
     }
@@ -349,58 +376,69 @@ impl McpServer {
         // Bound both the result count and the `since` length so neither a
         // malicious caller nor a typo can blow up the query plan or the
         // response payload.
-        let limit = limit.min(1000) as i64;
+        let limit = limit.min(1000) as usize;
         let since = since.filter(|s| !s.is_empty() && s.len() <= 64);
-
-        let conn = self
+        let severity = args
+            .get("severity")
+            .map(|value| serde_json::from_value::<AlertSeverity>(value.clone()))
+            .transpose()
+            .map_err(|error| JsonRpcError::invalid_params(&error.to_string()))?;
+        let device_id = args.get("device_id").and_then(|value| value.as_i64());
+        let acknowledged = args.get("acknowledged").and_then(|value| value.as_bool());
+        let alerts = self
             .state
             .db
-            .conn
-            .lock()
-            .map_err(|e| JsonRpcError::internal_error(&e.to_string()))?;
-
-        // Parameterized query: `since` is bound as a value. The previous
-        // format!-based version interpolated the user string directly
-        // into the SQL — fixed.
-        let (sql, params): (&str, Vec<&dyn rusqlite::ToSql>) = match since {
-            Some(_) => (
-                "SELECT id, severity, alert_type, details, 'proxybot', created_at \
-                 FROM alerts \
-                 WHERE created_at > ?1 \
-                 ORDER BY created_at DESC LIMIT ?2",
-                vec![&since, &limit],
-            ),
-            None => (
-                "SELECT id, severity, alert_type, details, 'proxybot', created_at \
-                 FROM alerts \
-                 ORDER BY created_at DESC LIMIT ?1",
-                vec![&limit],
-            ),
-        };
-
-        let mut stmt = conn
-            .prepare(sql)
-            .map_err(|e| JsonRpcError::internal_error(&e.to_string()))?;
-
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(params), |row| {
-                Ok(serde_json::json!({
-                    "id": row.get::<_, i64>(0)?,
-                    "severity": row.get::<_, String>(1)?,
-                    "title": row.get::<_, String>(2)?,
-                    "description": row.get::<_, String>(3)?,
-                    "source": row.get::<_, String>(4)?,
-                    "timestamp": row.get::<_, String>(5)?,
-                }))
+            .alerts(&AlertQuery {
+                device_id,
+                severity,
+                since: since.map(str::to_owned),
+                acknowledged,
+                limit: Some(limit),
             })
-            .map_err(|e| JsonRpcError::internal_error(&e.to_string()))?;
-
-        let alerts: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+            .map_err(|error| JsonRpcError::internal_error(&error))?
+            .into_iter()
+            .map(mcp_alert)
+            .collect::<Vec<_>>();
 
         Ok(serde_json::json!({
             "alerts": alerts,
         }))
     }
+
+    fn tool_acknowledge_alert(
+        &self,
+        args: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
+        let alert_id = args
+            .get("alert_id")
+            .and_then(|value| value.as_i64())
+            .ok_or_else(|| JsonRpcError::invalid_params("alert_id must be an integer"))?;
+        let alert = self
+            .state
+            .db
+            .acknowledge_alert(alert_id)
+            .map_err(|error| JsonRpcError::invalid_params(&error))?;
+        Ok(serde_json::json!({ "alert": mcp_alert(alert) }))
+    }
+}
+
+/// Preserve the historical MCP aliases while exposing the canonical Alert fields.
+fn mcp_alert(alert: Alert) -> serde_json::Value {
+    let description = alert.details.clone();
+    let timestamp = alert.created_at.clone();
+    serde_json::json!({
+        "id": alert.id,
+        "device_id": alert.device_id,
+        "severity": alert.severity,
+        "alert_type": alert.alert_type,
+        "details": alert.details,
+        "created_at": alert.created_at,
+        "acknowledged": alert.acknowledged,
+        "title": alert.alert_type,
+        "description": description,
+        "source": "proxybot",
+        "timestamp": timestamp,
+    })
 }
 
 /// Get current timestamp in ISO format for rule IDs
@@ -414,6 +452,7 @@ fn chrono_lite_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::alerts::{AlertType, NewAlert};
     use crate::db::DbState;
     use rusqlite::Connection;
     use std::sync::Mutex;
@@ -486,7 +525,7 @@ mod tests {
             .get("tools")
             .and_then(|v| v.as_array())
             .expect("tools array expected");
-        assert_eq!(tools.len(), 5); // capture_traffic, classify_request, apply_rule, get_devices, get_alerts
+        assert_eq!(tools.len(), 6);
 
         let tool_names: Vec<&str> = tools
             .iter()
@@ -497,6 +536,50 @@ mod tests {
         assert!(tool_names.contains(&"apply_rule"));
         assert!(tool_names.contains(&"get_devices"));
         assert!(tool_names.contains(&"get_alerts"));
+        assert!(tool_names.contains(&"acknowledge_alert"));
+    }
+
+    #[test]
+    fn desktop_domain_and_mcp_share_published_and_acknowledged_alerts() {
+        let state = create_test_state();
+        let published = state
+            .db
+            .publish_alert(NewAlert {
+                device_id: None,
+                severity: AlertSeverity::Warning,
+                alert_type: AlertType::AuthAnomaly,
+                details: "shared fact".to_owned(),
+                occurrence_key: Some("cross-adapter-alert".to_owned()),
+            })
+            .unwrap();
+        let server = McpServer::new(state.clone());
+
+        let read = server.handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(serde_json::json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(serde_json::json!({
+                "name": "get_alerts",
+                "arguments": {"limit": 10}
+            })),
+        });
+        let observed = &read.result.unwrap()["alerts"][0];
+        assert_eq!(observed["id"], published.id);
+        assert_eq!(observed["severity"], "Warning");
+        assert_eq!(observed["alert_type"], "AuthAnomaly");
+        assert_eq!(observed["acknowledged"], false);
+
+        let acknowledged = server.handle_request(JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(serde_json::json!(2)),
+            method: "tools/call".to_owned(),
+            params: Some(serde_json::json!({
+                "name": "acknowledge_alert",
+                "arguments": {"alert_id": published.id}
+            })),
+        });
+        assert_eq!(acknowledged.result.unwrap()["alert"]["acknowledged"], true);
+        assert!(state.db.alerts(&AlertQuery::default()).unwrap()[0].acknowledged);
     }
 
     #[test]
@@ -634,7 +717,7 @@ mod sql_injection_regression {
         conn.execute(
             "INSERT INTO alerts (severity, alert_type, details, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params!["info", "first", "baseline", "2024-01-01 00:00:00"],
+            rusqlite::params!["info", r#""NewDomain""#, "baseline", "2024-01-01 00:00:00"],
         )
         .unwrap();
 

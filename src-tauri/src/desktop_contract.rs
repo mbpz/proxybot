@@ -4,6 +4,7 @@
 //! generated TypeScript is committed so frontend builds do not need Rust, and
 //! CI regenerates it in check mode to catch drift.
 
+use crate::alerts::{Alert, AlertSeverity, AlertType};
 use crate::commands::filter::ParseResult;
 use crate::filter::query::TrafficQuery;
 use crate::normalize::{NormalizedRecord, TrafficPage};
@@ -35,6 +36,8 @@ pub const RULE_COMMANDS: &[&str] = &[
     "save_rule",
 ];
 
+pub const ALERT_COMMANDS: &[&str] = &["acknowledge_alert", "get_alert_count", "get_alerts"];
+
 /// Render the checked-in TypeScript contract deterministically.
 pub fn render_typescript() -> String {
     let mut output = String::from(
@@ -55,6 +58,9 @@ pub fn render_typescript() -> String {
         RulePattern::type_script_declaration(),
         RuleAction::type_script_declaration(),
         Rule::type_script_declaration(),
+        AlertSeverity::type_script_declaration(),
+        AlertType::type_script_declaration(),
+        Alert::type_script_declaration(),
     ] {
         output.push_str(&declaration);
         output.push('\n');
@@ -67,10 +73,13 @@ pub fn render_typescript() -> String {
          \x20 expr: string;\n\
          }\n\n\
          export interface DesktopCommands {\n\
+         \x20 acknowledge_alert: { args: { alertId: number }; result: Alert };\n\
          \x20 delete_rule: { args: { rule: Rule; filename: string }; result: undefined };\n\
          \x20 export_har: { args: { sessionName: string }; result: JsonValue };\n\
          \x20 get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };\n\
          \x20 get_rules: { args: { filename: string }; result: Rule[] };\n\
+         \x20 get_alert_count: { args: Record<string, never>; result: number };\n\
+         \x20 get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };\n\
          \x20 get_ws_frames: { args: { requestId: string }; result: WsFrame[] };\n\
          \x20 list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };\n\
          \x20 list_rule_files: { args: Record<string, never>; result: string[] };\n\
@@ -92,6 +101,7 @@ pub fn render_typescript() -> String {
     let command_names = TRAFFIC_COMMANDS
         .iter()
         .chain(RULE_COMMANDS)
+        .chain(ALERT_COMMANDS)
         .copied()
         .collect::<Vec<_>>();
     write!(
@@ -123,6 +133,8 @@ mod tests {
         assert!(first.contains("get_traffic_page"));
         assert!(first.contains("save_rule"));
         assert!(first.contains("export type RuleAction"));
+        assert!(first.contains("export interface Alert"));
+        assert!(first.contains("acknowledge_alert"));
         assert!(first.contains("\"ws-frame:new\""));
     }
 }

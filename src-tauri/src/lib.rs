@@ -4,6 +4,7 @@ pub use proxybot_core as core;
 pub mod adb;
 pub mod ai;
 pub mod ai_pipeline;
+pub mod alerts;
 pub mod anomaly;
 mod bootstrap;
 pub mod cdp;

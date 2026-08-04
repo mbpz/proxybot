@@ -67,7 +67,8 @@ pub struct AppConfig {
     pub filter_presets_path: PathBuf,
     pub history_path: PathBuf,
     pub replay_targets_path: PathBuf,
-    pub alerts_path: PathBuf,
+    /// Retired JSON Alert store, retained only as a one-time import source.
+    pub legacy_alerts_path: PathBuf,
     pub baseline_path: PathBuf,
     pub exports_dir: PathBuf,
     pub deployments_dir: PathBuf,
@@ -137,7 +138,7 @@ impl AppConfig {
             filter_presets_path: base_dir.join("filter_presets.json"),
             history_path: base_dir.join("history.json"),
             replay_targets_path: base_dir.join("replay_targets.json"),
-            alerts_path: base_dir.join("alerts.json"),
+            legacy_alerts_path: base_dir.join("alerts.json"),
             baseline_path: base_dir.join("baseline.json"),
             exports_dir: base_dir.join("exports"),
             deployments_dir: base_dir.join("deployments"),

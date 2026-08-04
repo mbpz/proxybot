@@ -7,6 +7,8 @@
 
 #![allow(clippy::manual_is_multiple_of)]
 
+use crate::alerts::{AlertSeverity, AlertType, NewAlert};
+use crate::db::DbState;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -15,46 +17,6 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::State;
-
-/// Alert severity levels.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AlertSeverity {
-    Info,
-    Warning,
-    Critical,
-}
-
-impl AlertSeverity {
-    pub fn as_str(&self) -> &str {
-        match self {
-            AlertSeverity::Info => "info",
-            AlertSeverity::Warning => "warning",
-            AlertSeverity::Critical => "critical",
-        }
-    }
-}
-
-/// Alert type for categorization.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AlertType {
-    NewDomain,
-    NewIp,
-    PrivacyExfil,
-    AuthAnomaly,
-    UntrustedCert,
-}
-
-/// Alert record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Alert {
-    pub id: i64,
-    pub device_id: Option<i64>,
-    pub severity: AlertSeverity,
-    pub alert_type: AlertType,
-    pub details: String,
-    pub created_at: String,
-    pub acknowledged: bool,
-}
 
 /// Privacy pattern types for scanning results.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -98,131 +60,6 @@ pub struct AnomalyScanResult {
     pub new_ips: Vec<String>,
     pub privacy_findings: Vec<PrivacyScanResult>,
     pub alerts_generated: i32,
-}
-
-/// Alert store for persistent alert storage.
-pub struct AlertStore {
-    path: PathBuf,
-    alerts: Mutex<Vec<Alert>>,
-    next_id: Mutex<i64>,
-}
-
-impl Default for AlertStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AlertStore {
-    pub fn new() -> Self {
-        let path = PathBuf::from("alerts.json");
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
-        Self::with_path(path)
-    }
-
-    /// Test-friendly constructor that uses the given path instead of `$HOME/.proxybot/`.
-    pub fn with_path(path: PathBuf) -> Self {
-        let (alerts, next_id) = Self::load_from_file(&path);
-        Self {
-            path,
-            alerts: Mutex::new(alerts),
-            next_id: Mutex::new(next_id),
-        }
-    }
-
-    fn load_from_file(path: &PathBuf) -> (Vec<Alert>, i64) {
-        let file = match File::open(path) {
-            Ok(f) => f,
-            Err(_) => return (Vec::new(), 1),
-        };
-        let reader = BufReader::new(file);
-        match serde_json::from_reader::<_, AlertStoreData>(reader) {
-            Ok(data) => {
-                let next_id = data.alerts.iter().map(|a| a.id).max().unwrap_or(0) + 1;
-                (data.alerts, next_id)
-            }
-            Err(_) => (Vec::new(), 1),
-        }
-    }
-
-    fn save_to_file(&self) {
-        let alerts = self.alerts.lock().unwrap();
-        let data = AlertStoreData {
-            version: 1,
-            alerts: alerts.clone(),
-        };
-        if let Ok(file) = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&self.path)
-        {
-            let mut writer = BufWriter::new(file);
-            let _ = serde_json::to_writer(&mut writer, &data);
-            let _ = writer.flush();
-        }
-    }
-
-    pub fn add_alert(&self, alert: Alert) -> i64 {
-        let mut alerts = self.alerts.lock().unwrap();
-        let mut next_id = self.next_id.lock().unwrap();
-        let mut new_alert = alert;
-        new_alert.id = *next_id;
-        *next_id += 1;
-        alerts.push(new_alert.clone());
-        // Keep only last 1000 alerts
-        if alerts.len() > 1000 {
-            let split_idx = alerts.len() - 1000;
-            let old_alerts = std::mem::take(&mut *alerts);
-            *alerts = old_alerts.into_iter().skip(split_idx).collect();
-        }
-        drop(alerts);
-        self.save_to_file();
-        new_alert.id
-    }
-
-    pub fn get_alerts(&self, severity_filter: Option<&str>, limit: usize) -> Vec<Alert> {
-        let alerts = self.alerts.lock().unwrap();
-        let mut filtered: Vec<_> = alerts
-            .iter()
-            .filter(|a| {
-                if let Some(sev) = severity_filter {
-                    a.severity.as_str() == sev
-                } else {
-                    true
-                }
-            })
-            .cloned()
-            .collect();
-        filtered.sort_by_key(|a| a.id);
-        filtered.reverse();
-        filtered.truncate(limit);
-        filtered
-    }
-
-    pub fn acknowledge(&self, alert_id: i64) -> bool {
-        let mut alerts = self.alerts.lock().unwrap();
-        if let Some(alert) = alerts.iter_mut().find(|a| a.id == alert_id) {
-            alert.acknowledged = true;
-            drop(alerts);
-            self.save_to_file();
-            return true;
-        }
-        false
-    }
-
-    pub fn unacknowledged_count(&self) -> i64 {
-        let alerts = self.alerts.lock().unwrap();
-        alerts.iter().filter(|a| !a.acknowledged).count() as i64
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct AlertStoreData {
-    version: u32,
-    alerts: Vec<Alert>,
 }
 
 /// Baseline store for persistent domain/IP baseline storage.
@@ -517,17 +354,17 @@ impl Default for PrivacyScanner {
 /// Anomaly detector state.
 pub struct AnomalyDetector {
     privacy_scanner: PrivacyScanner,
-    alert_store: Arc<AlertStore>,
+    alerts: Arc<DbState>,
     baseline_store: Arc<BaselineStore>,
     domain_cache: Mutex<HashSet<(Option<i64>, String)>>,
     ip_cache: Mutex<HashSet<(Option<i64>, String)>>,
 }
 
 impl AnomalyDetector {
-    pub fn new() -> Self {
+    pub fn new(alerts: Arc<DbState>) -> Self {
         Self {
             privacy_scanner: PrivacyScanner::new(),
-            alert_store: Arc::new(AlertStore::new()),
+            alerts,
             baseline_store: Arc::new(BaselineStore::new()),
             domain_cache: Mutex::new(HashSet::new()),
             ip_cache: Mutex::new(HashSet::new()),
@@ -536,10 +373,10 @@ impl AnomalyDetector {
 
     /// Test-friendly constructor that wires in the given stores instead of creating
     /// fresh `$HOME/.proxybot/`-backed stores.
-    pub fn with_stores(alert: Arc<AlertStore>, baseline: Arc<BaselineStore>) -> Self {
+    pub fn with_stores(alerts: Arc<DbState>, baseline: Arc<BaselineStore>) -> Self {
         Self {
             privacy_scanner: PrivacyScanner::new(),
-            alert_store: alert,
+            alerts,
             baseline_store: baseline,
             domain_cache: Mutex::new(HashSet::new()),
             ip_cache: Mutex::new(HashSet::new()),
@@ -553,7 +390,7 @@ impl AnomalyDetector {
         ip: Option<&str>,
         req_body: Option<&str>,
         resp_body: Option<&str>,
-    ) -> AnomalyScanResult {
+    ) -> Result<AnomalyScanResult, String> {
         let mut result = AnomalyScanResult {
             new_domains: Vec::new(),
             new_ips: Vec::new(),
@@ -565,15 +402,13 @@ impl AnomalyDetector {
         if self.is_new_domain(device_id, host) {
             result.new_domains.push(host.to_string());
             let details = format!("New domain accessed: {} (device: {:?})", host, device_id);
-            let _alert_id = self.alert_store.add_alert(Alert {
-                id: 0,
+            self.alerts.publish_alert(NewAlert {
                 device_id,
                 severity: AlertSeverity::Info,
                 alert_type: AlertType::NewDomain,
                 details,
-                created_at: chrono_lite_timestamp(),
-                acknowledged: false,
-            });
+                occurrence_key: None,
+            })?;
             result.alerts_generated += 1;
         }
 
@@ -581,15 +416,13 @@ impl AnomalyDetector {
             if self.is_new_ip(device_id, ip_addr) {
                 result.new_ips.push(ip_addr.to_string());
                 let details = format!("New IP accessed: {} (device: {:?})", ip_addr, device_id);
-                let _alert_id = self.alert_store.add_alert(Alert {
-                    id: 0,
+                self.alerts.publish_alert(NewAlert {
                     device_id,
                     severity: AlertSeverity::Info,
                     alert_type: AlertType::NewIp,
                     details,
-                    created_at: chrono_lite_timestamp(),
-                    acknowledged: false,
-                });
+                    occurrence_key: None,
+                })?;
                 result.alerts_generated += 1;
             }
         }
@@ -607,15 +440,13 @@ impl AnomalyDetector {
                     "Privacy data detected: {} in request body. Matched: '{}'. Context: {}",
                     pattern_name, finding.matched_text, finding.context
                 );
-                let _alert_id = self.alert_store.add_alert(Alert {
-                    id: 0,
+                self.alerts.publish_alert(NewAlert {
                     device_id,
                     severity: AlertSeverity::Warning,
                     alert_type: AlertType::PrivacyExfil,
                     details,
-                    created_at: chrono_lite_timestamp(),
-                    acknowledged: false,
-                });
+                    occurrence_key: None,
+                })?;
                 result.alerts_generated += 1;
             }
             result.privacy_findings.extend(findings);
@@ -634,15 +465,13 @@ impl AnomalyDetector {
                     "Privacy data detected: {} in response body. Matched: '{}'. Context: {}",
                     pattern_name, finding.matched_text, finding.context
                 );
-                let _alert_id = self.alert_store.add_alert(Alert {
-                    id: 0,
+                self.alerts.publish_alert(NewAlert {
                     device_id,
                     severity: AlertSeverity::Warning,
                     alert_type: AlertType::PrivacyExfil,
                     details,
-                    created_at: chrono_lite_timestamp(),
-                    acknowledged: false,
-                });
+                    occurrence_key: None,
+                })?;
                 result.alerts_generated += 1;
             }
             result.privacy_findings.extend(findings);
@@ -654,7 +483,7 @@ impl AnomalyDetector {
             self.baseline_store.add_ip(device_id, ip_addr);
         }
 
-        result
+        Ok(result)
     }
 
     fn is_new_domain(&self, device_id: Option<i64>, domain: &str) -> bool {
@@ -695,24 +524,6 @@ impl AnomalyDetector {
 
     pub fn get_baseline(&self, device_id: Option<i64>) -> TrafficBaseline {
         self.baseline_store.get_baseline(device_id)
-    }
-
-    pub fn get_alerts(&self, severity_filter: Option<&str>, limit: usize) -> Vec<Alert> {
-        self.alert_store.get_alerts(severity_filter, limit)
-    }
-
-    pub fn acknowledge_alert(&self, alert_id: i64) -> bool {
-        self.alert_store.acknowledge(alert_id)
-    }
-
-    pub fn get_unacknowledged_count(&self) -> i64 {
-        self.alert_store.unacknowledged_count()
-    }
-}
-
-impl Default for AnomalyDetector {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -833,7 +644,7 @@ pub fn scan_request_anomalies(
     ip: Option<String>,
     req_body: Option<String>,
     resp_body: Option<String>,
-) -> AnomalyScanResult {
+) -> Result<AnomalyScanResult, String> {
     detector.scan_request(
         device_id,
         &host,
@@ -843,49 +654,11 @@ pub fn scan_request_anomalies(
     )
 }
 
-#[tauri::command]
-pub fn get_alerts(
-    detector: State<'_, Arc<AnomalyDetector>>,
-    severity: Option<String>,
-    limit: Option<usize>,
-) -> Vec<Alert> {
-    detector.get_alerts(severity.as_deref(), limit.unwrap_or(100))
-}
-
-#[tauri::command]
-pub fn acknowledge_alert(
-    detector: State<'_, Arc<AnomalyDetector>>,
-    alert_id: i64,
-) -> Result<(), String> {
-    if detector.acknowledge_alert(alert_id) {
-        Ok(())
-    } else {
-        Err("Alert not found".to_string())
-    }
-}
-
-#[tauri::command]
-pub fn get_alert_count(detector: State<'_, Arc<AnomalyDetector>>) -> i64 {
-    detector.get_unacknowledged_count()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
     use tempfile::tempdir;
-
-    fn make_alert(severity: AlertSeverity, details: &str) -> Alert {
-        Alert {
-            id: 0,
-            device_id: None,
-            severity,
-            alert_type: AlertType::NewDomain,
-            details: details.to_string(),
-            created_at: chrono_lite_timestamp(),
-            acknowledged: false,
-        }
-    }
 
     // ------------------------------------------------------------------
     // PrivacyScanner
@@ -983,97 +756,6 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // AlertStore
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn test_alert_store_assigns_incrementing_ids() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        let store = AlertStore::with_path(path);
-        let id1 = store.add_alert(make_alert(AlertSeverity::Info, "a1"));
-        let id2 = store.add_alert(make_alert(AlertSeverity::Info, "a2"));
-        let id3 = store.add_alert(make_alert(AlertSeverity::Info, "a3"));
-        assert_eq!(id1, 1);
-        assert_eq!(id2, 2);
-        assert_eq!(id3, 3);
-    }
-
-    #[test]
-    fn test_alert_store_persists_across_reload() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        {
-            let store = AlertStore::with_path(path.clone());
-            store.add_alert(make_alert(AlertSeverity::Info, "persisted"));
-        }
-        let store = AlertStore::with_path(path);
-        let alerts = store.get_alerts(None, 10);
-        assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].details, "persisted");
-    }
-
-    #[test]
-    fn test_alert_store_filter_by_severity() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        let store = AlertStore::with_path(path);
-        store.add_alert(make_alert(AlertSeverity::Info, "info1"));
-        store.add_alert(make_alert(AlertSeverity::Warning, "warn1"));
-        store.add_alert(make_alert(AlertSeverity::Critical, "crit1"));
-        let filtered = store.get_alerts(Some("warning"), 10);
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].details, "warn1");
-        assert_eq!(filtered[0].severity, AlertSeverity::Warning);
-    }
-
-    #[test]
-    fn test_alert_store_limit_respected() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        let store = AlertStore::with_path(path);
-        for i in 0..5 {
-            store.add_alert(make_alert(AlertSeverity::Info, &format!("a{}", i)));
-        }
-        let alerts = store.get_alerts(None, 2);
-        assert_eq!(alerts.len(), 2);
-        // get_alerts sorts by id descending, so the most recent two are first.
-        assert_eq!(alerts[0].id, 5);
-        assert_eq!(alerts[1].id, 4);
-    }
-
-    #[test]
-    fn test_alert_store_acknowledge_marks_alert() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        let store = AlertStore::with_path(path);
-        let id = store.add_alert(make_alert(AlertSeverity::Info, "a"));
-        assert_eq!(store.unacknowledged_count(), 1);
-        assert!(store.acknowledge(id));
-        assert_eq!(store.unacknowledged_count(), 0);
-    }
-
-    #[test]
-    fn test_alert_store_acknowledge_returns_false_for_missing_id() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        let store = AlertStore::with_path(path);
-        assert!(!store.acknowledge(999));
-    }
-
-    #[test]
-    fn test_alert_store_caps_at_1000_alerts() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("alerts.json");
-        let store = AlertStore::with_path(path);
-        for i in 0..1005 {
-            store.add_alert(make_alert(AlertSeverity::Info, &format!("a{}", i)));
-        }
-        let alerts = store.get_alerts(None, 2000);
-        assert_eq!(alerts.len(), 1000);
-    }
-
-    // ------------------------------------------------------------------
     // BaselineStore
     // ------------------------------------------------------------------
 
@@ -1150,13 +832,14 @@ mod tests {
     #[test]
     fn test_detector_scan_request_generates_alert_for_new_domain() {
         let dir = tempdir().unwrap();
-        let alert_path = dir.path().join("alerts.json");
         let baseline_path = dir.path().join("baseline.json");
-        let alert = Arc::new(AlertStore::with_path(alert_path));
+        let alerts = Arc::new(DbState::new_in_memory(std::sync::Mutex::new(())).unwrap());
         let baseline = Arc::new(BaselineStore::with_path(baseline_path));
-        let detector = AnomalyDetector::with_stores(alert, baseline);
+        let detector = AnomalyDetector::with_stores(alerts.clone(), baseline);
 
-        let result = detector.scan_request(Some(1), "fresh.example.com", None, None, None);
+        let result = detector
+            .scan_request(Some(1), "fresh.example.com", None, None, None)
+            .unwrap();
         assert!(
             result.alerts_generated >= 1,
             "expected at least one alert for a brand-new domain, got {}",
@@ -1165,21 +848,29 @@ mod tests {
         assert!(result
             .new_domains
             .contains(&"fresh.example.com".to_string()));
+        let persisted = alerts
+            .alerts(&crate::alerts::AlertQuery::default())
+            .unwrap();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].alert_type, AlertType::NewDomain);
     }
 
     #[test]
     fn test_detector_scan_request_no_alert_for_seen_domain() {
         let dir = tempdir().unwrap();
-        let alert_path = dir.path().join("alerts.json");
         let baseline_path = dir.path().join("baseline.json");
-        let alert = Arc::new(AlertStore::with_path(alert_path));
+        let alerts = Arc::new(DbState::new_in_memory(std::sync::Mutex::new(())).unwrap());
         let baseline = Arc::new(BaselineStore::with_path(baseline_path));
-        let detector = AnomalyDetector::with_stores(alert, baseline);
+        let detector = AnomalyDetector::with_stores(alerts, baseline);
 
         // First call populates the baseline.
-        let _ = detector.scan_request(Some(1), "seen.example.com", None, None, None);
+        detector
+            .scan_request(Some(1), "seen.example.com", None, None, None)
+            .unwrap();
         // Second call: in-memory cache (and baseline) short-circuit, no new domains.
-        let result2 = detector.scan_request(Some(1), "seen.example.com", None, None, None);
+        let result2 = detector
+            .scan_request(Some(1), "seen.example.com", None, None, None)
+            .unwrap();
         assert!(
             result2.new_domains.is_empty(),
             "expected no new_domains on second scan, got {:?}",

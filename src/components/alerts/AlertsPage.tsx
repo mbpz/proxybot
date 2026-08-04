@@ -1,21 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { safeInvoke } from "../../utils/safeInvoke";
+import { desktop } from "../../desktop/contract";
+import type { Alert, AlertSeverity } from "../../generated/desktop-contract";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
-
-interface Alert {
-  id: number;
-  device_id: number | null;
-  severity: "Info" | "Warning" | "Critical";
-  alert_type: string;
-  details: string;
-  created_at: string;
-  acknowledged: boolean;
-}
 
 interface BaselineEntry {
   value: string;
@@ -34,7 +26,7 @@ export function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [baseline, setBaseline] = useState<TrafficBaseline | null>(null);
   const [unackedCount, setUnackedCount] = useState(0);
-  const [severityFilter, setSeverityFilter] = useState<string>("all");
+  const [severityFilter, setSeverityFilter] = useState<AlertSeverity | "all">("all");
   const [activeTab, setActiveTab] = useState("alerts");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,11 +36,14 @@ export function AlertsPage() {
       setLoading(true);
       setError(null);
       const [result, count] = await Promise.all([
-        invoke<Alert[] | null>("get_alerts", {
-          severity: severityFilter === "all" ? null : severityFilter.toLowerCase(),
+        desktop.call("get_alerts", {
+          deviceId: null,
+          severity: severityFilter === "all" ? null : severityFilter,
+          since: null,
+          acknowledged: null,
           limit: 100,
         }),
-        invoke<number | null>("get_alert_count"),
+        desktop.call("get_alert_count", {}),
       ]);
       setAlerts(Array.isArray(result) ? result : []);
       setUnackedCount(typeof count === "number" ? count : 0);
@@ -78,7 +73,7 @@ export function AlertsPage() {
 
   async function acknowledgeAlert(id: number) {
     try {
-      await invoke("acknowledge_alert", { alert_id: id });
+      await desktop.call("acknowledge_alert", { alertId: id });
       loadAlerts();
     } catch (err) {
       setError(String(err));
@@ -167,7 +162,7 @@ export function AlertsPage() {
               <>
                 {/* Severity filter */}
                 <div className="flex gap-2" style={{ padding: "var(--space-3) var(--space-4)" }}>
-                  {["all", "Info", "Warning", "Critical"].map((sev) => (
+                  {(["all", "Info", "Warning", "Critical"] as const).map((sev) => (
                     <button
                       key={sev}
                       className={`btn btn-sm ${severityFilter === sev ? "btn-primary" : "btn-secondary"}`}

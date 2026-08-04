@@ -6,6 +6,7 @@ import {
   unitCommandNames,
   type DesktopCommands,
   type DesktopEvents,
+  type Alert,
   type InterceptedRequest,
   type JsonValue,
   type Rule,
@@ -158,6 +159,9 @@ export function createDesktopContract(adapter: DesktopAdapter): DesktopContract 
 
 function validateCommandResult(command: keyof DesktopCommands, value: unknown): void {
   switch (command) {
+    case "acknowledge_alert":
+      assertAlert(value, command);
+      return;
     case "export_har":
       assertJsonValue(value, command);
       return;
@@ -166,6 +170,12 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
       return;
     case "get_rules":
       assertArray(value, command, assertRule);
+      return;
+    case "get_alert_count":
+      assertNumber(value, command);
+      return;
+    case "get_alerts":
+      assertArray(value, command, assertAlert);
       return;
     case "get_ws_frames":
       assertArray(value, command, assertWsFrame);
@@ -200,6 +210,29 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "save_history":
       return;
   }
+}
+
+function assertAlert(value: unknown, path: string): asserts value is Alert {
+  assertRecord(value, path);
+  assertNumber(value.id, `${path}.id`);
+  assertNullableNumber(value.device_id, `${path}.device_id`);
+  assert(
+    value.severity === "Info" || value.severity === "Warning" || value.severity === "Critical",
+    `${path}.severity`,
+    "must be a known Alert Severity",
+  );
+  assert(
+    value.alert_type === "NewDomain" ||
+      value.alert_type === "NewIp" ||
+      value.alert_type === "PrivacyExfil" ||
+      value.alert_type === "AuthAnomaly" ||
+      value.alert_type === "UntrustedCert",
+    `${path}.alert_type`,
+    "must be a known Alert Type",
+  );
+  assertString(value.details, `${path}.details`);
+  assertString(value.created_at, `${path}.created_at`);
+  assert(typeof value.acknowledged === "boolean", `${path}.acknowledged`, "must be a boolean");
 }
 
 function assertRule(value: unknown, path: string): asserts value is Rule {

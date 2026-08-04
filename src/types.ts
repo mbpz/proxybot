@@ -95,48 +95,6 @@ export interface LineDiff {
   diff_type: "Added" | "Removed" | "Modified" | "Unchanged";
 }
 
-export interface Alert {
-  id: number;
-  device_id: number | null;
-  severity: "Info" | "Warning" | "Critical";
-  alert_type: string;
-  details: string;
-  created_at: string;
-  acknowledged: boolean;
-}
-
-export interface AuthState {
-  id: string;
-  label: string;
-  state_type: "Initial" | "Login" | "Authenticated" | "Resource" | "Logout" | "Error";
-}
-
-export interface AuthTransition {
-  from_state: string;
-  to_state: string;
-  request_id: number;
-  method: string;
-  path: string;
-  token_type: string | null;
-  is_anomalous: boolean;
-  anomaly_reason: string | null;
-}
-
-export interface AuthStateMachine {
-  device_id: number | null;
-  states: AuthState[];
-  transitions: AuthTransition[];
-  mermaid_md: string;
-  anomalies: Anomaly[];
-}
-
-export interface Anomaly {
-  request_id: number;
-  anomaly_type: string;
-  description: string;
-  severity: "Info" | "Warning" | "Critical";
-}
-
 export interface VisionAnalysis {
   id: number;
   session_id: string;

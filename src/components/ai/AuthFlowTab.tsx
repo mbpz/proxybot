@@ -83,9 +83,9 @@ export function AuthFlowTab() {
               <tbody>
                 {machine.transitions.map((t, i) => (
                   <tr key={i}>
-                    <td><Badge variant="info">{t.from}</Badge></td>
-                    <td><Badge variant="info">{t.to}</Badge></td>
-                    <td className="text-sm">{t.label}</td>
+                    <td><Badge variant="info">{t.from_state}</Badge></td>
+                    <td><Badge variant="info">{t.to_state}</Badge></td>
+                    <td className="text-sm">{t.method} {t.path}</td>
                   </tr>
                 ))}
               </tbody>
@@ -98,7 +98,7 @@ export function AuthFlowTab() {
               <div className="card-header"><span className="card-title">Anomalies</span></div>
               {machine.anomalies.map((a, i) => (
                 <div key={i} className="flex items-start gap-2 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
-                  <Badge variant={a.severity === "critical" ? "critical" : "warning"}>
+                  <Badge variant={a.severity === "Critical" ? "critical" : "warning"}>
                     {a.severity}
                   </Badge>
                   <span className="text-sm">{a.description}</span>

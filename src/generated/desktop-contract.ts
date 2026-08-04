@@ -107,6 +107,20 @@ export interface Rule {
   comment: string;
 }
 
+export type AlertSeverity = "Info" | "Warning" | "Critical";
+
+export type AlertType = "NewDomain" | "NewIp" | "PrivacyExfil" | "AuthAnomaly" | "UntrustedCert";
+
+export interface Alert {
+  id: number;
+  device_id: number | null;
+  severity: AlertSeverity;
+  alert_type: AlertType;
+  details: string;
+  created_at: string;
+  acknowledged: boolean;
+}
+
 export interface FilterPreset {
   id: string;
   name: string;
@@ -114,10 +128,13 @@ export interface FilterPreset {
 }
 
 export interface DesktopCommands {
+  acknowledge_alert: { args: { alertId: number }; result: Alert };
   delete_rule: { args: { rule: Rule; filename: string }; result: undefined };
   export_har: { args: { sessionName: string }; result: JsonValue };
   get_traffic_page: { args: { query: TrafficQuery; records: InterceptedRequest[] | null }; result: TrafficPage };
   get_rules: { args: { filename: string }; result: Rule[] };
+  get_alert_count: { args: Record<string, never>; result: number };
+  get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };
   get_ws_frames: { args: { requestId: string }; result: WsFrame[] };
   list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };
   list_rule_files: { args: Record<string, never>; result: string[] };
@@ -136,6 +153,6 @@ export interface DesktopEvents {
   "ws-frame:new": WsFrameEvent;
 }
 
-export const desktopCommandNames = ["export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule"] as const;
+export const desktopCommandNames = ["export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts"] as const;
 export const desktopEventNames = ["intercepted-request","ws-frame:new"] as const;
 export const unitCommandNames = ["delete_rule","reorder_rules","save_filter_preset","save_history","save_rule"] as const;

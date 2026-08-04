@@ -52,6 +52,22 @@ _Avoid_: App tag, classification result
 A client-scoped DNS query and its answers retained as possible evidence for Application Attribution.
 _Avoid_: DNS log row, lookup cache
 
+**Alert**:
+A persisted security or anomaly fact published by detection logic and presented consistently through desktop and MCP adapters.
+_Avoid_: Notification, finding row
+
+**Alert Severity**:
+The `Info`, `Warning`, or `Critical` urgency assigned when an Alert is published.
+_Avoid_: Priority, level
+
+**Alert Type**:
+The stable category of an Alert: `NewDomain`, `NewIp`, `PrivacyExfil`, `AuthAnomaly`, or `UntrustedCert`.
+_Avoid_: Title, event type
+
+**Alert Acknowledgement**:
+The persisted indication that an operator has reviewed an Alert; it does not delete or resolve the Alert.
+_Avoid_: Dismissal, resolution
+
 **Process Config**:
 The immutable, validated ports, paths, and startup options assembled once before a ProxyBot process selects its desktop or MCP adapter.
 _Avoid_: Global config, settings state
@@ -72,6 +88,9 @@ _Avoid_: App config, proxy state
 - Desktop persistence and UI delivery consume **Capture Events**; they are not part of the **MITM Runtime** protocol implementation
 - A **Captured Request** may receive one **Application Attribution**
 - A **DNS Observation** can support **Application Attribution** only for the same client and within the correlation window
+- Anomaly detection and Auth state analysis publish **Alerts** with exactly one **Alert Severity** and one **Alert Type**
+- SQLite assigns every **Alert** identifier and timestamp and owns its **Alert Acknowledgement**
+- Desktop and MCP adapters query and acknowledge the same persisted **Alerts**
 - One **Process Config** supplies every process-lifetime path and listener port to desktop or MCP adapters
 - **Runtime Config** is derived from **Process Config**; it does not read environment variables or desktop state
 - DNS upstream selection, TLS Rules, and spec-generation settings are mutable runtime state, not **Process Config**

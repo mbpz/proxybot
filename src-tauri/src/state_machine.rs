@@ -3,8 +3,8 @@
 //! Extracts login → token → resource lifecycle from DAG.
 //! Outputs Mermaid markdown diagrams and flags anomalous transitions.
 
-use crate::db::{chrono_lite_timestamp, CapturedRequestOrder, CapturedRequestQuery, DbState};
-use rusqlite::params;
+use crate::alerts::{AlertSeverity, AlertType, NewAlert};
+use crate::db::{CapturedRequestOrder, CapturedRequestQuery, DbState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,46 +14,6 @@ use tauri::State;
 type DagNode = (i64, String, String, String, String);
 /// A DAG edge: (from_node_id, to_node_id, token_value).
 type DagEdge = (i64, i64, String);
-
-/// Alert severity levels.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AlertSeverity {
-    Info,
-    Warning,
-    Critical,
-}
-
-impl AlertSeverity {
-    pub(crate) fn as_str(&self) -> &str {
-        match self {
-            AlertSeverity::Info => "info",
-            AlertSeverity::Warning => "warning",
-            AlertSeverity::Critical => "critical",
-        }
-    }
-}
-
-/// Alert type for categorization.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AlertType {
-    NewDomain,
-    NewIp,
-    PrivacyExfil,
-    AuthAnomaly,
-    UntrustedCert,
-}
-
-/// Alert record.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Alert {
-    pub id: i64,
-    pub device_id: Option<i64>,
-    pub severity: AlertSeverity,
-    pub alert_type: AlertType,
-    pub details: String,
-    pub created_at: String,
-    pub acknowledged: bool,
-}
 
 /// State in the auth flow state machine.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
@@ -409,157 +369,6 @@ pub fn generate_mermaid_md(states: &[AuthState], transitions: &[AuthTransition])
     md
 }
 
-// ============================================================================
-// Database Operations
-// ============================================================================
-
-/// Store alert in database.
-pub fn store_alert(
-    db_state: &DbState,
-    device_id: Option<i64>,
-    severity: &AlertSeverity,
-    alert_type: &AlertType,
-    details: &str,
-) -> Result<i64, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    store_alert_internal(&conn, device_id, severity, alert_type, details)
-}
-
-/// Store alert in database using a borrowed connection.
-pub(crate) fn store_alert_internal(
-    conn: &rusqlite::Connection,
-    device_id: Option<i64>,
-    severity: &AlertSeverity,
-    alert_type: &AlertType,
-    details: &str,
-) -> Result<i64, String> {
-    let now = chrono_lite_timestamp();
-
-    conn.execute(
-        "INSERT INTO alerts (device_id, severity, alert_type, details, created_at, acknowledged)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0)",
-        params![
-            device_id,
-            severity.as_str(),
-            serde_json::to_string(alert_type).unwrap_or_default(),
-            details,
-            now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(conn.last_insert_rowid())
-}
-
-/// Get alerts from database.
-pub fn get_alerts(
-    db_state: &DbState,
-    device_id: Option<i64>,
-    severity_filter: Option<&str>,
-    limit: i64,
-) -> Result<Vec<Alert>, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    get_alerts_internal(&conn, device_id, severity_filter, limit)
-}
-
-/// Get alerts from database using a borrowed connection.
-pub(crate) fn get_alerts_internal(
-    conn: &rusqlite::Connection,
-    device_id: Option<i64>,
-    severity_filter: Option<&str>,
-    limit: i64,
-) -> Result<Vec<Alert>, String> {
-    let query = if device_id.is_some() && severity_filter.is_some() {
-        "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts WHERE device_id = ?1 AND severity = ?2 ORDER BY created_at DESC LIMIT ?3"
-    } else if device_id.is_some() {
-        "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts WHERE device_id = ?1 ORDER BY created_at DESC LIMIT ?2"
-    } else if severity_filter.is_some() {
-        "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts WHERE severity = ?1 ORDER BY created_at DESC LIMIT ?2"
-    } else {
-        "SELECT id, device_id, severity, alert_type, details, created_at, acknowledged
-         FROM alerts ORDER BY created_at DESC LIMIT ?1"
-    };
-
-    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
-
-    let alerts: Vec<Alert> = if let (Some(did), Some(sev)) = (device_id, severity_filter) {
-        stmt.query_map(params![did, sev, limit], row_mapper)
-    } else if let Some(did) = device_id {
-        stmt.query_map(params![did, limit], row_mapper)
-    } else if let Some(sev) = severity_filter {
-        stmt.query_map(params![sev, limit], row_mapper)
-    } else {
-        stmt.query_map(params![limit], row_mapper)
-    }
-    .map_err(|e| e.to_string())?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
-
-    Ok(alerts)
-}
-
-fn row_mapper(row: &rusqlite::Row) -> Result<Alert, rusqlite::Error> {
-    let severity_str: String = row.get(2)?;
-    let alert_type_str: String = row.get(3)?;
-
-    Ok(Alert {
-        id: row.get(0)?,
-        device_id: row.get(1)?,
-        severity: match severity_str.as_str() {
-            "info" => AlertSeverity::Info,
-            "warning" => AlertSeverity::Warning,
-            "critical" => AlertSeverity::Critical,
-            _ => AlertSeverity::Info,
-        },
-        alert_type: serde_json::from_str(&alert_type_str).unwrap_or(AlertType::AuthAnomaly),
-        details: row.get(4)?,
-        created_at: row.get(5)?,
-        acknowledged: row.get::<_, i64>(6)? != 0,
-    })
-}
-
-/// Acknowledge an alert.
-pub fn acknowledge_alert(db_state: &DbState, alert_id: i64) -> Result<(), String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    acknowledge_alert_internal(&conn, alert_id)
-}
-
-/// Acknowledge an alert using a borrowed connection.
-pub(crate) fn acknowledge_alert_internal(
-    conn: &rusqlite::Connection,
-    alert_id: i64,
-) -> Result<(), String> {
-    conn.execute(
-        "UPDATE alerts SET acknowledged = 1 WHERE id = ?1",
-        params![alert_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Get unacknowledged alert count.
-pub fn get_unacknowledged_alert_count(db_state: &DbState) -> Result<i64, String> {
-    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
-    get_unacknowledged_alert_count_internal(&conn)
-}
-
-/// Get unacknowledged alert count using a borrowed connection.
-pub(crate) fn get_unacknowledged_alert_count_internal(
-    conn: &rusqlite::Connection,
-) -> Result<i64, String> {
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM alerts WHERE acknowledged = 0",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    Ok(count)
-}
-
 /// Build auth state machine from DAG data.
 pub fn build_auth_state_machine(
     nodes: &[(i64, String, String, String, String)],
@@ -631,61 +440,30 @@ pub fn get_auth_state_machine(
 
     let machine = build_auth_state_machine(&nodes, &edges, device_id);
 
-    // Store any anomalies as alerts
-    for anomaly in &machine.anomalies {
-        let severity = if anomaly.severity == AlertSeverity::Warning {
-            AlertSeverity::Warning
-        } else {
-            AlertSeverity::Info
-        };
-        let _ = store_alert(
-            &db_state,
-            device_id,
-            &severity,
-            &AlertType::AuthAnomaly,
-            &anomaly.description,
-        );
-    }
+    publish_auth_alerts(&db_state, &machine)?;
 
     Ok(machine)
 }
 
-/// Get all alerts.
-#[tauri::command]
-pub fn get_alerts_cmd(
-    db_state: State<'_, Arc<DbState>>,
-    device_id: Option<i64>,
-    severity: Option<String>,
-    limit: Option<i64>,
-) -> Result<Vec<Alert>, String> {
-    get_alerts(
-        &db_state,
-        device_id,
-        severity.as_deref(),
-        limit.unwrap_or(100),
-    )
-}
-
-/// Acknowledge an alert.
-#[tauri::command]
-pub fn acknowledge_alert_cmd(
-    db_state: State<'_, Arc<DbState>>,
-    alert_id: i64,
-) -> Result<(), String> {
-    acknowledge_alert(&db_state, alert_id)
-}
-
-/// Get unacknowledged alert count.
-#[tauri::command]
-pub fn get_alert_count_state_machine(db_state: State<'_, Arc<DbState>>) -> Result<i64, String> {
-    get_unacknowledged_alert_count(&db_state)
+fn publish_auth_alerts(db_state: &DbState, machine: &AuthStateMachine) -> Result<(), String> {
+    for anomaly in &machine.anomalies {
+        db_state.publish_alert(NewAlert {
+            device_id: machine.device_id,
+            severity: anomaly.severity,
+            alert_type: AlertType::AuthAnomaly,
+            details: anomaly.description.clone(),
+            occurrence_key: Some(format!(
+                "auth:{:?}:{}:{}",
+                machine.device_id, anomaly.request_id, anomaly.anomaly_type
+            )),
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::register_device_only;
-    use rusqlite::Connection;
 
     // ------------------------------------------------------------------
     // Pure function tests — generate_mermaid_md
@@ -813,213 +591,29 @@ mod tests {
         assert!(anomalies.is_empty());
     }
 
-    // ------------------------------------------------------------------
-    // DB CRUD tests — *_internal helpers
-    // ------------------------------------------------------------------
-
     #[test]
-    fn test_store_alert_internal_persists_and_returns_id() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
+    fn auth_alert_publication_is_idempotent_per_request() {
+        let db = DbState::new_in_memory(std::sync::Mutex::new(())).unwrap();
+        let machine = AuthStateMachine {
+            device_id: Some(9),
+            states: Vec::new(),
+            transitions: Vec::new(),
+            mermaid_md: String::new(),
+            anomalies: vec![Anomaly {
+                request_id: 42,
+                anomaly_type: "AUTH_ANOMALY".to_owned(),
+                description: "Resource accessed before authentication".to_owned(),
+                severity: AlertSeverity::Warning,
+            }],
+        };
 
-        let id = store_alert_internal(
-            &conn,
-            None,
-            &AlertSeverity::Warning,
-            &AlertType::NewDomain,
-            "details",
-        )
-        .unwrap();
-        assert!(id > 0, "Auto-incremented id should be > 0, got {}", id);
-    }
-
-    #[test]
-    fn test_get_alerts_internal_returns_stored() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        // Register a device so FK on alerts.device_id is satisfied.
-        let d1 = register_device_only(&conn, "aa:bb:cc:dd:ee:01", "Phone").unwrap();
-        store_alert_internal(
-            &conn,
-            Some(d1.id),
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "a1",
-        )
-        .unwrap();
-        store_alert_internal(
-            &conn,
-            Some(d1.id),
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "a2",
-        )
-        .unwrap();
-
-        // Filter by device_id only.
-        let alerts = get_alerts_internal(&conn, Some(d1.id), None, 10).unwrap();
-        assert_eq!(alerts.len(), 2, "Should return both stored alerts");
-    }
-
-    #[test]
-    fn test_get_alerts_internal_filter_by_device_id_and_severity() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        let d1 = register_device_only(&conn, "aa:bb:cc:dd:ee:01", "Phone 1").unwrap();
-        let d2 = register_device_only(&conn, "aa:bb:cc:dd:ee:02", "Phone 2").unwrap();
-
-        store_alert_internal(
-            &conn,
-            Some(d1.id),
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "for-1",
-        )
-        .unwrap();
-        store_alert_internal(
-            &conn,
-            Some(d2.id),
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "for-2",
-        )
-        .unwrap();
-
-        // Filter by device_id only.
-        let alerts = get_alerts_internal(&conn, Some(d1.id), None, 10).unwrap();
-        assert_eq!(alerts.len(), 1, "Should only return alert for device 1");
-        assert_eq!(alerts[0].device_id, Some(d1.id));
-        assert_eq!(alerts[0].details, "for-1");
-    }
-
-    #[test]
-    fn test_get_alerts_internal_filter_by_severity_and_device_id() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        let d1 = register_device_only(&conn, "aa:bb:cc:dd:ee:01", "Phone").unwrap();
-        store_alert_internal(
-            &conn,
-            Some(d1.id),
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "info-1",
-        )
-        .unwrap();
-        store_alert_internal(
-            &conn,
-            Some(d1.id),
-            &AlertSeverity::Warning,
-            &AlertType::NewDomain,
-            "warn-1",
-        )
-        .unwrap();
-        store_alert_internal(
-            &conn,
-            Some(d1.id),
-            &AlertSeverity::Warning,
-            &AlertType::NewDomain,
-            "warn-2",
-        )
-        .unwrap();
-
-        // Filter by severity only.
-        let alerts = get_alerts_internal(&conn, None, Some("warning"), 10).unwrap();
-        assert_eq!(alerts.len(), 2, "Should return both warning alerts");
-        for a in &alerts {
-            assert_eq!(a.severity, AlertSeverity::Warning);
-        }
-    }
-
-    #[test]
-    fn test_get_alerts_internal_limit_respected() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        let d1 = register_device_only(&conn, "aa:bb:cc:dd:ee:01", "Phone").unwrap();
-        for i in 0..5 {
-            store_alert_internal(
-                &conn,
-                Some(d1.id),
-                &AlertSeverity::Info,
-                &AlertType::NewDomain,
-                &format!("a{}", i),
-            )
-            .unwrap();
-        }
-
-        // Filter by device_id only, testing limit.
-        let alerts = get_alerts_internal(&conn, Some(d1.id), None, 2).unwrap();
-        assert_eq!(alerts.len(), 2, "Limit should cap result count");
-    }
-
-    #[test]
-    fn test_acknowledge_alert_internal_sets_flag() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        let id = store_alert_internal(
-            &conn,
-            None,
-            &AlertSeverity::Critical,
-            &AlertType::AuthAnomaly,
-            "needs ack",
-        )
-        .unwrap();
-
+        publish_auth_alerts(&db, &machine).unwrap();
+        publish_auth_alerts(&db, &machine).unwrap();
         assert_eq!(
-            get_unacknowledged_alert_count_internal(&conn).unwrap(),
-            1,
-            "Fresh alert should be unacknowledged"
-        );
-
-        acknowledge_alert_internal(&conn, id).unwrap();
-
-        assert_eq!(
-            get_unacknowledged_alert_count_internal(&conn).unwrap(),
-            0,
-            "After ack, unacknowledged count should be 0"
-        );
-    }
-
-    #[test]
-    fn test_get_unacknowledged_alert_count_filters_acknowledged() {
-        let conn = Connection::open_in_memory().unwrap();
-        DbState::init_schema(&conn).unwrap();
-
-        let id1 = store_alert_internal(
-            &conn,
-            None,
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "a",
-        )
-        .unwrap();
-        store_alert_internal(
-            &conn,
-            None,
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "b",
-        )
-        .unwrap();
-        store_alert_internal(
-            &conn,
-            None,
-            &AlertSeverity::Info,
-            &AlertType::NewDomain,
-            "c",
-        )
-        .unwrap();
-
-        acknowledge_alert_internal(&conn, id1).unwrap();
-
-        let count = get_unacknowledged_alert_count_internal(&conn).unwrap();
-        assert_eq!(
-            count, 2,
-            "Should report 2 unacknowledged after acking 1 of 3"
+            db.alerts(&crate::alerts::AlertQuery::default())
+                .unwrap()
+                .len(),
+            1
         );
     }
 }

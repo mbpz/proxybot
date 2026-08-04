@@ -132,9 +132,9 @@ define_desktop_commands![
     crate::commands::device_setup::generate_device_qr,
     crate::anomaly::get_traffic_baseline,
     crate::anomaly::scan_request_anomalies,
-    crate::anomaly::get_alerts,
-    crate::anomaly::acknowledge_alert,
-    crate::anomaly::get_alert_count,
+    crate::alerts::get_alerts,
+    crate::alerts::acknowledge_alert,
+    crate::alerts::get_alert_count,
     crate::db::get_db_stats,
     crate::db::get_devices,
     crate::db::register_device,
@@ -177,9 +177,6 @@ define_desktop_commands![
     crate::infer::evaluate_inference,
     crate::infer::get_evaluation_result,
     crate::state_machine::get_auth_state_machine,
-    crate::state_machine::get_alerts_cmd,
-    crate::state_machine::acknowledge_alert_cmd,
-    crate::state_machine::get_alert_count_state_machine,
     crate::mockgen::generate_mock_project,
     crate::mockgen::write_mock_project,
     crate::mockgen::get_mock_endpoints,
@@ -275,6 +272,11 @@ pub fn run() {
 
 fn run_desktop(config: Arc<AppConfig>) {
     let db_state = Arc::new(DbState::open(&config.db_path).expect("Failed to initialize database"));
+    match db_state.import_legacy_alerts(&config.legacy_alerts_path) {
+        Ok(count) if count > 0 => log::info!("Imported {count} Alerts from the retired JSON store"),
+        Ok(_) => {}
+        Err(error) => log::warn!("Failed to import the retired Alert store: {error}"),
+    }
     let cert_manager = Arc::new(
         CertManager::new(config.ca_dir.clone()).expect("Failed to initialize certificate manager"),
     );
@@ -288,9 +290,7 @@ fn run_desktop(config: Arc<AppConfig>) {
     let mitm_runtime_state = Arc::new(crate::proxy::MitmRuntimeState::new());
     let keep_running_state = Arc::new(crate::proxy::KeepRunningState::new());
     let anomaly_detector = Arc::new(AnomalyDetector::with_stores(
-        Arc::new(crate::anomaly::AlertStore::with_path(
-            config.alerts_path.clone(),
-        )),
+        db_state.clone(),
         Arc::new(crate::anomaly::BaselineStore::with_path(
             config.baseline_path.clone(),
         )),
@@ -652,6 +652,16 @@ mod tests {
             .map(|path| path.rsplit("::").next().unwrap())
             .collect();
         assert_eq!(names.len(), DESKTOP_COMMANDS.len());
-        assert!(DESKTOP_COMMANDS.len() >= 140);
+        assert!(DESKTOP_COMMANDS.len() >= 130);
+        for command in ["get_alerts", "acknowledge_alert", "get_alert_count"] {
+            assert!(names.contains(command));
+        }
+        for duplicate in [
+            "get_alerts_cmd",
+            "acknowledge_alert_cmd",
+            "get_alert_count_state_machine",
+        ] {
+            assert!(!names.contains(duplicate));
+        }
     }
 }

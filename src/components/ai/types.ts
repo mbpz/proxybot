@@ -2,6 +2,8 @@
 // AI Panel Types
 // ============================================================
 
+import type { AlertSeverity } from "../../generated/desktop-contract";
+
 export interface AiStatsData {
   stats: AiStatRow[];
 }
@@ -30,10 +32,24 @@ export interface InferredApi {
 
 export interface AuthStateMachine {
   device_id: number | null;
-  states: { name: string; is_initial: boolean; is_terminal: boolean }[];
-  transitions: { from: string; to: string; label: string }[];
+  states: { id: string; label: string; state_type: string }[];
+  transitions: {
+    from_state: string;
+    to_state: string;
+    request_id: number;
+    method: string;
+    path: string;
+    token_type: string | null;
+    is_anomalous: boolean;
+    anomaly_reason: string | null;
+  }[];
   mermaid_md: string;
-  anomalies: { description: string; severity: string }[];
+  anomalies: {
+    request_id: number;
+    anomaly_type: string;
+    description: string;
+    severity: AlertSeverity;
+  }[];
 }
 
 export interface VisionAnalysis {
