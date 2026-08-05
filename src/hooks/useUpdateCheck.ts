@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { version as productVersion } from "../../package.json";
 
 interface UpdateInfo {
   hasUpdate: boolean;
@@ -9,7 +10,7 @@ interface UpdateInfo {
   error: string | null;
 }
 
-export const CURRENT_VERSION = __APP_VERSION__;
+export const CURRENT_VERSION = productVersion;
 const REPO_OWNER = "mbpz";
 const REPO_NAME = "proxybot";
 

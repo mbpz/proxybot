@@ -6,8 +6,8 @@ hosted workflow signs, notarizes, verifies, attests, and publishes it.
 
 ## Product version
 
-`package.json` is the canonical product version. Tauri reads that file directly,
-Vite injects it into the update UI, and the Rust/MCP versions are checked against
+`package.json` is the canonical product version. Tauri and the update UI read
+that file directly, and the Rust/MCP versions are checked against
 it. The stable macOS bundle identifier is `com.mbpz.proxybot`.
 
 To prepare a version bump:

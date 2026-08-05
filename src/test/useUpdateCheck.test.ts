@@ -4,7 +4,7 @@ import { useUpdateCheck, CURRENT_VERSION } from "../hooks/useUpdateCheck";
 
 describe("CURRENT_VERSION", () => {
   it("is on the v1.3.x line", () => {
-    // Vite injects this from the canonical package.json version.
+    // The frontend imports this from the canonical package.json version.
     expect(CURRENT_VERSION).toBe("1.3.0");
   });
 });

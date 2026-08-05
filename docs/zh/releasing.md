@@ -5,7 +5,7 @@
 
 ## 产品版本
 
-`package.json` 是规范版本来源。Tauri 直接读取它，Vite 将其注入更新界面，Rust 与
+`package.json` 是规范版本来源。Tauri 与更新界面直接读取它，Rust 与
 MCP 版本则由一致性工具校验。稳定的 macOS Bundle Identifier 为
 `com.mbpz.proxybot`。
 

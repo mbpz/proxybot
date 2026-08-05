@@ -58,12 +58,12 @@ function check(tag) {
   if (tauri.identifier !== "com.mbpz.proxybot") {
     fail(errors, "Tauri bundle identifier must remain com.mbpz.proxybot");
   }
-  if (!read("vite.config.ts").includes("__APP_VERSION__: JSON.stringify(packageJson.version)")) {
-    fail(errors, "Vite must inject package.json version as __APP_VERSION__");
-  }
   const updateHook = read("src/hooks/useUpdateCheck.ts");
-  if (!updateHook.includes("CURRENT_VERSION = __APP_VERSION__")) {
-    fail(errors, "Update check must consume the Vite-injected app version");
+  if (
+    !updateHook.includes('version as productVersion } from "../../package.json"') ||
+    !updateHook.includes("CURRENT_VERSION = productVersion")
+  ) {
+    fail(errors, "Update check must import the canonical package.json version");
   }
   const mcp = read("src-tauri/src/mcp/server.rs");
   if (!mcp.includes('env!("CARGO_PKG_VERSION")')) {
