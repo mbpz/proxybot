@@ -9,7 +9,54 @@ export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void>
   await page.addInitScript((fnBody) => {
     const cbMap = new Map<number, (data: unknown) => void>();
     const eventListeners = new Map<string, Set<number>>();
+    const persistedTraffic: Array<Record<string, unknown>> = [];
     let nextId = 1;
+
+    function queryTraffic(args?: Record<string, unknown>) {
+      const query = (args?.query ?? {}) as Record<string, unknown>;
+      const providedRecords = args?.records;
+      const source = Array.isArray(providedRecords) ? providedRecords : persistedTraffic;
+      const method = typeof query.method === "string" ? query.method : null;
+      const host = typeof query.host === "string" ? query.host.replaceAll("*", "").toLowerCase() : null;
+      const status = typeof query.status === "number" ? query.status : null;
+      const application =
+        typeof query.application === "string" ? query.application.toLowerCase() : null;
+      const search = typeof query.search === "string" ? query.search.toLowerCase() : null;
+
+      const filtered = source.filter((value) => {
+        const record = value as Record<string, unknown>;
+        if (method && record.method !== method) return false;
+        if (host && !String(record.host ?? "").toLowerCase().includes(host)) return false;
+        if (status !== null && record.status !== status) return false;
+        if (
+          application &&
+          String(record.app_name ?? "").toLowerCase() !== application
+        ) {
+          return false;
+        }
+        if (
+          search &&
+          !`${record.method ?? ""} ${record.host ?? ""} ${record.path ?? ""}`
+            .toLowerCase()
+            .includes(search)
+        ) {
+          return false;
+        }
+        return true;
+      });
+      const page = typeof query.page === "number" ? query.page : 0;
+      const pageSize = typeof query.page_size === "number" ? query.page_size : 50;
+      const start = page * pageSize;
+
+      return {
+        records: filtered.slice(start, start + pageSize),
+        normalized_records: [],
+        total: filtered.length,
+        page,
+        page_size: pageSize,
+        has_more: start + pageSize < filtered.length,
+      };
+    }
 
     function transformCallback(callback: (data: unknown) => void, once = false): number {
       const id = nextId++;
@@ -50,6 +97,12 @@ export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void>
     }
 
     function emitEvent(event: string, payload: unknown): void {
+      // The desktop persists a captured request before publishing its event.
+      // Mirror that invariant so the UI's follow-up get_traffic_page query
+      // observes the newly captured record.
+      if (event === "intercepted-request" && payload && typeof payload === "object") {
+        persistedTraffic.unshift(payload as Record<string, unknown>);
+      }
       for (const eventId of eventListeners.get(event) ?? []) {
         runCallback(eventId, { event, id: eventId, payload });
       }
@@ -60,6 +113,9 @@ export async function mockTauriIPC(page: Page, handlerFn: string): Promise<void>
         try {
           if (cmd.startsWith("plugin:event|")) {
             return Promise.resolve(handleEventPlugin(cmd, args));
+          }
+          if (cmd === "get_traffic_page") {
+            return Promise.resolve(queryTraffic(args));
           }
           return Promise.resolve(handler(cmd, args));
         } catch (error) {

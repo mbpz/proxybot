@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { mockTauriCommands } from "./fixtures/tauri-mock";
+import { emitTauriEvent, mockTauriCommands } from "./fixtures/tauri-mock";
+import {
+  capturedRequest,
+  type InterceptedRequest,
+} from "./fixtures/desktop-contract";
 
 const BASE_MOCKS = {
   is_dashboard_running: false,
@@ -17,52 +21,38 @@ const BASE_MOCKS = {
   list_filter_presets: [],
 };
 
-const MOCK_REQUESTS = [
-  {
+const MOCK_REQUESTS: InterceptedRequest[] = [
+  capturedRequest({
     id: "1",
     method: "GET",
     host: "api.weixin.qq.com",
     path: "/cgi-bin/micromsg-bin/getcontact",
     status: 200,
-    duration_ms: 42,
-    timestamp: Math.floor(Date.now() / 1000),
-    app_tag: "WeChat",
-    headers: { authorization: "Bearer token123" },
-    body: '{"contacts":[]}',
-    size: 128,
-  },
-  {
+    latency_ms: 42,
+    app_name: "WeChat",
+    req_headers: [["authorization", "Bearer token123"]],
+    req_body: '{"contacts":[]}',
+    resp_size: 128,
+  }),
+  capturedRequest({
     id: "2",
     method: "POST",
     host: "api.douyin.com",
     path: "/aweme/v1/feed/",
     status: 200,
-    duration_ms: 156,
-    timestamp: Math.floor(Date.now() / 1000),
-    app_tag: "Douyin",
-    headers: {},
-    body: '{"items":[]}',
-    size: 2048,
-  },
+    latency_ms: 156,
+    app_name: "Douyin",
+    req_body: '{"items":[]}',
+    resp_size: 2048,
+  }),
 ];
 
 async function injectRequests(
   page: import("@playwright/test").Page,
-  requests: typeof MOCK_REQUESTS,
+  requests: InterceptedRequest[],
 ) {
   for (const req of requests) {
-    await page.evaluate((r) => {
-      const internals = window.__TAURI_INTERNALS__ as any;
-      if (internals?.callbacks) {
-        for (const [, cb] of internals.callbacks) {
-          try {
-            cb({ payload: r, event: "intercepted-request" });
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    }, req);
+    await emitTauriEvent(page, "intercepted-request", req);
   }
 }
 
@@ -163,18 +153,17 @@ test.describe("Filter DSL", () => {
     ).toHaveCount(1);
   });
 
-  test("filter_drives_traffic_list_via_evaluate", async ({ page }) => {
+  test("filter refreshes the persisted traffic query", async ({ page }) => {
     await mockTauriCommands(page, {
       ...BASE_MOCKS,
       parse_filter: { ok: true },
-      // Simulate DSL match: only return true when host is "api.douyin.com".
-      evaluate_filter: true,
     });
     await page.goto("/");
     await page.waitForLoadState("networkidle");
 
     await injectRequests(page, MOCK_REQUESTS);
-    // Both hosts should be visible (evaluate_filter returns true for all).
+    // Capture events are persisted by the adapter before they invalidate the
+    // query, so both hosts appear through one get_traffic_page result.
     await expect(page.getByText("api.weixin.qq.com").first()).toBeVisible();
     await expect(page.getByText("api.douyin.com").first()).toBeVisible();
   });

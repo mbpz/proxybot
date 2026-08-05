@@ -25,7 +25,6 @@ const BASE_MOCKS = {
   get_traffic_baseline: null,
   get_graph_data: { requests: [] },
   get_replay_history: [],
-  get_traffic_page: { records: [], total: 0, page: 0, page_size: 50, has_more: false },
 };
 
 /** A captured WebSocket upgrade — must have is_websocket: true so the
