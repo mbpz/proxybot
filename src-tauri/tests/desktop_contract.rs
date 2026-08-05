@@ -10,24 +10,38 @@ use regex::Regex;
 fn frontend_literal_invocations_are_registered() {
     let frontend_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src");
     let invocation = Regex::new(
-        r#"(?:safeInvokeOr|safeInvoke|invoke|desktop\s*\.\s*call)(?:\s*<[^;\n()]*>)?\s*\(\s*["']([A-Za-z0-9_]+)["']"#,
+        r#"(?:safeInvokeOr|safeInvoke|invoke|(?:desktop|contract)\s*\.\s*call)(?:\s*<[^;\n()]*>)?\s*\(\s*["']([A-Za-z0-9_]+)["']"#,
     )
     .unwrap();
     let mut used_by_command: BTreeMap<String, BTreeSet<PathBuf>> = BTreeMap::new();
 
     visit_source_files(&frontend_root, &["ts", "tsx"], &mut |path, source| {
+        let relative = path.strip_prefix(&frontend_root).unwrap();
+        let relative_text = relative.to_string_lossy();
+        if relative_text.starts_with("test/")
+            || relative_text.contains("/__tests__/")
+            || relative_text.contains(".test.")
+        {
+            return;
+        }
         for capture in invocation.captures_iter(source) {
             used_by_command
                 .entry(capture[1].to_string())
                 .or_default()
-                .insert(path.strip_prefix(&frontend_root).unwrap().to_path_buf());
+                .insert(relative.to_path_buf());
         }
     });
-    assert!(
-        used_by_command.len() >= 90,
-        "IPC scanner found suspiciously few commands: {}",
-        used_by_command.len()
-    );
+    for expected in [
+        "get_proxy_status",
+        "get_traffic_page",
+        "get_keep_running",
+        "get_db_stats",
+    ] {
+        assert!(
+            used_by_command.contains_key(expected),
+            "IPC scanner missed representative command: {expected}"
+        );
+    }
 
     let registered: BTreeSet<&str> = proxybot_lib::DESKTOP_COMMANDS
         .iter()
@@ -106,6 +120,7 @@ fn generated_contract_matches_rust_and_registered_commands() {
         .chain(proxybot_lib::desktop_contract::TRAFFIC_COMMANDS)
         .chain(proxybot_lib::desktop_contract::RULE_COMMANDS)
         .chain(proxybot_lib::desktop_contract::ALERT_COMMANDS)
+        .chain(proxybot_lib::desktop_contract::SETTINGS_GENERAL_COMMANDS)
         .filter(|command| !registered.contains(**command))
         .collect();
     assert!(
@@ -135,6 +150,20 @@ fn migrated_slices_only_use_the_desktop_adapter() {
                 bypasses.push(path.strip_prefix(&frontend_root).unwrap().to_path_buf());
             }
         });
+    }
+
+    let general_settings = frontend_root.join("components/settings/GeneralTab.tsx");
+    let general_settings_source = fs::read_to_string(&general_settings).unwrap();
+    if general_settings_source.contains("@tauri-apps/api/core")
+        || general_settings_source.contains("@tauri-apps/api/event")
+        || general_settings_source.contains("safeInvoke")
+    {
+        bypasses.push(
+            general_settings
+                .strip_prefix(&frontend_root)
+                .unwrap()
+                .to_path_buf(),
+        );
     }
 
     assert!(

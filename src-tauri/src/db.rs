@@ -440,13 +440,15 @@ impl DbState {
     }
 }
 
-/// Statistics about the database tables.
-#[derive(Serialize)]
-pub struct DbStats {
-    pub http_requests_count: i64,
-    pub dns_queries_count: i64,
-    pub devices_count: i64,
-    pub app_tags_count: i64,
+proxybot_core::desktop_contract_type! {
+    /// Statistics about the database tables.
+    #[derive(Serialize)]
+    pub struct DbStats {
+        pub http_requests_count: i64,
+        pub dns_queries_count: i64,
+        pub devices_count: i64,
+        pub app_tags_count: i64,
+    }
 }
 
 /// Device information for UI display.

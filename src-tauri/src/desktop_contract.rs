@@ -7,6 +7,7 @@
 use crate::alerts::{Alert, AlertSeverity, AlertType};
 use crate::commands::device_setup::{DeviceOnboarding, DevicePlatform};
 use crate::commands::filter::ParseResult;
+use crate::db::DbStats;
 use crate::filter::query::TrafficQuery;
 use crate::normalize::{NormalizedRecord, TrafficPage};
 use crate::proxy::WsFrameEvent;
@@ -46,6 +47,16 @@ pub const RULE_COMMANDS: &[&str] = &[
 
 pub const ALERT_COMMANDS: &[&str] = &["acknowledge_alert", "get_alert_count", "get_alerts"];
 
+pub const SETTINGS_GENERAL_COMMANDS: &[&str] = &[
+    "get_dashboard_url",
+    "get_db_stats",
+    "get_keep_running",
+    "is_dashboard_running",
+    "set_keep_running",
+    "start_dashboard",
+    "stop_dashboard",
+];
+
 /// Render the checked-in TypeScript contract deterministically.
 pub fn render_typescript() -> String {
     let mut output = String::from(
@@ -71,6 +82,7 @@ pub fn render_typescript() -> String {
         Alert::type_script_declaration(),
         DevicePlatform::type_script_declaration(),
         DeviceOnboarding::type_script_declaration(),
+        DbStats::type_script_declaration(),
     ] {
         output.push_str(&declaration);
         output.push('\n');
@@ -95,7 +107,11 @@ pub fn render_typescript() -> String {
          \x20 get_rules: { args: { filename: string }; result: Rule[] };\n\
          \x20 get_alert_count: { args: Record<string, never>; result: number };\n\
          \x20 get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };\n\
+         \x20 get_dashboard_url: { args: Record<string, never>; result: string };\n\
+         \x20 get_db_stats: { args: Record<string, never>; result: DbStats };\n\
+         \x20 get_keep_running: { args: Record<string, never>; result: boolean };\n\
          \x20 get_ws_frames: { args: { requestId: string }; result: WsFrame[] };\n\
+         \x20 is_dashboard_running: { args: Record<string, never>; result: boolean };\n\
          \x20 list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };\n\
          \x20 list_rule_files: { args: Record<string, never>; result: string[] };\n\
          \x20 load_history: { args: Record<string, never>; result: InterceptedRequest[] };\n\
@@ -106,6 +122,9 @@ pub fn render_typescript() -> String {
          \x20 save_har_file: { args: { harJson: string; sessionName: string }; result: string };\n\
          \x20 save_history: { args: { requests: InterceptedRequest[] }; result: undefined };\n\
          \x20 save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };\n\
+         \x20 set_keep_running: { args: { keep: boolean }; result: undefined };\n\
+         \x20 start_dashboard: { args: Record<string, never>; result: string };\n\
+         \x20 stop_dashboard: { args: Record<string, never>; result: string };\n\
          }\n\n\
          export interface DesktopEvents {\n\
          \x20 \"capture-session:changed\": boolean;\n\
@@ -120,6 +139,7 @@ pub fn render_typescript() -> String {
         .chain(TRAFFIC_COMMANDS)
         .chain(RULE_COMMANDS)
         .chain(ALERT_COMMANDS)
+        .chain(SETTINGS_GENERAL_COMMANDS)
         .copied()
         .collect::<Vec<_>>();
     let event_names = CAPTURE_SESSION_EVENTS
@@ -131,7 +151,7 @@ pub fn render_typescript() -> String {
         output,
         "export const desktopCommandNames = {} as const;\n\
          export const desktopEventNames = {} as const;\n\
-         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\",\"stop_device_onboarding\"] as const;\n",
+         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\",\"set_keep_running\",\"stop_device_onboarding\"] as const;\n",
         json_string_array(&command_names),
         json_string_array(&event_names),
     )
@@ -163,6 +183,9 @@ mod tests {
         assert!(first.contains("export type RuleAction"));
         assert!(first.contains("export interface Alert"));
         assert!(first.contains("acknowledge_alert"));
+        assert!(first.contains("export interface DbStats"));
+        assert!(first.contains("get_keep_running"));
+        assert!(first.contains("start_dashboard"));
         assert!(first.contains("\"ws-frame:new\""));
     }
 }

@@ -1,52 +1,80 @@
 import { useState, useEffect } from "react";
-import { safeInvoke, safeInvokeOr } from "../../utils/safeInvoke";
+import { desktop, type DesktopContract } from "../../desktop/contract";
+import type { DbStats } from "../../generated/desktop-contract";
 import { Button } from "../ui/Button";
 import { Power, Smartphone, Database } from "lucide-react";
 
-export function GeneralTab() {
+interface GeneralTabProps {
+  contract?: DesktopContract;
+}
+
+type PendingAction = "keep-running" | "dashboard" | null;
+
+export function GeneralTab({ contract = desktop }: GeneralTabProps) {
   const [keepRunning, setKeepRunning] = useState(false);
   const [dashboardRunning, setDashboardRunning] = useState(false);
   const [dashboardUrl, setDashboardUrl] = useState("");
-  const [dbStats, setDbStats] = useState<{ http_requests_count: number; dns_queries_count: number; devices_count: number; app_tags_count: number } | null>(null);
+  const [dbStats, setDbStats] = useState<DbStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [contract]);
 
   async function load() {
+    setLoading(true);
+    setError(null);
     try {
       const [keep, running, url, stats] = await Promise.all([
-        safeInvokeOr<boolean>("get_keep_running", false),
-        safeInvokeOr<boolean>("is_dashboard_running", false),
-        safeInvokeOr<string>("get_dashboard_url", ""),
-        safeInvokeOr<{ http_requests_count: number; dns_queries_count: number; devices_count: number; app_tags_count: number } | null>("get_db_stats", null),
+        contract.call("get_keep_running", {}),
+        contract.call("is_dashboard_running", {}),
+        contract.call("get_dashboard_url", {}),
+        contract.call("get_db_stats", {}),
       ]);
       setKeepRunning(keep);
       setDashboardRunning(running);
       setDashboardUrl(url);
       setDbStats(stats);
+    } catch (cause) {
+      setError(errorMessage("Could not load general settings", cause));
     } finally {
       setLoading(false);
     }
   }
 
   async function toggleKeepRunning() {
-    await safeInvoke("set_keep_running", { keep: !keepRunning });
-    setKeepRunning(!keepRunning);
+    const next = !keepRunning;
+    setPendingAction("keep-running");
+    setError(null);
+    try {
+      await contract.call("set_keep_running", { keep: next });
+      setKeepRunning(next);
+    } catch (cause) {
+      setError(errorMessage("Could not update Keep Running", cause));
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function toggleDashboard() {
-    if (dashboardRunning) {
-      await safeInvoke("stop_dashboard");
-      setDashboardRunning(false);
-      setDashboardUrl("");
-    } else {
-      const url = await safeInvoke<string>("start_dashboard");
-      if (url !== null) {
+    setPendingAction("dashboard");
+    setError(null);
+    try {
+      if (dashboardRunning) {
+        await contract.call("stop_dashboard", {});
+        setDashboardRunning(false);
+        setDashboardUrl("");
+      } else {
+        const url = await contract.call("start_dashboard", {});
         setDashboardRunning(true);
         setDashboardUrl(url);
       }
+    } catch (cause) {
+      setError(errorMessage("Could not update Mobile Dashboard", cause));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -56,6 +84,15 @@ export function GeneralTab() {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="error-banner" role="alert">
+          <span className="error-banner-message">{error}</span>
+          <Button variant="secondary" size="sm" onClick={() => void load()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Keep Running */}
       <div className="card">
         <div className="flex items-center justify-between">
@@ -69,7 +106,11 @@ export function GeneralTab() {
             </div>
           </div>
           <button
-            onClick={toggleKeepRunning}
+            type="button"
+            aria-label="Keep running after window closes"
+            aria-pressed={keepRunning}
+            disabled={pendingAction !== null}
+            onClick={() => void toggleKeepRunning()}
             className={`relative w-12 h-6 rounded-full transition-colors ${
               keepRunning ? "bg-accent-green" : "bg-surface-tertiary"
             }`}
@@ -103,7 +144,8 @@ export function GeneralTab() {
           <Button
             variant={dashboardRunning ? "danger" : "primary"}
             size="sm"
-            onClick={toggleDashboard}
+            disabled={pendingAction !== null}
+            onClick={() => void toggleDashboard()}
           >
             {dashboardRunning ? "Stop" : "Start"}
           </Button>
@@ -139,4 +181,9 @@ export function GeneralTab() {
       )}
     </div>
   );
+}
+
+function errorMessage(context: string, cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return `${context}: ${detail}`;
 }

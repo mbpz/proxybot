@@ -7,7 +7,13 @@ vi.mock("@tauri-apps/api/core", () => ({
     if (cmd === "get_keep_running") return Promise.resolve(false);
     if (cmd === "is_dashboard_running") return Promise.resolve(false);
     if (cmd === "get_dashboard_url") return Promise.resolve("");
-    if (cmd === "get_db_stats") return Promise.resolve(null);
+    if (cmd === "get_db_stats")
+      return Promise.resolve({
+        http_requests_count: 0,
+        dns_queries_count: 0,
+        devices_count: 0,
+        app_tags_count: 0,
+      });
     if (cmd === "get_network_info") return Promise.resolve({ lan_ip: "127.0.0.1" });
     if (cmd === "get_dns_upstream")
       return Promise.resolve({ upstream_type: "plainudp", address: "8.8.8.8:53" });

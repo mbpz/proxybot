@@ -3,6 +3,7 @@ import { DesktopError } from "./contract";
 import { BrowserMockAdapter } from "./testing";
 import type {
   Alert,
+  DbStats,
   DeviceOnboarding,
   InterceptedRequest,
   Rule,
@@ -169,6 +170,39 @@ describe("Desktop contract Adapter conformance", () => {
     await expect(
       invalid.contract.call("prepare_device_onboarding", { platform: "ios" }),
     ).rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
+  });
+
+  it("validates General settings reads and mutations", async () => {
+    const stats: DbStats = {
+      http_requests_count: 12,
+      dns_queries_count: 8,
+      devices_count: 2,
+      app_tags_count: 3,
+    };
+    const adapter = new BrowserMockAdapter({
+      get_keep_running: () => true,
+      is_dashboard_running: () => false,
+      get_dashboard_url: () => "http://192.168.1.40:9090?token=test",
+      get_db_stats: () => stats,
+      set_keep_running: () => undefined,
+      start_dashboard: () => "http://192.168.1.40:9090?token=test",
+      stop_dashboard: () => "Dashboard stopped",
+    });
+
+    await expect(adapter.contract.call("get_keep_running", {})).resolves.toBe(true);
+    await expect(adapter.contract.call("is_dashboard_running", {})).resolves.toBe(false);
+    await expect(adapter.contract.call("get_db_stats", {})).resolves.toEqual(stats);
+    await expect(adapter.contract.call("set_keep_running", { keep: false })).resolves.toBeUndefined();
+    await expect(adapter.contract.call("start_dashboard", {})).resolves.toContain("token=test");
+    await expect(adapter.contract.call("stop_dashboard", {})).resolves.toBe("Dashboard stopped");
+
+    const invalid = new BrowserMockAdapter({
+      get_db_stats: () => ({ ...stats, devices_count: "two" }) as never,
+    });
+    await expect(invalid.contract.call("get_db_stats", {})).rejects.toMatchObject({
+      kind: "contract",
+      code: "contract_violation",
+    });
   });
 
   it("validates the complete Captured Request query contract", async () => {

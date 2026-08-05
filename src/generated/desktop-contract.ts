@@ -134,6 +134,13 @@ export interface DeviceOnboarding {
   qr_svg: string;
 }
 
+export interface DbStats {
+  http_requests_count: number;
+  dns_queries_count: number;
+  devices_count: number;
+  app_tags_count: number;
+}
+
 export interface FilterPreset {
   id: string;
   name: string;
@@ -153,7 +160,11 @@ export interface DesktopCommands {
   get_rules: { args: { filename: string }; result: Rule[] };
   get_alert_count: { args: Record<string, never>; result: number };
   get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };
+  get_dashboard_url: { args: Record<string, never>; result: string };
+  get_db_stats: { args: Record<string, never>; result: DbStats };
+  get_keep_running: { args: Record<string, never>; result: boolean };
   get_ws_frames: { args: { requestId: string }; result: WsFrame[] };
+  is_dashboard_running: { args: Record<string, never>; result: boolean };
   list_filter_presets: { args: Record<string, never>; result: FilterPreset[] };
   list_rule_files: { args: Record<string, never>; result: string[] };
   load_history: { args: Record<string, never>; result: InterceptedRequest[] };
@@ -164,6 +175,9 @@ export interface DesktopCommands {
   save_har_file: { args: { harJson: string; sessionName: string }; result: string };
   save_history: { args: { requests: InterceptedRequest[] }; result: undefined };
   save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };
+  set_keep_running: { args: { keep: boolean }; result: undefined };
+  start_dashboard: { args: Record<string, never>; result: string };
+  stop_dashboard: { args: Record<string, never>; result: string };
 }
 
 export interface DesktopEvents {
@@ -172,6 +186,6 @@ export interface DesktopEvents {
   "ws-frame:new": WsFrameEvent;
 }
 
-export const desktopCommandNames = ["get_proxy_status","start_proxy","stop_proxy","prepare_device_onboarding","stop_device_onboarding","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts"] as const;
+export const desktopCommandNames = ["get_proxy_status","start_proxy","stop_proxy","prepare_device_onboarding","stop_device_onboarding","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts","get_dashboard_url","get_db_stats","get_keep_running","is_dashboard_running","set_keep_running","start_dashboard","stop_dashboard"] as const;
 export const desktopEventNames = ["capture-session:changed","intercepted-request","ws-frame:new"] as const;
-export const unitCommandNames = ["delete_rule","reorder_rules","save_filter_preset","save_history","save_rule","stop_device_onboarding"] as const;
+export const unitCommandNames = ["delete_rule","reorder_rules","save_filter_preset","save_history","save_rule","set_keep_running","stop_device_onboarding"] as const;

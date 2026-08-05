@@ -17,11 +17,3 @@ export async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>)
     return null;
   }
 }
-
-/**
- * Safe invoke that returns a default value on failure.
- */
-export async function safeInvokeOr<T>(cmd: string, defaultValue: T, args?: Record<string, unknown>): Promise<T> {
-  const result = await safeInvoke<T>(cmd, args);
-  return result ?? defaultValue;
-}

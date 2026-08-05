@@ -178,6 +178,16 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "get_alerts":
       assertArray(value, command, assertAlert);
       return;
+    case "get_dashboard_url":
+      assertString(value, command);
+      return;
+    case "get_db_stats":
+      assertDbStats(value, command);
+      return;
+    case "get_keep_running":
+    case "is_dashboard_running":
+      assert(typeof value === "boolean", command, "must be a boolean");
+      return;
     case "get_proxy_status":
       assert(typeof value === "boolean", command, "must be a boolean");
       return;
@@ -218,9 +228,19 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
       return;
     case "start_proxy":
     case "stop_proxy":
+    case "start_dashboard":
+    case "stop_dashboard":
       assertString(value, command);
       return;
   }
+}
+
+function assertDbStats(value: unknown, path: string): void {
+  assertRecord(value, path);
+  assertNumber(value.http_requests_count, `${path}.http_requests_count`);
+  assertNumber(value.dns_queries_count, `${path}.dns_queries_count`);
+  assertNumber(value.devices_count, `${path}.devices_count`);
+  assertNumber(value.app_tags_count, `${path}.app_tags_count`);
 }
 
 function assertDeviceOnboarding(
