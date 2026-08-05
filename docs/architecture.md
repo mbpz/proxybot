@@ -75,6 +75,12 @@ provides typed command and event metadata plus a BrowserMockAdapter for fast UI
 tests. Migration is incomplete: some screens still call Tauri directly or use a
 shallow Adapter that converts errors into `null`.
 
+The shell exposes five Product Destinations: Capture, Setup, Rules, Replay, and
+Settings. Requests, DNS, Alerts, Graph, and Topology share the Capture context;
+Replay and Composer share the Replay context. Historical and experimental routes
+remain valid deep links so saved URLs do not break, but they do not compete in
+the default navigation.
+
 ## Network modes
 
 ### Explicit proxy — Core

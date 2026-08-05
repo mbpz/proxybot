@@ -44,6 +44,10 @@ _Avoid_: Proxy state, listener wrapper
 The user-visible desktop lifecycle that observes, starts, and stops at most one MITM Runtime and reports actionable lifecycle failures consistently through window and tray Adapters.
 _Avoid_: Proxy toggle, running flag
 
+**Product Destination**:
+One stable primary navigation context: Capture, Setup, Rules, Replay, or Settings. Request-derived views and related tools live inside their owning Product Destination rather than competing as peers.
+_Avoid_: Sidebar item, page, feature link
+
 **Device Onboarding**:
 The user-visible preparation and verification lifecycle that discovers the active LAN Interface, owns temporary certificate distribution, supplies explicit-proxy inputs and platform-specific CA guidance, and cleans up its server.
 _Avoid_: QR panel, certificate tab, mobile profile
@@ -125,6 +129,8 @@ _Avoid_: Running flag, detached server, raw descriptor
 - A **Network Condition Rule** maps a host to a simulated network profile independently of **Routing Rules**
 - The **MITM Runtime** turns client connections into zero or more **Captured Requests**
 - One **Capture Session** observes and controls at most one **MITM Runtime**
+- The Capture **Product Destination** owns Requests, DNS, Alerts, Graph, and Topology views; the Replay **Product Destination** owns Replay and Composer
+- Deep links preserve access to non-Core tools without making them default **Product Destinations**
 - Window and tray Adapters publish the same **Capture Session** running state after successful lifecycle transitions
 - One **Device Onboarding** flow prepares certificate distribution independently of the **Capture Session** so either lifecycle can fail or stop without misreporting the other
 - Core **Device Onboarding** uses an explicit Wi-Fi proxy and CA-only delivery; managed DNS and `pf` remain separate Advanced capabilities

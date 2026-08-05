@@ -179,6 +179,11 @@ exit gate.
 
 1. Reduce the default navigation to Capture, Setup, Rules, Replay/Composer, and
    Settings; place DNS, Alerts, and analysis in the context of a Capture Session.
+   - The default shell now exposes exactly five Product Destinations. Requests,
+     DNS, Alerts, Graph, and Topology share Capture context navigation; Replay
+     and Composer share Replay context navigation.
+   - Existing deep links remain valid, while AI, generation, deployment, and
+     SSL-bypass experiments no longer compete in the default sidebar.
 2. Make Captured Request persistence the single query seam for history, desktop,
    MCP, and analysis.
 3. Unify the filter language and query semantics across Traffic, export, MCP,

@@ -3,42 +3,40 @@ import { Link, useLocation } from "react-router-dom";
 import {
   Menu,
   X,
-  List,
+  Radio,
   Shield,
   Smartphone,
-  Globe,
-  AlertTriangle,
   PlayCircle,
-  GitBranch,
-  Network,
-  Wand2,
-  Send,
-  Brain,
-  Package,
   Settings,
-  Lock,
 } from "lucide-react";
 
 interface NavItem {
   path: string;
   label: string;
   icon: React.ReactNode;
+  activePaths: readonly string[];
 }
 
 const navItems: NavItem[] = [
-  { path: "/", label: "Traffic", icon: <List size={20} /> },
-  { path: "/setup", label: "Setup", icon: <Smartphone size={20} /> },
-  { path: "/rules", label: "Rules", icon: <Shield size={20} /> },
-  { path: "/dns", label: "DNS", icon: <Globe size={20} /> },
-  { path: "/alerts", label: "Alerts", icon: <AlertTriangle size={20} /> },
-  { path: "/replay", label: "Replay", icon: <PlayCircle size={20} /> },
-  { path: "/graph", label: "Graph", icon: <GitBranch size={20} /> },
-  { path: "/topology", label: "Topology", icon: <Network size={20} /> },
-  { path: "/composer", label: "Composer", icon: <Send size={20} /> },
-  { path: "/gen", label: "Gen", icon: <Wand2 size={20} /> },
-  { path: "/deploy", label: "Deploy", icon: <Package size={20} /> },
-  { path: "/ai", label: "AI", icon: <Brain size={20} /> },
-  { path: "/ssl-bypass", label: "SSL Bypass", icon: <Lock size={20} /> },
+  {
+    path: "/",
+    label: "Capture",
+    icon: <Radio size={20} />,
+    activePaths: ["/", "/dns", "/alerts", "/graph", "/topology"],
+  },
+  {
+    path: "/setup",
+    label: "Setup",
+    icon: <Smartphone size={20} />,
+    activePaths: ["/setup", "/certs", "/devices"],
+  },
+  { path: "/rules", label: "Rules", icon: <Shield size={20} />, activePaths: ["/rules"] },
+  {
+    path: "/replay",
+    label: "Replay",
+    icon: <PlayCircle size={20} />,
+    activePaths: ["/replay", "/composer"],
+  },
 ];
 
 export function Sidebar() {
@@ -60,6 +58,7 @@ export function Sidebar() {
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className="p-1 hover:bg-surface-tertiary rounded text-text-secondary hover:text-text-primary transition-colors"
         >
           {collapsed ? <Menu size={20} /> : <X size={20} />}
@@ -69,12 +68,13 @@ export function Sidebar() {
       {/* Nav Items */}
       <nav className="flex-1 py-4">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          const isActive = item.activePaths.includes(location.pathname);
           return (
             <Link
               key={item.path}
               to={item.path}
               title={collapsed ? item.label : undefined}
+              aria-current={isActive ? "page" : undefined}
               className={`flex items-center gap-3 mx-2 px-4 py-2.5 rounded-lg transition-all duration-200 ${
                 isActive
                   ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"
@@ -93,6 +93,7 @@ export function Sidebar() {
         <Link
           to="/settings"
           title={collapsed ? "Settings" : undefined}
+          aria-current={location.pathname === "/settings" ? "page" : undefined}
           className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
             location.pathname === "/settings"
               ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"

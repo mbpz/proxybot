@@ -83,14 +83,14 @@ test.describe("Deploy Page", () => {
     await expect(btn).toBeDisabled();
   });
 
-  test("sidebar has Deploy entry", async ({ page }) => {
+  test("Deploy is excluded from the default sidebar", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("aside").getByText("Deploy")).toBeVisible();
+    await expect(page.locator("aside").getByRole("link", { name: "Deploy" })).toHaveCount(0);
   });
 
-  test("clicking sidebar Deploy navigates to /deploy", async ({ page }) => {
-    await page.goto("/");
-    await page.click("aside a[href='/deploy']");
+  test("Deploy remains reachable by deep link", async ({ page }) => {
+    await page.goto("/deploy");
     await expect(page).toHaveURL("/deploy");
+    await expect(page.locator(".panel-title", { hasText: "Deploy" })).toBeVisible();
   });
 });

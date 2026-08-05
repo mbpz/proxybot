@@ -18,6 +18,8 @@ import { DeployPage } from "./components/deploy/DeployPage";
 import { SslBypassPage } from "./components/ssl-bypass/SslBypassPage";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { DeviceOnboardingPage } from "./features/device-onboarding/DeviceOnboardingPage";
+import { CaptureWorkspace } from "./features/capture-session/CaptureWorkspace";
+import { ReplayWorkspace } from "./features/replay-workspace/ReplayWorkspace";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
@@ -25,17 +27,21 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<TrafficPage />} />
+          <Route element={<CaptureWorkspace />}>
+            <Route index element={<TrafficPage />} />
+            <Route path="dns" element={<DnsPage />} />
+            <Route path="alerts" element={<AlertsPage />} />
+            <Route path="graph" element={<GraphPage />} />
+            <Route path="topology" element={<TopologyPage />} />
+          </Route>
           <Route path="setup" element={<DeviceOnboardingPage />} />
           <Route path="rules" element={<RulesPage />} />
           <Route path="certs" element={<CertsPage />} />
           <Route path="devices" element={<DevicesPage />} />
-          <Route path="dns" element={<DnsPage />} />
-          <Route path="alerts" element={<AlertsPage />} />
-          <Route path="replay" element={<ReplayPage />} />
-          <Route path="composer" element={<ComposerPage />} />
-          <Route path="graph" element={<GraphPage />} />
-          <Route path="topology" element={<TopologyPage />} />
+          <Route element={<ReplayWorkspace />}>
+            <Route path="replay" element={<ReplayPage />} />
+            <Route path="composer" element={<ComposerPage />} />
+          </Route>
           <Route path="gen" element={<GenPage />} />
           <Route path="deploy" element={<DeployPage />} />
           <Route path="ai" element={<AiPage />} />

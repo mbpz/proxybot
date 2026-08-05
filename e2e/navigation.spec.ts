@@ -22,18 +22,16 @@ const BASE_MOCKS = {
   get_graph_data: { requests: [] },
 };
 
-test.describe("Sidebar navigation", () => {
+test.describe("Product navigation", () => {
   test.beforeEach(async ({ page }) => {
     await mockTauriCommands(page, BASE_MOCKS);
     await page.goto("/");
   });
 
-  test("defaults to traffic page", async ({ page }) => {
-    // Traffic link should be active (has border-accent-blue class after theme refactor)
-    const trafficLink = page.getByRole("link", { name: "Traffic" });
-    await expect(trafficLink).toBeVisible();
-    await expect(trafficLink).toHaveClass(/border-accent-blue/);
-    // Traffic page content should be visible
+  test("defaults to the Capture destination", async ({ page }) => {
+    const captureLink = page.locator("aside").getByRole("link", { name: "Capture" });
+    await expect(captureLink).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("navigation", { name: "Capture views" })).toBeVisible();
     await expect(page.getByText("No requests captured yet")).toBeVisible();
   });
 
@@ -43,47 +41,41 @@ test.describe("Sidebar navigation", () => {
     await expect(page.getByText("No rules configured")).toBeVisible();
   });
 
-  test("navigates to Certs page", async ({ page }) => {
-    await page.getByRole("link", { name: "Certs" }).click();
-    await expect(page).toHaveURL(/\/certs/);
+  test("navigates to Setup page", async ({ page }) => {
+    await page.locator("aside").getByRole("link", { name: "Setup" }).click();
+    await expect(page).toHaveURL(/\/setup/);
   });
 
-  test("navigates to Devices page", async ({ page }) => {
-    await page.getByRole("link", { name: "Devices" }).click();
-    await expect(page).toHaveURL(/\/devices/);
-  });
-
-  test("navigates to DNS page", async ({ page }) => {
-    await page.getByRole("link", { name: "DNS" }).click();
+  test("navigates through Capture views", async ({ page }) => {
+    const captureViews = page.getByRole("navigation", { name: "Capture views" });
+    await captureViews.getByRole("link", { name: "DNS" }).click();
     await expect(page).toHaveURL(/\/dns/);
     await expect(page.getByText("DNS Queries", { exact: true })).toBeVisible();
-  });
-
-  test("navigates to Alerts page", async ({ page }) => {
-    await page.getByRole("link", { name: "Alerts" }).click();
+    await captureViews.getByRole("link", { name: "Alerts" }).click();
     await expect(page).toHaveURL(/\/alerts/);
-  });
-
-  test("navigates to Replay page", async ({ page }) => {
-    await page.getByRole("link", { name: "Replay" }).click();
-    await expect(page).toHaveURL(/\/replay/);
-  });
-
-  test("navigates to Graph page", async ({ page }) => {
-    await page.getByRole("link", { name: "Graph" }).click();
+    await captureViews.getByRole("link", { name: "Graph" }).click();
     await expect(page).toHaveURL(/\/graph/);
+    await captureViews.getByRole("link", { name: "Topology" }).click();
+    await expect(page).toHaveURL(/\/topology/);
   });
 
-  test("navigates to Gen page", async ({ page }) => {
-    await page.getByRole("link", { name: "Gen" }).click();
-    await expect(page).toHaveURL(/\/gen/);
+  test("keeps Composer in the Replay destination", async ({ page }) => {
+    await page.locator("aside").getByRole("link", { name: "Replay" }).click();
+    await expect(page).toHaveURL(/\/replay/);
+    await page
+      .getByRole("navigation", { name: "Replay tools" })
+      .getByRole("link", { name: "Composer" })
+      .click();
+    await expect(page).toHaveURL(/\/composer/);
+    await expect(page.locator("aside").getByRole("link", { name: "Replay" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
-  test("navigates through all pages", async ({ page }) => {
-    const pages = ["Rules", "Certs", "Devices", "DNS", "Alerts", "Replay", "Graph", "Gen", "Traffic"];
-    for (const name of pages) {
-      await page.getByRole("link", { name }).click();
-    }
-    await expect(page).toHaveURL(/\/?$/);
+  test("exposes only five destinations in the default sidebar", async ({ page }) => {
+    const sidebarLinks = page.locator("aside").getByRole("link");
+    await expect(sidebarLinks).toHaveCount(5);
+    await expect(sidebarLinks).toHaveText(["Capture", "Setup", "Rules", "Replay", "Settings"]);
   });
 });

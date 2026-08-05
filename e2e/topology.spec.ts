@@ -79,9 +79,12 @@ test.describe("Topology page", () => {
     await mockTauriCommands(page, MOCKS);
   });
 
-  test("opens via sidebar", async ({ page }) => {
+  test("opens from the Capture context", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: "Topology" }).click();
+    await page
+      .getByRole("navigation", { name: "Capture views" })
+      .getByRole("link", { name: "Topology" })
+      .click();
     await expect(page).toHaveURL(/\/topology/);
     await expect(page.getByRole("heading", { name: "Topology" })).toBeVisible();
   });

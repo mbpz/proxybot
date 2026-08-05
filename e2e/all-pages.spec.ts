@@ -36,13 +36,13 @@ test.describe("Navigation — Product Pages", () => {
 });
 
 test.describe("Sidebar Navigation", () => {
-  test("sidebar has all nav items", async ({ page }) => {
+  test("sidebar has exactly the five product destinations", async ({ page }) => {
     await page.goto("/");
-    const labels = ["Traffic", "Setup", "Rules", "DNS", "Alerts", "Replay", "Graph", "Composer", "Gen", "AI", "Deploy"];
+    const labels = ["Capture", "Setup", "Rules", "Replay", "Settings"];
     for (const label of labels) {
-      // Sidebar links use Link components with text
-      await expect(page.locator("aside").getByText(label)).toBeVisible();
+      await expect(page.locator("aside").getByRole("link", { name: label, exact: true })).toBeVisible();
     }
+    await expect(page.locator("aside").getByRole("link")).toHaveCount(labels.length);
   });
 
   test("settings link is in sidebar footer", async ({ page }) => {
@@ -305,9 +305,8 @@ test.describe("Data Binding", () => {
 test.describe("Interactions", () => {
   test("clicking sidebar nav item changes active state", async ({ page }) => {
     await page.goto("/");
-    // Traffic should be active
-    const trafficLink = page.locator("aside a[href='/']");
-    await expect(trafficLink).toHaveClass(/border-accent-blue/);
+    const captureLink = page.locator("aside a[href='/']");
+    await expect(captureLink).toHaveAttribute("aria-current", "page");
 
     // Click Rules
     await page.click("aside a[href='/rules']");

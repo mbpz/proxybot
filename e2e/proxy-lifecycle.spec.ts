@@ -42,14 +42,16 @@ test.describe("App shell", () => {
     await expect(page.getByText("Capture stopped")).toBeVisible();
   });
 
-  test("renders sidebar with all navigation items", async ({ page }) => {
+  test("renders the five product destinations", async ({ page }) => {
     await mockTauriCommands(page, BASE_MOCKS);
     await page.goto("/");
 
-    const expectedLinks = ["Traffic", "Setup", "Rules", "DNS", "Alerts", "Replay", "Graph", "Gen"];
+    const expectedLinks = ["Capture", "Setup", "Rules", "Replay", "Settings"];
     for (const name of expectedLinks) {
       await expect(page.locator("aside").getByRole("link", { name, exact: true })).toBeVisible();
     }
+    await expect(page.locator("aside").getByRole("link")).toHaveCount(expectedLinks.length);
+    await expect(page.locator("aside").getByRole("link", { name: "DNS", exact: true })).toHaveCount(0);
   });
 
   test("sidebar shows ProxyBot title", async ({ page }) => {
@@ -85,6 +87,26 @@ test.describe("App shell", () => {
 
     await expect(page.getByText("DNS Queries", { exact: true })).toBeVisible();
     await expect(page.getByText("No DNS queries")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Capture views" })).toBeVisible();
+    await expect(page.locator("aside").getByRole("link", { name: "Capture" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  test("Composer stays inside the Replay workspace", async ({ page }) => {
+    await mockTauriCommands(page, BASE_MOCKS);
+    await page.goto("/composer");
+
+    await expect(page.getByRole("navigation", { name: "Replay tools" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Composer", exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.locator("aside").getByRole("link", { name: "Replay" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   test("Rules page loads from direct URL", async ({ page }) => {
