@@ -158,6 +158,14 @@ exit gate.
 5. **Add one real desktop acceptance journey.**
    - Launch the packaged app, prepare the CA, start capture, make a local test
      request, observe the Captured Request, stop, and restart.
+   - The packaged executable now has an isolated acceptance Adapter that runs
+     this journey through the real Tauri composition root, generated CA, HTTPS
+     MITM Runtime, Capture Event persistence, and restart lifecycle, then emits
+     a machine-readable report without browser mocks, external network, or user
+     data.
+   - CI runs it from the unsigned Core app bundle; Release runs the same journey
+     from each verified DMG before the single publish job. Visible UI interaction
+     and physical signed-install evidence remain release exit gates.
 
 **P0 exit gate**
 

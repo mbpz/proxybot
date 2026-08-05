@@ -57,8 +57,10 @@ For each architecture it publishes:
 - a GitHub build-provenance attestation.
 
 Before upload, CI mounts the DMG, checks its `CFBundleShortVersionString`, and
-uses `codesign` and `spctl` to verify the application. GitHub generates release
-notes from the accepted tag.
+uses `codesign`, `spctl`, and `stapler` to verify the application. It then runs
+the packaged executable's isolated desktop acceptance journey: prepare the CA,
+decrypt and persist one local HTTPS request, stop capture, restart it, and stop
+again. GitHub generates release notes from the accepted tag.
 
 ## Release evidence boundary
 

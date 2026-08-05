@@ -145,9 +145,12 @@ jobs:
           test -n "$APP_PATH"
           test "$(plutil -extract CFBundleShortVersionString raw "$APP_PATH/Contents/Info.plist")" = "$VERSION"
           test "$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Contents/Info.plist")" = "com.mbpz.proxybot"
+          EXECUTABLE="$(plutil -extract CFBundleExecutable raw "$APP_PATH/Contents/Info.plist")"
+          test -x "$APP_PATH/Contents/MacOS/$EXECUTABLE"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           spctl --assess --type execute --verbose=2 "$APP_PATH"
           xcrun stapler validate "$ASSET"
+          node scripts/test_desktop_acceptance.mjs "$APP_PATH/Contents/MacOS/$EXECUTABLE"
           hdiutil detach "$MOUNT_POINT"
           trap - EXIT
 

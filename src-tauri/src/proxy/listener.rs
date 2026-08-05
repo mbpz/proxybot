@@ -16,7 +16,7 @@ use crate::state::AppState;
 use proxybot_core::{AppConfig, MitmRuntime, RunningMitm, RuntimeConfig};
 use std::path::Path;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Desktop ownership of the one live runtime handle.
 pub struct MitmRuntimeState {
@@ -36,6 +36,15 @@ impl MitmRuntimeState {
             .await
             .as_ref()
             .is_some_and(RunningMitm::is_running)
+    }
+
+    pub async fn bound_addr(&self) -> Option<std::net::SocketAddr> {
+        self.running
+            .lock()
+            .await
+            .as_ref()
+            .filter(|runtime| runtime.is_running())
+            .map(RunningMitm::bound_addr)
     }
 }
 
@@ -167,32 +176,34 @@ pub(crate) async fn stop_proxy_runtime(
     Ok("Proxy stopped".to_owned())
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn start_proxy(
-    app_handle: AppHandle,
-    runtime_state: State<'_, Arc<MitmRuntimeState>>,
-    cert_manager: State<'_, Arc<CertManager>>,
-    dns_state: State<'_, Arc<DnsState>>,
-    db_state: State<'_, Arc<DbState>>,
-    rules_engine: State<'_, Arc<RulesEngine>>,
-    app_state: State<'_, Arc<AppState>>,
-    network: State<'_, crate::commands::network_conditions::NetworkConditionsState>,
-    config: State<'_, Arc<AppConfig>>,
-    metrics: State<'_, Arc<ProxyMetrics>>,
-) -> Result<String, String> {
+/// Start the desktop Capture Session from any AppHandle Adapter (IPC, tray, or
+/// packaged acceptance runner) through the same composition path.
+pub(crate) async fn start_proxy_for_app(app_handle: &AppHandle) -> Result<String, String> {
+    let runtime_state = app_handle.state::<Arc<MitmRuntimeState>>().inner().clone();
+    let cert_manager = app_handle.state::<Arc<CertManager>>().inner().clone();
+    let dns_state = app_handle.state::<Arc<DnsState>>().inner().clone();
+    let db_state = app_handle.state::<Arc<DbState>>().inner().clone();
+    let rules_engine = app_handle.state::<Arc<RulesEngine>>().inner().clone();
+    let app_state = app_handle.state::<Arc<AppState>>().inner().clone();
+    let network = app_handle
+        .state::<crate::commands::network_conditions::NetworkConditionsState>()
+        .inner()
+        .0
+        .clone();
+    let config = app_handle.state::<Arc<AppConfig>>().inner().clone();
+    let metrics = app_handle.state::<Arc<ProxyMetrics>>().inner().clone();
     let event_app = app_handle.clone();
     let message = start_proxy_runtime(
-        app_handle,
-        runtime_state.inner().clone(),
-        cert_manager.inner().clone(),
-        dns_state.inner().clone(),
-        db_state.inner().clone(),
-        rules_engine.inner().clone(),
-        app_state.inner().clone(),
-        Arc::clone(&network.0),
-        config.inner().clone(),
-        metrics.inner().clone(),
+        app_handle.clone(),
+        runtime_state,
+        cert_manager,
+        dns_state,
+        db_state,
+        rules_engine,
+        app_state,
+        network,
+        config,
+        metrics,
     )
     .await?;
     let _ = event_app.emit("capture-session:changed", true);
@@ -200,19 +211,28 @@ pub async fn start_proxy(
 }
 
 #[tauri::command]
+pub async fn start_proxy(app_handle: AppHandle) -> Result<String, String> {
+    start_proxy_for_app(&app_handle).await
+}
+
+#[tauri::command]
 pub async fn get_proxy_status(runtime: State<'_, Arc<MitmRuntimeState>>) -> Result<bool, String> {
     Ok(runtime.is_running().await)
 }
 
-#[tauri::command]
-pub async fn stop_proxy(
-    app_handle: AppHandle,
-    runtime: State<'_, Arc<MitmRuntimeState>>,
-    app_state: State<'_, Arc<AppState>>,
-) -> Result<String, String> {
-    let message = stop_proxy_runtime(runtime.inner().clone(), app_state.inner().clone()).await?;
+/// Stop the desktop Capture Session through the same Adapter used by IPC,
+/// tray, shutdown, and packaged acceptance.
+pub(crate) async fn stop_proxy_for_app(app_handle: &AppHandle) -> Result<String, String> {
+    let runtime = app_handle.state::<Arc<MitmRuntimeState>>().inner().clone();
+    let app_state = app_handle.state::<Arc<AppState>>().inner().clone();
+    let message = stop_proxy_runtime(runtime, app_state).await?;
     let _ = app_handle.emit("capture-session:changed", false);
     Ok(message)
+}
+
+#[tauri::command]
+pub async fn stop_proxy(app_handle: AppHandle) -> Result<String, String> {
+    stop_proxy_for_app(&app_handle).await
 }
 
 #[cfg(test)]

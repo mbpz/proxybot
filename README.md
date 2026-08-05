@@ -160,6 +160,16 @@ pnpm build
 
 Playwright currently exercises a BrowserMockAdapter, not a packaged Tauri app.
 Passing it does not by itself prove real certificate distribution or capture.
+The isolated packaged-process journey uses the real Tauri composition root,
+generated CA, HTTPS MITM Runtime, SQLite persistence, and stop/restart lifecycle:
+
+```bash
+pnpm exec tauri build --bundles app
+pnpm test:desktop:acceptance
+```
+
+It writes its report inside a temporary workspace and removes that workspace
+after validation; it does not use external network services or user data.
 
 `package.json` is the canonical product version. Use `pnpm version:set <version>`
 to update its checked Rust mirrors, and follow the [release runbook](docs/releasing.md).

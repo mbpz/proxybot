@@ -5,11 +5,12 @@
 //! construction, plugins, tray behavior, and the desktop IPC contract.
 
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager, State};
+use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::anomaly::AnomalyDetector;
@@ -27,6 +28,7 @@ use proxybot_core::AppConfig;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LaunchMode {
     Desktop,
+    DesktopAcceptance(PathBuf),
     McpStdio,
 }
 
@@ -45,6 +47,21 @@ impl LaunchOptions {
         if args.iter().any(|arg| arg == "--mcp-stdio") {
             return Ok(Self {
                 mode: LaunchMode::McpStdio,
+                reverse_target: None,
+            });
+        }
+
+        if let Some(index) = args.iter().position(|arg| arg == "--desktop-acceptance") {
+            let workspace = args
+                .get(index + 1)
+                .ok_or_else(|| "--desktop-acceptance requires an isolated workspace".to_string())?;
+            if workspace.is_empty() || workspace.to_string_lossy().starts_with('-') {
+                return Err(
+                    "--desktop-acceptance requires a non-empty isolated workspace".to_string(),
+                );
+            }
+            return Ok(Self {
+                mode: LaunchMode::DesktopAcceptance(PathBuf::from(workspace)),
                 reverse_target: None,
             });
         }
@@ -245,13 +262,23 @@ pub fn run() {
         std::process::exit(2);
     });
 
-    let config = AppConfig::load().unwrap_or_else(|error| {
-        eprintln!("proxybot: invalid configuration: {error}");
-        std::process::exit(2);
-    });
+    let acceptance_workspace = match &options.mode {
+        LaunchMode::DesktopAcceptance(workspace) => Some(workspace.clone()),
+        _ => None,
+    };
+    let config = match &acceptance_workspace {
+        Some(workspace) => isolated_acceptance_config(workspace.clone()).unwrap_or_else(|error| {
+            eprintln!("proxybot: could not isolate desktop acceptance: {error}");
+            std::process::exit(2);
+        }),
+        None => AppConfig::load().unwrap_or_else(|error| {
+            eprintln!("proxybot: invalid configuration: {error}");
+            std::process::exit(2);
+        }),
+    };
     let config = options.apply_to(config);
 
-    if options.mode == LaunchMode::McpStdio {
+    if matches!(options.mode, LaunchMode::McpStdio) {
         crate::mcp::transport::start_stdio_mode(config);
         return;
     }
@@ -260,10 +287,40 @@ pub fn run() {
         .try_init();
     log::info!("Starting ProxyBot desktop application");
 
-    run_desktop(Arc::new(config));
+    run_desktop(Arc::new(config), acceptance_workspace);
 }
 
-fn run_desktop(config: Arc<AppConfig>) {
+fn isolated_acceptance_config(workspace: PathBuf) -> Result<AppConfig, String> {
+    if !workspace.is_absolute() {
+        return Err("desktop acceptance workspace must be an absolute path".to_owned());
+    }
+    let metadata = std::fs::symlink_metadata(&workspace)
+        .map_err(|error| format!("could not inspect acceptance workspace: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("desktop acceptance workspace must be a real directory".to_owned());
+    }
+    if std::fs::read_dir(&workspace)
+        .map_err(|error| format!("could not read acceptance workspace: {error}"))?
+        .next()
+        .is_some()
+    {
+        return Err("desktop acceptance workspace must be empty".to_owned());
+    }
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("could not reserve a local proxy port: {error}"))?;
+    let proxy_port = listener
+        .local_addr()
+        .map_err(|error| format!("could not inspect reserved proxy port: {error}"))?
+        .port();
+    drop(listener);
+
+    let config = AppConfig::for_base_dir(workspace);
+    let dns_port = config.dns_port;
+    Ok(config.with_ports(proxy_port, dns_port))
+}
+
+fn run_desktop(config: Arc<AppConfig>, acceptance_workspace: Option<PathBuf>) {
     let db_state = Arc::new(DbState::open(&config.db_path).expect("Failed to initialize database"));
     match db_state.import_legacy_alerts(&config.legacy_alerts_path) {
         Ok(count) if count > 0 => log::info!("Imported {count} Alerts from the retired JSON store"),
@@ -339,7 +396,16 @@ fn run_desktop(config: Arc<AppConfig>) {
         .manage(workspace_manager)
         .manage(custom_app_rules)
         .manage(config)
-        .setup(move |app| setup_desktop(app, rules_engine))
+        .setup(move |app| {
+            setup_desktop(app, rules_engine)?;
+            if let Some(workspace) = acceptance_workspace.clone() {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                crate::acceptance::start(app.handle().clone(), workspace);
+            }
+            Ok(())
+        })
         .invoke_handler(desktop_invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -474,40 +540,11 @@ fn configure_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn start_proxy_from_tray(app: &tauri::AppHandle, app_handle: &tauri::AppHandle) {
+fn start_proxy_from_tray(_app: &tauri::AppHandle, app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
-    let runtime = app
-        .state::<Arc<crate::proxy::MitmRuntimeState>>()
-        .inner()
-        .clone();
-    let certs = app.state::<Arc<CertManager>>().inner().clone();
-    let dns = app.state::<Arc<DnsState>>().inner().clone();
-    let db = app.state::<Arc<DbState>>().inner().clone();
-    let rules = app.state::<Arc<RulesEngine>>().inner().clone();
-    let app_state = app.state::<Arc<crate::state::AppState>>().inner().clone();
-    let network = app.state::<NetworkConditionsState>().inner().0.clone();
-    let config = app.state::<Arc<AppConfig>>().inner().clone();
-    let metrics = app
-        .state::<Arc<crate::metrics::counters::ProxyMetrics>>()
-        .inner()
-        .clone();
     tauri::async_runtime::spawn(async move {
-        match crate::proxy::start_proxy_runtime(
-            app_handle.clone(),
-            runtime,
-            certs,
-            dns,
-            db,
-            rules,
-            app_state,
-            network,
-            config,
-            metrics,
-        )
-        .await
-        {
+        match crate::proxy::start_proxy_for_app(&app_handle).await {
             Ok(_) => {
-                let _ = app_handle.emit("capture-session:changed", true);
                 let _ = app_handle
                     .notification()
                     .builder()
@@ -522,15 +559,9 @@ fn start_proxy_from_tray(app: &tauri::AppHandle, app_handle: &tauri::AppHandle) 
 
 fn stop_proxy_from_tray(app: &tauri::AppHandle) {
     let app_handle = app.clone();
-    let runtime = app
-        .state::<Arc<crate::proxy::MitmRuntimeState>>()
-        .inner()
-        .clone();
-    let app_state = app.state::<Arc<crate::state::AppState>>().inner().clone();
     tauri::async_runtime::spawn(async move {
-        match crate::proxy::stop_proxy_runtime(runtime, app_state).await {
+        match crate::proxy::stop_proxy_for_app(&app_handle).await {
             Ok(_) => {
-                let _ = app_handle.emit("capture-session:changed", false);
                 let _ = app_handle
                     .notification()
                     .builder()
@@ -660,6 +691,45 @@ mod tests {
     fn rejects_missing_reverse_target() {
         let error = LaunchOptions::parse(args(&["proxybot", "--reverse-target"])).unwrap_err();
         assert!(error.contains("requires a URL"));
+    }
+
+    #[test]
+    fn desktop_acceptance_requires_and_owns_an_isolated_workspace() {
+        let options = LaunchOptions::parse(args(&[
+            "proxybot",
+            "--desktop-acceptance",
+            "/tmp/proxybot-acceptance",
+            "--reverse-target=http://127.0.0.1:4000",
+        ]))
+        .unwrap();
+        assert_eq!(
+            options.mode,
+            LaunchMode::DesktopAcceptance(PathBuf::from("/tmp/proxybot-acceptance"))
+        );
+        assert_eq!(options.reverse_target, None);
+
+        let error = LaunchOptions::parse(args(&["proxybot", "--desktop-acceptance"])).unwrap_err();
+        assert!(error.contains("isolated workspace"));
+        let error = LaunchOptions::parse(args(&[
+            "proxybot",
+            "--desktop-acceptance",
+            "--reverse-target=http://127.0.0.1:4000",
+        ]))
+        .unwrap_err();
+        assert!(error.contains("non-empty isolated workspace"));
+    }
+
+    #[test]
+    fn desktop_acceptance_refuses_a_nonempty_workspace_before_startup() {
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::write(workspace.path().join("user-data"), "keep").unwrap();
+
+        let error = isolated_acceptance_config(workspace.path().to_path_buf()).unwrap_err();
+        assert_eq!(error, "desktop acceptance workspace must be empty");
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("user-data")).unwrap(),
+            "keep"
+        );
     }
 
     #[test]

@@ -94,6 +94,12 @@ function check(tag) {
   if (!release.includes('CFBundleIdentifier raw "$APP_PATH/Contents/Info.plist"')) {
     fail(errors, "Release workflow must verify the stable bundle identifier");
   }
+  if (!release.includes("scripts/test_desktop_acceptance.mjs")) {
+    fail(errors, "Release workflow must run the packaged desktop acceptance journey");
+  }
+  if (!read(".github/workflows/ci.yml").includes("scripts/test_desktop_acceptance.mjs")) {
+    fail(errors, "CI must run the packaged desktop acceptance journey");
+  }
   if (release.includes('mkdir -p "ProxyBot.app"') || release.includes("codesign --force --deep --sign -")) {
     fail(errors, "Release workflow still contains a hand-built or ad-hoc-signed app bundle");
   }

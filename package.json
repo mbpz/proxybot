@@ -22,6 +22,7 @@
     "lint:rust": "cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:desktop:acceptance": "node scripts/test_desktop_acceptance.mjs",
     "ci:local": "pnpm version:check && cargo fmt --all -- --check && cargo test --workspace --locked --no-default-features && cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings && pnpm typecheck && pnpm test:ui && pnpm build",
     "prepare": "if [ -d .git ]; then git config core.hooksPath .githooks 2>/dev/null || true; fi"
   },

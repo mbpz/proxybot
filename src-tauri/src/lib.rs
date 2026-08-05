@@ -1,6 +1,7 @@
 // Re-export proxybot-core types for shared use
 pub use proxybot_core as core;
 
+mod acceptance;
 pub mod adb;
 pub mod ai;
 pub mod ai_pipeline;

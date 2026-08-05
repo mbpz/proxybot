@@ -136,8 +136,11 @@ database rows.
 ## Verification boundary
 
 Rust and UI tests cover Modules and the BrowserMockAdapter. Current Playwright
-tests start Vite rather than a packaged Tauri application. A release is not
-considered proven until a real desktop acceptance lane covers install, start,
-certificate setup, capture, stop, restart, and cleanup.
+tests start Vite rather than a packaged Tauri application. The Packaged Desktop
+Acceptance lane executes the real `.app` binary and Tauri composition root in an
+isolated workspace, then proves CA preparation, decrypted local HTTPS capture,
+SQLite observation, stop, restart, and cleanup without external network access.
+It does not drive visible UI controls or prove a signed installation; those
+remain release evidence requirements.
 
 See the [product roadmap](roadmap.md) for the ordered deepening work.

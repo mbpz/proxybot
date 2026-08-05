@@ -48,7 +48,9 @@ git push origin v1.3.1
 工作流通过 Tauri bundler 构建 Apple Silicon 与 Intel DMG。每个架构都会发布签名
 并公证的 `.dmg`、SHA-256、SPDX JSON SBOM 和 GitHub 构建来源证明。上传前，CI
 会挂载 DMG，检查 `CFBundleShortVersionString`，并通过 `codesign` 与 `spctl`
-验证应用。Release Notes 由 GitHub 根据 Tag 自动生成。
+以及 `stapler` 验证应用。随后直接运行包内可执行文件的隔离桌面验收旅程：准备 CA、
+解密并持久化一个本地 HTTPS 请求、停止抓包、重启并再次停止。Release Notes 由
+GitHub 根据 Tag 自动生成。
 
 ## 证据边界
 

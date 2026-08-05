@@ -100,6 +100,10 @@ _Avoid_: UI version, release tag version
 A signed, notarized, checksummed, attested, architecture-specific DMG produced by the hosted Tauri bundler workflow for exactly one Product Version.
 _Avoid_: Release ZIP, local bundle
 
+**Packaged Desktop Acceptance**:
+The isolated, machine-readable journey run from the packaged ProxyBot executable that prepares its CA, decrypts and persists a local HTTPS Captured Request, stops, restarts, and stops the Capture Session without external network or user data.
+_Avoid_: Browser E2E, UI smoke, unit test
+
 **Runtime Extension Pipeline**:
 The ordered request, response, connection, and traffic-effect Module that applies Plugin Dispatch Rules, plugin hooks, Rhai scripts, metrics, and Network Condition Rules for the MITM Runtime.
 _Avoid_: Hook helper, desktop hook logic
@@ -139,6 +143,7 @@ _Avoid_: Running flag, detached server, raw descriptor
 - Default **Generated Artifact** paths stay under their configured roots, while explicit output paths remain operator-selected
 - One **Product Version** identifies the frontend, Tauri bundle, Rust crates, MCP server, Git tag, and every **Release Artifact**
 - A local app bundle is not a **Release Artifact**; hosted signing, notarization, mounted-DMG verification, checksum, SBOM, and provenance must all succeed
+- **Packaged Desktop Acceptance** runs through the production Tauri composition root and Capture Event persistence Adapter, but does not replace signed-install or visible UI evidence
 - The **Runtime Extension Pipeline** matches enabled **Plugin Dispatch Rules** once, executes matching plugin hooks by ascending priority, then runs Rhai scripts by deterministic name order
 - Successful plugin mutations accumulate; a panicking or timed-out plugin hook fails open, records an error metric, and does not commit its partial mutation
 - Rhai rewrites accumulate in execution order, while a blocking script produces a stable 403 response
