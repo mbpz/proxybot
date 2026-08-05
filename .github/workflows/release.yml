@@ -7,38 +7,88 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (e.g. v1.3.0). If empty, uses git tag."
-        required: false
+        description: "Exact product tag (for example v1.3.0)"
+        required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  validate:
+    name: Validate release identity
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.product.outputs.version }}
+      tag: ${{ steps.product.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version || github.ref }}
+
+      - name: Match tag to the product version
+        id: product
+        env:
+          RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+        run: |
+          node scripts/version.mjs --check --tag "$RELEASE_TAG"
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build macOS App
-    runs-on: ${{ matrix.runner }}
+    name: Build signed macOS ${{ matrix.arch }} bundle
+    needs: validate
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - runner: macos-latest
-            arch: arm64
+          - arch: arm64
             target: aarch64-apple-darwin
-          - runner: macos-latest
-            arch: x64
+          - arch: x64
             target: x86_64-apple-darwin
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version || github.ref }}
 
-      - name: Get version
-        id: version
+      - name: Require signing and notarization credentials
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          TAG="${{ inputs.version || github.ref_name }}"
-          VERSION="${TAG#v}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "ASSET_NAME=ProxyBot-$VERSION-mac-${{ matrix.arch }}" >> $GITHUB_ENV
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            test -n "${!name}" || { echo "::error::$name is required for a public release"; exit 1; }
+          done
+
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/proxybot-release.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/proxybot-signing.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -56,67 +106,97 @@ jobs:
           node-version: "20"
           cache: pnpm
 
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare frontend and verified bundle resources
+      - name: Install dependencies and verify release inputs
         run: |
+          pnpm install --frozen-lockfile
+          pnpm version:check
           pnpm resources:fetch
-          pnpm build
 
-      - name: Build macOS app bundle
-        run: |
-          echo "Building for ${{ matrix.arch }} on macOS"
-          rustc --version
-          cargo --version
-          cargo build --release --locked --bin proxybot -p proxybot --features frida-runtime --target "${{ matrix.target }}"
-          BIN_PATH="target/${{ matrix.target }}/release/proxybot"
-          test -f "$BIN_PATH"
-          echo "Using binary at: $BIN_PATH"
-          # Create app bundle
-          mkdir -p "ProxyBot.app/Contents/MacOS"
-          mkdir -p "ProxyBot.app/Contents/Resources"
-          cp "$BIN_PATH" "ProxyBot.app/Contents/MacOS/ProxyBot"
-          cp src-tauri/resources/apktool.jar "ProxyBot.app/Contents/Resources/apktool.jar"
-          cp -R src-tauri/resources/frida-gadget "ProxyBot.app/Contents/Resources/frida-gadget"
-
-          # Copy icon if exists
-          if [ -f icons/128x128.png ]; then
-            cp icons/128x128.png "ProxyBot.app/Contents/Resources/"
-          fi
-
-          # Create Info.plist
-          cat > "ProxyBot.app/Contents/Info.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleExecutable</key><string>ProxyBot</string>
-            <key>CFBundleIdentifier</key><string>com.proxybot.app</string>
-            <key>CFBundleName</key><string>ProxyBot</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>${{ env.VERSION }}</string>
-            <key>CFBundleVersion</key><string>1</string>
-            <key>LSMinimumSystemVersion</key><string>11.0</string>
-            <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
-          </dict>
-          </plist>
-          EOF
-
-          # Ad-hoc code sign for development/testing
-          codesign --force --deep --sign - "$GITHUB_WORKSPACE/ProxyBot.app"
-
-          # Create zip
-          zip -r "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip" ProxyBot.app
-          shasum -a 256 "$GITHUB_WORKSPACE/ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip"
-
-      - name: Upload release asset
-        # Only run when: (1) pushing a tag, or (2) workflow_dispatch with version input
-        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.version)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ProxyBot-${{ env.VERSION }}-mac-${{ matrix.arch }}.zip
-          draft: false
-          tag_name: ${{ inputs.version || github.ref_name }}
+      - name: Build signed and notarized Tauri DMG
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          pnpm exec tauri build \
+            --features frida-runtime \
+            --config src-tauri/tauri.bundle.conf.json \
+            --target "${{ matrix.target }}" \
+            --bundles dmg
+
+      - name: Verify and name the install artifact
+        id: artifact
+        env:
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          SOURCE_DMG="$(find "target/$TARGET/release/bundle/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$SOURCE_DMG"
+          ASSET="ProxyBot-$VERSION-mac-$ARCH.dmg"
+          cp "$SOURCE_DMG" "$ASSET"
+          shasum -a 256 "$ASSET" > "$ASSET.sha256"
+
+          MOUNT_POINT="$RUNNER_TEMP/proxybot-dmg"
+          mkdir -p "$MOUNT_POINT"
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_POINT" "$ASSET"
+          trap 'hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true' EXIT
+          APP_PATH="$(find "$MOUNT_POINT" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test "$(plutil -extract CFBundleShortVersionString raw "$APP_PATH/Contents/Info.plist")" = "$VERSION"
+          test "$(plutil -extract CFBundleIdentifier raw "$APP_PATH/Contents/Info.plist")" = "com.mbpz.proxybot"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl --assess --type execute --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$ASSET"
+          hdiutil detach "$MOUNT_POINT"
+          trap - EXIT
+
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "checksum=$ASSET.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: ProxyBot-${{ needs.validate.outputs.version }}-mac-${{ matrix.arch }}.spdx.json
+
+      - name: Attest release artifact
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ steps.artifact.outputs.asset }}
+            ${{ steps.artifact.outputs.checksum }}
+            ProxyBot-${{ needs.validate.outputs.version }}-mac-${{ matrix.arch }}.spdx.json
+
+      - name: Stage verified release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            ${{ steps.artifact.outputs.asset }}
+            ${{ steps.artifact.outputs.checksum }}
+            ProxyBot-${{ needs.validate.outputs.version }}-mac-${{ matrix.arch }}.spdx.json
+
+  publish:
+    name: Publish one verified release
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Collect both architecture artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*

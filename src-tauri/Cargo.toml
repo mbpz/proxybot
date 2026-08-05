@@ -1,6 +1,6 @@
 [package]
 name = "proxybot"
-version = "0.1.0"
+version = "1.3.0"
 description = "HTTPS MITM Proxy"
 authors = ["ProxyBot Contributors"]
 edition = "2021"

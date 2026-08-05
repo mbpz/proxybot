@@ -58,7 +58,7 @@ impl McpServer {
             },
             "serverInfo": {
                 "name": "proxybot",
-                "version": "1.2.0"
+                "version": env!("CARGO_PKG_VERSION")
             }
         }))
     }
@@ -502,6 +502,13 @@ mod tests {
                 .and_then(|v| v.get("name"))
                 .and_then(|v| v.as_str()),
             Some("proxybot")
+        );
+        assert_eq!(
+            result
+                .get("serverInfo")
+                .and_then(|v| v.get("version"))
+                .and_then(|v| v.as_str()),
+            Some(env!("CARGO_PKG_VERSION"))
         );
     }
 

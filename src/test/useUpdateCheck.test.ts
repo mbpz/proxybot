@@ -4,8 +4,7 @@ import { useUpdateCheck, CURRENT_VERSION } from "../hooks/useUpdateCheck";
 
 describe("CURRENT_VERSION", () => {
   it("is on the v1.3.x line", () => {
-    // Pinned to v1.3.0 per the 2026-05-14 update-icon spec + roadmap.
-    // Bumping this requires updating the spec self-review notes.
+    // Vite injects this from the canonical package.json version.
     expect(CURRENT_VERSION).toBe("1.3.0");
   });
 });

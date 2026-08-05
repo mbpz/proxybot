@@ -92,6 +92,14 @@ _Avoid_: Generator query, session rows
 A spec, mock, scaffold, vision-enhanced model, or deployment bundle derived from one Inference Session and written through validated naming and path rules.
 _Avoid_: Generated file, generator result
 
+**Product Version**:
+The single semantic version in `package.json` consumed by Tauri and the update UI and mirrored into Rust metadata through a mandatory consistency check.
+_Avoid_: UI version, release tag version
+
+**Release Artifact**:
+A signed, notarized, checksummed, attested, architecture-specific DMG produced by the hosted Tauri bundler workflow for exactly one Product Version.
+_Avoid_: Release ZIP, local bundle
+
 **Runtime Extension Pipeline**:
 The ordered request, response, connection, and traffic-effect Module that applies Plugin Dispatch Rules, plugin hooks, Rhai scripts, metrics, and Network Condition Rules for the MITM Runtime.
 _Avoid_: Hook helper, desktop hook logic
@@ -129,6 +137,8 @@ _Avoid_: Running flag, detached server, raw descriptor
 - One **Inference Session** supplies the same Inferred APIs and Captured Requests to spec, mock, scaffold, vision, and deployment adapters
 - A generation adapter transforms an **Inference Session** into a **Generated Artifact**; it does not reload or remap session persistence
 - Default **Generated Artifact** paths stay under their configured roots, while explicit output paths remain operator-selected
+- One **Product Version** identifies the frontend, Tauri bundle, Rust crates, MCP server, Git tag, and every **Release Artifact**
+- A local app bundle is not a **Release Artifact**; hosted signing, notarization, mounted-DMG verification, checksum, SBOM, and provenance must all succeed
 - The **Runtime Extension Pipeline** matches enabled **Plugin Dispatch Rules** once, executes matching plugin hooks by ascending priority, then runs Rhai scripts by deterministic name order
 - Successful plugin mutations accumulate; a panicking or timed-out plugin hook fails open, records an error metric, and does not commit its partial mutation
 - Rhai rewrites accumulate in execution order, while a blocking script produces a stable 403 response

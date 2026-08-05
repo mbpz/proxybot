@@ -148,6 +148,7 @@ pnpm ci:local
 Individual checks are also available:
 
 ```bash
+pnpm version:check
 cargo test --workspace --locked --no-default-features
 cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 cargo fmt --all -- --check
@@ -159,6 +160,11 @@ pnpm build
 
 Playwright currently exercises a BrowserMockAdapter, not a packaged Tauri app.
 Passing it does not by itself prove real certificate distribution or capture.
+
+`package.json` is the canonical product version. Use `pnpm version:set <version>`
+to update its checked Rust mirrors, and follow the [release runbook](docs/releasing.md).
+Public artifacts must come from the hosted Tauri bundler workflow; local bundles
+are not evidence of signing or notarization.
 
 ## Contributing and security
 

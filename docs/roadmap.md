@@ -146,6 +146,15 @@ exit gate.
      stapling, checksums, SBOM, release notes, and an install/start smoke test.
    - Do not advertise Homebrew until a maintained tap and installation check
      exist.
+   - `package.json` now owns product version identity; Tauri and the update UI
+     consume it directly, while Rust, MCP, Cargo.lock, and tags are gated by one
+     consistency tool.
+   - The Release workflow now uses the Tauri bundler, requires Developer ID
+     signing and notarization, verifies mounted DMGs, and publishes checksums,
+     SPDX SBOMs, provenance attestations, and generated notes.
+   - This stage remains open until the hosted workflow and install/start checks
+     succeed for both published architectures; credential provisioning and
+     evidence are tracked in [issue #27](https://github.com/mbpz/proxybot/issues/27).
 5. **Add one real desktop acceptance journey.**
    - Launch the packaged app, prepare the CA, start capture, make a local test
      request, observe the Captured Request, stop, and restart.

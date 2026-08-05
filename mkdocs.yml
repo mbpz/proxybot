@@ -63,6 +63,7 @@ nav:
   - Product Roadmap: roadmap.md
   - Comparison: comparison.md
   - Architecture: architecture.md
+  - Releasing: releasing.md
   - Advanced:
       - Application Attribution: app-classification.md
       - MCP stdio Adapter: mcp-integration.md
