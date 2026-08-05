@@ -81,9 +81,10 @@ Replay and Composer share the Replay context. Historical and experimental routes
 remain valid deep links so saved URLs do not break, but they do not compete in
 the default navigation.
 
-General Settings reads and mutations cross the generated Desktop Contract
-Interface. Transport and result-shape failures remain typed errors in the UI;
-they are not converted into false, empty, or null settings.
+General Settings and the Capture/Settings DNS surfaces cross the generated
+Desktop Contract Interface for reads, mutations, and DNS Observations. Transport
+and result-shape failures remain typed errors in the UI; they are not converted
+into false, empty, or null settings.
 
 ## Network modes
 

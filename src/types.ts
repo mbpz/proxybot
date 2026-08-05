@@ -1,5 +1,8 @@
 export type {
   BreakpointTarget,
+  DnsObservation,
+  DnsUpstream,
+  DnsUpstreamType,
   InterceptedRequest,
   Rule,
   RuleAction,
@@ -12,13 +15,6 @@ export type AppTab = "all" | "WeChat" | "Douyin" | "Alipay" | "Unknown";
 export interface NetworkInfo {
   lan_ip: string;
   interface: string;
-}
-
-export interface DnsEntry {
-  domain: string;
-  timestamp_ms: number;
-  app_name?: string;
-  app_icon?: string;
 }
 
 export interface CaMetadata {

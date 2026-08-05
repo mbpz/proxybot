@@ -311,11 +311,27 @@ pub enum DnsUpstreamType {
     Doh,
 }
 
-/// DNS upstream configuration.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DnsUpstream {
-    pub upstream_type: DnsUpstreamType,
-    pub address: String,
+impl crate::desktop_contract::WireType for DnsUpstreamType {
+    fn type_script_type() -> String {
+        "DnsUpstreamType".to_owned()
+    }
+}
+
+impl crate::desktop_contract::DesktopContractType for DnsUpstreamType {
+    const NAME: &'static str = "DnsUpstreamType";
+
+    fn type_script_declaration() -> String {
+        "export type DnsUpstreamType = \"plainudp\" | \"doh\";\n".to_owned()
+    }
+}
+
+crate::desktop_contract_type! {
+    /// DNS upstream configuration.
+    #[derive(Clone, Serialize, Deserialize)]
+    pub struct DnsUpstream {
+        pub upstream_type: DnsUpstreamType,
+        pub address: String,
+    }
 }
 
 impl Default for DnsUpstream {
@@ -327,16 +343,18 @@ impl Default for DnsUpstream {
     }
 }
 
-/// A DNS query/answer observation available to Application Attribution.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DnsObservation {
-    pub domain: String,
-    pub timestamp_ms: u64,
-    pub app_name: Option<String>,
-    pub app_icon: Option<String>,
-    pub action: Option<String>,
-    pub resolved_ips: Vec<String>,
-    pub client_ip: Option<String>,
+crate::desktop_contract_type! {
+    /// A DNS query/answer observation available to Application Attribution.
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct DnsObservation {
+        pub domain: String,
+        pub timestamp_ms: u64,
+        pub app_name: Option<String>,
+        pub app_icon: Option<String>,
+        pub action: Option<String>,
+        pub resolved_ips: Vec<String>,
+        pub client_ip: Option<String>,
+    }
 }
 
 /// Compatibility name used by the desktop DNS log Interface.

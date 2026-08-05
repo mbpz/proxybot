@@ -5,6 +5,7 @@ import type {
   Alert,
   DbStats,
   DeviceOnboarding,
+  DnsObservation,
   InterceptedRequest,
   Rule,
   WsFrame,
@@ -200,6 +201,50 @@ describe("Desktop contract Adapter conformance", () => {
       get_db_stats: () => ({ ...stats, devices_count: "two" }) as never,
     });
     await expect(invalid.contract.call("get_db_stats", {})).rejects.toMatchObject({
+      kind: "contract",
+      code: "contract_violation",
+    });
+  });
+
+  it("validates DNS reads, mutations and observations", async () => {
+    const observation: DnsObservation = {
+      domain: "api.example.com",
+      timestamp_ms: 1_786_000_000_000,
+      app_name: "Example",
+      app_icon: null,
+      action: "DIRECT",
+      resolved_ips: ["203.0.113.10"],
+      client_ip: "192.168.1.10",
+    };
+    const adapter = new BrowserMockAdapter({
+      get_dns_log: () => [observation],
+      get_dns_upstream: () => ({ upstream_type: "plainudp", address: "8.8.8.8:53" }),
+      set_dns_upstream: () => undefined,
+      reload_dns_lists: () => undefined,
+    });
+
+    await expect(adapter.contract.call("get_dns_log", {})).resolves.toEqual([observation]);
+    await expect(adapter.contract.call("get_dns_upstream", {})).resolves.toEqual({
+      upstream_type: "plainudp",
+      address: "8.8.8.8:53",
+    });
+    await expect(
+      adapter.contract.call("set_dns_upstream", {
+        upstream: { upstream_type: "doh", address: "https://1.1.1.1/dns-query" },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(adapter.contract.call("reload_dns_lists", {})).resolves.toBeUndefined();
+
+    const next = vi.fn();
+    const subscription = adapter.contract.subscribe("dns-query", { next });
+    await subscription.ready;
+    adapter.emit("dns-query", observation);
+    expect(next).toHaveBeenCalledWith(observation);
+
+    const invalid = new BrowserMockAdapter({
+      get_dns_upstream: () => ({ upstream_type: "udp", address: "8.8.8.8:53" }) as never,
+    });
+    await expect(invalid.contract.call("get_dns_upstream", {})).rejects.toMatchObject({
       kind: "contract",
       code: "contract_violation",
     });

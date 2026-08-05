@@ -9,7 +9,7 @@ const MOCKS = {
   is_tun_enabled: false,
   get_ca_metadata: null,
   get_dns_log: [],
-  get_dns_upstream: "8.8.8.8",
+  get_dns_upstream: { upstream_type: "plainudp", address: "8.8.8.8:53" },
   get_replay_targets: [],
   get_rules: [],
   get_devices: [{ id: 1, name: "iPhone" }],

@@ -8,6 +8,8 @@ import {
   type DesktopEvents,
   type Alert,
   type DeviceOnboarding,
+  type DnsObservation,
+  type DnsUpstream,
   type InterceptedRequest,
   type JsonValue,
   type Rule,
@@ -184,6 +186,12 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "get_db_stats":
       assertDbStats(value, command);
       return;
+    case "get_dns_log":
+      assertArray(value, command, assertDnsObservation);
+      return;
+    case "get_dns_upstream":
+      assertDnsUpstream(value, command);
+      return;
     case "get_keep_running":
     case "is_dashboard_running":
       assert(typeof value === "boolean", command, "must be a boolean");
@@ -241,6 +249,27 @@ function assertDbStats(value: unknown, path: string): void {
   assertNumber(value.dns_queries_count, `${path}.dns_queries_count`);
   assertNumber(value.devices_count, `${path}.devices_count`);
   assertNumber(value.app_tags_count, `${path}.app_tags_count`);
+}
+
+function assertDnsUpstream(value: unknown, path: string): asserts value is DnsUpstream {
+  assertRecord(value, path);
+  assert(
+    value.upstream_type === "plainudp" || value.upstream_type === "doh",
+    `${path}.upstream_type`,
+    "must be plainudp or doh",
+  );
+  assertString(value.address, `${path}.address`);
+}
+
+function assertDnsObservation(value: unknown, path: string): asserts value is DnsObservation {
+  assertRecord(value, path);
+  assertString(value.domain, `${path}.domain`);
+  assertNumber(value.timestamp_ms, `${path}.timestamp_ms`);
+  assertNullableString(value.app_name, `${path}.app_name`);
+  assertNullableString(value.app_icon, `${path}.app_icon`);
+  assertNullableString(value.action, `${path}.action`);
+  assertArray(value.resolved_ips, `${path}.resolved_ips`, assertString);
+  assertNullableString(value.client_ip, `${path}.client_ip`);
 }
 
 function assertDeviceOnboarding(
@@ -335,6 +364,9 @@ function validateEventPayload(event: keyof DesktopEvents, value: unknown): void 
   switch (event) {
     case "capture-session:changed":
       assert(typeof value === "boolean", event, "must be a boolean");
+      return;
+    case "dns-query":
+      assertDnsObservation(value, event);
       return;
     case "intercepted-request":
       assertInterceptedRequest(value, event);

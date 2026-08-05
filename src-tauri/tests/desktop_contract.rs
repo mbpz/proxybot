@@ -36,6 +36,7 @@ fn frontend_literal_invocations_are_registered() {
         "get_traffic_page",
         "get_keep_running",
         "get_db_stats",
+        "get_dns_upstream",
     ] {
         assert!(
             used_by_command.contains_key(expected),
@@ -120,6 +121,7 @@ fn generated_contract_matches_rust_and_registered_commands() {
         .chain(proxybot_lib::desktop_contract::TRAFFIC_COMMANDS)
         .chain(proxybot_lib::desktop_contract::RULE_COMMANDS)
         .chain(proxybot_lib::desktop_contract::ALERT_COMMANDS)
+        .chain(proxybot_lib::desktop_contract::DNS_COMMANDS)
         .chain(proxybot_lib::desktop_contract::SETTINGS_GENERAL_COMMANDS)
         .filter(|command| !registered.contains(**command))
         .collect();
@@ -138,6 +140,7 @@ fn migrated_slices_only_use_the_desktop_adapter() {
         "components/traffic",
         "components/ws-frames",
         "components/rules",
+        "components/dns",
         "features/capture-session",
         "features/device-onboarding",
     ] {
@@ -152,18 +155,17 @@ fn migrated_slices_only_use_the_desktop_adapter() {
         });
     }
 
-    let general_settings = frontend_root.join("components/settings/GeneralTab.tsx");
-    let general_settings_source = fs::read_to_string(&general_settings).unwrap();
-    if general_settings_source.contains("@tauri-apps/api/core")
-        || general_settings_source.contains("@tauri-apps/api/event")
-        || general_settings_source.contains("safeInvoke")
-    {
-        bypasses.push(
-            general_settings
-                .strip_prefix(&frontend_root)
-                .unwrap()
-                .to_path_buf(),
-        );
+    for settings_file in ["GeneralTab.tsx", "DnsTab.tsx"] {
+        let path = frontend_root
+            .join("components/settings")
+            .join(settings_file);
+        let source = fs::read_to_string(&path).unwrap();
+        if source.contains("@tauri-apps/api/core")
+            || source.contains("@tauri-apps/api/event")
+            || source.contains("safeInvoke")
+        {
+            bypasses.push(path.strip_prefix(&frontend_root).unwrap().to_path_buf());
+        }
     }
 
     assert!(

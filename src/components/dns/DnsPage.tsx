@@ -1,29 +1,26 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { desktop, type DesktopContract } from "../../desktop/contract";
+import type {
+  DnsObservation,
+  DnsUpstream,
+  DnsUpstreamType,
+} from "../../generated/desktop-contract";
 import { AppBadge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 
-interface DnsEntry {
-  domain: string;
-  timestamp_ms: number;
-  app_name?: string;
-  app_icon?: string;
-  action?: string;
-  resolved_ips: string[];
+interface DnsPageProps {
+  contract?: DesktopContract;
 }
 
-interface DnsUpstream {
-  upstream_type: "plainudp" | "doh";
-  address: string;
-}
+type PendingAction = "upstream" | "reload" | null;
 
-export function DnsPage() {
-  const [entries, setEntries] = useState<DnsEntry[]>([]);
+export function DnsPage({ contract = desktop }: DnsPageProps) {
+  const [entries, setEntries] = useState<DnsObservation[]>([]);
   const [upstream, setUpstream] = useState<DnsUpstream | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -31,8 +28,8 @@ export function DnsPage() {
     setError(null);
 
     const [logResult, upResult] = await Promise.allSettled([
-      invoke<DnsEntry[]>("get_dns_log"),
-      invoke<DnsUpstream>("get_dns_upstream"),
+      contract.call("get_dns_log", {}),
+      contract.call("get_dns_upstream", {}),
     ]);
 
     const errors: string[] = [];
@@ -49,21 +46,22 @@ export function DnsPage() {
 
     if (errors.length > 0) setError(errors.join("; "));
     setLoading(false);
-  }, []);
+  }, [contract]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
 
-    const unlisten = listen<DnsEntry>("dns-query", (event) => {
-      setEntries((prev) => [event.payload, ...prev].slice(0, 500));
+    const subscription = contract.subscribe("dns-query", {
+      next: (entry) => setEntries((current) => [entry, ...current].slice(0, 500)),
+      error: (cause) => setError(errorMessage("DNS event", cause)),
     });
+    void subscription.ready.catch((cause) => setError(errorMessage("DNS event stream", cause)));
 
-    return () => {
-      unlisten.then((f) => f());
-    };
-  }, [loadData]);
+    return () => subscription.dispose();
+  }, [contract, loadData]);
 
-  async function setUpstreamType(type: "plainudp" | "doh") {
+  async function setUpstreamType(type: DnsUpstreamType) {
+    setPendingAction("upstream");
     try {
       setError(null);
       // Re-use current address if the type already matches, otherwise use sensible defaults
@@ -74,21 +72,26 @@ export function DnsPage() {
         : type === "doh"
           ? "https://1.1.1.1/dns-query"
           : "8.8.8.8:53";
-      await invoke("set_dns_upstream", {
+      await contract.call("set_dns_upstream", {
         upstream: { upstream_type: type, address },
       });
       setUpstream({ upstream_type: type, address });
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage("Could not update DNS upstream", err));
+    } finally {
+      setPendingAction(null);
     }
   }
 
   async function reloadLists() {
+    setPendingAction("reload");
     try {
       setError(null);
-      await invoke("reload_dns_lists");
+      await contract.call("reload_dns_lists", {});
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage("Could not reload DNS lists", err));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -128,21 +131,28 @@ export function DnsPage() {
             <Button
               variant={upstream?.upstream_type === "doh" ? "primary" : "secondary"}
               size="sm"
-              onClick={() => setUpstreamType("doh")}
+              disabled={pendingAction !== null}
+              onClick={() => void setUpstreamType("doh")}
             >
               DoH
             </Button>
             <Button
               variant={upstream?.upstream_type === "plainudp" ? "primary" : "secondary"}
               size="sm"
-              onClick={() => setUpstreamType("plainudp")}
+              disabled={pendingAction !== null}
+              onClick={() => void setUpstreamType("plainudp")}
             >
               UDP
             </Button>
-            <Button variant="secondary" size="sm" onClick={reloadLists}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={pendingAction !== null}
+              onClick={() => void reloadLists()}
+            >
               Reload Lists
             </Button>
-            <Button variant="secondary" size="sm" onClick={loadData}>
+            <Button variant="secondary" size="sm" onClick={() => void loadData()}>
               Refresh
             </Button>
           </div>
@@ -150,9 +160,13 @@ export function DnsPage() {
 
         {/* Error banner */}
         {error && (
-          <div className="error-banner" style={{ margin: "0 var(--space-4) var(--space-2)" }}>
+          <div
+            className="error-banner"
+            role="alert"
+            style={{ margin: "0 var(--space-4) var(--space-2)" }}
+          >
             <span className="error-banner-message">{error}</span>
-            <Button variant="secondary" size="sm" onClick={loadData}>
+            <Button variant="secondary" size="sm" onClick={() => void loadData()}>
               Retry
             </Button>
           </div>
@@ -250,4 +264,9 @@ export function DnsPage() {
       </div>
     </div>
   );
+}
+
+function errorMessage(context: string, cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return `${context}: ${detail}`;
 }

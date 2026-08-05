@@ -141,6 +141,23 @@ export interface DbStats {
   app_tags_count: number;
 }
 
+export type DnsUpstreamType = "plainudp" | "doh";
+
+export interface DnsUpstream {
+  upstream_type: DnsUpstreamType;
+  address: string;
+}
+
+export interface DnsObservation {
+  domain: string;
+  timestamp_ms: number;
+  app_name: string | null;
+  app_icon: string | null;
+  action: string | null;
+  resolved_ips: Array<string>;
+  client_ip: string | null;
+}
+
 export interface FilterPreset {
   id: string;
   name: string;
@@ -162,6 +179,8 @@ export interface DesktopCommands {
   get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };
   get_dashboard_url: { args: Record<string, never>; result: string };
   get_db_stats: { args: Record<string, never>; result: DbStats };
+  get_dns_log: { args: Record<string, never>; result: DnsObservation[] };
+  get_dns_upstream: { args: Record<string, never>; result: DnsUpstream };
   get_keep_running: { args: Record<string, never>; result: boolean };
   get_ws_frames: { args: { requestId: string }; result: WsFrame[] };
   is_dashboard_running: { args: Record<string, never>; result: boolean };
@@ -171,21 +190,24 @@ export interface DesktopCommands {
   match_host: { args: { host: string; ip: string | null }; result: RuleAction | null };
   parse_filter: { args: { expr: string }; result: ParseResult };
   reorder_rules: { args: { fromIndex: number; toIndex: number; filename: string }; result: undefined };
+  reload_dns_lists: { args: Record<string, never>; result: undefined };
   save_filter_preset: { args: { preset: FilterPreset }; result: undefined };
   save_har_file: { args: { harJson: string; sessionName: string }; result: string };
   save_history: { args: { requests: InterceptedRequest[] }; result: undefined };
   save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };
   set_keep_running: { args: { keep: boolean }; result: undefined };
+  set_dns_upstream: { args: { upstream: DnsUpstream }; result: undefined };
   start_dashboard: { args: Record<string, never>; result: string };
   stop_dashboard: { args: Record<string, never>; result: string };
 }
 
 export interface DesktopEvents {
   "capture-session:changed": boolean;
+  "dns-query": DnsObservation;
   "intercepted-request": InterceptedRequest;
   "ws-frame:new": WsFrameEvent;
 }
 
-export const desktopCommandNames = ["get_proxy_status","start_proxy","stop_proxy","prepare_device_onboarding","stop_device_onboarding","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts","get_dashboard_url","get_db_stats","get_keep_running","is_dashboard_running","set_keep_running","start_dashboard","stop_dashboard"] as const;
-export const desktopEventNames = ["capture-session:changed","intercepted-request","ws-frame:new"] as const;
-export const unitCommandNames = ["delete_rule","reorder_rules","save_filter_preset","save_history","save_rule","set_keep_running","stop_device_onboarding"] as const;
+export const desktopCommandNames = ["get_proxy_status","start_proxy","stop_proxy","prepare_device_onboarding","stop_device_onboarding","export_har","get_traffic_page","get_ws_frames","list_filter_presets","load_history","parse_filter","save_har_file","save_history","save_filter_preset","delete_rule","get_rules","list_rule_files","match_host","reorder_rules","save_rule","acknowledge_alert","get_alert_count","get_alerts","get_dns_log","get_dns_upstream","reload_dns_lists","set_dns_upstream","get_dashboard_url","get_db_stats","get_keep_running","is_dashboard_running","set_keep_running","start_dashboard","stop_dashboard"] as const;
+export const desktopEventNames = ["capture-session:changed","dns-query","intercepted-request","ws-frame:new"] as const;
+export const unitCommandNames = ["delete_rule","reload_dns_lists","reorder_rules","save_filter_preset","save_history","save_rule","set_dns_upstream","set_keep_running","stop_device_onboarding"] as const;

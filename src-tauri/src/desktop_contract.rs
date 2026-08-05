@@ -12,7 +12,10 @@ use crate::filter::query::TrafficQuery;
 use crate::normalize::{NormalizedRecord, TrafficPage};
 use crate::proxy::WsFrameEvent;
 use proxybot_core::desktop_contract::DesktopContractType;
-use proxybot_core::{BreakpointTarget, InterceptedRequest, Rule, RuleAction, RulePattern, WsFrame};
+use proxybot_core::{
+    BreakpointTarget, DnsObservation, DnsUpstream, DnsUpstreamType, InterceptedRequest, Rule,
+    RuleAction, RulePattern, WsFrame,
+};
 use std::fmt::Write;
 
 pub const CAPTURE_SESSION_COMMANDS: &[&str] = &["get_proxy_status", "start_proxy", "stop_proxy"];
@@ -46,6 +49,15 @@ pub const RULE_COMMANDS: &[&str] = &[
 ];
 
 pub const ALERT_COMMANDS: &[&str] = &["acknowledge_alert", "get_alert_count", "get_alerts"];
+
+pub const DNS_COMMANDS: &[&str] = &[
+    "get_dns_log",
+    "get_dns_upstream",
+    "reload_dns_lists",
+    "set_dns_upstream",
+];
+
+pub const DNS_EVENTS: &[&str] = &["dns-query"];
 
 pub const SETTINGS_GENERAL_COMMANDS: &[&str] = &[
     "get_dashboard_url",
@@ -83,6 +95,9 @@ pub fn render_typescript() -> String {
         DevicePlatform::type_script_declaration(),
         DeviceOnboarding::type_script_declaration(),
         DbStats::type_script_declaration(),
+        DnsUpstreamType::type_script_declaration(),
+        DnsUpstream::type_script_declaration(),
+        DnsObservation::type_script_declaration(),
     ] {
         output.push_str(&declaration);
         output.push('\n');
@@ -109,6 +124,8 @@ pub fn render_typescript() -> String {
          \x20 get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };\n\
          \x20 get_dashboard_url: { args: Record<string, never>; result: string };\n\
          \x20 get_db_stats: { args: Record<string, never>; result: DbStats };\n\
+         \x20 get_dns_log: { args: Record<string, never>; result: DnsObservation[] };\n\
+         \x20 get_dns_upstream: { args: Record<string, never>; result: DnsUpstream };\n\
          \x20 get_keep_running: { args: Record<string, never>; result: boolean };\n\
          \x20 get_ws_frames: { args: { requestId: string }; result: WsFrame[] };\n\
          \x20 is_dashboard_running: { args: Record<string, never>; result: boolean };\n\
@@ -118,16 +135,19 @@ pub fn render_typescript() -> String {
          \x20 match_host: { args: { host: string; ip: string | null }; result: RuleAction | null };\n\
          \x20 parse_filter: { args: { expr: string }; result: ParseResult };\n\
          \x20 reorder_rules: { args: { fromIndex: number; toIndex: number; filename: string }; result: undefined };\n\
+         \x20 reload_dns_lists: { args: Record<string, never>; result: undefined };\n\
          \x20 save_filter_preset: { args: { preset: FilterPreset }; result: undefined };\n\
          \x20 save_har_file: { args: { harJson: string; sessionName: string }; result: string };\n\
          \x20 save_history: { args: { requests: InterceptedRequest[] }; result: undefined };\n\
          \x20 save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };\n\
          \x20 set_keep_running: { args: { keep: boolean }; result: undefined };\n\
+         \x20 set_dns_upstream: { args: { upstream: DnsUpstream }; result: undefined };\n\
          \x20 start_dashboard: { args: Record<string, never>; result: string };\n\
          \x20 stop_dashboard: { args: Record<string, never>; result: string };\n\
          }\n\n\
          export interface DesktopEvents {\n\
          \x20 \"capture-session:changed\": boolean;\n\
+         \x20 \"dns-query\": DnsObservation;\n\
          \x20 \"intercepted-request\": InterceptedRequest;\n\
          \x20 \"ws-frame:new\": WsFrameEvent;\n\
          }\n\n",
@@ -139,11 +159,13 @@ pub fn render_typescript() -> String {
         .chain(TRAFFIC_COMMANDS)
         .chain(RULE_COMMANDS)
         .chain(ALERT_COMMANDS)
+        .chain(DNS_COMMANDS)
         .chain(SETTINGS_GENERAL_COMMANDS)
         .copied()
         .collect::<Vec<_>>();
     let event_names = CAPTURE_SESSION_EVENTS
         .iter()
+        .chain(DNS_EVENTS)
         .chain(TRAFFIC_EVENTS)
         .copied()
         .collect::<Vec<_>>();
@@ -151,7 +173,7 @@ pub fn render_typescript() -> String {
         output,
         "export const desktopCommandNames = {} as const;\n\
          export const desktopEventNames = {} as const;\n\
-         export const unitCommandNames = [\"delete_rule\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\",\"set_keep_running\",\"stop_device_onboarding\"] as const;\n",
+         export const unitCommandNames = [\"delete_rule\",\"reload_dns_lists\",\"reorder_rules\",\"save_filter_preset\",\"save_history\",\"save_rule\",\"set_dns_upstream\",\"set_keep_running\",\"stop_device_onboarding\"] as const;\n",
         json_string_array(&command_names),
         json_string_array(&event_names),
     )
@@ -186,6 +208,9 @@ mod tests {
         assert!(first.contains("export interface DbStats"));
         assert!(first.contains("get_keep_running"));
         assert!(first.contains("start_dashboard"));
+        assert!(first.contains("export interface DnsObservation"));
+        assert!(first.contains("get_dns_upstream"));
+        assert!(first.contains("\"dns-query\""));
         assert!(first.contains("\"ws-frame:new\""));
     }
 }

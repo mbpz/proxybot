@@ -1,32 +1,40 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { safeInvoke } from "../../utils/safeInvoke";
+import { desktop, type DesktopContract } from "../../desktop/contract";
+import type { DnsUpstream, DnsUpstreamType } from "../../generated/desktop-contract";
 import { Button } from "../ui/Button";
 import { Globe, RefreshCw } from "lucide-react";
 
-interface DnsUpstream {
-  upstream_type: string;
-  address: string;
+interface DnsTabProps {
+  contract?: DesktopContract;
 }
 
-export function DnsTab() {
+export function DnsTab({ contract = desktop }: DnsTabProps) {
   const [upstream, setUpstream] = useState<DnsUpstream | null>(null);
-  const [upstreamType, setUpstreamType] = useState("plainudp");
+  const [upstreamType, setUpstreamType] = useState<DnsUpstreamType>("plainudp");
   const [address, setAddress] = useState("");
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reloading, setReloading] = useState(false);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [contract]);
 
   async function load() {
-    const result = await safeInvoke<DnsUpstream>("get_dns_upstream");
-    if (result) {
+    setLoading(true);
+    setMessage("");
+    setError(null);
+    try {
+      const result = await contract.call("get_dns_upstream", {});
       setUpstream(result);
       setUpstreamType(result.upstream_type);
       setAddress(result.address);
+    } catch (cause) {
+      setError(errorMessage("Could not load DNS configuration", cause));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -34,13 +42,14 @@ export function DnsTab() {
     try {
       setSaving(true);
       setMessage("");
-      await invoke("set_dns_upstream", {
+      setError(null);
+      await contract.call("set_dns_upstream", {
         upstream: { upstream_type: upstreamType, address },
       });
       setUpstream({ upstream_type: upstreamType, address });
       setMessage("DNS upstream saved");
     } catch (e) {
-      setMessage(`Error: ${e}`);
+      setError(errorMessage("Could not save DNS upstream", e));
     } finally {
       setSaving(false);
     }
@@ -49,21 +58,33 @@ export function DnsTab() {
   async function reloadLists() {
     try {
       setReloading(true);
-      await invoke("reload_dns_lists");
+      setMessage("");
+      setError(null);
+      await contract.call("reload_dns_lists", {});
       setMessage("DNS lists reloaded");
     } catch (e) {
-      setMessage(`Error: ${e}`);
+      setError(errorMessage("Could not reload DNS lists", e));
     } finally {
       setReloading(false);
     }
   }
 
-  const hasChanges =
+  const hasChanges = Boolean(
     upstream &&
-    (upstreamType !== upstream.upstream_type || address !== upstream.address);
+      (upstreamType !== upstream.upstream_type || address !== upstream.address),
+  );
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="error-banner" role="alert">
+          <span className="error-banner-message">{error}</span>
+          <Button variant="secondary" size="sm" onClick={() => void load()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Upstream DNS */}
       <div className="card">
         <div className="flex items-center gap-3 mb-4">
@@ -73,10 +94,13 @@ export function DnsTab() {
 
         <div className="space-y-3">
           <div>
-            <label className="text-sm text-text-muted block mb-1">Type</label>
+            <label htmlFor="dns-upstream-type" className="text-sm text-text-muted block mb-1">
+              Type
+            </label>
             <select
+              id="dns-upstream-type"
               value={upstreamType}
-              onChange={(e) => setUpstreamType(e.target.value)}
+              onChange={(e) => setUpstreamType(e.target.value as DnsUpstreamType)}
               className="w-full"
             >
               <option value="plainudp">Plain UDP (e.g., 8.8.8.8:53)</option>
@@ -85,10 +109,11 @@ export function DnsTab() {
           </div>
 
           <div>
-            <label className="text-sm text-text-muted block mb-1">
+            <label htmlFor="dns-upstream-address" className="text-sm text-text-muted block mb-1">
               {upstreamType === "doh" ? "DoH URL" : "DNS Server"}
             </label>
             <input
+              id="dns-upstream-address"
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -105,8 +130,8 @@ export function DnsTab() {
             <Button
               variant="primary"
               size="sm"
-              disabled={saving || !hasChanges}
-              onClick={save}
+              disabled={loading || saving || !hasChanges}
+              onClick={() => void save()}
             >
               {saving ? "Saving..." : "Save"}
             </Button>
@@ -132,8 +157,8 @@ export function DnsTab() {
           <Button
             variant="secondary"
             size="sm"
-            disabled={reloading}
-            onClick={reloadLists}
+            disabled={loading || saving || reloading}
+            onClick={() => void reloadLists()}
           >
             {reloading ? "Reloading..." : "Reload"}
           </Button>
@@ -141,4 +166,9 @@ export function DnsTab() {
       </div>
     </div>
   );
+}
+
+function errorMessage(context: string, cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return `${context}: ${detail}`;
 }
