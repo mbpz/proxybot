@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "resources:fetch": "bash scripts/fetch-bundle-resources.sh",
     "resources:check": "bash scripts/fetch-bundle-resources.sh --check",
+    "test:workflow-config": "node --test scripts/workflow-config.test.mjs",
     "version:check": "node scripts/version.mjs --check",
     "version:set": "node scripts/version.mjs --set",
     "contract:generate": "cargo run -p proxybot --example export_desktop_contract --no-default-features",
