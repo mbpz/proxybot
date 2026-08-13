@@ -8,6 +8,7 @@ import type {
   DnsObservation,
   InterceptedRequest,
   Rule,
+  TrafficBaseline,
   WsFrame,
 } from "../generated/desktop-contract";
 
@@ -67,6 +68,19 @@ const alert: Alert = {
   acknowledged: false,
 };
 
+const baseline: TrafficBaseline = {
+  device_id: null,
+  domains: [
+    {
+      value: "api.example.com",
+      count: 3,
+      first_seen: "2026-08-01 12:00:00",
+      last_seen: "2026-08-04 12:00:00",
+    },
+  ],
+  ips: [],
+};
+
 const onboarding: DeviceOnboarding = {
   platform: "ios",
   interface: "en0",
@@ -124,11 +138,18 @@ describe("Desktop contract Adapter conformance", () => {
     });
   });
 
-  it("validates Alert reads and acknowledgement through the same contract", async () => {
+  it("validates Alert reads, baseline and anomaly scans through the same contract", async () => {
     const adapter = new BrowserMockAdapter({
       get_alerts: () => [alert],
       get_alert_count: () => 1,
       acknowledge_alert: ({ alertId }) => ({ ...alert, id: alertId, acknowledged: true }),
+      get_traffic_baseline: () => baseline,
+      scan_request_anomalies: () => ({
+        new_domains: ["api.example.com"],
+        new_ips: [],
+        privacy_findings: [],
+        alerts_generated: 1,
+      }),
     });
 
     await expect(adapter.contract.call("get_alerts", {
@@ -141,6 +162,15 @@ describe("Desktop contract Adapter conformance", () => {
     await expect(adapter.contract.call("get_alert_count", {})).resolves.toBe(1);
     await expect(adapter.contract.call("acknowledge_alert", { alertId: alert.id }))
       .resolves.toMatchObject({ id: alert.id, acknowledged: true });
+    await expect(adapter.contract.call("get_traffic_baseline", { deviceId: null }))
+      .resolves.toEqual(baseline);
+    await expect(adapter.contract.call("scan_request_anomalies", {
+      deviceId: null,
+      host: "api.example.com",
+      ip: null,
+      reqBody: null,
+      respBody: null,
+    })).resolves.toMatchObject({ alerts_generated: 1 });
 
     const invalid = new BrowserMockAdapter({
       get_alerts: () => [{ ...alert, severity: "urgent" } as unknown as Alert],
@@ -152,6 +182,12 @@ describe("Desktop contract Adapter conformance", () => {
       acknowledged: null,
       limit: 100,
     })).rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
+
+    const invalidBaseline = new BrowserMockAdapter({
+      get_traffic_baseline: () => ({ ...baseline, domains: [{ ...baseline.domains[0], count: "three" }] }) as never,
+    });
+    await expect(invalidBaseline.contract.call("get_traffic_baseline", { deviceId: null }))
+      .rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
   });
 
   it("validates Device Onboarding preparation and cleanup", async () => {

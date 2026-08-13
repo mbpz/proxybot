@@ -37,6 +37,7 @@ fn frontend_literal_invocations_are_registered() {
         "get_keep_running",
         "get_db_stats",
         "get_dns_upstream",
+        "get_traffic_baseline",
     ] {
         assert!(
             used_by_command.contains_key(expected),
@@ -141,6 +142,7 @@ fn migrated_slices_only_use_the_desktop_adapter() {
         "components/ws-frames",
         "components/rules",
         "components/dns",
+        "components/alerts",
         "features/capture-session",
         "features/device-onboarding",
     ] {

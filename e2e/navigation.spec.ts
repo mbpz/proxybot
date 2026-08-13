@@ -18,7 +18,7 @@ const BASE_MOCKS = {
   list_rule_files: [],
   get_alerts: [],
   get_alert_count: 0,
-  get_traffic_baseline: null,
+  get_traffic_baseline: { device_id: null, domains: [], ips: [] },
   get_graph_data: { requests: [] },
 };
 
@@ -53,6 +53,9 @@ test.describe("Product navigation", () => {
     await expect(page.getByText("DNS Queries", { exact: true })).toBeVisible();
     await captureViews.getByRole("link", { name: "Alerts" }).click();
     await expect(page).toHaveURL(/\/alerts/);
+    await expect(page.getByText("No alerts")).toBeVisible();
+    await page.getByRole("button", { name: "Baseline" }).click();
+    await expect(page.getByText(/No domain baseline yet/)).toBeVisible();
     await captureViews.getByRole("link", { name: "Graph" }).click();
     await expect(page).toHaveURL(/\/graph/);
     await captureViews.getByRole("link", { name: "Topology" }).click();

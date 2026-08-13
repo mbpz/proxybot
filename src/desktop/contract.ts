@@ -7,6 +7,7 @@ import {
   type DesktopCommands,
   type DesktopEvents,
   type Alert,
+  type AnomalyScanResult,
   type DeviceOnboarding,
   type DnsObservation,
   type DnsUpstream,
@@ -14,6 +15,7 @@ import {
   type JsonValue,
   type Rule,
   type RuleAction,
+  type TrafficBaseline,
   type TrafficPage,
   type WsFrame,
   type WsFrameEvent,
@@ -180,6 +182,9 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
     case "get_alerts":
       assertArray(value, command, assertAlert);
       return;
+    case "get_traffic_baseline":
+      assertTrafficBaseline(value, command);
+      return;
     case "get_dashboard_url":
       assertString(value, command);
       return;
@@ -234,6 +239,9 @@ function validateCommandResult(command: keyof DesktopCommands, value: unknown): 
       return;
     case "save_history":
       return;
+    case "scan_request_anomalies":
+      assertAnomalyScanResult(value, command);
+      return;
     case "start_proxy":
     case "stop_proxy":
     case "start_dashboard":
@@ -249,6 +257,43 @@ function assertDbStats(value: unknown, path: string): void {
   assertNumber(value.dns_queries_count, `${path}.dns_queries_count`);
   assertNumber(value.devices_count, `${path}.devices_count`);
   assertNumber(value.app_tags_count, `${path}.app_tags_count`);
+}
+
+function assertTrafficBaseline(value: unknown, path: string): asserts value is TrafficBaseline {
+  assertRecord(value, path);
+  assertNullableNumber(value.device_id, `${path}.device_id`);
+  assertArray(value.domains, `${path}.domains`, assertBaselineEntry);
+  assertArray(value.ips, `${path}.ips`, assertBaselineEntry);
+}
+
+function assertBaselineEntry(value: unknown, path: string): void {
+  assertRecord(value, path);
+  assertString(value.value, `${path}.value`);
+  assertNumber(value.count, `${path}.count`);
+  assertString(value.first_seen, `${path}.first_seen`);
+  assertString(value.last_seen, `${path}.last_seen`);
+}
+
+function assertAnomalyScanResult(
+  value: unknown,
+  path: string,
+): asserts value is AnomalyScanResult {
+  assertRecord(value, path);
+  assertArray(value.new_domains, `${path}.new_domains`, assertString);
+  assertArray(value.new_ips, `${path}.new_ips`, assertString);
+  assertArray(value.privacy_findings, `${path}.privacy_findings`, (finding, findingPath) => {
+    assertRecord(finding, findingPath);
+    assert(
+      finding.pattern === "IDFA" ||
+        finding.pattern === "PhoneNumber" ||
+        finding.pattern === "GpsCoordinates",
+      `${findingPath}.pattern`,
+      "must be a known privacy pattern",
+    );
+    assertString(finding.matched_text, `${findingPath}.matched_text`);
+    assertString(finding.context, `${findingPath}.context`);
+  });
+  assertNumber(value.alerts_generated, `${path}.alerts_generated`);
 }
 
 function assertDnsUpstream(value: unknown, path: string): asserts value is DnsUpstream {

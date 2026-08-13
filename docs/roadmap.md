@@ -190,11 +190,12 @@ exit gate.
    Graph, Topology, and Alerts.
 4. Migrate production UI calls to the generated Desktop Contract Interface;
    remove the shallow `safeInvoke` Adapter that converts failures into `null`.
-   - General Settings and both DNS surfaces now use generated command, result,
-     and event types for background behavior, dashboard lifecycle, database
-     statistics, DNS observations, and upstream configuration. Failed reads and
-     mutations remain visible and retryable instead of becoming false or empty
-     state; the remaining `safeInvoke` callers are tracked by this stage.
+   - General Settings, both DNS surfaces, and Alerts now use generated command,
+     result, and event types for background behavior, dashboard lifecycle,
+     database statistics, DNS observations, upstream configuration, traffic
+     baselines, and anomaly scans. Failed reads and mutations remain visible and
+     retryable instead of becoming false or empty state; the remaining
+     `safeInvoke` callers are tracked by this stage.
 5. Add redaction-first HAR export and a reproducible issue-report bundle.
 
 **P1 exit gate**

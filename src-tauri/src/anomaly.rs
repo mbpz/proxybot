@@ -10,6 +10,7 @@
 use crate::alerts::{AlertSeverity, AlertType, NewAlert};
 use crate::analysis::CapturedRequestAnalysis;
 use crate::db::DbState;
+use proxybot_core::desktop_contract::{DesktopContractType, WireType};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -29,38 +30,60 @@ pub enum PrivacyPattern {
     GpsCoordinates,
 }
 
-/// Result of a privacy scan on a body.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PrivacyScanResult {
-    pub pattern: PrivacyPattern,
-    pub matched_text: String,
-    pub context: String,
+impl WireType for PrivacyPattern {
+    fn type_script_type() -> String {
+        "PrivacyPattern".to_owned()
+    }
 }
 
-/// Baseline entry for a domain/IP.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BaselineEntry {
-    pub value: String,
-    pub count: i64,
-    pub first_seen: String,
-    pub last_seen: String,
+impl DesktopContractType for PrivacyPattern {
+    const NAME: &'static str = "PrivacyPattern";
+
+    fn type_script_declaration() -> String {
+        "export type PrivacyPattern = \"IDFA\" | \"PhoneNumber\" | \"GpsCoordinates\";\n".to_owned()
+    }
 }
 
-/// Traffic baseline for a device.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrafficBaseline {
-    pub device_id: Option<i64>,
-    pub domains: Vec<BaselineEntry>,
-    pub ips: Vec<BaselineEntry>,
+proxybot_core::desktop_contract_type! {
+    /// Result of a privacy scan on a body.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PrivacyScanResult {
+        pub pattern: PrivacyPattern,
+        pub matched_text: String,
+        pub context: String,
+    }
 }
 
-/// Anomaly scan result for a request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnomalyScanResult {
-    pub new_domains: Vec<String>,
-    pub new_ips: Vec<String>,
-    pub privacy_findings: Vec<PrivacyScanResult>,
-    pub alerts_generated: i32,
+proxybot_core::desktop_contract_type! {
+    /// Baseline entry for a domain/IP.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct BaselineEntry {
+        pub value: String,
+        pub count: i64,
+        pub first_seen: String,
+        pub last_seen: String,
+    }
+}
+
+proxybot_core::desktop_contract_type! {
+    /// Traffic baseline for a device.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct TrafficBaseline {
+        pub device_id: Option<i64>,
+        pub domains: Vec<BaselineEntry>,
+        pub ips: Vec<BaselineEntry>,
+    }
+}
+
+proxybot_core::desktop_contract_type! {
+    /// Anomaly scan result for a request.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct AnomalyScanResult {
+        pub new_domains: Vec<String>,
+        pub new_ips: Vec<String>,
+        pub privacy_findings: Vec<PrivacyScanResult>,
+        pub alerts_generated: i32,
+    }
 }
 
 /// Baseline store for persistent domain/IP baseline storage.

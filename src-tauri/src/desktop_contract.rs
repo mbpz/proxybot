@@ -5,6 +5,9 @@
 //! CI regenerates it in check mode to catch drift.
 
 use crate::alerts::{Alert, AlertSeverity, AlertType};
+use crate::anomaly::{
+    AnomalyScanResult, BaselineEntry, PrivacyPattern, PrivacyScanResult, TrafficBaseline,
+};
 use crate::commands::device_setup::{DeviceOnboarding, DevicePlatform};
 use crate::commands::filter::ParseResult;
 use crate::db::DbStats;
@@ -48,7 +51,13 @@ pub const RULE_COMMANDS: &[&str] = &[
     "save_rule",
 ];
 
-pub const ALERT_COMMANDS: &[&str] = &["acknowledge_alert", "get_alert_count", "get_alerts"];
+pub const ALERT_COMMANDS: &[&str] = &[
+    "acknowledge_alert",
+    "get_alert_count",
+    "get_alerts",
+    "get_traffic_baseline",
+    "scan_request_anomalies",
+];
 
 pub const DNS_COMMANDS: &[&str] = &[
     "get_dns_log",
@@ -92,6 +101,11 @@ pub fn render_typescript() -> String {
         AlertSeverity::type_script_declaration(),
         AlertType::type_script_declaration(),
         Alert::type_script_declaration(),
+        PrivacyPattern::type_script_declaration(),
+        PrivacyScanResult::type_script_declaration(),
+        BaselineEntry::type_script_declaration(),
+        TrafficBaseline::type_script_declaration(),
+        AnomalyScanResult::type_script_declaration(),
         DevicePlatform::type_script_declaration(),
         DeviceOnboarding::type_script_declaration(),
         DbStats::type_script_declaration(),
@@ -122,6 +136,7 @@ pub fn render_typescript() -> String {
          \x20 get_rules: { args: { filename: string }; result: Rule[] };\n\
          \x20 get_alert_count: { args: Record<string, never>; result: number };\n\
          \x20 get_alerts: { args: { deviceId: number | null; severity: AlertSeverity | null; since: string | null; acknowledged: boolean | null; limit: number | null }; result: Alert[] };\n\
+         \x20 get_traffic_baseline: { args: { deviceId: number | null }; result: TrafficBaseline };\n\
          \x20 get_dashboard_url: { args: Record<string, never>; result: string };\n\
          \x20 get_db_stats: { args: Record<string, never>; result: DbStats };\n\
          \x20 get_dns_log: { args: Record<string, never>; result: DnsObservation[] };\n\
@@ -140,6 +155,7 @@ pub fn render_typescript() -> String {
          \x20 save_har_file: { args: { harJson: string; sessionName: string }; result: string };\n\
          \x20 save_history: { args: { requests: InterceptedRequest[] }; result: undefined };\n\
          \x20 save_rule: { args: { rule: Rule; filename: string; originalRule: Rule | null }; result: undefined };\n\
+         \x20 scan_request_anomalies: { args: { deviceId: number | null; host: string; ip: string | null; reqBody: string | null; respBody: string | null }; result: AnomalyScanResult };\n\
          \x20 set_keep_running: { args: { keep: boolean }; result: undefined };\n\
          \x20 set_dns_upstream: { args: { upstream: DnsUpstream }; result: undefined };\n\
          \x20 start_dashboard: { args: Record<string, never>; result: string };\n\
@@ -205,6 +221,8 @@ mod tests {
         assert!(first.contains("export type RuleAction"));
         assert!(first.contains("export interface Alert"));
         assert!(first.contains("acknowledge_alert"));
+        assert!(first.contains("export interface TrafficBaseline"));
+        assert!(first.contains("scan_request_anomalies"));
         assert!(first.contains("export interface DbStats"));
         assert!(first.contains("get_keep_running"));
         assert!(first.contains("start_dashboard"));

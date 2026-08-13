@@ -17,7 +17,7 @@ const BASE_MOCKS = {
   list_rule_files: [],
   get_alerts: [],
   get_alert_count: 0,
-  get_traffic_baseline: null,
+  get_traffic_baseline: { device_id: null, domains: [], ips: [] },
   get_graph_data: { requests: [] },
   // SSL Bypass mocks
   frida_list_devices: [],

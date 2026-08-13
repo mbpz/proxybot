@@ -1,82 +1,83 @@
 import { useState, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { safeInvoke } from "../../utils/safeInvoke";
-import { desktop } from "../../desktop/contract";
-import type { Alert, AlertSeverity } from "../../generated/desktop-contract";
+import { desktop, type DesktopContract } from "../../desktop/contract";
+import type {
+  Alert,
+  AlertSeverity,
+  TrafficBaseline,
+} from "../../generated/desktop-contract";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Tabs } from "../ui/Tabs";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 
-interface BaselineEntry {
-  value: string;
-  count: number;
-  first_seen: string;
-  last_seen: string;
+interface AlertsPageProps {
+  contract?: DesktopContract;
 }
 
-interface TrafficBaseline {
-  device_id: number | null;
-  domains: BaselineEntry[];
-  ips: BaselineEntry[];
-}
-
-export function AlertsPage() {
+export function AlertsPage({ contract = desktop }: AlertsPageProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [baseline, setBaseline] = useState<TrafficBaseline | null>(null);
   const [unackedCount, setUnackedCount] = useState(0);
   const [severityFilter, setSeverityFilter] = useState<AlertSeverity | "all">("all");
   const [activeTab, setActiveTab] = useState("alerts");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [baselineLoading, setBaselineLoading] = useState(true);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+  const [baselineError, setBaselineError] = useState<string | null>(null);
 
   const loadAlerts = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
+      setAlertsError(null);
       const [result, count] = await Promise.all([
-        desktop.call("get_alerts", {
+        contract.call("get_alerts", {
           deviceId: null,
           severity: severityFilter === "all" ? null : severityFilter,
           since: null,
           acknowledged: null,
           limit: 100,
         }),
-        desktop.call("get_alert_count", {}),
+        contract.call("get_alert_count", {}),
       ]);
       setAlerts(Array.isArray(result) ? result : []);
       setUnackedCount(typeof count === "number" ? count : 0);
     } catch (err) {
-      setError(String(err));
+      setAlertsError(errorMessage("Could not load alerts", err));
     } finally {
       setLoading(false);
     }
-  }, [severityFilter]);
+  }, [contract, severityFilter]);
 
   const loadBaseline = useCallback(async () => {
-    const result = await safeInvoke<TrafficBaseline | null>("get_traffic_baseline", { device_id: null });
-    if (result !== null && result !== undefined) {
+    setBaselineLoading(true);
+    setBaselineError(null);
+    try {
+      const result = await contract.call("get_traffic_baseline", { deviceId: null });
       setBaseline(result);
+    } catch (err) {
+      setBaselineError(errorMessage("Could not load traffic baseline", err));
+    } finally {
+      setBaselineLoading(false);
     }
-  }, []);
+  }, [contract]);
 
   // Alerts reload when severity filter changes
   useEffect(() => {
-    loadAlerts();
+    void loadAlerts();
   }, [loadAlerts]);
 
   // Baseline loads once on mount
   useEffect(() => {
-    loadBaseline();
+    void loadBaseline();
   }, [loadBaseline]);
 
   async function acknowledgeAlert(id: number) {
     try {
-      await desktop.call("acknowledge_alert", { alertId: id });
-      loadAlerts();
+      await contract.call("acknowledge_alert", { alertId: id });
+      await loadAlerts();
     } catch (err) {
-      setError(String(err));
+      setAlertsError(errorMessage("Could not acknowledge alert", err));
     }
   }
 
@@ -131,22 +132,37 @@ export function AlertsPage() {
               </span>
             )}
           </div>
-          <Button variant="secondary" size="sm" onClick={() => { loadAlerts(); loadBaseline(); }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={loading || baselineLoading}
+            onClick={() => {
+              void loadAlerts();
+              void loadBaseline();
+            }}
+          >
             Refresh
-          </Button>
-          <Button variant="secondary" size="sm" onClick={async () => {
-            try { await invoke("scan_request_anomalies", { device_id: null, host: "", ip: null, req_body: null, resp_body: null }); loadAlerts(); }
-            catch (err) { setError(String(err)); }
-          }}>
-            Scan Now
           </Button>
         </div>
 
         {/* Error banner */}
-        {error && (
-          <div className="error-banner" style={{ margin: "0 var(--space-4) var(--space-2)" }}>
-            <span className="error-banner-message">{error}</span>
-            <Button variant="secondary" size="sm" onClick={loadAlerts}>
+        {(alertsError || baselineError) && (
+          <div
+            className="error-banner"
+            role="alert"
+            style={{ margin: "0 var(--space-4) var(--space-2)" }}
+          >
+            <span className="error-banner-message">
+              {[alertsError, baselineError].filter(Boolean).join("; ")}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                void loadAlerts();
+                void loadBaseline();
+              }}
+            >
               Retry
             </Button>
           </div>
@@ -229,7 +245,7 @@ export function AlertsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => acknowledgeAlert(alert.id)}
+                                onClick={() => void acknowledgeAlert(alert.id)}
                               >
                                 ACK
                               </Button>
@@ -245,8 +261,15 @@ export function AlertsPage() {
 
             {activeTab === "baseline" && (
               <div>
-                {!baseline ? (
+                {baselineLoading ? (
                   <SkeletonTable rows={5} />
+                ) : !baseline ? (
+                  <div className="empty-state">
+                    <div className="empty-state-title">Baseline unavailable</div>
+                    <div className="empty-state-description">
+                      Retry after the desktop service is available.
+                    </div>
+                  </div>
                 ) : (
                   <div style={{ padding: "var(--space-4)" }}>
                     <div className="card" style={{ marginBottom: "var(--space-4)" }}>
@@ -325,4 +348,9 @@ export function AlertsPage() {
       </div>
     </div>
   );
+}
+
+function errorMessage(context: string, cause: unknown): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return `${context}: ${detail}`;
 }
