@@ -294,6 +294,11 @@ function assertAnomalyScanResult(
     assertString(finding.context, `${findingPath}.context`);
   });
   assertNumber(value.alerts_generated, `${path}.alerts_generated`);
+  assert(
+    Number.isInteger(value.alerts_generated),
+    `${path}.alerts_generated`,
+    "must be an integer",
+  );
 }
 
 function assertDnsUpstream(value: unknown, path: string): asserts value is DnsUpstream {

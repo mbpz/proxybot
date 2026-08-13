@@ -188,6 +188,22 @@ describe("Desktop contract Adapter conformance", () => {
     });
     await expect(invalidBaseline.contract.call("get_traffic_baseline", { deviceId: null }))
       .rejects.toMatchObject({ kind: "contract", code: "contract_violation" });
+
+    const invalidAnomaly = new BrowserMockAdapter({
+      scan_request_anomalies: () => ({
+        new_domains: [],
+        new_ips: [],
+        privacy_findings: [],
+        alerts_generated: 1.5,
+      }),
+    });
+    await expect(invalidAnomaly.contract.call("scan_request_anomalies", {
+      deviceId: null,
+      host: "api.example.com",
+      ip: null,
+      reqBody: null,
+      respBody: null,
+    })).rejects.toBeInstanceOf(DesktopError);
   });
 
   it("validates Device Onboarding preparation and cleanup", async () => {
