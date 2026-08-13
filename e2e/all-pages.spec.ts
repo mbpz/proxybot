@@ -118,8 +118,18 @@ test.describe("DNS Page", () => {
 test.describe("Alerts Page", () => {
   test("has severity filter buttons", async ({ page }) => {
     await page.goto("/alerts");
-    await expect(page.getByRole("button", { name: "All", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Scan Now" })).toBeVisible();
+    const allFilter = page.getByRole("button", { name: "All", exact: true });
+    const criticalFilter = page.getByRole("button", { name: "Critical", exact: true });
+
+    await expect(allFilter).toHaveClass(/btn-primary/);
+    await expect(page.getByRole("button", { name: "Info", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Warning", exact: true })).toBeVisible();
+    await expect(criticalFilter).toBeVisible();
+
+    await criticalFilter.click();
+    await expect(criticalFilter).toHaveClass(/btn-primary/);
+    await expect(allFilter).toHaveClass(/btn-secondary/);
+    await expect(page.getByRole("button", { name: "Scan Now" })).toHaveCount(0);
   });
 
   test("has baseline tab", async ({ page }) => {
@@ -243,8 +253,12 @@ test.describe("Data Binding", () => {
   test("alerts page shows severity filters", async ({ page }) => {
     await page.goto("/alerts");
     // Severity filter buttons should always render
-    await expect(page.getByRole("button", { name: "All", exact: true })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole("button", { name: "Scan Now" })).toBeVisible();
+    for (const severity of ["All", "Info", "Warning", "Critical"]) {
+      await expect(page.getByRole("button", { name: severity, exact: true })).toBeVisible({
+        timeout: 5000,
+      });
+    }
+    await expect(page.getByRole("button", { name: "Scan Now" })).toHaveCount(0);
   });
 
   test("advanced cert page shows the destructive CA controls", async ({ page }) => {
