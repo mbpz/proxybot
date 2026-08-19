@@ -4,7 +4,31 @@ import { fileURLToPath } from "node:url";
 
 const START_MARKER = "<!-- parity-matrix:start -->";
 const END_MARKER = "<!-- parity-matrix:end -->";
+const SCHEMA_VERSION = 1;
 const REPOSITORY = "RockxyApp/Rockxy";
+const REFERENCE_COMMIT = "6a676d631820b577cf3a651c78d856733a7df995";
+const REFERENCE_CAPTURED_AT = "2026-08-19";
+const REFERENCE_SOURCE_LICENSE = "AGPL-3.0-or-later Community source";
+const REFERENCE_PUBLIC_ARTIFACT =
+  `https://github.com/RockxyApp/Rockxy/tree/${REFERENCE_COMMIT}`;
+const REFERENCE_EXCLUDED_ARTIFACTS = [
+  "official downstream DMG",
+  "private/Pro behavior",
+];
+const MANIFEST_FIELDS = ["schema_version", "reference", "capabilities"];
+const REFERENCE_FIELDS = [
+  "repository",
+  "commit",
+  "captured_at",
+  "source_license",
+  "public_artifact",
+  "excluded_artifacts",
+];
+const PROXY_EVIDENCE_PREFIXES = ["source", "test", "docs"];
+const CAPABILITY_IDS = Array.from(
+  { length: 47 },
+  (_, index) => `RXC-${String(index + 1).padStart(3, "0")}`,
+);
 const EVIDENCE_GRADES = [
   "documented",
   "source-backed",
@@ -108,17 +132,28 @@ function rank(grade) {
   return EVIDENCE_GRADES.indexOf(grade);
 }
 
-function pathExistsBelowRepository(item) {
-  if (typeof item !== "string") return false;
+function inspectProxyEvidence(item) {
+  if (typeof item !== "string") return { kind: "non-string" };
   const separator = item.indexOf(":");
-  if (separator <= 0) return true;
+  if (separator <= 0) return { kind: "missing-prefix" };
+  const prefix = item.slice(0, separator);
+  if (!PROXY_EVIDENCE_PREFIXES.includes(prefix)) {
+    return { kind: "unknown-prefix" };
+  }
   const pathPart = item.slice(separator + 1);
-  if (!pathPart || isAbsolute(pathPart)) return false;
+  if (!pathPart) return { kind: "missing-path" };
+  if (isAbsolute(pathPart) || /^[A-Za-z]:[\\/]/.test(pathPart)) {
+    return { kind: "absolute" };
+  }
   const segments = pathPart.split(/[\\/]+/);
-  if (segments.includes("..")) return false;
+  if (segments.includes("..")) return { kind: "unsafe" };
   const candidate = resolve(repositoryRoot, pathPart);
   const rel = relative(repositoryRoot, candidate);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && existsSync(candidate);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    return { kind: "unsafe" };
+  }
+  if (!existsSync(candidate)) return { kind: "missing-path" };
+  return { kind: "valid", prefix };
 }
 
 function validateReference(reference, violations) {
@@ -126,33 +161,44 @@ function validateReference(reference, violations) {
     violations.push("reference must be an object");
     return;
   }
-  for (const field of [
-    "repository",
-    "commit",
-    "captured_at",
-    "source_license",
-    "public_artifact",
-    "excluded_artifacts",
-  ]) {
+  for (const field of REFERENCE_FIELDS) {
     if (!(field in reference)) violations.push(`reference is missing ${field}`);
+  }
+  for (const field of Object.keys(reference)) {
+    if (!REFERENCE_FIELDS.includes(field)) {
+      violations.push(`reference has undeclared field ${field}`);
+    }
   }
   if (reference.repository !== REPOSITORY) {
     violations.push(`reference repository must be ${REPOSITORY}`);
   }
-  if (typeof reference.commit !== "string" || !/^[0-9a-f]{40}$/.test(reference.commit)) {
-    violations.push("reference commit must be a 40-character lowercase hexadecimal SHA");
+  if (reference.commit !== REFERENCE_COMMIT) {
+    violations.push(`reference commit must be ${REFERENCE_COMMIT}`);
   }
-  if (typeof reference.captured_at !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(reference.captured_at)) {
-    violations.push("reference captured_at must be YYYY-MM-DD");
+  if (reference.captured_at !== REFERENCE_CAPTURED_AT) {
+    violations.push(`reference captured_at must be ${REFERENCE_CAPTURED_AT}`);
   }
-  if (!isNonEmptyString(reference.source_license)) {
-    violations.push("reference source_license must be non-empty");
+  if (reference.source_license !== REFERENCE_SOURCE_LICENSE) {
+    violations.push(
+      `reference source_license must be ${REFERENCE_SOURCE_LICENSE}`,
+    );
   }
-  if (!isNonEmptyString(reference.public_artifact)) {
-    violations.push("reference public_artifact must be non-empty");
+  if (reference.public_artifact !== REFERENCE_PUBLIC_ARTIFACT) {
+    violations.push(
+      `reference public_artifact must be ${REFERENCE_PUBLIC_ARTIFACT}`,
+    );
   }
-  if (!Array.isArray(reference.excluded_artifacts)) {
-    violations.push("reference excluded_artifacts must be an array");
+  if (
+    !Array.isArray(reference.excluded_artifacts) ||
+    reference.excluded_artifacts.length !==
+      REFERENCE_EXCLUDED_ARTIFACTS.length ||
+    !REFERENCE_EXCLUDED_ARTIFACTS.every(
+      (item, index) => reference.excluded_artifacts[index] === item,
+    )
+  ) {
+    violations.push(
+      `reference excluded_artifacts must be ${REFERENCE_EXCLUDED_ARTIFACTS.join(", ")} in that order`,
+    );
   }
 }
 
@@ -188,8 +234,31 @@ function validateProxyEvidence(row, violations) {
     return;
   }
   for (const item of evidence) {
-    if (typeof item === "string" && /^(source|test|docs):/.test(item) && !pathExistsBelowRepository(item)) {
-      violations.push(`capability ${row.id ?? "<unknown>"} has missing or unsafe ProxyBot evidence path ${item}`);
+    const inspected = inspectProxyEvidence(item);
+    if (inspected.kind === "non-string") {
+      violations.push(
+        `capability ${row.id ?? "<unknown>"} has non-string ProxyBot evidence`,
+      );
+    } else if (inspected.kind === "missing-prefix") {
+      violations.push(
+        `capability ${row.id ?? "<unknown>"} has ProxyBot evidence with missing prefix ${item}`,
+      );
+    } else if (inspected.kind === "unknown-prefix") {
+      violations.push(
+        `capability ${row.id ?? "<unknown>"} has ProxyBot evidence with unknown prefix ${item}`,
+      );
+    } else if (inspected.kind === "absolute") {
+      violations.push(
+        `capability ${row.id ?? "<unknown>"} has absolute ProxyBot evidence path ${item}`,
+      );
+    } else if (inspected.kind === "unsafe") {
+      violations.push(
+        `capability ${row.id ?? "<unknown>"} has unsafe ProxyBot evidence path ${item}`,
+      );
+    } else if (inspected.kind === "missing-path") {
+      violations.push(
+        `capability ${row.id ?? "<unknown>"} has missing ProxyBot evidence path ${item}`,
+      );
     }
   }
 }
@@ -197,7 +266,17 @@ function validateProxyEvidence(row, violations) {
 export function validateManifest(manifest) {
   const violations = [];
   if (!isObject(manifest)) return ["manifest must be a JSON object"];
-  if (manifest.schema_version !== 1) violations.push("schema_version must be 1");
+  for (const field of MANIFEST_FIELDS) {
+    if (!(field in manifest)) violations.push(`manifest is missing ${field}`);
+  }
+  for (const field of Object.keys(manifest)) {
+    if (!MANIFEST_FIELDS.includes(field)) {
+      violations.push(`manifest has undeclared field ${field}`);
+    }
+  }
+  if (manifest.schema_version !== SCHEMA_VERSION) {
+    violations.push(`schema_version must be ${SCHEMA_VERSION}`);
+  }
   validateReference(manifest.reference, violations);
   if (!Array.isArray(manifest.capabilities)) {
     violations.push("capabilities must be an array");
@@ -270,10 +349,19 @@ export function validateManifest(manifest) {
 
     const proxyEvidence = Array.isArray(row.proxybot_evidence) ? row.proxybot_evidence : [];
     const hasExistingSourceOrTest = proxyEvidence.some(
-      (item) => /^(source|test):/.test(item) && pathExistsBelowRepository(item),
+      (item) => {
+        const inspected = inspectProxyEvidence(item);
+        return (
+          inspected.kind === "valid" &&
+          ["source", "test"].includes(inspected.prefix)
+        );
+      },
     );
     if (row.proxybot_status === "Present") {
-      if (!["test-backed", "release-proven"].includes(row.proxybot_evidence_grade) || !proxyEvidence.some((item) => /^test:/.test(item) && pathExistsBelowRepository(item))) {
+      if (!["test-backed", "release-proven"].includes(row.proxybot_evidence_grade) || !proxyEvidence.some((item) => {
+        const inspected = inspectProxyEvidence(item);
+        return inspected.kind === "valid" && inspected.prefix === "test";
+      })) {
         violations.push(`capability ${id} Present claim requires test-backed or release-proven ProxyBot evidence`);
       }
     }
@@ -284,7 +372,10 @@ export function validateManifest(manifest) {
     }
     if (["Missing", "Out-of-scope private", "Future-not-shipped"].includes(row.proxybot_status)) {
       const hasExistingDocs = proxyEvidence.some(
-        (item) => /^docs:/.test(item) && pathExistsBelowRepository(item),
+        (item) => {
+          const inspected = inspectProxyEvidence(item);
+          return inspected.kind === "valid" && inspected.prefix === "docs";
+        },
       );
       if (row.proxybot_evidence_grade !== "documented" || !hasExistingDocs) {
         violations.push(
@@ -292,6 +383,14 @@ export function validateManifest(manifest) {
         );
       }
     }
+  }
+
+  for (const id of CAPABILITY_IDS) {
+    if (!ids.has(id)) violations.push(`missing capability id ${id}`);
+  }
+  const expectedIds = new Set(CAPABILITY_IDS);
+  for (const id of ids) {
+    if (!expectedIds.has(id)) violations.push(`unexpected capability id ${id}`);
   }
 
   for (const category of REQUIRED_CATEGORIES) {
