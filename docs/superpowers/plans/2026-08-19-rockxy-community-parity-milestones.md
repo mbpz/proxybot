@@ -62,7 +62,7 @@ M7..M14 -> M15 -> M16 -> M17
 
 | Phase | Milestones | Exit outcome | Status |
 | --- | --- | --- | --- |
-| A — Core depth | M0-M6 | Setup -> Capture -> Investigate -> Modify/Reproduce -> Redacted Share is durable and verified | Not started |
+| A — Core depth | M0-M6 | Setup -> Capture -> Investigate -> Modify/Reproduce -> Redacted Share is durable and verified | In progress (M0 complete) |
 | B — Community breadth | M7-M14 | Every public Community capability is Present, gated, documented, and testable | Not started |
 | C — Historical hardening | M15-M17 | high-volume UX, security/release, historical regressions, and final parity evidence pass | Not started |
 
@@ -86,13 +86,13 @@ already has, what evidence proves it, and which milestone owns each gap.
 
 **Checklist:**
 
-- [ ] **M0.1 Freeze the reference contract.** Record the Rockxy commit, public Community license, public/private artifact boundary, capture date, and exact evidence URLs; reject floating `main` links in the matrix.
-- [ ] **M0.2 Define evidence grades.** Encode `documented`, `source-backed`, `test-backed`, `observable-build`, and `release-proven` grades and require at least source-backed or observable-build evidence for parity scope.
-- [ ] **M0.3 Inventory every Community capability.** Include capture, filtering, Focus/Noise, workspaces, Assistant, MCP, setup, certificates, proxy/rules, Compose/Compare, sessions/export, scripting, protocols, logs, nearby transfer, updates, security, accessibility, and performance.
-- [ ] **M0.4 Map ProxyBot status.** Classify each item as Present, Partial, Missing, Out-of-scope private, or Future-not-shipped with local file/test evidence and owning milestone.
-- [ ] **M0.5 Make matrix completeness executable.** Add `rtk pnpm parity:check`; fail on duplicate IDs, missing owner, missing acceptance criteria, floating reference, or unsupported completion claim.
-- [ ] **M0.6 Establish the clean-room contribution rule.** Add contributor guidance forbidding copied Rockxy source/tests/assets and requiring independently authored fixtures from protocols or observable behavior.
-- [ ] **M0.7 Verify the baseline.** Run `rtk pnpm parity:check`, `rtk pnpm version:check`, `rtk pnpm contract:check`, `rtk git diff --check`, and confirm the worktree contains documentation/tooling changes only.
+- [x] **M0.1 Freeze the reference contract.** Record the Rockxy commit, public Community license, public/private artifact boundary, capture date, and exact evidence URLs; reject floating `main` links in the matrix.
+- [x] **M0.2 Define evidence grades.** Encode `documented`, `source-backed`, `test-backed`, `observable-build`, and `release-proven` grades and require at least source-backed or observable-build evidence for parity scope.
+- [x] **M0.3 Inventory every Community capability.** Include capture, filtering, Focus/Noise, workspaces, Assistant, MCP, setup, certificates, proxy/rules, Compose/Compare, sessions/export, scripting, protocols, logs, nearby transfer, updates, security, accessibility, and performance.
+- [x] **M0.4 Map ProxyBot status.** Classify each item as Present, Partial, Missing, Out-of-scope private, or Future-not-shipped with local file/test evidence and owning milestone.
+- [x] **M0.5 Make matrix completeness executable.** Add `rtk pnpm parity:check`; fail on duplicate IDs, missing owner, missing acceptance criteria, floating reference, or unsupported completion claim.
+- [x] **M0.6 Establish the clean-room contribution rule.** Add contributor guidance forbidding copied Rockxy source/tests/assets and requiring independently authored fixtures from protocols or observable behavior.
+- [x] **M0.7 Verify the baseline.** Run `rtk pnpm parity:check`, `rtk pnpm version:check`, `rtk pnpm contract:check`, `rtk git diff --check`, and confirm the worktree contains documentation/tooling changes only.
 
 **Exit gate:** Every scoped capability has a stable ID, evidence grade, ProxyBot
 status, owning milestone, independent acceptance statement, and machine-checked row.

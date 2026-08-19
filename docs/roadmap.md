@@ -2,7 +2,7 @@
 
 **Status:** active product-convergence plan
 
-**Last reviewed:** 2026-08-04
+**Last reviewed:** 2026-08-19
 
 **Primary user:** a mobile application developer debugging a test device from a Mac
 
@@ -110,6 +110,21 @@ ProxyBot should borrow interaction principles, not copy competitors' breadth.
 
 Star counts and feature checklists are intentionally omitted: they age quickly
 and reward surface area rather than a reliable user journey.
+
+## Rockxy Community compatibility program
+
+The [design](superpowers/specs/2026-08-19-rockxy-community-parity-design.md),
+[master milestone plan](superpowers/plans/2026-08-19-rockxy-community-parity-milestones.md),
+[evidence ledger](parity/rockxy-community-evidence.md), and
+[machine-readable matrix](parity/rockxy-community-matrix.md) define the Rockxy
+Community compatibility program. It is pinned to
+`RockxyApp/Rockxy@6a676d631820b577cf3a651c78d856733a7df995` and is strictly a
+clean-room, public-Community-only effort.
+
+The matrix is the authority for capability evidence, status, owner, and
+acceptance; this roadmap remains the authority for product priority. Work moves
+from Phase A to Phase B to Phase C. Feature-count parity cannot waive ProxyBot's
+first-success, redaction, security, or release gates.
 
 ## Recommended execution order
 

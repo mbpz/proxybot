@@ -34,4 +34,16 @@ Downloads are pinned and verified against `src-tauri/resources/resources.lock`.
 - Do not commit generated outputs, downloaded bundle resources, credentials, certificates, captured traffic, or user data.
 - Explain any new unsafe code, elevated-privilege behavior, network listener, or certificate handling in the pull request.
 
+### Clean-room compatibility work
+
+- Only public Community behavior at the pinned evidence snapshot is eligible for
+  compatibility work.
+- Do not copy Rockxy source, tests, fixtures, copy, icons, images, private or
+  Pro behavior, or results from reverse engineering an official DMG into
+  ProxyBot.
+- Independently author implementations and fixtures from public protocols,
+  ProxyBot requirements, and observable behavior.
+- Compatibility pull requests must update the parity row, cite pinned evidence,
+  name the acceptance test, and preserve ProxyBot's MIT-compatible provenance.
+
 By participating, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
