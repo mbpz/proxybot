@@ -99,6 +99,12 @@ test("rejects duplicate capability IDs", () => {
   assertFailure(manifest, "duplicate capability id RXC-001");
 });
 
+test("rejects undeclared capability fields", () => {
+  const manifest = validManifest();
+  manifest.capabilities[0].unexpected = true;
+  assertFailure(manifest, "capability RXC-001 has undeclared field unexpected");
+});
+
 test("rejects a row without an owner", () => {
   const manifest = validManifest();
   manifest.capabilities[0].owner = "";
@@ -133,6 +139,41 @@ test("rejects unsupported Present claims", () => {
   assertFailure(
     manifest,
     "Present claim requires test-backed or release-proven ProxyBot evidence",
+  );
+});
+
+test("rejects Missing claims without existing docs evidence", () => {
+  const manifest = validManifest();
+  manifest.capabilities[0].proxybot_status = "Missing";
+  manifest.capabilities[0].proxybot_evidence_grade = "documented";
+  manifest.capabilities[0].proxybot_evidence = ["source:package.json"];
+  assertFailure(
+    manifest,
+    "Missing claim requires documented evidence and an existing docs item",
+  );
+});
+
+test("rejects private claims without existing docs evidence", () => {
+  const manifest = validManifest();
+  manifest.capabilities[0].scope = "private";
+  manifest.capabilities[0].proxybot_status = "Out-of-scope private";
+  manifest.capabilities[0].proxybot_evidence_grade = "documented";
+  manifest.capabilities[0].proxybot_evidence = ["source:package.json"];
+  assertFailure(
+    manifest,
+    "Out-of-scope private claim requires documented evidence and an existing docs item",
+  );
+});
+
+test("rejects future claims without existing docs evidence", () => {
+  const manifest = validManifest();
+  manifest.capabilities[0].scope = "future";
+  manifest.capabilities[0].proxybot_status = "Future-not-shipped";
+  manifest.capabilities[0].proxybot_evidence_grade = "documented";
+  manifest.capabilities[0].proxybot_evidence = ["source:package.json"];
+  assertFailure(
+    manifest,
+    "Future-not-shipped claim requires documented evidence and an existing docs item",
   );
 });
 

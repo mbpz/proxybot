@@ -215,6 +215,11 @@ export function validateManifest(manifest) {
     for (const field of REQUIRED_FIELDS) {
       if (!(field in row)) violations.push(`capability ${id} is missing ${field}`);
     }
+    for (const field of Object.keys(row)) {
+      if (!REQUIRED_FIELDS.includes(field)) {
+        violations.push(`capability ${id} has undeclared field ${field}`);
+      }
+    }
     if (typeof row.id !== "string" || !/^RXC-[0-9]{3}$/.test(row.id)) {
       violations.push(`capability ${id} has invalid ID`);
     } else if (ids.has(row.id)) {
@@ -275,6 +280,16 @@ export function validateManifest(manifest) {
     if (row.proxybot_status === "Partial") {
       if (rank(row.proxybot_evidence_grade) < rank("source-backed") || !hasExistingSourceOrTest) {
         violations.push(`capability ${id} Partial claim requires source-backed evidence and an existing source or test item`);
+      }
+    }
+    if (["Missing", "Out-of-scope private", "Future-not-shipped"].includes(row.proxybot_status)) {
+      const hasExistingDocs = proxyEvidence.some(
+        (item) => /^docs:/.test(item) && pathExistsBelowRepository(item),
+      );
+      if (row.proxybot_evidence_grade !== "documented" || !hasExistingDocs) {
+        violations.push(
+          `capability ${id} ${row.proxybot_status} claim requires documented evidence and an existing docs item`,
+        );
       }
     }
   }
