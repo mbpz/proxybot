@@ -16,16 +16,16 @@ serde_yaml = "0.9"
 
 # Certificate generation (MITM)
 rcgen = { version = "0.14", features = ["x509-parser"] }
-sha1 = "0.10"
+sha1 = "0.11"
 
 # Networking
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 idna = "1"
 async-trait = "0.1"
 rustls = { version = "0.23", features = ["std"] }
 rustls-pemfile = "2.1"
 tokio-rustls = "0.26"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 
 # Logging
 log = "0.4"
@@ -41,8 +41,8 @@ tokio = { version = "1", features = ["full"] }
 # Spec generation
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 chrono = { version = "0.4", features = ["serde"] }
-axum = "0.7"
-jsonschema = { version = "0.18", default-features = false }
+axum = "0.8"
+jsonschema = { version = "0.49", default-features = false }
 
 # Body decompression (gzip/deflate/brotli) for captured responses
 flate2 = "1"
