@@ -1,7 +1,8 @@
 # 快速入门
 
 本指南使用显式代理，因为它的配置和清理最小、最可预测。当前 Release 仍是开发
-预览产物，因此受支持的贡献者路径是从源码运行。
+预览产物，因此受支持的贡献者路径是从源码运行。界面只有三个目的地：
+**Capture**、**Setup** 与 **Settings**；设备接入流程全部位于 Setup。
 
 ## 准备工作
 
@@ -24,19 +25,25 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-打开 **Setup**，选择 iOS 或 Android，并按同一页面中的编号步骤操作。
-**Start Capture** 控制 MITM Runtime；**Prepare iOS/Android Setup** 则独立发现
-活动局域网接口并启动临时 CA 下载服务。一个流程失败不代表另一个已经运行。
+构建是自包含的：不需要二次下载，也没有额外资源步骤。打开 **Setup**，
+选择 iOS 或 Android。
 
-macOS 菜单栏也提供 Capture Session 的 Start/Stop 操作，并与主窗口状态同步。
+macOS 菜单栏提供与 Capture 栏相同的 Capture Session Start/Stop 操作，并与主窗口
+状态同步。请求相关的工具都在 Capture 上下文中（Requests、Rules、Replay、DNS、
+Alerts、Analysis）；Labs 实验默认关闭，需要时在 **Settings → Labs** 中开启。
 
-## 2. 准备 Mac
+## 2. 启动抓包并准备 Mac
 
-点击 **Prepare iOS Setup** 或 **Prepare Android Setup**。ProxyBot 会显示当前活动
-接口的准确局域网地址和代理端口。不要在手机上填写 `127.0.0.1`，它代表手机自身。
+Setup 页面按四个步骤引导：
 
-如果准备失败，请确认 Mac 有可用的局域网地址，且防火墙允许 ProxyBot。切换网络后，
-先停止 Setup Server，再重新准备。
+1. **Start the Capture Session** — 启动本地 MITM Runtime。
+2. **Prepare this Mac** — 发现活动局域网接口并启动临时 CA 下载服务，同时显示
+   需要在设备上填写的准确局域网地址和代理端口。
+3. **Configure the device** — 配置显式代理。
+4. **Install and verify the CA** — 按平台步骤安装并信任证书。
+
+第 1 步与第 2 步是相互独立的生命周期：一个失败不代表另一个已经运行。不要在手机
+上填写 `127.0.0.1`，它代表手机自身。切换网络后，先停止 Setup Server，再重新准备。
 
 ## 3. 配置显式代理
 
@@ -48,7 +55,7 @@ macOS 菜单栏也提供 Capture Session 的 Start/Stop 操作，并与主窗口
 
 首次配置不要修改网关或 DNS；它们属于 Advanced `pf` + DNS 模式。
 
-在设备上打开 `http://example.com`。Traffic 页面应出现一条 Captured Request。
+在设备上打开 `http://example.com`。Capture → Requests 页面应出现一条。
 如果没有出现，先检查两台设备是否在同一网络、代理是否运行，以及 macOS 防火墙
 是否允许该应用。
 
@@ -64,14 +71,16 @@ CA 下载页。
 Android 是否信任用户 CA 取决于系统版本和应用配置。证书固定的应用可能在任一
 平台拒绝连接；这是应用安全边界，ProxyBot 不保证能够解密。
 
-打开 `https://example.com`，请求和响应应出现在 Traffic 页面。不要公开 CA 私钥、
-捕获到的凭据或敏感请求正文。安装完成后点击 **Stop Setup Server**；这不会停止抓包。
+打开 `https://example.com`，请求和响应应出现在 Capture → Requests。不要公开 CA
+私钥、捕获到的凭据或敏感请求正文。安装完成后点击 **Stop Setup Server**；这不会
+停止抓包。
 
 ## 5. 调试请求
 
-- 在 Traffic 中按 host、method、status、device 或 application 筛选。
-- 在详情中检查 headers 和 body。
-- 需要修改行为时使用 Routing Rule 或断点。
+- 在 Capture → Requests 中按 host、method、status、device 或 application 筛选。
+- 打开请求详情检查 headers 和 body。
+- 在请求详情中可以直接重放、从请求创建规则、复制为 cURL 或导出 HAR。
+- 需要修改行为时使用 Rules 或断点。
 - 使用 Replay 或 Composer 复现请求。
 - 导出前先删除密钥、令牌和个人数据。
 
@@ -86,9 +95,11 @@ Android 是否信任用户 CA 取决于系统版本和应用配置。证书固�
 ## 已知限制
 
 - 项目尚未通过受维护的 Homebrew tap 分发。
-- 现有 GitHub ZIP 还不代表目标中的签名、公证和安装冒烟测试流水线。
-- Playwright 使用模拟桌面 Adapter，不能证明真实设备流程。
-- SSL Bypass 属于 Labs，不是受支持的配置路径。
+- 现有 GitHub Release 是预览产物，还不代表签名、公证和安装验证后的分发流水线。
+- Playwright 使用模拟桌面 Adapter，不能证明真实设备流程；打包验收只证明后端旅程。
+- 物理 iOS/Android 设备验证仍属于发布证据的未完成项。
+- Labs（AI 分析、Generate/Deploy、Graph/Topology）是实验特性，默认关闭，不在
+  受支持的首次抓包路径内。
 
 下一步可阅读[架构](architecture.md)、[产品对比](comparison.md)与
-[产品路线图](../roadmap.md)。
+[产品路线图](roadmap.md)。

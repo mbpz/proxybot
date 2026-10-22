@@ -10,7 +10,16 @@ Include the affected version or commit, impact, reproduction steps, and any sugg
 
 ## Supported versions
 
-Until ProxyBot reaches a stable 1.x release, security fixes are made on the latest release line and `main`. Older prereleases may be asked to upgrade before a fix is provided.
+ProxyBot is on the 1.x release line. Security fixes are prepared on `main` and
+released on the latest stable release line.
+
+- **Supported:** the latest published release line and `main`.
+- **Not supported:** older releases and preview/prerelease artifacts — upgrade to
+  the latest release before requesting a security fix.
+
+Until the first signed, notarized, and install-verified release is published,
+published artifacts are development previews; support evidence for them is
+limited to the latest preview line and `main`.
 
 ## Scope note
 

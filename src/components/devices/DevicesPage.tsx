@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { safeInvoke } from "../../utils/safeInvoke";
 import { Button } from "../ui/Button";
 import { Card, CardHeader } from "../ui/Card";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
+import { EmptyState, ErrorState, InlineNotice } from "../ui/states";
 
 interface DeviceInfo {
   id: number;
@@ -26,12 +26,13 @@ export function DevicesPage() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null);
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
+  const [networkError, setNetworkError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadDevices();
-    loadNetworkInfo();
+    void loadDevices();
+    void loadNetworkInfo();
   }, []);
 
   async function loadDevices() {
@@ -41,22 +42,22 @@ export function DevicesPage() {
       const result = await invoke<DeviceInfo[]>("get_devices");
       setDevices(result);
     } catch (err) {
-      console.error("Failed to load devices:", err);
-      setError(err instanceof Error ? err.message : "Failed to load devices");
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }
 
   async function loadNetworkInfo() {
-    const info = await safeInvoke<NetworkInfo>("get_network_info");
-    if (info !== null) setNetworkInfo(info);
+    setNetworkError(null);
+    try {
+      setNetworkInfo(await invoke<NetworkInfo>("get_network_info"));
+    } catch (cause) {
+      setNetworkError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
 
-  async function updateDeviceRuleOverride(
-    macAddress: string,
-    rule: string | null
-  ) {
+  async function updateDeviceRuleOverride(macAddress: string, rule: string | null) {
     try {
       setError(null);
       await invoke("set_device_rule_override", {
@@ -100,18 +101,28 @@ export function DevicesPage() {
               {devices.length} registered
             </span>
           </div>
-          <Button variant="secondary" size="sm" onClick={loadDevices}>
+          <Button variant="secondary" size="sm" onClick={() => void loadDevices()}>
             Refresh
           </Button>
         </div>
 
-        {/* Error banner */}
         {error && (
-          <div className="error-banner mx-4 mt-2">
-            <span className="error-banner-message">{error}</span>
-            <Button variant="secondary" size="sm" onClick={loadDevices}>
-              Retry
-            </Button>
+          <div className="mx-4 mt-2">
+            <ErrorState
+              title="Could not load devices"
+              message={error}
+              onRetry={() => void loadDevices()}
+            />
+          </div>
+        )}
+        {networkError && (
+          <div className="mx-4 mt-2">
+            <InlineNotice variant="error">
+              Could not load this Mac's LAN address: {networkError}{" "}
+              <Button variant="secondary" size="sm" onClick={() => void loadNetworkInfo()}>
+                Retry
+              </Button>
+            </InlineNotice>
           </div>
         )}
 
@@ -121,13 +132,11 @@ export function DevicesPage() {
             {loading ? (
               <SkeletonTable rows={5} />
             ) : devices.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">📱</div>
-                <div className="empty-state-title">No devices</div>
-                <div className="empty-state-description">
-                  Devices are registered when they connect through the proxy.
-                </div>
-              </div>
+              <EmptyState
+                icon={<span className="text-4xl">📱</span>}
+                title="No devices"
+                description="Devices are registered when they connect through the proxy."
+              />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
                 {devices.map((device) => {
@@ -136,20 +145,29 @@ export function DevicesPage() {
                   const statusColor = isOnline
                     ? "var(--accent-green)"
                     : "var(--text-muted)";
+                  const isSelected = selectedDevice?.id === device.id;
                   return (
                     <div
                       key={device.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
                       onClick={() =>
-                        setSelectedDevice(
-                          selectedDevice?.id === device.id ? null : device
-                        )
+                        setSelectedDevice(isSelected ? null : device)
                       }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedDevice(isSelected ? null : device);
+                        }
+                      }}
                       className={`
                         bg-gradient-to-br from-surface-elevated to-surface-secondary
                         border border-border rounded-lg
                         hover:border-accent-cyan/40 hover:shadow-lg hover:shadow-accent-cyan/5
-                        transition-all duration-200 p-4 cursor-pointer
-                        ${selectedDevice?.id === device.id ? "border-accent-cyan/60" : ""}
+                        transition-all duration-200 p-4 cursor-pointer outline-none
+                        focus-visible:ring-1 focus-visible:ring-accent-blue
+                        ${isSelected ? "border-accent-cyan/60" : ""}
                       `}
                     >
                       <div className="flex items-start justify-between mb-3">
@@ -165,9 +183,7 @@ export function DevicesPage() {
                             {device.name}
                           </span>
                         </div>
-                        <span
-                          className="mono text-xs text-muted"
-                        >
+                        <span className="mono text-xs text-muted">
                           {device.mac_address}
                         </span>
                       </div>
@@ -198,15 +214,17 @@ export function DevicesPage() {
                           {formatTime(device.last_seen_at)}
                         </span>
                         <select
+                          aria-label={`Routing override for ${device.name}`}
                           value={device.rule_override || ""}
                           onChange={(e) => {
                             e.stopPropagation();
-                            updateDeviceRuleOverride(
+                            void updateDeviceRuleOverride(
                               device.mac_address,
-                              e.target.value || null
+                              e.target.value || null,
                             );
                           }}
                           onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
                           className="
                             bg-bg-tertiary border border-border rounded-md
                             px-2 py-1 text-xs text-primary
@@ -240,7 +258,7 @@ export function DevicesPage() {
               <Card className="flex-1">
                 <CardHeader title="ProxyBot PC" />
                 <div className="mono text-sm" style={{ color: "var(--text-muted)" }}>
-                  {networkInfo?.lan_ip || "—"}
+                  {networkInfo?.lan_ip || "Unavailable"}
                 </div>
               </Card>
 

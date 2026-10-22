@@ -2,7 +2,9 @@
 
 This guide uses explicit proxy mode because it is the smallest and most
 predictable setup. The current release artifacts are development previews, so
-the supported contributor path is a source build.
+the supported contributor path is a source build. The shell has three
+destinations — **Capture**, **Setup**, and **Settings**; device onboarding lives
+entirely in Setup.
 
 ## Before you start
 
@@ -25,23 +27,30 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-Open **Setup**, choose iOS or Android, then complete the numbered steps on one
-page. **Start Capture** controls the MITM Runtime. **Prepare iOS/Android Setup**
-separately discovers the active LAN Interface and starts the temporary CA
-download server. A failure in one does not imply that the other is running.
+The build is self-contained: there are no second-stage downloads and no extra resource
+step. Open **Setup** and choose iOS or Android.
 
-The macOS menu-bar item provides the same Capture Session Start/Stop actions and
-remains synchronized with the main window.
+The macOS menu-bar item provides the same Capture Session Start/Stop actions as
+the Capture bar and stays synchronized with the main window. Capture-related
+tools live inside the Capture context (Requests, Rules, Replay, DNS, Alerts);
+Analysis appears there only when Labs are enabled. Labs experiments are off by
+default and are enabled under **Settings → Labs** if you need them.
 
-## 2. Prepare the Mac
+## 2. Start capture and prepare the Mac
 
-Choose **Prepare iOS Setup** or **Prepare Android Setup**. ProxyBot displays the
-exact LAN server address and proxy port for the active Interface. Do not use
-`127.0.0.1` on the phone; it refers to the phone itself.
+The Setup page walks through four steps:
 
-If preparation fails, check that the Mac has an active LAN address and that the
-firewall allows ProxyBot. If the Mac changes networks, stop the Setup Server and
-prepare again.
+1. **Start the Capture Session** — starts the local MITM Runtime.
+2. **Prepare this Mac** — discovers the active LAN interface and starts the
+   temporary CA download server. ProxyBot shows the exact LAN address and proxy
+   port to enter on the device.
+3. **Configure the device** — the explicit-proxy values.
+4. **Install and verify the CA** — the platform-specific certificate steps.
+
+Step 1 and step 2 are separate lifecycles: a failure in one does not imply that
+the other is running. A failure in one does not imply that the other is running.
+Do not use `127.0.0.1` on the phone; it refers to the phone itself. If the Mac
+changes networks, stop the Setup Server and prepare again.
 
 ## 3. Configure the explicit proxy
 
@@ -56,8 +65,8 @@ Do not change the device gateway or DNS for this first setup. Those settings are
 part of the Advanced `pf` + DNS mode.
 
 Open `http://example.com` on the device. A Captured Request should appear on the
-Traffic page. If it does not, stop here and check that both devices are on the
-same network, the proxy is running, and the macOS firewall allows the app.
+Capture → Requests page. If it does not, check that both devices are on the same
+network, the proxy is running, and the macOS firewall allows the app.
 
 ## 4. Install the CA for HTTPS
 
@@ -66,8 +75,7 @@ iOS downloads only the ProxyBot CA; ProxyBot does not change Wi-Fi or DNS throug
 a managed profile. Android opens a local guide and CA download.
 
 Install the CA on the test device. On iOS, also enable full trust under
-**Settings → General → About →
-   Certificate Trust Settings**.
+**Settings → General → About → Certificate Trust Settings**.
 
 Android trust behavior depends on OS version and application configuration. Many
 apps do not trust user-installed CAs. Certificate-pinned apps may reject the
@@ -75,15 +83,18 @@ connection on either platform; that is an application security boundary, not a
 guaranteed ProxyBot capability.
 
 Open `https://example.com`. The request and response should now appear in
-Traffic. Never publish the generated CA private key or a captured credential.
-After installation, choose **Stop Setup Server**; this does not stop capture.
+Capture → Requests. Never publish the generated CA private key or a captured
+credential. After installation, choose **Stop Setup Server**; this does not stop
+capture.
 
 ## 5. Debug a request
 
-- Use Traffic to search by host, method, status, device, or application when
-  available.
-- Inspect headers and bodies in the request detail.
-- Use a Routing Rule or breakpoint when you need to modify behavior.
+- In Capture → Requests, filter by host, method, status, device, or application
+  when available.
+- Open a request to inspect headers and bodies.
+- From the request detail you can replay the request, create a rule from it,
+  copy it as cURL, or export it as HAR.
+- Use Rules or a breakpoint when you need to change behavior.
 - Use Replay or Composer to reproduce a request.
 - Export only after removing secrets and personal data.
 
@@ -100,11 +111,13 @@ After installation, choose **Stop Setup Server**; this does not stop capture.
 
 - The application is a development preview and is not yet shipped through a
   maintained Homebrew tap.
-- Existing GitHub ZIP releases do not yet represent the target signed,
-  notarized, and smoke-tested distribution pipeline.
+- Existing GitHub releases are previews; they do not yet represent the target
+  signed, notarized, and install-verified distribution pipeline.
 - Browser Playwright tests use a mock desktop Adapter and do not prove this real
-  device journey.
-- SSL-bypass flows are Labs, not supported setup paths.
+  device journey; the packaged acceptance lane proves the backend journey only.
+- Physical iOS and Android validation is still tracked as release evidence.
+- Labs (AI analysis, Generate/Deploy, Graph/Topology) are experimental and off by
+  default; they are not part of the supported first-capture journey.
 
 See [Architecture](architecture.md), [Product comparison](comparison.md), and the
 [Product roadmap](roadmap.md) for the next work.

@@ -76,7 +76,7 @@ async function openWsFramesTab(page: Page, req: InterceptedRequest) {
   // The captured row contains the host; click to open the detail panel.
   await page.getByText(req.host).first().click();
   // The "WebSocket Frames" tab only renders for is_websocket: true.
-  await page.getByRole("button", { name: "WebSocket Frames" }).click();
+  await page.getByRole("tab", { name: "WebSocket Frames" }).click();
 }
 
 test.describe("WS Frame Viewer", () => {

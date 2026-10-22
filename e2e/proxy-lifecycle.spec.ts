@@ -39,19 +39,24 @@ test.describe("App shell", () => {
     await page.getByRole("button", { name: "Start Capture" }).click();
     await expect(page.getByText("Capturing")).toBeVisible();
     await page.getByRole("button", { name: "Stop Capture" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Stop capture", exact: true })
+      .click();
     await expect(page.getByText("Capture stopped")).toBeVisible();
   });
 
-  test("renders the five product destinations", async ({ page }) => {
+  test("renders the three product destinations", async ({ page }) => {
     await mockTauriCommands(page, BASE_MOCKS);
     await page.goto("/");
 
-    const expectedLinks = ["Capture", "Setup", "Rules", "Replay", "Settings"];
+    const expectedLinks = ["Capture", "Setup", "Settings"];
     for (const name of expectedLinks) {
       await expect(page.locator("aside").getByRole("link", { name, exact: true })).toBeVisible();
     }
     await expect(page.locator("aside").getByRole("link")).toHaveCount(expectedLinks.length);
     await expect(page.locator("aside").getByRole("link", { name: "DNS", exact: true })).toHaveCount(0);
+    await expect(page.locator("aside").getByRole("link", { name: "Rules", exact: true })).toHaveCount(0);
   });
 
   test("sidebar shows ProxyBot title", async ({ page }) => {
@@ -65,7 +70,7 @@ test.describe("App shell", () => {
     await page.goto("/");
 
     // Click the collapse button (X icon when expanded)
-    await page.locator("aside button").click();
+    await page.locator("aside").getByRole("button", { name: "Collapse sidebar" }).click();
 
     // After collapse, sidebar should have w-16 class
     await expect(page.locator("aside")).toHaveClass(/w-16/);
@@ -94,7 +99,7 @@ test.describe("App shell", () => {
     );
   });
 
-  test("Composer stays inside the Replay workspace", async ({ page }) => {
+  test("Composer stays inside the Capture workspace", async ({ page }) => {
     await mockTauriCommands(page, BASE_MOCKS);
     await page.goto("/composer");
 
@@ -103,7 +108,7 @@ test.describe("App shell", () => {
       "aria-current",
       "page",
     );
-    await expect(page.locator("aside").getByRole("link", { name: "Replay" })).toHaveAttribute(
+    await expect(page.locator("aside").getByRole("link", { name: "Capture" })).toHaveAttribute(
       "aria-current",
       "page",
     );

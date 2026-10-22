@@ -52,7 +52,7 @@ export function useUpdateCheck() {
       setUpdateInfo(prev => ({
         ...prev,
         isLoading: false,
-        error: err instanceof Error ? err.message : "检查更新失败",
+        error: err instanceof Error ? err.message : "Update check failed",
       }));
     }
   }, []);

@@ -3,8 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { WaterfallChart } from "./WaterfallChart";
 import { DependencyGraph } from "./DependencyGraph";
 import { AuthStateMachine } from "./AuthStateMachine";
-import { GitBranch, AlertCircle, RefreshCw } from "lucide-react";
+import { GitBranch, RefreshCw } from "lucide-react";
 import { Button } from "../ui/Button";
+import { ErrorState, InlineNotice, LoadingState } from "../ui/states";
 import { GraphData } from "./types";
 
 type ViewType = "waterfall" | "dag" | "auth";
@@ -14,9 +15,11 @@ export function GraphPage() {
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState("");
 
   useEffect(() => {
-    loadGraphData();
+    void loadGraphData();
   }, []);
 
   async function loadGraphData() {
@@ -26,23 +29,25 @@ export function GraphPage() {
       const result = await invoke<GraphData | null>("get_graph_data", { max_requests: 100 });
       setData(result ?? null);
     } catch (err) {
-      setError(`Failed to load graph data: ${err}`);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }
 
-  const [deviceId, setDeviceId] = useState<string>("");
-
   async function loadDeviceDag() {
-    if (!deviceId) return;
+    const parsed = Number.parseInt(deviceId, 10);
+    if (!Number.isFinite(parsed)) {
+      setError("Device ID must be a number.");
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<GraphData | null>("get_device_dag", { device_id: parseInt(deviceId) });
+      const result = await invoke<GraphData | null>("get_device_dag", { device_id: parsed });
       setData(result ?? null);
     } catch (err) {
-      setError(`Device DAG failed: ${err}`);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -52,16 +57,20 @@ export function GraphPage() {
     try {
       setLoading(true);
       setError(null);
+      setNotice(null);
       await invoke("build_traffic_dag");
       const result = await invoke<GraphData | null>("get_traffic_dag");
       setData(result ?? null);
     } catch (err) {
-      // Fallback to get_graph_data
+      // Fall back to the stored waterfall data, but tell the user the DAG build failed.
       try {
         const result = await invoke<GraphData | null>("get_graph_data", { max_requests: 100 });
         setData(result ?? null);
-      } catch (e2) {
-        setError(`DAG build failed: ${err}`);
+        setNotice(
+          `Could not build the traffic DAG (${String(err)}). Showing stored request data instead.`,
+        );
+      } catch {
+        setError(`DAG build failed: ${String(err)}`);
       }
     } finally {
       setLoading(false);
@@ -69,40 +78,68 @@ export function GraphPage() {
   }
 
   return (
-    <div className="p-6 h-screen flex flex-col">
-      <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col">
+      <h1 className="mb-4 flex items-center gap-2 text-2xl font-bold">
         <GitBranch size={24} className="text-accent-blue" />
         Graph
       </h1>
 
       {error && (
-        <div className="error-banner mb-4">
-          <AlertCircle size={16} />
-          <span className="error-banner-message">{error}</span>
+        <div className="mb-4">
+          <ErrorState
+            title="Graph data unavailable"
+            message={error}
+            onRetry={() => void loadGraphData()}
+          />
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4">
+          <InlineNotice variant="info" onDismiss={() => setNotice(null)}>
+            {notice}
+          </InlineNotice>
         </div>
       )}
 
       {/* View Selector */}
-      <div className="flex gap-2 mb-4 items-center">
-        {(["waterfall", "dag", "auth"] as ViewType[]).map((v) => (
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {(["waterfall", "dag", "auth"] as ViewType[]).map((value) => (
           <button
-            key={v}
-            onClick={() => setView(v)}
+            key={value}
+            type="button"
+            aria-pressed={view === value}
+            onClick={() => setView(value)}
             className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-              view === v
+              view === value
                 ? "bg-accent-blue text-white"
                 : "bg-surface-tertiary text-text-secondary hover:text-text-primary"
             }`}
           >
-            {v === "waterfall" ? "Waterfall" : v === "dag" ? "Dependency" : "Auth Flow"}
+            {value === "waterfall" ? "Waterfall" : value === "dag" ? "Dependency" : "Auth Flow"}
           </button>
         ))}
         <div className="flex-1" />
-        <input type="text" value={deviceId} onChange={e => setDeviceId(e.target.value)} placeholder="Device ID" style={{ width: 100 }} />
-        <Button variant="secondary" size="sm" onClick={loadDeviceDag} disabled={loading || !deviceId}>
+        <label className="sr-only" htmlFor="graph-device-id">
+          Device ID
+        </label>
+        <input
+          id="graph-device-id"
+          type="text"
+          inputMode="numeric"
+          value={deviceId}
+          onChange={(event) => setDeviceId(event.target.value)}
+          placeholder="Device ID"
+          style={{ width: 100 }}
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void loadDeviceDag()}
+          disabled={loading || !deviceId}
+        >
           Device DAG
         </Button>
-        <Button variant="secondary" size="sm" onClick={buildDag} disabled={loading}>
+        <Button variant="secondary" size="sm" onClick={() => void buildDag()} disabled={loading}>
           <RefreshCw size={14} />
           Build DAG
         </Button>
@@ -111,14 +148,12 @@ export function GraphPage() {
       {/* Content */}
       <div className="flex-1 panel overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-text-muted">
-            <div className="skeleton w-48 h-8" />
-          </div>
+          <LoadingState label="Building graph..." />
         ) : (
           <>
             {view === "waterfall" && <WaterfallChart data={data} />}
             {view === "dag" && <DependencyGraph data={data} />}
-            {view === "auth" && <AuthStateMachine />}
+            {view === "auth" && <AuthStateMachine data={data} />}
           </>
         )}
       </div>

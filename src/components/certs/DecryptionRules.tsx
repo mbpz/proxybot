@@ -22,19 +22,19 @@ const ACTION_META: Record<
     label: "Decrypt",
     hint: "MITM and capture (default)",
     icon: Lock,
-    cls: "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-700",
+    cls: "border-accent-blue/40 bg-[rgba(77,157,224,0.15)] text-accent-blue",
   },
   Bypass: {
     label: "Bypass",
     hint: "Tunnel raw, log metadata only — for cert-pinned apps",
     icon: ShieldOff,
-    cls: "bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-700",
+    cls: "border-accent-yellow/40 bg-[rgba(244,211,94,0.12)] text-accent-yellow",
   },
   Passthrough: {
     label: "Passthrough",
     hint: "Tunnel raw, capture nothing — for noisy telemetry",
     icon: EyeOff,
-    cls: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
+    cls: "border-border bg-surface-tertiary text-text-secondary",
   },
 };
 
@@ -149,7 +149,7 @@ export function DecryptionRules() {
             return (
               <li
                 key={r.id}
-                className="flex items-center gap-3 px-3 py-2 rounded border border-slate-200 dark:border-slate-800"
+                className="flex items-center gap-3 px-3 py-2 rounded border border-border"
               >
                 <span className="font-mono text-sm flex-1 truncate">{r.pattern}</span>
                 <span

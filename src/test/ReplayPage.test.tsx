@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { ReplayPage } from "../components/replay/ReplayPage";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -12,7 +13,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 describe("ReplayPage", () => {
   it("renders replay panel and shows empty state", async () => {
-    render(<ReplayPage />);
+    render(
+      <MemoryRouter>
+        <ReplayPage />
+      </MemoryRouter>,
+    );
     expect(await screen.findByText("Replay")).toBeInTheDocument();
     expect(await screen.findByText("No replay targets")).toBeInTheDocument();
   });

@@ -154,26 +154,26 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-4 mt-4">
       <div className="flex items-center gap-3 mb-3">
-        <h3 className="text-base font-semibold">OpenAPI / AsyncAPI 生成</h3>
+        <h3 className="text-base font-semibold">OpenAPI / AsyncAPI generation</h3>
         {result && <Badge variant={sourceBadge as any}>{result.source}</Badge>}
         <span className="text-xs text-text-muted">
           {recordsLoading
-            ? "正在加载流量记录..."
-            : `流量记录: ${records.length}`}
+            ? "Loading traffic records..."
+            : `Traffic records: ${records.length}`}
         </span>
       </div>
       <div className="flex gap-2 mb-4">
         <Button onClick={generate} disabled={loading}>
-          {loading ? "生成中..." : "▶ 生成规范"}
+          {loading ? "Generating..." : "▶ Generate spec"}
         </Button>
         <Button variant="secondary" onClick={copyYaml} disabled={!openapiYaml}>
-          复制 YAML
+          Copy YAML
         </Button>
         <Button variant="secondary" onClick={download} disabled={!result}>
-          下载文件
+          Download file
         </Button>
         <Button variant="secondary" onClick={runReplay} disabled={!result || replayLoading}>
-          {replayLoading ? "验证中..." : "▶ 重放验证"}
+          {replayLoading ? "Validating..." : "▶ Replay validation"}
         </Button>
       </div>
 
@@ -212,7 +212,7 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
                 {extractPathDetail(openapiYaml, selectedPath)}
               </pre>
             ) : (
-              <div className="text-sm text-slate-500">选择左侧路径查看详情</div>
+              <div className="text-sm text-slate-500">Select a path on the left to inspect details</div>
             )}
             {replay && (
               <div className="mt-4 p-3 rounded bg-slate-50 dark:bg-slate-900">
@@ -220,7 +220,7 @@ export function SpecGenPanel({ sessionId, trafficRecords, onError }: Props) {
                   {Math.round(replay.pass_rate * 100)}%
                 </div>
                 <div className="text-xs text-slate-500">
-                  ✓ {replay.pass} / ✗ {replay.fail} / ⚠ {replay.error} (共 {replay.total})
+                  ✓ {replay.pass} / ✗ {replay.fail} / ⚠ {replay.error} (total {replay.total})
                 </div>
               </div>
             )}

@@ -10,6 +10,8 @@ lerna-debug.log*
 # Dependencies
 node_modules/
 .pnpm-store/
+/.cache-pnpm/
+/.cache-pnpm-store/
 
 # Build outputs
 dist/
@@ -20,11 +22,6 @@ dist-ssr
 /vite.config.d.ts
 target/
 proxybot-core/target/
-/src-tauri/Cargo.lock
-
-# Downloaded third-party bundle resources
-/src-tauri/resources/apktool.jar
-/src-tauri/resources/frida-gadget/
 
 # Generated documentation site
 site/
@@ -51,7 +48,7 @@ package-lock.json
 # Git worktrees
 .worktrees/
 
-# Homebrew tap (separate repo, managed via CI)
+# Homebrew tap (separate repo, not shipped from here)
 homebrew-proxybot/
 
 # Local configuration (may contain secrets)
@@ -59,17 +56,13 @@ homebrew-proxybot/
 .env
 .env.*
 
-# Pencil design files
-*.pen
+# Design sources (`design/*.pen` are tracked Pencil files)
 /proxybot-*.png
 
 # Local agent/session artifacts
 /handoff/
 /ralph/
 /progress.txt
-
-# Generated Rust files
-# (handled by src-tauri/target/ above)
 
 # Playwright
 test-results/
@@ -78,3 +71,8 @@ e2e-report/
 
 # macOS
 *.dSYM/
+
+# Local audit drafts and package-manager caches
+/.audit/
+/.cache-cargo/
+/.cache-gh/

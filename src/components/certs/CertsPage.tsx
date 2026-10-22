@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { safeInvoke } from "../../utils/safeInvoke";
-import { Download, RefreshCw, Key, AlertCircle, ArrowLeft } from "lucide-react";
+import { Download, RefreshCw, Key, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import { ConfirmDialog } from "../ui/Dialog";
+import { EmptyState, ErrorState, InlineNotice, LoadingState } from "../ui/states";
 import { DecryptionRules } from "./DecryptionRules";
 
 interface CaMetadata {
@@ -17,23 +18,33 @@ export function CertsPage() {
   const [exporting, setExporting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
 
   useEffect(() => {
-    loadCaMetadata();
+    void loadCaMetadata();
   }, []);
 
   async function loadCaMetadata() {
-    const result = await safeInvoke<CaMetadata | null>("get_ca_metadata");
-    setCaMetadata(result);
-    setLoading(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await invoke<CaMetadata | null>("get_ca_metadata");
+      setCaMetadata(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleExport() {
     setExporting(true);
     setError(null);
+    setNotice(null);
     try {
       const path = await invoke<string>("export_cert");
-      alert(`CA exported to: ${path}`);
+      setNotice(`CA exported to: ${path}`);
     } catch (err) {
       setError(`Failed to export CA: ${err}`);
     } finally {
@@ -42,15 +53,14 @@ export function CertsPage() {
   }
 
   async function handleRegenerate() {
-    if (!confirm("This will regenerate the CA. Existing certificates will be invalidated. Continue?")) {
-      return;
-    }
+    setConfirmRegenerate(false);
     setRegenerating(true);
     setError(null);
+    setNotice(null);
     try {
       await invoke("regenerate_ca");
-      alert("CA regenerated successfully");
-      loadCaMetadata();
+      setNotice("CA regenerated successfully. Reinstall it on every device.");
+      await loadCaMetadata();
     } catch (err) {
       setError(`Failed to regenerate CA: ${err}`);
     } finally {
@@ -59,23 +69,14 @@ export function CertsPage() {
   }
 
   function formatDate(timestamp: number): string {
-    return new Date(timestamp * 1000).toLocaleString();
+    const milliseconds = timestamp > 1e12 ? timestamp : timestamp * 1000;
+    return new Date(milliseconds).toLocaleString();
   }
 
   if (loading) {
     return (
       <div className="p-6">
-        <div className="card">
-          <div className="skeleton-row">
-            <div className="skeleton-cell lg skeleton" />
-          </div>
-          <div className="skeleton-row">
-            <div className="skeleton-cell md skeleton" />
-          </div>
-          <div className="skeleton-row">
-            <div className="skeleton-cell sm skeleton" />
-          </div>
-        </div>
+        <LoadingState label="Loading certificate authority..." />
       </div>
     );
   }
@@ -97,9 +98,19 @@ export function CertsPage() {
       </Link>
 
       {error && (
-        <div className="error-banner mb-4">
-          <AlertCircle size={16} />
-          <span className="error-banner-message">{error}</span>
+        <div className="mb-4">
+          <ErrorState
+            title="Certificate operation failed"
+            message={error}
+            onRetry={() => void loadCaMetadata()}
+          />
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4">
+          <InlineNotice variant="success" onDismiss={() => setNotice(null)}>
+            {notice}
+          </InlineNotice>
         </div>
       )}
 
@@ -124,12 +135,16 @@ export function CertsPage() {
             )}
           </div>
         ) : (
-          <p className="text-text-muted">No CA certificate found. Generate one to get started.</p>
+          <EmptyState
+            icon={<Key size={36} />}
+            title="No CA certificate found"
+            description="Starting the Capture Session or regenerating the CA creates the local root certificate. Regenerating invalidates existing device trust."
+          />
         )}
 
         <div className="flex gap-3 mt-6">
           <button
-            onClick={handleExport}
+            onClick={() => void handleExport()}
             disabled={exporting || !caMetadata}
             className="btn btn-primary"
           >
@@ -137,7 +152,7 @@ export function CertsPage() {
             {exporting ? "Exporting..." : "Export CA"}
           </button>
           <button
-            onClick={handleRegenerate}
+            onClick={() => setConfirmRegenerate(true)}
             disabled={regenerating}
             className="btn btn-danger"
           >
@@ -148,6 +163,16 @@ export function CertsPage() {
       </div>
 
       <DecryptionRules />
+
+      <ConfirmDialog
+        open={confirmRegenerate}
+        title="Regenerate CA"
+        message="This will regenerate the CA. Existing certificates on every device will be invalidated and must be reinstalled. Continue?"
+        confirmLabel="Regenerate CA"
+        destructive
+        onConfirm={() => void handleRegenerate()}
+        onCancel={() => setConfirmRegenerate(false)}
+      />
     </div>
   );
 }

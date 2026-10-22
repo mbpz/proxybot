@@ -1,14 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import {
-  Menu,
-  X,
-  Radio,
-  Shield,
-  Smartphone,
-  PlayCircle,
-  Settings,
-} from "lucide-react";
+import { Menu, X, Radio, Smartphone, Settings, Command } from "lucide-react";
+import { openCommandPalette } from "../command-palette/CommandPalette";
 
 interface NavItem {
   path: string;
@@ -17,12 +10,29 @@ interface NavItem {
   activePaths: readonly string[];
 }
 
+/**
+ * Three product destinations. Everything else (Rules, Replay, DNS, Alerts,
+ * Labs) is reachable from the Capture context navigation or the command
+ * palette — it must not compete with the first-success journey.
+ */
 const navItems: NavItem[] = [
   {
     path: "/",
     label: "Capture",
     icon: <Radio size={20} />,
-    activePaths: ["/", "/dns", "/alerts", "/graph", "/topology"],
+    activePaths: [
+      "/",
+      "/rules",
+      "/replay",
+      "/composer",
+      "/dns",
+      "/alerts",
+      "/graph",
+      "/topology",
+      "/ai",
+      "/gen",
+      "/deploy",
+    ],
   },
   {
     path: "/setup",
@@ -30,12 +40,11 @@ const navItems: NavItem[] = [
     icon: <Smartphone size={20} />,
     activePaths: ["/setup", "/certs", "/devices"],
   },
-  { path: "/rules", label: "Rules", icon: <Shield size={20} />, activePaths: ["/rules"] },
   {
-    path: "/replay",
-    label: "Replay",
-    icon: <PlayCircle size={20} />,
-    activePaths: ["/replay", "/composer"],
+    path: "/settings",
+    label: "Settings",
+    icon: <Settings size={20} />,
+    activePaths: ["/settings"],
   },
 ];
 
@@ -88,23 +97,23 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
+      {/* Footer: command palette affordance (not a destination link). */}
       <div className="p-3 border-t border-border">
-        <Link
-          to="/settings"
-          title={collapsed ? "Settings" : undefined}
-          aria-current={location.pathname === "/settings" ? "page" : undefined}
-          className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
-            location.pathname === "/settings"
-              ? "bg-[rgba(0,212,255,0.08)] text-accent-blue border-l-2 border-accent-blue"
-              : "border-l-2 border-transparent text-text-secondary hover:bg-surface-secondary hover:text-text-primary"
-          }`}
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          title="Command palette (⌘K)"
+          aria-label="Open command palette"
+          className="flex w-full items-center gap-3 px-4 py-2 rounded-lg text-text-secondary hover:bg-surface-secondary hover:text-text-primary transition-colors"
+          data-testid="open-command-palette"
         >
-          <span className={location.pathname === "/settings" ? "text-accent-blue" : ""}>
-            <Settings size={20} />
-          </span>
-          {!collapsed && <span>Settings</span>}
-        </Link>
+          <Command size={18} />
+          {!collapsed && (
+            <span className="flex-1 text-left text-sm">
+              Commands <kbd className="text-xs text-text-muted">⌘K</kbd>
+            </span>
+          )}
+        </button>
       </div>
     </aside>
   );

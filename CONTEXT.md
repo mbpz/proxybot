@@ -45,8 +45,16 @@ The user-visible desktop lifecycle that observes, starts, and stops at most one 
 _Avoid_: Proxy toggle, running flag
 
 **Product Destination**:
-One stable primary navigation context: Capture, Setup, Rules, Replay, or Settings. Request-derived views and related tools live inside their owning Product Destination rather than competing as peers.
+One stable primary navigation context: Capture, Setup, or Settings. Request-derived views and related tools live inside their owning Product Destination rather than competing as peers.
 _Avoid_: Sidebar item, page, feature link
+
+**Product Tier**:
+The support classification of a capability: Core (supported path, documented, acceptance-tested), Advanced (documented after Core, requires an explicit user action), or Labs (experimental, opt-in, excluded from release claims).
+_Avoid_: Feature level, priority
+
+**Labs**:
+The opt-in experimental surface group (AI analysis, Generate/Deploy, Graph and Topology) that is off by default, stored as local UI state, and can never be advertised as a supported Core capability.
+_Avoid_: Beta, preview feature, hidden feature
 
 **Device Onboarding**:
 The user-visible preparation and verification lifecycle that discovers the active LAN Interface, owns temporary certificate distribution, supplies explicit-proxy inputs and platform-specific CA guidance, and cleans up its server.
@@ -129,8 +137,9 @@ _Avoid_: Running flag, detached server, raw descriptor
 - A **Network Condition Rule** maps a host to a simulated network profile independently of **Routing Rules**
 - The **MITM Runtime** turns client connections into zero or more **Captured Requests**
 - One **Capture Session** observes and controls at most one **MITM Runtime**
-- The Capture **Product Destination** owns Requests, DNS, Alerts, Graph, and Topology views; the Replay **Product Destination** owns Replay and Composer
+- The Capture **Product Destination** owns Requests, Rules, Replay, DNS, and Alerts views, and Analysis only while Labs are enabled; Replay and Composer share the Replay context
 - Deep links preserve access to non-Core tools without making them default **Product Destinations**
+- **Labs** capabilities are gated by a local opt-in; enabling them does not change a **Product Tier** or a support claim
 - Window and tray Adapters publish the same **Capture Session** running state after successful lifecycle transitions
 - One **Device Onboarding** flow prepares certificate distribution independently of the **Capture Session** so either lifecycle can fail or stop without misreporting the other
 - Core **Device Onboarding** uses an explicit Wi-Fi proxy and CA-only delivery; managed DNS and `pf` remain separate Advanced capabilities

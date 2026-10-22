@@ -40,7 +40,7 @@ describe("AlertsPage", () => {
     render(<AlertsPage contract={adapter.contract} />);
 
     expect(await screen.findByText("No alerts")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Baseline" }));
+    await user.click(screen.getByRole("tab", { name: "Baseline" }));
     expect(await screen.findByText("api.example.com")).toBeInTheDocument();
 
     expect(screen.queryByRole("button", { name: /scan now/i })).not.toBeInTheDocument();
@@ -62,7 +62,7 @@ describe("AlertsPage", () => {
     );
     shouldFail = false;
     await user.click(screen.getByRole("button", { name: "Retry" }));
-    await user.click(screen.getByRole("button", { name: "Baseline" }));
+    await user.click(screen.getByRole("tab", { name: "Baseline" }));
     expect(await screen.findByText("api.example.com")).toBeInTheDocument();
   });
 });

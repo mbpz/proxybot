@@ -4,14 +4,16 @@ import { GeneralTab } from "./GeneralTab";
 import { NetworkTab } from "./NetworkTab";
 import { DnsTab } from "./DnsTab";
 import { AboutTab } from "./AboutTab";
+import { LabsTab } from "./LabsTab";
 import { Settings } from "lucide-react";
 
-type SettingsTab = "general" | "network" | "dns" | "about";
+type SettingsTab = "general" | "network" | "dns" | "labs" | "about";
 
 const tabs = [
   { id: "general", label: "General" },
   { id: "network", label: "Network" },
   { id: "dns", label: "DNS" },
+  { id: "labs", label: "Labs" },
   { id: "about", label: "About" },
 ];
 
@@ -37,6 +39,7 @@ export function SettingsPage() {
         {activeTab === "general" && <GeneralTab />}
         {activeTab === "network" && <NetworkTab />}
         {activeTab === "dns" && <DnsTab />}
+        {activeTab === "labs" && <LabsTab />}
         {activeTab === "about" && <AboutTab />}
       </div>
     </div>

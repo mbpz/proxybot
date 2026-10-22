@@ -169,3 +169,15 @@ export async function mockTauriCommands(
   const fnBody = `switch(cmd) {\n${switchCases}\ndefault: throw new Error("Unhandled Tauri mock command: " + cmd);\n}`;
   await mockTauriIPC(page, fnBody);
 }
+
+
+/** Opt into experimental Labs surfaces for a page before the app boots. */
+export async function enableLabs(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("proxybot.labs.enabled", "true");
+    } catch {
+      // Ignore storage failures in the test browser.
+    }
+  });
+}

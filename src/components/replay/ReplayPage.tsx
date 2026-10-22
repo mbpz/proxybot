@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { MethodBadge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
+import { EmptyState, ErrorState, InlineNotice } from "../ui/states";
+import { Radio } from "lucide-react";
 
 interface ReplayTarget {
   host: string;
@@ -56,6 +59,9 @@ interface LineDiff {
 }
 
 export function ReplayPage() {
+  const [searchParams] = useSearchParams();
+  const requestedHost = searchParams.get("host");
+  const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [targets, setTargets] = useState<ReplayTarget[]>([]);
   const [selectedHost, setSelectedHost] = useState<string>("");
   const [delayMs, setDelayMs] = useState(100);
@@ -64,6 +70,9 @@ export function ReplayPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryAction, setRetryAction] = useState<"targets" | "replay" | "preview">("targets");
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     loadTargets();
@@ -73,9 +82,20 @@ export function ReplayPage() {
     try {
       setLoading(true);
       setError(null);
+      setRetryAction("targets");
       const result = await invoke<ReplayTarget[]>("get_replay_targets");
       setTargets(result);
-      if (result.length > 0 && !selectedHost) {
+      if (requestedHost) {
+        if (result.some((target) => target.host === requestedHost)) {
+          setSelectedHost(requestedHost);
+          setContextNotice(`Replaying the host from the selected request: ${requestedHost}`);
+        } else {
+          setContextNotice(
+            `No replayable captured requests found for ${requestedHost}. Pick another host.`,
+          );
+        }
+      }
+      if (result.length > 0 && !selectedHost && !requestedHost) {
         setSelectedHost(result[0].host);
       }
     } catch (err) {
@@ -89,12 +109,19 @@ export function ReplayPage() {
 
   async function loadPreview() {
     if (!selectedHost) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setRetryAction("preview");
     try {
       const reqs = await invoke<{ id: number; method: string; path: string }[]>(
         "get_requests_for_replay", { host: selectedHost }
       );
       setPreviewReqs(reqs);
-    } catch (err) { /* ignore */ }
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   useEffect(() => { if (selectedHost) loadPreview(); }, [selectedHost]);
@@ -104,6 +131,7 @@ export function ReplayPage() {
     setIsRunning(true);
     setResults([]);
     setError(null);
+    setRetryAction("replay");
     try {
       const result = await invoke<ReplayResult[]>("start_replay", {
         host: selectedHost,
@@ -111,10 +139,16 @@ export function ReplayPage() {
       });
       setResults(result);
     } catch (err) {
-      setError(String(err));
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRunning(false);
     }
+  }
+
+  function retryFailedAction() {
+    if (retryAction === "replay") void handleStartReplay();
+    else if (retryAction === "preview") void loadPreview();
+    else void loadTargets();
   }
 
   function formatBody(body: string | undefined): string {
@@ -182,6 +216,30 @@ export function ReplayPage() {
             </Button>
           </div>
 
+          {previewError && (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <InlineNotice variant="error">
+                Could not load requests for this host: {previewError}{" "}
+                <Button variant="secondary" size="sm" onClick={() => void loadPreview()}>
+                  Retry
+                </Button>
+              </InlineNotice>
+            </div>
+          )}
+          {previewLoading && !isRunning && (
+            <div className="text-xs text-text-muted" style={{ marginTop: "var(--space-2)" }}>
+              Loading requests for replay...
+            </div>
+          )}
+
+          {contextNotice && !isRunning && (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <InlineNotice variant="info" onDismiss={() => setContextNotice(null)}>
+                {contextNotice}
+              </InlineNotice>
+            </div>
+          )}
+
           {/* Request preview */}
           {previewReqs.length > 0 && !isRunning && (
             <div style={{ marginTop: "var(--space-3)" }}>
@@ -221,11 +279,12 @@ export function ReplayPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="error-banner" style={{ marginBottom: "var(--space-4)" }}>
-          <span className="error-banner-message">{error}</span>
-          <Button variant="secondary" size="sm" onClick={loadTargets}>
-            Retry
-          </Button>
+        <div style={{ marginBottom: "var(--space-4)" }}>
+          <ErrorState
+            title="Replay failed"
+            message={error}
+            onRetry={retryFailedAction}
+          />
         </div>
       )}
 
@@ -239,13 +298,11 @@ export function ReplayPage() {
             {loading ? (
               <SkeletonTable rows={4} />
             ) : targets.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">🔄</div>
-                <div className="empty-state-title">No replay targets</div>
-                <div className="empty-state-description">
-                  Capture traffic first, then select a host above to replay.
-                </div>
-              </div>
+              <EmptyState
+                icon={<Radio size={40} />}
+                title="No replay targets"
+                description="Capture traffic first, then select a host above to replay."
+              />
             ) : (
               <table className="table">
                 <thead>
@@ -259,7 +316,16 @@ export function ReplayPage() {
                   {targets.map((t) => (
                     <tr
                       key={t.host}
+                      tabIndex={0}
+                      role="button"
+                      aria-pressed={selectedHost === t.host}
                       onClick={() => setSelectedHost(t.host)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedHost(t.host);
+                        }
+                      }}
                       style={{
                         cursor: "pointer",
                         background: selectedHost === t.host ? "var(--bg-tertiary)" : undefined,
@@ -299,7 +365,16 @@ export function ReplayPage() {
                   {results.map((r) => (
                     <tr
                       key={r.request_id}
+                      tabIndex={0}
+                      role="button"
+                      aria-pressed={selectedResult?.request_id === r.request_id}
                       onClick={() => setSelectedResult(r)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedResult(r);
+                        }
+                      }}
                       style={{
                         cursor: "pointer",
                         background: selectedResult?.request_id === r.request_id

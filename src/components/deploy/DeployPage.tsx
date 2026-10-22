@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { safeInvoke } from "../../utils/safeInvoke";
 import { Button } from "../ui/Button";
 import { DeployForm } from "./DeployForm";
 import { DeployPreview } from "./DeployPreview";
@@ -56,17 +55,26 @@ export function DeployPage() {
     let cancelled = false;
     debounceRef.current = setTimeout(() => {
       (async () => {
-        const rec = await safeInvoke<DeploymentRecord | null>("get_last_deployment", {
-          sessionId,
-          projectName,
-        });
-        if (cancelled) return;
-        if (rec) {
-          setBundlePath(rec.bundle_path);
-          setLastGitInitAt(rec.last_git_init_at);
-        } else {
-          setBundlePath("");
-          setLastGitInitAt(null);
+        try {
+          const rec = await invoke<DeploymentRecord | null>("get_last_deployment", {
+            sessionId,
+            projectName,
+          });
+          if (cancelled) return;
+          if (rec) {
+            setBundlePath(rec.bundle_path);
+            setLastGitInitAt(rec.last_git_init_at);
+          } else {
+            setBundlePath("");
+            setLastGitInitAt(null);
+          }
+        } catch (cause) {
+          if (cancelled) return;
+          setError(
+            `Could not load the last deployment: ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+          );
         }
       })();
     }, 300);

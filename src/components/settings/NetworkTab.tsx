@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNetwork } from "../../hooks/useNetwork";
 import { Button } from "../ui/Button";
+import { InlineNotice } from "../ui/states";
 import { Globe, Shield } from "lucide-react";
 
 export function NetworkTab() {
@@ -8,6 +9,8 @@ export function NetworkTab() {
     networkInfo,
     pfEnabled,
     pfLoading,
+    loadError,
+    reload,
     enablePf,
     disablePf,
   } = useNetwork();
@@ -15,13 +18,19 @@ export function NetworkTab() {
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="error-banner">
-          <span className="error-banner-message">{error}</span>
-          <Button variant="secondary" size="sm" onClick={() => setError("")}>
-            Dismiss
+      {loadError && (
+        <InlineNotice variant="error">
+          Could not load network state: {loadError}{" "}
+          <Button variant="secondary" size="sm" onClick={() => void reload()}>
+            Retry
           </Button>
-        </div>
+        </InlineNotice>
+      )}
+
+      {error && (
+        <InlineNotice variant="error" onDismiss={() => setError("")}>
+          {error}
+        </InlineNotice>
       )}
 
       {/* LAN IP */}
@@ -33,7 +42,9 @@ export function NetworkTab() {
             <div className="text-sm text-text-muted">
               {networkInfo
                 ? `${networkInfo.lan_ip} (${networkInfo.interface})`
-                : "Detecting..."}
+                : loadError
+                  ? "Unavailable"
+                  : "Detecting..."}
             </div>
           </div>
         </div>
@@ -49,7 +60,8 @@ export function NetworkTab() {
                 Packet Filter (pf)
               </div>
               <div className="text-sm text-text-muted">
-                Transparent proxy via macOS pf — redirects port 80/443 traffic
+                Transparent proxy via macOS pf — redirects port 80/443 traffic. Advanced option;
+                explicit device proxy remains the supported setup path.
               </div>
               <span className={`badge mt-1 ${pfEnabled ? "badge-direct" : "badge-unknown"}`}>
                 {pfEnabled ? "Enabled" : "Disabled"}
@@ -60,9 +72,9 @@ export function NetworkTab() {
             variant={pfEnabled ? "danger" : "primary"}
             size="sm"
             disabled={pfLoading}
-            onClick={() => pfEnabled ? disablePf(setError) : enablePf(setError)}
+            onClick={() => (pfEnabled ? disablePf(setError) : enablePf(setError))}
           >
-            {pfLoading ? "..." : pfEnabled ? "Disable" : "Enable"}
+            {pfLoading ? "Working..." : pfEnabled ? "Disable" : "Enable"}
           </Button>
         </div>
       </div>

@@ -6,7 +6,8 @@ persistence, desktop behavior, and experiments behind deep Modules with small
 Interfaces.
 
 The canonical domain language is defined in
-[`CONTEXT.md`](https://github.com/mbpz/proxybot/blob/main/CONTEXT.md).
+[`CONTEXT.md`](https://github.com/mbpz/proxybot/blob/main/CONTEXT.md); the binding
+decisions are in [`docs/adr/`](adr/README.md).
 
 ## Runtime composition
 
@@ -33,7 +34,12 @@ upstream server
 
 `src-tauri/src/bootstrap.rs` is the single composition root. It parses Process
 Config, selects the desktop or MCP launch Adapter, creates shared resources, and
-owns process shutdown.
+owns process shutdown. The composition root is deliberately small: no second
+entry point parses configuration or opens the database.
+
+The build is self-contained. There is no bundled native toolchain or downloaded gadget resources; the
+desktop app, the CLI/MCP modes, and the acceptance lane all build from the
+repository.
 
 ## Modules and seams
 
@@ -44,7 +50,7 @@ The reusable core owns:
 - validated Process Config and Runtime Config
 - the MITM Runtime and its lifecycle handle
 - TLS certificate generation and interception decisions
-- Routing Rule models and matching
+- Routing Rule models and matching, including per-host TLS rules
 - Capture Event types
 - Application Attribution and analysis models
 - specification-generation primitives
@@ -72,14 +78,32 @@ and MCP Adapters should consume those Interfaces instead of sharing raw
 
 The React application renders the desktop product. A generated Desktop Contract
 provides typed command and event metadata plus a BrowserMockAdapter for fast UI
-tests. Migration is incomplete: some screens still call Tauri directly or use a
-shallow Adapter that converts errors into `null`.
+tests. The generated module currently covers 36 of the 123 desktop commands and
+four events. **Migration is incomplete:** other screens still call Tauri
+directly; the shallow `safeInvoke` helper that converted failures into `null` is
+gone, but those call sites still need to move onto the typed contract.
 
-The shell exposes five Product Destinations: Capture, Setup, Rules, Replay, and
-Settings. Requests, DNS, Alerts, Graph, and Topology share the Capture context;
-Replay and Composer share the Replay context. Historical and experimental routes
-remain valid deep links so saved URLs do not break, but they do not compete in
-the default navigation.
+The shell exposes three Product Destinations: **Capture**, **Setup**, and
+**Settings**.
+
+- **Capture** owns the request workspace and its context navigation: Requests,
+  Rules, Replay, DNS, and Alerts. Analysis (a Labs capability) joins that
+  navigation only while Labs are enabled. Replay and Composer share the Replay
+  context.
+- **Setup** owns device onboarding. The CA/certificate panel and the registered
+  devices panel are preserved deep links entered from Setup cards.
+- **Settings** owns general settings, network settings, DNS, Labs opt-in, and
+  About.
+
+Labs surfaces — AI analysis (`/ai`), Generate (`/gen`), Deploy (`/deploy`),
+Graph (`/graph`), and Topology (`/topology`) — are code-split and lazy-loaded.
+They are off by default, hidden from the default navigation, and gated by a
+`LabsGate`. The opt-in is local UI state (`localStorage` key
+`proxybot.labs.enabled`) managed under Settings → Labs; a disabled Labs route
+renders a single "Labs are off" page. No backend command is involved.
+
+Historical and experimental routes remain valid deep links so saved URLs do not
+break, but they do not compete in the default navigation.
 
 General Settings plus the Capture DNS and Alerts surfaces cross the generated
 Desktop Contract Interface for reads, mutations, DNS Observations, traffic
@@ -140,18 +164,22 @@ database rows.
   Desktop Network Resources with explicit ownership and cleanup.
 - MCP stdio is a local Adapter but can expose sensitive persisted data to its
   client.
-- Android SSL-bypass tooling changes applications and belongs in Labs.
-- The current Tauri global API and null CSP are migration debt; the target is a
-  minimal capability set and non-null policy.
+- The Labs gate is a navigation/product boundary, not a security boundary: Labs
+  commands remain compiled into the desktop binary.
+- The current Tauri global API (`withGlobalTauri: true`) and null CSP
+  (`"csp": null`) are still present and are migration debt; the target is a
+  minimal capability set and a non-null policy.
 
 ## Verification boundary
 
 Rust and UI tests cover Modules and the BrowserMockAdapter. Current Playwright
-tests start Vite rather than a packaged Tauri application. The Packaged Desktop
-Acceptance lane executes the real `.app` binary and Tauri composition root in an
-isolated workspace, then proves CA preparation, decrypted local HTTPS capture,
-SQLite observation, stop, restart, and cleanup without external network access.
-It does not drive visible UI controls or prove a signed installation; those
-remain release evidence requirements.
+tests start Vite in a browser and use the mock desktop adapter rather than a
+packaged Tauri application. The Packaged Desktop Acceptance lane executes the
+real `.app` binary and Tauri composition root in an isolated workspace, then
+proves CA preparation, decrypted local HTTPS capture, SQLite observation, stop,
+restart, and cleanup without external network access. CI runs it from the
+unsigned app bundle. It does not drive visible UI controls or prove a signed
+installation; those remain release evidence requirements.
 
-See the [product roadmap](roadmap.md) for the ordered deepening work.
+See the [product roadmap](roadmap.md) for the ordered deepening work and the
+[ADRs](adr/README.md) for the decisions still binding on this design.

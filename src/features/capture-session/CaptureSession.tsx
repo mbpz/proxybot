@@ -10,6 +10,7 @@ import {
 import { Link } from "react-router-dom";
 import { AlertCircle, KeyRound, Play, RefreshCw, Square, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/Dialog";
 import { desktop, type DesktopContract } from "../../desktop/contract";
 
 type CaptureOperation = "checking" | "starting" | "stopping" | null;
@@ -153,8 +154,14 @@ export function useCaptureSession(): CaptureSessionValue {
   return value;
 }
 
+/** Non-throwing variant for components that must also render in isolation. */
+export function useOptionalCaptureSession(): CaptureSessionValue | null {
+  return useContext(CaptureSessionContext);
+}
+
 export function CaptureSessionBar() {
   const session = useCaptureSession();
+  const [confirmStop, setConfirmStop] = useState(false);
   const busy = session.operation !== null;
   const status =
     session.operation === "checking"
@@ -197,7 +204,7 @@ export function CaptureSessionBar() {
             Setup
           </Link>
           {session.running ? (
-            <Button variant="danger" size="sm" onClick={() => void session.stop()} disabled={busy}>
+            <Button variant="danger" size="sm" onClick={() => setConfirmStop(true)} disabled={busy}>
               <Square size={14} />
               {session.operation === "stopping" ? "Stopping..." : "Stop Capture"}
             </Button>
@@ -228,6 +235,20 @@ export function CaptureSessionBar() {
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmStop}
+        title="Stop capture?"
+        message="In-flight requests may fail and connected devices will lose interception until you start capture again."
+        confirmLabel="Stop capture"
+        destructive
+        busy={session.operation === "stopping"}
+        onConfirm={() => {
+          setConfirmStop(false);
+          void session.stop();
+        }}
+        onCancel={() => setConfirmStop(false)}
+      />
     </div>
   );
 }

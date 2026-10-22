@@ -40,14 +40,19 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
         <Radio size={48} className="text-text-muted mb-4 opacity-50" />
         <div className="empty-state-title">No requests captured yet</div>
         <div className="empty-state-description">
-          Start the proxy and configure your device to see traffic here
+          Start capture and configure your device to see traffic here
         </div>
       </div>
     );
   }
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto">
+    <div
+      ref={parentRef}
+      className="h-full overflow-auto"
+      role="listbox"
+      aria-label="Captured requests"
+    >
       {/* Header */}
       <div className="flex items-center px-3 py-2 text-xs font-mono uppercase bg-surface-tertiary border-b border-border text-text-secondary sticky top-0 z-10 shadow-sm">
         <span className="w-20">Method</span>
@@ -73,8 +78,17 @@ export function RequestTable({ requests, selectedId, onSelect }: RequestTablePro
           return (
             <div
               key={req.id}
+              role="option"
+              aria-selected={isSelected}
+              tabIndex={0}
               onClick={() => onSelect(req.id)}
-              className={`absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer border-b border-border request-row border-l-4 ${
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(req.id);
+                }
+              }}
+              className={`absolute top-0 left-0 w-full flex items-center px-3 cursor-pointer border-b border-border request-row border-l-4 outline-none focus-visible:ring-1 focus-visible:ring-accent-blue ${
                 isSelected
                   ? "border-l-accent-blue bg-surface-tertiary"
                   : isEven

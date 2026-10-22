@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Ban, Play, X as XIcon } from "lucide-react";
 import { Button } from "../ui/Button";
-import { safeInvoke } from "../../utils/safeInvoke";
 
 /** Wire mirror of `state::BreakpointSnapshot` on the Rust side. */
 interface BreakpointSnapshot {
@@ -25,83 +24,79 @@ interface BreakpointSnapshot {
 type Decision = "proceed" | "drop" | "modify";
 
 /**
- * Docked panel showing pending breakpoints. The proxy rules engine
- * emits a `BreakpointRequest` when a rule matches; this panel reads
- * from the Tauri event, fetches the snapshot, and lets the user
- * forward / edit-and-forward / drop each one.
+ * Docked panel showing pending breakpoints. Forward/Drop are wired;
+ * edit-and-forward ("modify") is not implemented yet and is stated in the UI.
+ * Command failures surface here instead of silently hiding the panel.
  */
 export function BreakpointPanel() {
   const [pending, setPending] = useState<BreakpointSnapshot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const result = await invoke<unknown>("get_pending_breakpoints");
+      const list = Array.isArray(result) ? (result as BreakpointSnapshot[]) : [];
+      setError(null);
+      setPending(list);
+      setSelectedId((current) =>
+        current && !list.some((breakpoint) => breakpoint.id === current) ? null : current,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
 
   // Listen for new breakpoints from the Rust side.
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     (async () => {
       unlisten = await listen("breakpoint:new", () => {
-        refresh();
+        void refresh();
       });
     })();
-    // Initial load.
-    refresh();
+    void refresh();
     return () => {
       if (unlisten) unlisten();
     };
-  }, []);
-
-  async function refresh() {
-    const result = await safeInvoke<unknown>("get_pending_breakpoints");
-    const list = Array.isArray(result)
-      ? (result as BreakpointSnapshot[])
-      : [];
-
-    setPending(list);
-    setSelectedId((current) =>
-      current && !list.some((breakpoint) => breakpoint.id === current)
-        ? null
-        : current
-    );
-  }
+  }, [refresh]);
 
   const resolve = useCallback(
     async (id: string, decision: Decision) => {
       try {
+        setError(null);
         await invoke<number>("resolve_breakpoint", {
           id,
           decision,
           mutated: null,
         });
-        refresh();
-      } catch (err) {
-        console.error("resolve_breakpoint failed:", err);
+        await refresh();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    []
+    [refresh],
   );
 
   const selected = pending.find((b) => b.id === selectedId);
-  const tsxRef = useCallback(
-    (node: HTMLTextAreaElement | null) => {
-      if (node) node.focus();
-    },
-    []
-  );
 
-  if (pending.length === 0) return null;
+  if (pending.length === 0 && !error) return null;
 
   return (
-    <div className="fixed bottom-0 right-4 w-96 max-h-[70vh] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-t-lg shadow-xl z-50 flex flex-col">
+    <div className="fixed bottom-0 right-4 z-50 flex max-h-[70vh] w-96 flex-col rounded-t-lg border border-border bg-surface-secondary text-text-primary shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-sm font-semibold flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <span className="h-2 w-2 rounded-full bg-accent-yellow animate-pulse" />
           Breakpoints ({pending.length})
         </span>
         <button
-          className="text-text-muted hover:text-text"
+          type="button"
+          className="rounded p-1 text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
           onClick={() => {
-            invoke("cancel_all_breakpoints").catch(() => {});
-            setPending([]);
+            invoke("cancel_all_breakpoints")
+              .then(() => setPending([]))
+              .catch((cause) => setError(String(cause)));
           }}
           aria-label="Cancel all breakpoints"
         >
@@ -109,26 +104,44 @@ export function BreakpointPanel() {
         </button>
       </div>
 
+      {error && (
+        <div className="m-2">
+          <div className="error-banner" role="alert">
+            <span className="error-banner-message">Breakpoints: {error}</span>
+            <Button variant="secondary" size="sm" onClick={() => void refresh()}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* List */}
-      <ul className="overflow-y-auto flex-1 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+      <ul className="flex-1 divide-y divide-border overflow-y-auto text-xs" role="listbox" aria-label="Pending breakpoints">
         {pending.map((bp) => (
           <li
             key={bp.id}
-            className={`px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-              selectedId === bp.id
-                ? "bg-slate-100 dark:bg-slate-800"
-                : ""
+            role="option"
+            aria-selected={selectedId === bp.id}
+            tabIndex={0}
+            className={`cursor-pointer px-3 py-2 outline-none focus-visible:ring-1 focus-visible:ring-accent-blue ${
+              selectedId === bp.id ? "bg-surface-tertiary" : "hover:bg-surface-tertiary/60"
             }`}
             onClick={() => setSelectedId(bp.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setSelectedId(bp.id);
+              }
+            }}
           >
             <div className="flex items-center gap-2">
               <span
                 className={`font-mono font-semibold ${
                   bp.target === "Request"
-                    ? "text-blue-600"
+                    ? "text-accent-blue"
                     : bp.target === "Response"
-                    ? "text-green-600"
-                    : "text-amber-600"
+                      ? "text-accent-green"
+                      : "text-accent-yellow"
                 }`}
               >
                 {bp.request.method}
@@ -144,18 +157,19 @@ export function BreakpointPanel() {
 
       {/* Detail panel */}
       {selected && (
-        <div className="border-t border-slate-200 dark:border-slate-800 px-3 py-2 space-y-2 max-h-64 overflow-y-auto">
-          <div className="text-xs font-semibold flex items-center gap-2">
-            <span>Edit request</span>
-            <span className="text-text-muted font-normal">
-              {selected.target} breakpoint
-            </span>
+        <div className="max-h-64 space-y-2 overflow-y-auto border-t border-border px-3 py-2">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <span>Breakpoint request</span>
+            <span className="font-normal text-text-muted">{selected.target}</span>
           </div>
 
-          {/* Method + Path */}
           <div className="flex gap-2">
+            <label className="sr-only" htmlFor="breakpoint-method">
+              Method
+            </label>
             <select
-              className="input font-mono text-xs w-24"
+              id="breakpoint-method"
+              className="input w-24 font-mono text-xs"
               defaultValue={selected.request.method}
               disabled
             >
@@ -165,30 +179,33 @@ export function BreakpointPanel() {
               <option>DELETE</option>
               <option>PATCH</option>
             </select>
+            <label className="sr-only" htmlFor="breakpoint-path">
+              Path
+            </label>
             <input
+              id="breakpoint-path"
               className="input flex-1 font-mono text-xs"
               defaultValue={selected.request.path}
               disabled
             />
           </div>
 
-          {/* Body preview / edit */}
+          <label className="sr-only" htmlFor="breakpoint-body">
+            Request body
+          </label>
           <textarea
-            ref={tsxRef}
-            className="input w-full font-mono text-xs h-20 resize-none"
-            defaultValue={
-              selected.request.req_body ?? "// no body"
-            }
+            id="breakpoint-body"
+            className="input h-20 w-full resize-none font-mono text-xs"
+            defaultValue={selected.request.req_body ?? "// no body"}
             readOnly
           />
 
-          {/* Action buttons */}
           <div className="flex gap-2">
             <Button
               variant="secondary"
               size="sm"
               className="flex-1"
-              onClick={() => resolve(selected.id, "proceed")}
+              onClick={() => void resolve(selected.id, "proceed")}
             >
               <Play size={14} />
               Forward
@@ -197,15 +214,15 @@ export function BreakpointPanel() {
               variant="danger"
               size="sm"
               className="flex-1"
-              onClick={() => resolve(selected.id, "drop")}
+              onClick={() => void resolve(selected.id, "drop")}
             >
               <Ban size={14} />
               Drop
             </Button>
           </div>
           <p className="text-[10px] text-text-muted">
-            Edit-and-forward ("modify") is not yet wired — selecting
-            "Forward" or "Drop" resolves this breakpoint.
+            Edit-and-forward ("modify") is not wired yet — Forward or Drop resolves this
+            breakpoint. Use the matching Routing Rule to change future requests.
           </p>
         </div>
       )}

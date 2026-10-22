@@ -112,7 +112,7 @@ describe("useTopologyGraph", () => {
     expect(result.current.graph?.meta.built_at).toBe(2);
   });
 
-  it("surfaces the error when safeInvoke returns null and surfaces thrown errors", async () => {
+  it("surfaces the error when the topology command fails", async () => {
     invokeMock.mockResolvedValue(null);
 
     const { result } = renderHook(() => useTopologyGraph(EMPTY_FILTER, 0));

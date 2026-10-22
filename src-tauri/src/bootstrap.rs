@@ -16,7 +16,6 @@ use tauri_plugin_notification::NotificationExt;
 use crate::anomaly::AnomalyDetector;
 use crate::cert::CertManager;
 use crate::commands::network_conditions::NetworkConditionsState;
-use crate::commands::ssl_bypass::FridaState;
 use crate::db::DbState;
 use crate::dns::DnsState;
 use crate::proxy::ProxyState;
@@ -211,14 +210,6 @@ define_desktop_commands![
     stop_dashboard,
     is_dashboard_running,
     get_dashboard_url,
-    crate::commands::ssl_bypass::frida_list_devices,
-    crate::commands::ssl_bypass::frida_list_processes,
-    crate::commands::ssl_bypass::frida_inject_script,
-    crate::commands::ssl_bypass::frida_detach,
-    crate::commands::ssl_bypass::list_bypass_scripts,
-    crate::commands::ssl_bypass::check_java_installed,
-    crate::commands::ssl_bypass::check_adb_installed,
-    crate::commands::ssl_bypass::patch_apk,
     crate::commands::filter::parse_filter,
     crate::commands::filter::list_filter_presets,
     crate::commands::filter::save_filter_preset,
@@ -353,12 +344,6 @@ fn run_desktop(config: Arc<AppConfig>, acceptance_workspace: Option<PathBuf>) {
         config.dashboard_port,
         metrics.clone(),
     ));
-    let frida_manager = Arc::new(
-        crate::frida::FridaManager::new()
-            .map_err(|error| format!("Failed to initialize Frida: {error}"))
-            .expect("Failed to initialize Frida runtime"),
-    );
-    let frida_state = FridaState(frida_manager);
     let network_conditions_engine = Arc::new(crate::network::NetworkConditionEngine::new());
     let network_conditions_state = NetworkConditionsState(network_conditions_engine);
     let app_state = Arc::new(crate::state::AppState::with_specs_dir(
@@ -390,7 +375,6 @@ fn run_desktop(config: Arc<AppConfig>, acceptance_workspace: Option<PathBuf>) {
         .manage(cert_server_state)
         .manage(metrics)
         .manage(dashboard_server)
-        .manage(frida_state)
         .manage(network_conditions_state)
         .manage(app_state)
         .manage(workspace_manager)
@@ -768,7 +752,7 @@ mod tests {
             .map(|path| path.rsplit("::").next().unwrap())
             .collect();
         assert_eq!(names.len(), DESKTOP_COMMANDS.len());
-        assert!(DESKTOP_COMMANDS.len() >= 130);
+        assert!(DESKTOP_COMMANDS.len() >= 120);
         for command in ["get_alerts", "acknowledge_alert", "get_alert_count"] {
             assert!(names.contains(command));
         }

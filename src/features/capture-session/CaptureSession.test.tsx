@@ -48,6 +48,7 @@ describe("CaptureSession", () => {
     expect(await screen.findByText("Capturing")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Stop Capture" }));
+    await user.click(await screen.findByRole("button", { name: "Stop capture" }));
     expect(await screen.findByText("Capture stopped")).toBeInTheDocument();
     expect(adapter.calls.map(({ command }) => command)).toEqual([
       "get_proxy_status",

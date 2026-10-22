@@ -1,8 +1,9 @@
 # Product comparison and lessons
 
-ProxyBot is not trying to win a feature-count comparison. Its opportunity is a
-focused macOS workflow for debugging mobile application traffic from a test
-device.
+ProxyBot does not try to win a feature-count comparison. Its opportunity is a
+lightweight, focused macOS workflow for debugging mobile application traffic
+from a test device: explicit proxy, inspect, modify, replay, export — without a
+bundled native toolchain or an AI-first platform.
 
 ## Positioning
 
@@ -16,7 +17,7 @@ device.
 
 ## ProxyBot's focused advantage
 
-ProxyBot can combine four capabilities around one mobile debugging journey:
+ProxyBot combines four capabilities around one mobile debugging journey:
 
 1. A macOS desktop application with a reusable Rust MITM Runtime.
 2. Device-aware Captured Requests with DNS-supported Application Attribution.
@@ -25,19 +26,33 @@ ProxyBot can combine four capabilities around one mobile debugging journey:
    capture succeeds.
 
 This advantage only exists when setup and capture are dependable. A non-working
-mode or hidden prerequisite is worse than an absent feature.
+mode or hidden prerequisite is worse than an absent feature. That is why the
+default surface is three destinations (Capture, Setup, Settings) and why
+experiments stay behind the Labs opt-in.
 
 ## Default mode policy
 
-Comparable tools make their simplest reliable mode easy to find. ProxyBot will
-therefore use this order:
+Comparable tools make their simplest reliable mode easy to find. ProxyBot uses
+this order:
 
-1. **Explicit proxy** — default and fully documented.
+1. **Explicit proxy** — Core, default, and fully documented.
 2. **macOS `pf` + DNS** — Advanced, because it changes host networking and may
    require elevated privileges.
 3. **MCP, dashboard, and scripting** — Advanced automation Adapters.
-4. **SSL bypass, AI, generation, and deployment** — Labs until
-   their end-to-end path and support boundary are proven.
+4. **AI analysis, Generate/Deploy, Graph and Topology** — Labs, off by default,
+   enabled under Settings → Labs, and never required for first success.
+
+Only the modes above are in scope. Removed experiments stay removed and are
+not reintroduced without a new ADR and a supported journey (see
+[ADR-0007](adr/0007-lightweight-positioning.md)).
+
+## What ProxyBot does not chase
+
+- A browser-level automation or DevTools replacement.
+- A general-purpose packet analyzer, VPN, or security suite.
+- Feature-count parity with mature proxies at the cost of a reliable first
+  capture.
+- An AI-first, all-source capture scope.
 
 ## Evaluation criteria
 

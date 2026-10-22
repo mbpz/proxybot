@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { enableLabs } from "./fixtures/tauri-mock";
+
+test.beforeEach(async ({ page }) => {
+  await enableLabs(page);
+});
 
 // Mirrors the pattern in e2e/all-pages.spec.ts:
 // verifies page structure without requiring Tauri IPC mocks.

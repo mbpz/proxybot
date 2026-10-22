@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { desktop, type DesktopContract } from "../../desktop/contract";
 import type { DbStats } from "../../generated/desktop-contract";
 import { Button } from "../ui/Button";
+import { ErrorState, InlineNotice, LoadingState } from "../ui/states";
 import { Power, Smartphone, Database } from "lucide-react";
 
 interface GeneralTabProps {
@@ -18,6 +19,7 @@ export function GeneralTab({ contract = desktop }: GeneralTabProps) {
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -48,9 +50,11 @@ export function GeneralTab({ contract = desktop }: GeneralTabProps) {
     const next = !keepRunning;
     setPendingAction("keep-running");
     setError(null);
+    setNotice(null);
     try {
       await contract.call("set_keep_running", { keep: next });
       setKeepRunning(next);
+      setNotice(next ? "Keep Running enabled" : "Keep Running disabled");
     } catch (cause) {
       setError(errorMessage("Could not update Keep Running", cause));
     } finally {
@@ -61,15 +65,18 @@ export function GeneralTab({ contract = desktop }: GeneralTabProps) {
   async function toggleDashboard() {
     setPendingAction("dashboard");
     setError(null);
+    setNotice(null);
     try {
       if (dashboardRunning) {
         await contract.call("stop_dashboard", {});
         setDashboardRunning(false);
         setDashboardUrl("");
+        setNotice("Mobile Dashboard stopped");
       } else {
         const url = await contract.call("start_dashboard", {});
         setDashboardRunning(true);
         setDashboardUrl(url);
+        setNotice("Mobile Dashboard started");
       }
     } catch (cause) {
       setError(errorMessage("Could not update Mobile Dashboard", cause));
@@ -79,18 +86,22 @@ export function GeneralTab({ contract = desktop }: GeneralTabProps) {
   }
 
   if (loading) {
-    return <div className="p-4 text-text-muted">Loading...</div>;
+    return <LoadingState label="Loading general settings..." />;
   }
 
   return (
     <div className="space-y-4">
       {error && (
-        <div className="error-banner" role="alert">
-          <span className="error-banner-message">{error}</span>
-          <Button variant="secondary" size="sm" onClick={() => void load()}>
-            Retry
-          </Button>
-        </div>
+        <ErrorState
+          title="General settings unavailable"
+          message={error}
+          onRetry={() => void load()}
+        />
+      )}
+      {notice && (
+        <InlineNotice variant="success" onDismiss={() => setNotice(null)}>
+          {notice}
+        </InlineNotice>
       )}
 
       {/* Keep Running */}
@@ -126,7 +137,7 @@ export function GeneralTab({ contract = desktop }: GeneralTabProps) {
 
       {/* Mobile Dashboard */}
       <div className="card">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Smartphone size={20} className="text-text-secondary" />
             <div>
@@ -135,20 +146,29 @@ export function GeneralTab({ contract = desktop }: GeneralTabProps) {
                 Start a web dashboard accessible from your phone
               </div>
               {dashboardRunning && dashboardUrl && (
-                <div className="text-xs font-mono text-accent-blue mt-1">
-                  {dashboardUrl}
-                </div>
+                <div className="mt-1 font-mono text-xs text-accent-blue">{dashboardUrl}</div>
               )}
             </div>
           </div>
-          <Button
-            variant={dashboardRunning ? "danger" : "primary"}
-            size="sm"
-            disabled={pendingAction !== null}
-            onClick={() => void toggleDashboard()}
-          >
-            {dashboardRunning ? "Stop" : "Start"}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {dashboardRunning && dashboardUrl && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void navigator.clipboard.writeText(dashboardUrl)}
+              >
+                Copy URL
+              </Button>
+            )}
+            <Button
+              variant={dashboardRunning ? "danger" : "primary"}
+              size="sm"
+              disabled={pendingAction !== null}
+              onClick={() => void toggleDashboard()}
+            >
+              {dashboardRunning ? "Stop" : "Start"}
+            </Button>
+          </div>
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Network } from "lucide-react";
 import { TopologyFilter } from "./types";
 import { useTopologyGraph } from "./hooks/useTopologyGraph";
@@ -17,27 +17,23 @@ const INITIAL_FILTER: TopologyFilter = {
 export function TopologyPage() {
   const [filter, setFilter] = useState<TopologyFilter>(INITIAL_FILTER);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const { graph, loading, error } = useTopologyGraph(filter, 300);
-
-  const handleRefresh = useCallback(() => {
-    setFilter((f) => ({ ...f }));
-  }, []);
+  const { graph, loading, error, refresh } = useTopologyGraph(filter, 300);
 
   return (
-    <div className="p-6 h-screen flex flex-col">
-      <h1 className="text-2xl font-bold mb-4 flex items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col">
+      <h1 className="mb-4 flex items-center gap-2 text-2xl font-bold">
         <Network size={24} className="text-accent-blue" />
         Topology
       </h1>
-      <div className="flex-1 flex flex-col panel overflow-hidden">
-        <TopologyFilterBar filter={filter} onChange={setFilter} onRefresh={handleRefresh} />
-        <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden panel">
+        <TopologyFilterBar filter={filter} onChange={setFilter} onRefresh={refresh} />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <TopologyCanvas
             graph={graph ?? { nodes: [], edges: [], meta: emptyMeta() }}
             loading={loading}
             error={error}
             onNodeClick={setSelectedNodeId}
-            onRefresh={handleRefresh}
+            onRefresh={refresh}
           />
           <TopologyDetail
             nodeId={selectedNodeId}

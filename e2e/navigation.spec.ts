@@ -35,8 +35,11 @@ test.describe("Product navigation", () => {
     await expect(page.getByText("No requests captured yet")).toBeVisible();
   });
 
-  test("navigates to Rules page", async ({ page }) => {
-    await page.getByRole("link", { name: "Rules" }).click();
+  test("navigates to Rules from the Capture context", async ({ page }) => {
+    await page
+      .getByRole("navigation", { name: "Capture views" })
+      .getByRole("link", { name: "Rules" })
+      .click();
     await expect(page).toHaveURL(/\/rules/);
     await expect(page.getByText("No rules configured")).toBeVisible();
   });
@@ -54,31 +57,38 @@ test.describe("Product navigation", () => {
     await captureViews.getByRole("link", { name: "Alerts" }).click();
     await expect(page).toHaveURL(/\/alerts/);
     await expect(page.getByText("No alerts")).toBeVisible();
-    await page.getByRole("button", { name: "Baseline" }).click();
+    await page.getByRole("tab", { name: "Baseline" }).click();
     await expect(page.getByText(/No domain baseline yet/)).toBeVisible();
-    await captureViews.getByRole("link", { name: "Graph" }).click();
-    await expect(page).toHaveURL(/\/graph/);
-    await captureViews.getByRole("link", { name: "Topology" }).click();
-    await expect(page).toHaveURL(/\/topology/);
+    // Analysis is Labs-only: it joins the Capture context after opt-in.
+    await expect(captureViews.getByRole("link", { name: "Analysis" })).toHaveCount(0);
   });
 
-  test("keeps Composer in the Replay destination", async ({ page }) => {
-    await page.locator("aside").getByRole("link", { name: "Replay" }).click();
+  test("keeps Composer inside the Capture context", async ({ page }) => {
+    await page
+      .getByRole("navigation", { name: "Capture views" })
+      .getByRole("link", { name: "Replay" })
+      .click();
     await expect(page).toHaveURL(/\/replay/);
     await page
       .getByRole("navigation", { name: "Replay tools" })
       .getByRole("link", { name: "Composer" })
       .click();
     await expect(page).toHaveURL(/\/composer/);
-    await expect(page.locator("aside").getByRole("link", { name: "Replay" })).toHaveAttribute(
+    await expect(page.locator("aside").getByRole("link", { name: "Capture" })).toHaveAttribute(
       "aria-current",
       "page",
     );
   });
 
-  test("exposes only five destinations in the default sidebar", async ({ page }) => {
+  test("exposes only three destinations in the default sidebar", async ({ page }) => {
     const sidebarLinks = page.locator("aside").getByRole("link");
-    await expect(sidebarLinks).toHaveCount(5);
-    await expect(sidebarLinks).toHaveText(["Capture", "Setup", "Rules", "Replay", "Settings"]);
+    await expect(sidebarLinks).toHaveCount(3);
+    await expect(sidebarLinks).toHaveText(["Capture", "Setup", "Settings"]);
+  });
+
+  test("Labs routes are gated by default and point to Settings", async ({ page }) => {
+    await page.goto("/graph");
+    await expect(page.getByText("Labs are off")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Settings → Labs" })).toBeVisible();
   });
 });

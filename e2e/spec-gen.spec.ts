@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockTauriCommands } from "./fixtures/tauri-mock";
+import { enableLabs, mockTauriCommands } from "./fixtures/tauri-mock";
 
 const SPEC_RESULT = {
   openapi: { OpenApi: "openapi: 3.1.0\npaths:\n  /health:\n    get: {}\n" },
@@ -30,6 +30,7 @@ const SPEC_RESULT = {
  */
 test.describe("Spec generation panel", () => {
   test.beforeEach(async ({ page }) => {
+    await enableLabs(page);
     await mockTauriCommands(page, {
       get_ai_stats: { stats: [] },
       set_active_session: null,
@@ -37,16 +38,16 @@ test.describe("Spec generation panel", () => {
       generate_spec: SPEC_RESULT,
     });
     await page.goto("/ai");
-    await page.getByRole("button", { name: "API Inference", exact: true }).click();
+    await page.getByRole("tab", { name: "API Inference", exact: true }).click();
   });
 
   test("renders source badge after running generate", async ({ page }) => {
-    await expect(page.getByText("OpenAPI / AsyncAPI 生成")).toBeVisible();
+    await expect(page.getByText("OpenAPI / AsyncAPI generation")).toBeVisible();
 
     const sessionInput = page.getByPlaceholder(/Session/i);
     await sessionInput.fill("session_001");
 
-    await page.getByRole("button", { name: /生成规范/ }).click();
+    await page.getByRole("button", { name: /Generate spec/ }).click();
 
     // The source badge labels the result variant. With no API key
     // configured (CI default) we always end up on `Heuristic`; with
@@ -58,11 +59,11 @@ test.describe("Spec generation panel", () => {
 
   test("replay button enables once a spec exists", async ({ page }) => {
     // Replay should be disabled before generation.
-    const replayBtn = page.getByRole("button", { name: /重放验证/ });
+    const replayBtn = page.getByRole("button", { name: /Replay validation/ });
     await expect(replayBtn).toBeDisabled();
 
     await page.getByPlaceholder(/Session/i).fill("session_001");
-    await page.getByRole("button", { name: /生成规范/ }).click();
+    await page.getByRole("button", { name: /Generate spec/ }).click();
     await expect(page.getByText(/^(Llm|Heuristic|Hybrid)$/)).toBeVisible({
       timeout: 30_000,
     });

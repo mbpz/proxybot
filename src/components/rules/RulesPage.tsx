@@ -7,6 +7,8 @@ import { RuleModal } from "./RuleModal";
 import { Button } from "../ui/Button";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonCard } from "../ui/skeleton";
+import { ConfirmDialog } from "../ui/Dialog";
+import { EmptyState, ErrorState } from "../ui/states";
 
 function actionLabel(action: RuleAction | null): string {
   if (!action) return "No match";
@@ -17,12 +19,15 @@ export function RulesPage() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ruleFiles, setRuleFiles] = useState<string[]>(["custom.yaml"]);
   const [selectedFile, setSelectedFile] = useState("custom.yaml");
   const [testHost, setTestHost] = useState("");
   const [matchResult, setMatchResult] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Rule | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     void loadRuleFiles();
@@ -80,17 +85,19 @@ export function RulesPage() {
 
   function handleAddRule() {
     setEditingRule(null);
+    setModalError(null);
     setModalOpen(true);
   }
 
   function handleEditRule(rule: Rule) {
     setEditingRule(rule);
+    setModalError(null);
     setModalOpen(true);
   }
 
   async function handleSaveRule(rule: Rule) {
     try {
-      setError(null);
+      setModalError(null);
       await desktop.call("save_rule", {
         rule,
         filename: selectedFile,
@@ -101,17 +108,24 @@ export function RulesPage() {
       await loadRules(selectedFile);
       await loadRuleFiles();
     } catch (cause) {
-      setError(String(cause));
+      // Keep the modal open and show the failure where the user is looking.
+      setModalError(String(cause));
     }
   }
 
-  async function handleDeleteRule(rule: Rule) {
+  async function confirmDeleteRule() {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
       setError(null);
-      await desktop.call("delete_rule", { rule, filename: selectedFile });
+      await desktop.call("delete_rule", { rule: pendingDelete, filename: selectedFile });
+      setPendingDelete(null);
       await loadRules(selectedFile);
     } catch (cause) {
       setError(String(cause));
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -136,7 +150,11 @@ export function RulesPage() {
           <div className="flex items-center gap-3">
             <span className="panel-title">Rules</span>
             <span className="text-sm text-muted">{rules.length} rules</span>
+            <label className="sr-only" htmlFor="rule-file-select">
+              Rule file
+            </label>
             <select
+              id="rule-file-select"
               value={selectedFile}
               onChange={(event) => setSelectedFile(event.target.value)}
               style={{ width: 160 }}
@@ -152,10 +170,13 @@ export function RulesPage() {
               value={testHost}
               onChange={(event) => setTestHost(event.target.value)}
               placeholder="Test host..."
+              aria-label="Test host"
               style={{ width: 160 }}
               onKeyDown={(event) => event.key === "Enter" && void handleMatchHost()}
             />
-            <Button variant="secondary" size="sm" onClick={handleMatchHost}><Search size={14} /></Button>
+            <Button variant="secondary" size="sm" onClick={() => void handleMatchHost()} aria-label="Match host">
+              <Search size={14} />
+            </Button>
             {matchResult && (
               <span
                 className="text-xs mono"
@@ -169,11 +190,12 @@ export function RulesPage() {
         </div>
 
         {error && (
-          <div className="error-banner mx-4 mt-2">
-            <span className="error-banner-message">{error}</span>
-            <Button variant="secondary" size="sm" onClick={() => void loadRules(selectedFile)}>
-              Retry
-            </Button>
+          <div className="mx-4 mt-2">
+            <ErrorState
+              title="Rules operation failed"
+              message={error}
+              onRetry={() => void loadRules(selectedFile)}
+            />
           </div>
         )}
 
@@ -189,13 +211,11 @@ export function RulesPage() {
                 <SkeletonCard />
               </div>
             ) : rules.length === 0 ? (
-              <div className="empty-state">
-                <Shield size={48} className="empty-state-icon" />
-                <div className="empty-state-title">No rules configured</div>
-                <div className="empty-state-description">
-                  Click "Add Rule" to create your first routing rule.
-                </div>
-              </div>
+              <EmptyState
+                icon={<Shield size={48} />}
+                title="No rules configured"
+                description='Click "Add Rule" to create your first routing rule.'
+              />
             ) : (
               <div
                 className="grid gap-4"
@@ -208,7 +228,7 @@ export function RulesPage() {
                     isFirst={index === 0}
                     isLast={index === rules.length - 1}
                     onEdit={() => handleEditRule(rule)}
-                    onDelete={() => void handleDeleteRule(rule)}
+                    onDelete={() => setPendingDelete(rule)}
                     onToggle={(enabled) => void handleToggleRule(rule, enabled)}
                     onMoveUp={() => void handleReorder(rule, "up")}
                     onMoveDown={() => void handleReorder(rule, "down")}
@@ -223,10 +243,25 @@ export function RulesPage() {
       {modalOpen && (
         <RuleModal
           rule={editingRule}
+          error={modalError}
           onSave={handleSaveRule}
-          onClose={() => setModalOpen(false)}
+          onClose={() => {
+            setModalOpen(false);
+            setModalError(null);
+          }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete rule"
+        message={`Delete "${pendingDelete?.name || pendingDelete?.value || "this rule"}" from ${selectedFile}? This cannot be undone.`}
+        confirmLabel="Delete rule"
+        destructive
+        busy={deleting}
+        onConfirm={() => void confirmDeleteRule()}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

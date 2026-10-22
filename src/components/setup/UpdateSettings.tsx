@@ -7,9 +7,9 @@ export function UpdateSettings() {
     <div className="border-t border-border pt-4 mt-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">检查更新</span>
+          <span className="text-sm font-medium">Check for updates</span>
           {isLoading && (
-            <span className="text-xs text-text-muted">检查中...</span>
+            <span className="text-xs text-text-muted">Checking...</span>
           )}
           {error && (
             <span className="text-xs text-accent-red">{error}</span>
@@ -21,7 +21,7 @@ export function UpdateSettings() {
 
         <div className="flex items-center gap-3">
           {!isLoading && !error && hasUpdate && latestVersion && (
-            <span className="text-xs text-text-muted">v{latestVersion} 可用</span>
+            <span className="text-xs text-text-muted">v{latestVersion} available</span>
           )}
           {!isLoading && !error && !hasUpdate && (
             <span className="text-xs text-text-muted">v{currentVersion}</span>
@@ -31,7 +31,7 @@ export function UpdateSettings() {
             disabled={isLoading}
             className={`btn btn-sm ${hasUpdate ? "btn-primary" : "btn-secondary"}`}
           >
-            {hasUpdate ? "更新 ProxyBot" : "检查更新"}
+            {hasUpdate ? "Update ProxyBot" : "Check for updates"}
           </button>
         </div>
       </div>

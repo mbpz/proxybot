@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockTauriCommands } from "./fixtures/tauri-mock";
+import { enableLabs, mockTauriCommands } from "./fixtures/tauri-mock";
 
 const MOCKS = {
   is_dashboard_running: false,
@@ -76,16 +76,18 @@ const MOCKS = {
 
 test.describe("Topology page", () => {
   test.beforeEach(async ({ page }) => {
+    await enableLabs(page);
     await mockTauriCommands(page, MOCKS);
   });
 
-  test("opens from the Capture context", async ({ page }) => {
+  test("opens from the Capture context Analysis entry and direct deep link", async ({ page }) => {
     await page.goto("/");
     await page
       .getByRole("navigation", { name: "Capture views" })
-      .getByRole("link", { name: "Topology" })
+      .getByRole("link", { name: "Analysis" })
       .click();
-    await expect(page).toHaveURL(/\/topology/);
+    await expect(page).toHaveURL(/\/graph/);
+    await page.goto("/topology");
     await expect(page.getByRole("heading", { name: "Topology" })).toBeVisible();
   });
 

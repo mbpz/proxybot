@@ -1,12 +1,16 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FilterBar } from "./FilterBar";
 import { RequestTable } from "./RequestTable";
 import { RequestDetail } from "./RequestDetail";
+import { CaptureEmptyState } from "./CaptureEmptyState";
 import { capturedRequestToListItem, normalizedRecordToListItem } from "./model";
 import { FilterInput } from "../filter/FilterInput";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { SkeletonTable } from "../ui/skeleton";
 import { Button } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
+import { EmptyState, ErrorState, InlineNotice } from "../ui/states";
 import { Search, Download, Table2, Save, FolderOpen } from "lucide-react";
 import { desktop } from "../../desktop/contract";
 import type {
@@ -34,9 +38,17 @@ const EMPTY_PAGE: TrafficPageResult = {
 };
 
 export function TrafficPage() {
+  const [searchParams] = useSearchParams();
   const [requests, setRequests] = useState<InterceptedRequest[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<FilterState>({});
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const host = searchParams.get("host");
+    const app = searchParams.get("app");
+    return {
+      ...(host ? { host } : {}),
+      ...(app ? { appTag: app } : {}),
+    };
+  });
   const [dslExpr, setDslExpr] = useState("");
   const [presets, setPresets] = useState<FilterPreset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,12 +61,17 @@ export function TrafficPage() {
   const [queryPage, setQueryPage] = useState(0);
   const [queryLoading, setQueryLoading] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    variant: "success" | "error";
+    message: string;
+  } | null>(null);
 
   async function loadPresets() {
     try {
       setPresets(await desktop.call("list_filter_presets", {}));
     } catch (e) {
-      console.error("Failed to load presets:", e);
+      setNotice({ variant: "error", message: `Could not load filter presets: ${String(e)}` });
     }
   }
 
@@ -73,9 +90,12 @@ export function TrafficPage() {
         );
         setRefreshVersion((version) => version + 1);
       },
-      error: (error) => console.error("Invalid intercepted request event:", error),
+      error: (error) =>
+        setNotice({ variant: "error", message: `Capture event stream failed: ${error.message}` }),
     });
-    void subscription.ready.catch((error) => console.error("Traffic subscription failed:", error));
+    void subscription.ready.catch((error) =>
+      setNotice({ variant: "error", message: `Capture event stream failed: ${String(error)}` }),
+    );
 
     return () => subscription.dispose();
   }, []);
@@ -105,11 +125,16 @@ export function TrafficPage() {
             query,
             records: historyRecords,
           });
-          if (active) setResultPage(page);
+          if (active) {
+            setResultPage(page);
+            setQueryError(null);
+          }
         } catch (error) {
-          // FilterInput renders malformed-expression errors. Keep the previous
-          // result set while the user is still editing the expression.
-          console.error("Traffic query failed:", error);
+          // Keep the previous result set visible, but make the failure explicit
+          // and retryable instead of silently rendering stale/empty data.
+          if (active) {
+            setQueryError(error instanceof Error ? error.message : String(error));
+          }
         } finally {
           if (active) {
             setLoading(false);
@@ -143,6 +168,15 @@ export function TrafficPage() {
     }
   }, [displayedRequests, selectedId]);
 
+  const hasActiveQuery = Boolean(
+    dslExpr.trim() ||
+      filters.method ||
+      filters.host ||
+      filters.appTag ||
+      filters.search ||
+      filters.status !== undefined,
+  );
+
   function toggleNormalized() {
     setNormalizedView((current) => !current);
   }
@@ -153,17 +187,18 @@ export function TrafficPage() {
       setRequests(history);
       setHistoryRecords(history);
       setQueryPage(0);
+      setNotice({ variant: "success", message: `Loaded ${history.length} stored requests` });
     } catch (err) {
-      alert("Load history failed: " + String(err));
+      setNotice({ variant: "error", message: `Load history failed: ${String(err)}` });
     }
   }
 
   async function saveHistory() {
     try {
       await desktop.call("save_history", { requests: historyRecords ?? requests });
-      alert("Traffic history saved");
+      setNotice({ variant: "success", message: "Traffic history saved" });
     } catch (err) {
-      alert("Save failed: " + String(err));
+      setNotice({ variant: "error", message: `Save failed: ${String(err)}` });
     }
   }
 
@@ -171,6 +206,7 @@ export function TrafficPage() {
     if (!harName) return;
     try {
       setHarExporting(true);
+      setNotice(null);
       const har = await desktop.call("export_har", { sessionName: harName });
       const path = await desktop.call("save_har_file", {
         harJson: JSON.stringify(har),
@@ -178,16 +214,16 @@ export function TrafficPage() {
       });
       setShowHarDialog(false);
       setHarName("");
-      alert(`HAR exported to: ${path}`);
+      setNotice({ variant: "success", message: `HAR exported to: ${path}` });
     } catch (err) {
-      alert("Export failed: " + String(err));
+      setNotice({ variant: "error", message: `Export failed: ${String(err)}` });
     } finally {
       setHarExporting(false);
     }
   }
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex h-full min-h-0 flex-col">
       <FilterInput
         value={dslExpr}
         onChange={(expression) => {
@@ -211,48 +247,117 @@ export function TrafficPage() {
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-surface-primary">
-        <span className="text-xs text-text-muted">{resultPage.total} requests</span>
+        <span className="text-xs text-text-muted">
+          {resultPage.total} requests{queryLoading ? " · filtering..." : ""}
+        </span>
         <div className="flex-1" />
-        <Button variant="secondary" size="sm" onClick={loadHistory}>
+        <Button variant="secondary" size="sm" onClick={() => void loadHistory()}>
           <FolderOpen size={14} /> Load
         </Button>
-        <Button variant="secondary" size="sm" onClick={saveHistory} disabled={requests.length === 0}>
+        <Button variant="secondary" size="sm" onClick={() => void saveHistory()} disabled={requests.length === 0}>
           <Save size={14} /> Save
         </Button>
         <Button variant="secondary" size="sm" onClick={toggleNormalized}>
           <Table2 size={14} />
           {normalizedView ? "Raw" : "Normalized"}
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => setShowHarDialog(true)} disabled={resultPage.total === 0}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowHarDialog(true)}
+          disabled={resultPage.total === 0}
+        >
           <Download size={14} />
           Export HAR
         </Button>
       </div>
 
-      {/* HAR Export Dialog */}
-      {showHarDialog && (
-        <div className="error-banner mx-4 mt-2" style={{ background: "var(--bg-tertiary)", border: "1px solid var(--accent-blue)", color: "var(--text-primary)" }}>
-          <input
-            type="text"
-            value={harName}
-            onChange={(e) => setHarName(e.target.value)}
-            placeholder="Session name..."
-            style={{ flex: 1 }}
-            onKeyDown={(e) => e.key === "Enter" && exportHar()}
+      {notice && (
+        <div className="px-4 pt-2">
+          <InlineNotice variant={notice.variant} onDismiss={() => setNotice(null)}>
+            {notice.message}
+          </InlineNotice>
+        </div>
+      )}
+      {queryError && (
+        <div className="px-4 pt-2">
+          <ErrorState
+            title="Could not load requests"
+            message={queryError}
+            onRetry={() => setRefreshVersion((version) => version + 1)}
           />
-          <Button variant="primary" size="sm" onClick={exportHar} disabled={harExporting || !harName}>
-            {harExporting ? "Exporting..." : "Save"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setShowHarDialog(false)}>Cancel</Button>
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-3/5 border-r border-border flex flex-col">
-          <div className="flex-1 overflow-hidden">
+      <Dialog
+        open={showHarDialog}
+        title="Export HAR"
+        onClose={() => setShowHarDialog(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowHarDialog(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => void exportHar()}
+              disabled={harExporting || !harName}
+            >
+              {harExporting ? "Exporting..." : "Export"}
+            </button>
+          </>
+        }
+      >
+        <label className="mb-1 block text-sm text-text-muted" htmlFor="har-session-name">
+          Session name
+        </label>
+        <input
+          id="har-session-name"
+          type="text"
+          value={harName}
+          onChange={(event) => setHarName(event.target.value)}
+          placeholder="Session name..."
+          className="w-full"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && harName && !harExporting) void exportHar();
+          }}
+        />
+      </Dialog>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex w-3/5 flex-col border-r border-border">
+          <div className="min-h-0 flex-1 overflow-hidden">
             <ErrorBoundary>
-              {loading || queryLoading ? (
+              {loading ? (
                 <SkeletonTable rows={10} />
+              ) : resultPage.total === 0 ? (
+                hasActiveQuery ? (
+                  <EmptyState
+                    icon={<Search size={40} />}
+                    title="No requests match the current filters"
+                    description="Adjust or clear the filter expression to see captured requests."
+                    action={
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setDslExpr("");
+                          setFilters({});
+                          setQueryPage(0);
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <CaptureEmptyState />
+                )
               ) : (
                 <RequestTable
                   requests={displayedRequests}
@@ -263,11 +368,27 @@ export function TrafficPage() {
             </ErrorBoundary>
           </div>
           {resultPage.total > 0 && (
-            <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-surface-primary text-xs text-text-muted">
-              <span>Page {queryPage + 1} of {Math.ceil(resultPage.total / 50)} ({resultPage.total} total)</span>
+            <div className="flex items-center justify-between border-t border-border bg-surface-primary px-4 py-2 text-xs text-text-muted">
+              <span>
+                Page {queryPage + 1} of {Math.ceil(resultPage.total / 50)} ({resultPage.total} total)
+              </span>
               <div className="flex gap-1">
-                <Button variant="secondary" size="sm" disabled={queryPage <= 0} onClick={() => setQueryPage((page) => Math.max(0, page - 1))}>Prev</Button>
-                <Button variant="secondary" size="sm" disabled={!resultPage.has_more} onClick={() => setQueryPage((page) => page + 1)}>Next</Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={queryPage <= 0}
+                  onClick={() => setQueryPage((page) => Math.max(0, page - 1))}
+                >
+                  Prev
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!resultPage.has_more}
+                  onClick={() => setQueryPage((page) => page + 1)}
+                >
+                  Next
+                </Button>
               </div>
             </div>
           )}
@@ -277,13 +398,11 @@ export function TrafficPage() {
             {selectedRequest ? (
               <RequestDetail request={selectedRequest} />
             ) : (
-              <div className="empty-state">
-                <Search size={48} className="empty-state-icon" />
-                <div className="empty-state-title">No request selected</div>
-                <div className="empty-state-description">
-                  Click on a request in the list to view its details
-                </div>
-              </div>
+              <EmptyState
+                icon={<Search size={40} />}
+                title="No request selected"
+                description="Select a request in the list (click or press Enter) to inspect it."
+              />
             )}
           </ErrorBoundary>
         </div>

@@ -1,51 +1,34 @@
-# Domain Docs
+# Domain documentation
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+How engineering skills and agents should consume this repository's domain
+knowledge. This is a **single-context** repository: one `CONTEXT.md` at the
+repository root and one shared ADR directory.
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root, or
-- **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
+1. [`CONTEXT.md`](../../CONTEXT.md) at the repository root — canonical domain
+   vocabulary. Use its terms (and avoid the listed synonyms) in code, tests,
+   issue titles, refactor proposals, and documentation.
+2. [`docs/adr/`](../adr/README.md) — binding architecture and product decisions.
+   Read the ADRs that touch the area you are about to work on. If your work
+   contradicts an accepted ADR, surface it explicitly and propose a superseding
+   ADR rather than silently overriding the decision.
+3. [`docs/roadmap.md`](../roadmap.md) — product tiers (Core / Advanced / Labs)
+   and current direction.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The producer skill (`/grill-with-docs`) creates them lazily when terms or decisions actually get resolved.
+Do not create a second `CONTEXT.md`, a `CONTEXT-MAP.md`, or context-scoped ADR
+directories. ProxyBot is one context.
 
-## File structure
+## Vocabulary discipline
 
-Single-context repo (most repos):
+- If a domain concept you need is not in `CONTEXT.md`, either the term is
+  invented (reconsider) or the glossary needs a change (propose it with the
+  code change that introduces the concept).
+- When proposing a capability, state its product tier: Core, Advanced, or Labs.
+  Tier definitions are in [ADR-0005](../adr/0005-product-tiers.md).
 
-```
-/
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-event-sourced-orders.md
-│   └── 0002-postgres-for-write-model.md
-└── src/
-```
+## When to record a decision
 
-Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
-
-```
-/
-├── CONTEXT-MAP.md
-├── docs/adr/                          ← system-wide decisions
-└── src/
-    ├── ordering/
-    │   ├── CONTEXT.md
-    │   └── docs/adr/                  ← context-specific decisions
-    └── billing/
-        ├── CONTEXT.md
-        └── docs/adr/
-```
-
-## Use the glossary's vocabulary
-
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
-
-If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/grill-with-docs`).
-
-## Flag ADR conflicts
-
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
-
-> _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
+Write an ADR when a change alters a public interface, the desktop IPC contract,
+the persistence model, a security boundary, the release contract, or a product
+tier. Do not write one for behavior-preserving refactors or routine fixes.

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrafficPage } from "../components/traffic/TrafficPage";
 import type { InterceptedRequest } from "../generated/desktop-contract";
@@ -68,7 +69,11 @@ beforeEach(() => {
 
 describe("TrafficPage", () => {
   it("loads one generated-contract query for the initial result set", async () => {
-    render(<TrafficPage />);
+    render(
+      <MemoryRouter>
+        <TrafficPage />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByText(/0 requests/)).toBeInTheDocument();
     await waitFor(() =>
@@ -81,7 +86,11 @@ describe("TrafficPage", () => {
   });
 
   it("submits a Filter DSL result set once instead of evaluating every row", async () => {
-    render(<TrafficPage />);
+    render(
+      <MemoryRouter>
+        <TrafficPage />
+      </MemoryRouter>,
+    );
     await waitFor(() =>
       expect(invokeMock.mock.calls.filter(([command]) => command === "get_traffic_page")).toHaveLength(1),
     );
@@ -97,7 +106,11 @@ describe("TrafficPage", () => {
   });
 
   it("coalesces a Capture Event burst into one persisted query refresh", async () => {
-    render(<TrafficPage />);
+    render(
+      <MemoryRouter>
+        <TrafficPage />
+      </MemoryRouter>,
+    );
     await waitFor(() =>
       expect(invokeMock.mock.calls.filter(([command]) => command === "get_traffic_page")).toHaveLength(1),
     );

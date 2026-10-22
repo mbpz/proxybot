@@ -148,6 +148,10 @@ pub enum TrafficDirection {
 }
 
 /// Desktop/headless extension Seam for behavior that is not protocol logic.
+// `async_trait` expands each method to a `Box<dyn Future>` and clippy 1.99
+// reports that generated `#[must_use]` as redundant. The attribute is emitted
+// by the macro, not by this trait, so allow the false positive locally.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait RuntimeHooks: Send + Sync + 'static {
     async fn on_connect(&self, _host: &str, _port: u16) -> RuntimeConnectDecision {

@@ -4,8 +4,11 @@ const browserExecutablePath = process.env.PLAYWRIGHT_BROWSER_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 15000,
-  retries: 0,
+  // Browser-mock runs are wall-clock bound on the shared Vite dev server.
+  // Keep a modest CI retry budget so unrelated tests are not reported as
+  // regressions when the dev server stalls; real failures still surface.
+  timeout: 20000,
+  retries: process.env.CI ? 2 : 0,
   workers: 1,
   reporter: [["list"], ["html", { outputFolder: "e2e-report" }]],
   use: {

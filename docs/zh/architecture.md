@@ -3,7 +3,8 @@
 ProxyBot 将可复用的 MITM Runtime 与平台、存储和界面 Adapter 分离。目标不是增加
 层数，而是把抓包、持久化、桌面行为和实验能力封装在具有小 Interface 的深 Module
 中。规范领域语言见仓库根目录的
-[`CONTEXT.md`](https://github.com/mbpz/proxybot/blob/main/CONTEXT.md)。
+[`CONTEXT.md`](https://github.com/mbpz/proxybot/blob/main/CONTEXT.md)；具有约束力
+的决策见 [`docs/adr/`](../adr/README.md)。
 
 ## 运行时组合
 
@@ -29,7 +30,11 @@ MITM Runtime --> Capture Event --> 桌面 Runtime Adapter
 ```
 
 `src-tauri/src/bootstrap.rs` 是唯一 composition root：解析 Process Config，选择
-桌面或 MCP 启动 Adapter，创建共享资源并负责进程退出。
+桌面或 MCP 启动 Adapter，创建共享资源并负责进程退出。它刻意保持精简：不存在第二
+个解析配置或打开数据库的入口。
+
+构建是自包含的：不打包原生工具链或下载的 gadget 资源；桌面应用、MCP 模式和
+验收流程都从仓库直接构建。
 
 ## Module 与 Seam
 
@@ -40,7 +45,7 @@ MITM Runtime --> Capture Event --> 桌面 Runtime Adapter
 - 校验后的 Process Config 与 Runtime Config
 - MITM Runtime 及其生命周期句柄
 - TLS 证书生成和拦截决策
-- Routing Rule 模型与匹配
+- Routing Rule 模型与匹配，包括 per-host TLS rule
 - Capture Event 类型
 - Application Attribution 和分析模型
 - 规范生成基础能力
@@ -66,8 +71,29 @@ SQLite 存储 Captured Request、Device、Alert、DNS Observation、配置与生
 ### React 桌面 Adapter
 
 React 应用负责桌面产品界面。生成式 Desktop Contract 提供类型化命令/事件元数据
-和用于快速 UI 测试的 BrowserMockAdapter。迁移尚未完成：部分页面仍直接调用
-Tauri，或通过浅 Adapter 将错误转换为 `null`。
+和用于快速 UI 测试的 BrowserMockAdapter。生成模块目前覆盖 123 个桌面命令中的
+36 个，以及 4 个事件。**迁移尚未完成：** 其他页面仍直接调用 Tauri；把错误转换成
+`null` 的浅 `safeInvoke` 已删除，但这些调用点仍需迁移到类型化契约。
+
+界面只有三个 Product Destination：**Capture**、**Setup** 与 **Settings**。
+
+- **Capture** 拥有请求工作区及其上下文导航：Requests、Rules、Replay、DNS、
+  Alerts、Analysis。Replay 与 Composer 共享 Replay 上下文。
+- **Setup** 拥有设备接入流程；证书面板与已注册设备面板是保留的深链，从 Setup
+  卡片进入。
+- **Settings** 拥有通用设置、网络设置、DNS、Labs 开关和关于页面。
+
+Labs 界面（AI 分析 `/ai`、Generate `/gen`、Deploy `/deploy`、Graph `/graph`、
+Topology `/topology`）按需加载并做代码分割。它们默认关闭、不出现在默认导航中，
+并由 `LabsGate` 拦截。开关是本地 UI 状态（`localStorage` 键
+`proxybot.labs.enabled`），在 Settings → Labs 中管理；未开启时访问对应路由只显示
+"Labs are off"页面，不涉及任何后端命令。
+
+历史与实验路由仍作为合法深链保留，避免旧 URL 失效，但不参与默认导航。
+
+General Settings 以及 Capture 的 DNS、Alerts 界面通过生成的 Desktop Contract
+读取和修改数据、DNS Observation、流量基线与异常扫描。传输层和结果结构失败在
+界面中保持为类型化错误，不会被转换成 false、空或 null 状态。
 
 ## 网络模式
 
@@ -118,13 +144,18 @@ Topology、认证和异常检测各自重新解释数据库记录。
 - `pf`、DNS、证书分发、Dashboard 与 MITM listener 都必须是具有明确
   所有权和清理行为的 Desktop Network Resource。
 - MCP stdio 是本地 Adapter，但会向客户端暴露敏感的持久化数据。
-- Android SSL Bypass 会修改应用，只能属于 Labs。
-- 当前全局 Tauri API 与空 CSP 是迁移债务；目标是最小 capability 和非空 CSP。
+- Labs gate 是导航/产品边界，不是安全边界：Labs 命令仍编译在桌面二进制中。
+- 当前全局 Tauri API（`withGlobalTauri: true`）与空 CSP（`"csp": null`）仍然
+  存在，属于迁移债务；目标是最小 capability 和非空 CSP。
 
 ## 验证边界
 
-Rust 与 UI 测试覆盖 Module 和 BrowserMockAdapter。当前 Playwright 启动 Vite，
-而不是打包后的 Tauri 应用。只有真实桌面验收流程通过安装、启动、证书配置、抓包、
-停止、重启和清理后，Release 才能视为被验证。
+Rust 与 UI 测试覆盖 Module 和 BrowserMockAdapter。当前 Playwright 在浏览器中启动
+Vite，并使用模拟桌面 Adapter，而不是打包后的 Tauri 应用。打包桌面验收流程执行
+真实 `.app` 二进制与 Tauri composition root，在隔离工作区内证明 CA 准备、本地
+HTTPS 解密抓取、SQLite 记录、停止、重启与清理，不需要外部网络。CI 从未签名的
+app bundle 运行该流程。它不驱动可见 UI，也不证明签名安装；这些仍属于发布证据
+要求。
 
-按顺序执行的深化工作见[产品路线图](../roadmap.md)。
+按顺序执行的深化工作见[产品路线图](roadmap.md)，仍然有约束力的设计决策见
+[ADRs](../adr/README.md)。

@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import DOMPurify from "dompurify";
 import {
-  AlertCircle,
   ArrowRight,
   CheckCircle2,
   ExternalLink,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
+import { ErrorState, InlineNotice } from "../../components/ui/states";
 import { desktop, type DesktopContract } from "../../desktop/contract";
 import type { DeviceOnboarding, DevicePlatform } from "../../generated/desktop-contract";
 import { useCaptureSession } from "../capture-session/CaptureSession";
@@ -33,6 +33,7 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
   const [preparing, setPreparing] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const prepared = onboarding?.platform === platform ? onboarding : null;
   const sanitizedQr = useMemo(
@@ -43,8 +44,10 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
   async function prepare() {
     setPreparing(true);
     setError(null);
+    setNotice(null);
     try {
       setOnboarding(await contract.call("prepare_device_onboarding", { platform }));
+      setNotice("Temporary setup server is ready. Scan the QR code from the device.");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -55,9 +58,11 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
   async function stopSetupServer() {
     setStopping(true);
     setError(null);
+    setNotice(null);
     try {
       await contract.call("stop_device_onboarding", {});
       setOnboarding(null);
+      setNotice("Setup server stopped. Remove the manual proxy from the device Wi-Fi settings.");
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -82,13 +87,16 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
       </header>
 
       {error && (
-        <div className="error-banner" role="alert">
-          <AlertCircle size={17} />
-          <span className="error-banner-message">{error}</span>
-          <Button variant="ghost" size="sm" onClick={() => void prepare()} disabled={preparing}>
-            Retry
-          </Button>
-        </div>
+        <ErrorState
+          title="Device setup failed"
+          message={error}
+          onRetry={() => void prepare()}
+        />
+      )}
+      {notice && (
+        <InlineNotice variant="success" onDismiss={() => setNotice(null)}>
+          {notice}
+        </InlineNotice>
       )}
 
       <section className="card space-y-4" aria-labelledby="platform-heading">
@@ -151,6 +159,14 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
           <p className="text-sm text-text-secondary">
             Discover the active LAN address and start a temporary CA download server.
           </p>
+          {!capture.running && (
+            <div className="mt-3">
+              <InlineNotice variant="info">
+                Capture is not running yet. Start it in step 1 first, otherwise device traffic
+                will not be captured.
+              </InlineNotice>
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button variant="primary" onClick={() => void prepare()} disabled={preparing}>
               <Wifi size={16} />
@@ -233,9 +249,14 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
                 Verify in order: open <code>http://example.com</code>, then{" "}
                 <code>https://example.com</code> on the device.
               </p>
-              <Link to="/" className="mt-3 inline-flex items-center gap-1">
-                Check captured requests in Traffic <ArrowRight size={14} />
-              </Link>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Link to="/" className="inline-flex items-center gap-1">
+                  Check captured requests in Traffic <ArrowRight size={14} />
+                </Link>
+                <Link to="/certs" className="inline-flex items-center gap-1">
+                  Advanced certificate controls <KeyRound size={14} />
+                </Link>
+              </div>
             </div>
           </SetupStep>
         </div>
@@ -245,9 +266,25 @@ export function DeviceOnboardingPage({ contract = desktop }: DeviceOnboardingPag
         </div>
       )}
 
-      <footer className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-sm">
-        <Link to="/certs">Advanced certificate and decryption controls</Link>
-        <Link to="/devices">Registered device inventory</Link>
+      <footer className="border-t border-border pt-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Link to="/certs" className="card block hover:border-border-light">
+            <div className="font-medium text-text-primary">Advanced certificates</div>
+            <div className="text-sm text-text-muted">
+              CA metadata, export/regenerate, TLS decryption rules.
+            </div>
+          </Link>
+          <Link to="/devices" className="card block hover:border-border-light">
+            <div className="font-medium text-text-primary">Registered devices</div>
+            <div className="text-sm text-text-muted">
+              Device inventory, traffic counters and per-device routing overrides.
+            </div>
+          </Link>
+        </div>
+        <p className="mt-4 text-xs text-text-muted">
+          Cleanup: Stop Setup Server, then disable the manual proxy in the device Wi-Fi settings
+          and remove the ProxyBot CA from the device trust store if it is no longer needed.
+        </p>
       </footer>
     </div>
   );

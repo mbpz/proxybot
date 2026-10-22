@@ -169,7 +169,7 @@ pub(super) async fn bridge_capture_events(
             CaptureEvent::ConnectionClosed { .. } => {
                 use std::sync::atomic::Ordering;
                 metrics.connections_closed.fetch_add(1, Ordering::Relaxed);
-                let _ = metrics.connections_active.fetch_update(
+                let _ = metrics.connections_active.try_update(
                     Ordering::Relaxed,
                     Ordering::Relaxed,
                     |active| Some(active.saturating_sub(1)),

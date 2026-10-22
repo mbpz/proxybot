@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { safeInvoke } from "../../utils/safeInvoke";
+import { useCallback, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { TopologyFilter as Filter } from "./types";
 
 interface Device {
@@ -17,12 +17,20 @@ interface Props {
 
 export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
   const [devices, setDevices] = useState<Device[]>([]);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+
+  const loadDevices = useCallback(async () => {
+    setDeviceError(null);
+    try {
+      setDevices(await invoke<Device[]>("get_devices"));
+    } catch (cause) {
+      setDeviceError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
 
   useEffect(() => {
-    safeInvoke<Device[]>("get_devices", {})
-      .then((d) => setDevices(d ?? []))
-      .catch(() => setDevices([]));
-  }, []);
+    void loadDevices();
+  }, [loadDevices]);
 
   function toggleDevice(id: string) {
     const current = filter.device_ids ?? [];
@@ -37,7 +45,7 @@ export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-surface-primary flex-wrap">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface-primary px-4 py-2">
       <div className="flex items-center gap-1">
         <span className="text-xs text-text-muted">Devices:</span>
         {devices.map((d) => {
@@ -46,6 +54,8 @@ export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
           return (
             <button
               key={d.id}
+              type="button"
+              aria-pressed={active}
               onClick={() => toggleDevice(idStr)}
               className={`px-2 py-0.5 rounded text-xs ${
                 active
@@ -57,6 +67,14 @@ export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
             </button>
           );
         })}
+        {deviceError && (
+          <span className="text-xs text-accent-red" role="alert">
+            Devices unavailable: {deviceError}{" "}
+            <button type="button" className="underline" onClick={() => void loadDevices()}>
+              Retry
+            </button>
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-1">
@@ -66,6 +84,8 @@ export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
           return (
             <button
               key={tag}
+              type="button"
+              aria-pressed={Boolean(active)}
               onClick={() => toggleAppTag(tag)}
               className={`px-2 py-0.5 rounded text-xs ${
                 active
@@ -82,6 +102,7 @@ export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
       <input
         type="text"
         placeholder="Host contains..."
+        aria-label="Filter by host"
         value={filter.host_contains ?? ""}
         onChange={(e) => onChange({ ...filter, host_contains: e.target.value || null })}
         className="px-2 py-1 rounded bg-bg-primary border border-border text-text-primary text-sm"
@@ -100,6 +121,7 @@ export function TopologyFilter({ filter, onChange, onRefresh }: Props) {
       <div className="flex-1" />
 
       <button
+        type="button"
         onClick={onRefresh}
         className="px-3 py-1 rounded text-sm bg-accent-blue text-white hover:opacity-90"
       >

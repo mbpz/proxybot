@@ -1,15 +1,25 @@
-# Triage Labels
+# Triage labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
+This file maps the canonical triage roles used by engineering skills to the
+labels that actually exist in this repository. It reflects `gh label list`; when
+the label set changes, update this table.
 
-| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
-| -------------------------- | -------------------- | ---------------------------------------- |
-| `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
-| `needs-info`               | `needs-info`         | Waiting on reporter for more information |
-| `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
-| `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
-| `wontfix`                  | `wontfix`            | Will not be actioned                     |
+| Canonical role | Label in this repository | Meaning |
+| --- | --- | --- |
+| `needs-triage` | `needs-triage` | Maintainer needs to evaluate this issue. Applied by the bug/feature forms. |
+| `needs-info` | *(not defined)* | Use `question` plus a comment stating exactly what information is missing. |
+| `ready-for-agent` | *(not defined)* | Not in use. Maintainers mark scoped work `ready-for-human` instead. |
+| `ready-for-human` | `ready-for-human` | Fully specified; requires human implementation or external access (for example physical-device validation). |
+| `wontfix` | `wontfix` | Will not be actioned. |
 
-When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+Other labels currently defined and used for routing:
 
-Edit the right-hand column to match whatever vocabulary you actually use.
+- `bug`, `documentation`, `enhancement`, `question` — issue type.
+- `good first issue`, `help wanted` — contributor-ready work.
+- `duplicate`, `invalid` — issue state.
+- `dependencies`, `rust`, `javascript`, `github_actions` — dependency/automation
+  PRs (created by Dependabot).
+
+If a skill asks for a canonical role that is not defined here, apply the closest
+existing label and say so in a comment; do not invent a label that is not in
+`gh label list`.

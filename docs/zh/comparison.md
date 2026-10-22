@@ -1,7 +1,8 @@
 # 产品对比与借鉴
 
-ProxyBot 不以功能数量取胜。它的机会是成为一个聚焦的 macOS 移动应用流量调试
-工具，让测试设备尽快产生一条可信、可操作的 Captured Request。
+ProxyBot 不以功能数量取胜。它的机会是成为一个轻量、聚焦的 macOS 移动应用流量
+调试工具：显式代理、检查、修改、重放、导出，且不打包原生工具链，也不做 AI-first
+平台。
 
 ## 定位对比
 
@@ -20,15 +21,26 @@ ProxyBot 不以功能数量取胜。它的机会是成为一个聚焦的 macOS �
 3. Routing Rule、断点、Replay、Composer 与导出组成一个调试闭环。
 4. 显式代理成功后，再按需启用透明路由和自动化 Adapter。
 
-隐藏前置条件或不完整模式会直接破坏这一优势。
+隐藏前置条件或不完整模式会直接破坏这一优势。这也是默认界面只有三个目的地
+（Capture、Setup、Settings）、实验能力放在 Labs 开关之后的原因。
 
 ## 默认模式顺序
 
 1. **显式代理** — Core，默认且完整记录。
 2. **macOS `pf` + DNS** — Advanced，会修改主机网络且可能需要提权。
 3. **MCP、Dashboard、脚本** — Advanced 自动化 Adapter。
-4. **SSL Bypass、AI、生成与部署** — Labs，直到真实端到端
-   路径和支持边界被验证。
+4. **AI 分析、Generate/Deploy、Graph 与 Topology** — Labs，默认关闭，在
+   Settings → Labs 中开启，且永远不是首次成功的前提。
+
+只有上述模式在范围内。被移除的实验不会重新引入，除非有新 ADR 与受支持的
+用户旅程（见 [ADR-0007](../adr/0007-lightweight-positioning.md)）。
+
+## ProxyBot 不追求的方向
+
+- 浏览器级自动化或 DevTools 替代品。
+- 通用抓包分析器、VPN 或安全套件。
+- 以牺牲可靠首次抓包为代价的功能数量对等。
+- AI-first、全来源的抓包范围。
 
 ## 持久的评估标准
 
@@ -44,4 +56,4 @@ ProxyBot 不以功能数量取胜。它的机会是成为一个聚焦的 macOS �
 | 清理 | 正常、失败和退出路径都能停止抓包并恢复网络 |
 | 扩展 | 具有契约测试的稳定 Interface，而不只是一个页面 |
 
-具体执行顺序见[产品路线图](../roadmap.md)。
+具体执行顺序见[产品路线图](roadmap.md)。

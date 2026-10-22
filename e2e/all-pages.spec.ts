@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { enableLabs } from "./fixtures/tauri-mock";
+
+test.beforeEach(async ({ page }) => {
+  await enableLabs(page);
+});
 
 // These tests verify page structure without requiring Tauri IPC mocks.
 // All invoke() calls will fail gracefully (error states shown),
@@ -36,18 +41,18 @@ test.describe("Navigation — Product Pages", () => {
 });
 
 test.describe("Sidebar Navigation", () => {
-  test("sidebar has exactly the five product destinations", async ({ page }) => {
+  test("sidebar has exactly the three product destinations", async ({ page }) => {
     await page.goto("/");
-    const labels = ["Capture", "Setup", "Rules", "Replay", "Settings"];
+    const labels = ["Capture", "Setup", "Settings"];
     for (const label of labels) {
       await expect(page.locator("aside").getByRole("link", { name: label, exact: true })).toBeVisible();
     }
     await expect(page.locator("aside").getByRole("link")).toHaveCount(labels.length);
   });
 
-  test("settings link is in sidebar footer", async ({ page }) => {
+  test("settings is a sidebar destination", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("aside").getByText("Settings")).toBeVisible();
+    await expect(page.locator("aside").getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   });
 
   test("sidebar collapse toggles width", async ({ page }) => {
@@ -317,14 +322,22 @@ test.describe("Data Binding", () => {
 // ============================================================
 
 test.describe("Interactions", () => {
-  test("clicking sidebar nav item changes active state", async ({ page }) => {
+  test("clicking a sidebar destination changes active state", async ({ page }) => {
     await page.goto("/");
     const captureLink = page.locator("aside a[href='/']");
     await expect(captureLink).toHaveAttribute("aria-current", "page");
 
-    // Click Rules
-    await page.click("aside a[href='/rules']");
-    await expect(page).toHaveURL("/rules");
+    await page.locator("aside a[href='/settings']").click();
+    await expect(page).toHaveURL("/settings");
+  });
+
+  test("Rules is reachable from the Capture context", async ({ page }) => {
+    await page.goto("/");
+    await page
+      .getByRole("navigation", { name: "Capture views" })
+      .getByRole("link", { name: "Rules" })
+      .click();
+    await expect(page).toHaveURL(/\/rules/);
   });
 
   test("alert tab shows content when clicked", async ({ page }) => {

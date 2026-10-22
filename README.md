@@ -4,10 +4,15 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mbpz.github.io/proxybot/)
 
-ProxyBot is an early-stage macOS desktop traffic debugger for mobile application
-developers. It helps an iOS or Android test device connect to a local Rust MITM
-Runtime, then inspect, filter, modify, replay, and export HTTP, HTTPS, and
-WebSocket Captured Requests.
+ProxyBot is a **lightweight macOS MITM traffic debugger** for mobile application
+developers. An iOS or Android test device points its Wi-Fi HTTP proxy at a Mac
+running ProxyBot; the app terminates TLS with a locally generated CA, then lets
+you inspect, filter, modify, replay, and export HTTP, HTTPS, and WebSocket
+Captured Requests.
+
+It is deliberately narrow: one explicit-proxy workflow, a small supported
+surface, and no bundled native toolchains. See
+[docs/roadmap.md](docs/roadmap.md) for the product tiers.
 
 > **Development preview:** interfaces, on-disk data, capture behavior, and
 > release packaging may change before the first stable release. Existing GitHub
@@ -22,7 +27,7 @@ WebSocket Captured Requests.
 
 ## Product focus
 
-ProxyBot is converging on one dependable workflow:
+ProxyBot is built around one dependable workflow:
 
 1. Start a Capture Session on a Mac.
 2. Connect a test device with an explicit proxy.
@@ -31,6 +36,12 @@ ProxyBot is converging on one dependable workflow:
 5. Inspect, filter, modify, replay, or export the Captured Request.
 6. Stop capture and restore the device network settings.
 
+The default shell has three Product Destinations — **Capture**, **Setup**, and
+**Settings**. Request-derived tools stay one click away inside the Capture
+context: Requests, Rules, Replay, DNS, and Alerts, plus Analysis when Labs are
+enabled. Replay and Composer share the Replay context. Existing deep links are
+preserved.
+
 The following capabilities support that workflow:
 
 - Rust MITM Runtime with HTTP, HTTPS, and WebSocket Capture Events
@@ -38,15 +49,19 @@ The following capabilities support that workflow:
 - Captured Request history, detail, filtering, breakpoints, replay, and Composer
 - Routing Rules for direct, upstream proxy, reject, mapping, and breakpoint
   outcomes
+- Request detail actions: replay, add breakpoint rule from request, copy as
+  cURL, and export the session HAR
 - DNS observations and application-aware traffic attribution
-- certificate export and local device-setup server
-- HAR and request-code export
+- certificate export and a local device-setup server
 - reusable `proxybot-core` crate without GUI dependencies
 
 macOS `pf`, the DNS server, MCP stdio, scripting, the mobile dashboard, and
-protocol analysis are Advanced capabilities. Android SSL bypass, AI analysis,
-and generation/deployment screens are Labs until their complete user journey is
-proven. See the [product roadmap](docs/roadmap.md).
+protocol analysis are **Advanced** capabilities. **Labs** — AI analysis,
+Generate, Deploy, and the Graph/Topology analysis views — are off by default.
+Enable them under **Settings → Labs** (stored locally as
+`proxybot.labs.enabled`); after that they are reachable from Settings and the
+command palette (⌘K). Opening a Labs route while Labs are off shows a
+"Labs are off" page instead of the experiment.
 
 Some applications use certificate pinning or platform protections that
 intentionally prevent decryption. ProxyBot may still expose DNS or SNI metadata,
@@ -69,41 +84,32 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
+Source builds are self-contained: no second-stage downloads, no bundled native
+toolchain, and no extra resource fetching step. The default build already
+includes everything the app needs.
+
 Use the persistent Capture Session bar in the main window to start or stop
 capture and see lifecycle failures. The ProxyBot menu-bar item provides the same
 actions and stays synchronized with the window. Open **Setup** to discover the
-Mac's active LAN address, start the temporary CA server, and follow the exact
-explicit-proxy and verification steps for iOS or Android. Follow the
-[getting started guide](docs/getting-started.md) to connect and clean up a device
-safely.
+Mac's active LAN address, start the temporary CA server, and follow the explicit
+proxy and verification steps for iOS or Android; the same page links to the CA
+and registered-device panels. Follow the
+[getting started guide](docs/getting-started.md) to connect and clean up a
+device safely.
 
-The default development build omits the native Frida runtime. Enable live Frida
-device and process operations only when working on the Labs SSL-bypass feature:
-
-```bash
-pnpm tauri dev --features frida-runtime
-```
-
-Create a local release bundle with:
+Create a local application bundle with:
 
 ```bash
 pnpm build:tauri
 ```
 
-The bundle step downloads pinned Apktool and Frida Gadget assets for the optional
-APK patcher. They are verified against SHA-256 digests in
-[`src-tauri/resources/resources.lock`](src-tauri/resources/resources.lock) and
-are not stored in Git. Run `pnpm resources:fetch` to prepare an offline bundle,
-or `pnpm resources:check` to verify an existing cache without network access.
-
-Release tooling enables the optional `frida-runtime` Cargo feature. The first
-such build downloads the matching Frida Core development kit through
-`frida-rust`. Core development and CI use `--no-default-features`; live Frida
-commands then return an explicit capability error.
+A local bundle is unsigned and not notarized. It is useful for development only;
+it is not evidence that a signed release exists. See
+[docs/releasing.md](docs/releasing.md).
 
 ## Traffic path
 
-Explicit proxy is the recommended first-capture mode:
+Explicit proxy is the supported first-capture mode:
 
 ```text
 Test device --Wi-Fi explicit proxy--> Mac --MITM Runtime--> upstream server
@@ -126,20 +132,25 @@ session is finished.
 
 ```text
 proxybot-core/   reusable MITM Runtime, certificates, rules, and analysis models
-src-tauri/       composition root, desktop Adapters, persistence, and macOS integration
-src/             React desktop application and Browser Adapter tests
+src-tauri/       composition root, desktop Adapters, persistence, MCP, and macOS integration
+src/             React desktop application, generated Desktop Contract, and adapter tests
 e2e/             browser-mock Playwright coverage
-docs/            current user and architecture documentation
-scripts/         development and reproducible asset tooling
+docs/            current docs, adr/, agents/, parity/, history/, status/, zh/
+design/          original Pencil (.pen) design sources (not bundled)
+scripts/         development, version, and parity tooling
 ```
 
-Historical plans under `docs/sdd/` and `docs/superpowers/` are research records,
-not a list of supported features.
+Repository governance lives in [CONTRIBUTING.md](CONTRIBUTING.md),
+[SECURITY.md](SECURITY.md), [SUPPORT.md](SUPPORT.md),
+[CHANGELOG.md](CHANGELOG.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and
+[.github/CODEOWNERS](.github/CODEOWNERS). `docs/history/` is archived research,
+not a list of supported features; `docs/status/` holds one-off status snapshots.
 
 ## Development checks
 
-The local CI command covers formatting, Rust tests and lints, TypeScript checks,
-UI tests, and the frontend production build:
+The local CI command covers version/workflow/parity checks, formatting, Rust
+tests and lints, the generated contract, TypeScript checks, UI tests, and the
+frontend production build:
 
 ```bash
 pnpm ci:local
@@ -149,19 +160,23 @@ Individual checks are also available:
 
 ```bash
 pnpm version:check
+pnpm test:workflow-config
+pnpm parity:check
 cargo test --workspace --locked --no-default-features
 cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 cargo fmt --all -- --check
+pnpm contract:check
 pnpm typecheck
 pnpm test:ui
 pnpm test:e2e
 pnpm build
 ```
 
-Playwright currently exercises a BrowserMockAdapter, not a packaged Tauri app.
-Passing it does not by itself prove real certificate distribution or capture.
-The isolated packaged-process journey uses the real Tauri composition root,
-generated CA, HTTPS MITM Runtime, SQLite persistence, and stop/restart lifecycle:
+Playwright exercises a BrowserMockAdapter in a browser, not a packaged Tauri
+app. Passing it does not by itself prove real certificate distribution or
+capture. The isolated packaged-process journey uses the real Tauri composition
+root, generated CA, HTTPS MITM Runtime, SQLite persistence, and stop/restart
+lifecycle:
 
 ```bash
 pnpm exec tauri build --bundles app
@@ -169,12 +184,24 @@ pnpm test:desktop:acceptance
 ```
 
 It writes its report inside a temporary workspace and removes that workspace
-after validation; it does not use external network services or user data.
+after validation; it does not use external network services or user data. It
+proves the backend journey only — it does not drive visible UI controls or prove
+a signed installation.
 
 `package.json` is the canonical product version. Use `pnpm version:set <version>`
-to update its checked Rust mirrors, and follow the [release runbook](docs/releasing.md).
-Public artifacts must come from the hosted Tauri bundler workflow; local bundles
-are not evidence of signing or notarization.
+to update its checked Rust mirrors, and follow the
+[release runbook](docs/releasing.md). Public artifacts must come from the hosted
+Tauri bundler workflow; local bundles are not evidence of signing or
+notarization.
+
+## Documentation
+
+- [Getting started](docs/getting-started.md) — first capture end to end.
+- [Architecture](docs/architecture.md) — runtime composition and adapter seams.
+- [Roadmap](docs/roadmap.md) — product tiers and current work.
+- [ADRs](docs/adr/README.md) — binding architecture and product decisions.
+- [Changelog](CHANGELOG.md) — released and unreleased changes.
+- [Support](SUPPORT.md) — supported configuration, version policy, and help.
 
 ## Contributing and security
 
@@ -183,5 +210,4 @@ issue forms for reproducible bugs and focused feature requests. Report
 vulnerabilities privately as described in [SECURITY.md](SECURITY.md), and follow
 the [Code of Conduct](CODE_OF_CONDUCT.md) in all project spaces.
 
-ProxyBot is available under the [MIT License](LICENSE). Downloaded Apktool and
-Frida assets remain under their respective upstream licenses.
+ProxyBot is available under the [MIT License](LICENSE).
