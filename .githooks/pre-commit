@@ -1,23 +1,18 @@
 #!/bin/sh
-# Pre-commit hook: runs typecheck and clippy before allowing commit
+# Fast local gate for commits: type-check the frontend and lint the Rust
+# workspace with the same flags as CI. Full tests live in `pnpm ci:local`.
+set -eu
 
 echo "Running pre-commit checks..."
 
-# TypeScript check
 echo "Checking TypeScript..."
-if ! npm run typecheck > /tmp/ts_check.log 2>&1; then
-  echo "TypeScript check FAILED:"
-  cat /tmp/ts_check.log
-  exit 1
+if [ -x node_modules/.bin/tsc ]; then
+  node_modules/.bin/tsc --noEmit
+else
+  pnpm typecheck
 fi
 
-# Rust clippy
 echo "Checking Rust clippy..."
-if ! cargo clippy -- -D warnings > /tmp/clippy.log 2>&1; then
-  echo "Clippy check FAILED:"
-  cat /tmp/clippy.log
-  exit 1
-fi
+cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 
 echo "All checks passed!"
-exit 0
