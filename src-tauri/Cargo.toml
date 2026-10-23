@@ -35,7 +35,7 @@ tokio-rustls = "0.26"
 rustls-pemfile = "2.1"
 rcgen = "0.14"
 log = "0.4"
-rand = "0.9"
+rand = "0.10"
 env_logger = "0.11"
 time = "0.3"
 # Use the platform SQLite library rather than the bundled amalgamation.
