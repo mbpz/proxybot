@@ -23,8 +23,8 @@ updates:
     ignore:
       - dependency-name: jsonschema
         update-types:
-          - major
-          - minor
+          - version-update:semver-major
+          - version-update:semver-minor
 
   # npm: majors (TypeScript/Vite/Vitest/jsdom/etc.) need a dedicated migration
   # and must never be bundled with routine minor/patch updates.
