@@ -1,9 +1,9 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  # Manual releases only: pushing a tag no longer starts a packaging run.
+  # Trigger from the Actions tab or:
+  #   gh workflow run release.yml -f version=v1.3.0
   workflow_dispatch:
     inputs:
       version:
