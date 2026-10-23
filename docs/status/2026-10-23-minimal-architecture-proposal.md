@@ -28,6 +28,121 @@
 
 ---
 
+## 0.1 产品定位（修订）：两种采集模式，用户自选
+
+原始产品把"手机改网关"当作默认形态，但它只是两种常见做法之一。重新定位如下：
+
+> **ProxyBot 是一个双模式的手机流量查看器：同一份 MITM、存储和 Web UI，提供
+> ① HTTP 代理（零权限、低风险）与 ② 旁路由/网关（覆盖全部 IP 流量、需一次管理员授权）两种采集方式，由用户按场景选择。**
+
+两种模式不是"基础版/高级版"，而是**同级的采集方式**：
+
+- **HTTP 代理模式（默认）**：改 Wi-Fi HTTP 代理，配置 30 秒完成；Mac 故障不影响设备上网；覆盖 HTTP/HTTPS；适合 App 开发、QA、接口调试。
+- **旁路由模式（可选）**：改 Wi-Fi 网关，Mac 做 IP 转发 + NAT + pf 重定向；覆盖几乎所有 IP 流量；适合逆向、安全研究、强制全量采集；Mac 是单点故障，需要明确提示与一键回滚。
+
+安装、CA、UI、导出完全共用；差异只在启动参数与设备端配置。
+
+### 模式 A：旁路由 / 网关（side-router）
+
+```
+                        ┌──────────────────┐
+                        │     互联网        │
+                        └────────┬─────────┘
+                                 │
+                                 ▼
+                    ┌────────────────────────┐
+                    │ 主路由器 192.168.1.1    │
+                    │ DHCP / NAT / 出口       │
+                    └────────────┬───────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              │                  │                  │
+              ▼                  ▼                  ▼
+   ┌────────────────────┐  ┌──────────────┐  ┌──────────────────┐
+   │ Mac（旁路由）       │  │ iOS 设备     │  │ 其他设备          │
+   │ 静态 IP .100        │  │ 网关=.100    │  │                 │
+   │ sysctl forwarding=1 │  │ DNS=路由器   │  │                 │
+   │ pf: rdr 80/443 + nat│  │              │  │                 │
+   └─────────┬──────────┘  └──────┬───────┘  └──────────────────┘
+             │ 所有目标流量         │
+             │◀────────────────────┘
+             │
+             ├─ :80/:443 ──▶ 透明适配器 :8089 ──▶ MITM ──┐
+             │                                            │
+             └─ 其他流量 ──▶ NAT ──▶ 主路由器 ──▶ 互联网 ◀─┘
+```
+
+```mermaid
+flowchart LR
+  subgraph LAN["LAN 192.168.1.0/24"]
+    R["主路由器 192.168.1.1<br/>DHCP / NAT / 出口"]
+    M["Mac · ProxyBot 旁路由<br/>静态 IP 192.168.1.100<br/>ip.forwarding=1<br/>pf: rdr :80/:443 + nat"]
+    D["iOS / Android 测试机<br/>Wi-Fi 网关 = 192.168.1.100<br/>DNS = 路由器"]
+  end
+  D -- "全部 IP 流量 (TCP/UDP/ICMP)" --> M
+  M -- ":80/:443 重定向" --> T["透明适配器 :8089"]
+  T --> MITM["MITM + 记录 + 本地 Web UI"]
+  M -- "其他流量 NAT 转发" --> R
+  MITM -- "解密后转发" --> R
+  R --> I(("互联网"))
+```
+
+关键点：设备**只改网关**；Mac 必须做 NAT 与 IP 转发；pf 只重定向 `:80/:443`，其余流量照常 NAT 出网；DNS 可以留在路由器，不强制 Mac 做 DNS（DNS 关联归因是后续增强）。
+
+### 模式 B：HTTP 代理（explicit proxy）
+
+```
+   ┌────────────────────┐            ┌────────────────────┐
+   │ iOS / Android 设备  │  HTTP /    │ Mac · ProxyBot       │
+   │ Wi-Fi 配置代理:      │  CONNECT   │ 显式代理 :8088       │
+   │ 服务器=192.168.1.100│───────────▶│  MITM / 记录 / UI     │
+   │ 端口=8088           │            └─────────┬──────────┘
+   └────────────────────┘                      │
+                                               ▼
+                                     ┌──────────────────┐
+                                     │ 主路由器 → 互联网 │
+                                     └──────────────────┘
+
+   本地 Web UI：http://127.0.0.1:8899 （仅 Mac 访问）
+   设备 CA 页： http://192.168.1.100:8090 （设备访问，装 CA）
+```
+
+```mermaid
+flowchart LR
+  D["iOS / Android 测试机<br/>Wi-Fi HTTP 代理<br/>192.168.1.100:8088"] -- "HTTP 请求 / CONNECT 隧道" --> P["Mac · ProxyBot<br/>显式代理 :8088"]
+  P --> MITM["MITM + 记录"]
+  MITM --> R["主路由器 192.168.1.1"]
+  R --> I(("互联网"))
+  P -. "本地 Web UI 127.0.0.1:8899" .-> UI["浏览器"]
+```
+
+关键点：设备只改 HTTP 代理；不需要管理员权限、不需要 pf/NAT；Mac 代理挂掉只影响被代理的 App，设备仍可正常上网；覆盖范围是支持系统代理的 HTTP/HTTPS 流量。
+
+### 模式对比（产品决策依据）
+
+| 维度 | A. 旁路由 / 网关 | B. HTTP 代理 |
+| --- | --- | --- |
+| 设备端配置 | 改 Wi-Fi 网关 | 改 Wi-Fi HTTP 代理 |
+| Mac 端要求 | 管理员权限；pf + IP 转发 + NAT | 无需权限 |
+| 覆盖范围 | 几乎所有 IP 流量（TCP/UDP/ICMP） | 主要 HTTP/HTTPS（支持系统代理的 App） |
+| 对 App 透明度 | 高 | 中，部分 App 可绕过 |
+| 断网风险 | 高：Mac 异常会影响设备全部联网 | 低：只影响代理流量 |
+| HTTPS 解密 | 可以（透明 MITM） | 可以（显式 MITM + CA） |
+| 配置难度 | 中高（需要一次管理员授权与回滚） | 低 |
+| 推荐场景 | 逆向、安全研究、强制全量采集 | App 开发、QA、日常接口调试 |
+
+### 产品决策
+
+1. 两种模式都保留，**默认 HTTP 代理**（首次成功最短路径），旁路由是显式选择（`--gateway`）。
+2. 安装器、CA 页面、Live/Detail/Rules UI、HAR 导出完全共用；Setup 页面并列呈现两种模式，用户按设备能力选择。
+3. 旁路由必须提供：启动时安装、Ctrl+C/退出自动卸载、`gateway status`/`uninstall`、`--dry-run`；失败时明确告知"设备网络可能受影响"。
+4. 文档和 UI 使用同一套术语：**HTTP proxy** 与 **side-router (gateway)**，不再混用 "explicit proxy / transparent proxy / 网关模式"。
+5. 后续增强（不属于 MVP）：Web UI 内一键开关旁路由（需要 privileged helper）、DNS 关联归因、IPv6 与 QUIC 处理。
+
+---
+
+---
+
 ## 1. 原始产品形态还原（证据来自最初提交与当时文档）
 
 ### 1.1 时间线
@@ -297,3 +412,34 @@ CREATE INDEX idx_requests_app ON requests(app);
 - NetMind 路线：`docs/history/prd/prd-netmind-agent.md`
 - 当前收敛状态与缺口：`docs/status/2026-10-22-completion-report.md`
 - 产品分层与决策：`docs/adr/0005-product-tiers.md`、`docs/roadmap.md`
+
+---
+
+## 7. 实施状态（2026-10-23）
+
+`minimal/` 已按方案 A 落地一个可运行的 MVP（独立 Cargo workspace，不依赖 Tauri/Node）：
+
+| 能力 | 状态 |
+| --- | --- |
+| 单二进制 CLI（start / gateway / rules） | ✅ 已实现 |
+| 本地 Web UI（Live / Setup / Rules，SSE 实时、详情、过滤、HAR 导出、二维码） | ✅ 已实现 |
+| HTTP 代理模式 + CA 下载/信任 | ✅ 本机 curl 实测通过 |
+| 旁路由透明适配器（SNI/Host 嗅探 → CONNECT/absolute-form 转交 MITM） | ✅ 本机直连 TLS/HTTP 实测通过 |
+| pf 安装/卸载/状态/`--dry-run` | ✅ 代码完成；真实 pf 需管理员，CI 未执行 |
+| App 归因（YAML 规则 + SNI/host 最长后缀） | ✅ 已实现，规则可在 UI 编辑 |
+| 一键安装脚本（下载臂/校验 sha256/无需语言运行时） | ✅ `minimal/install.sh` |
+| 手动 CLI release workflow + 本地打包脚本 | ✅ 已添加 |
+| WebSocket 帧、HTTP/2、chunked 响应体、DNS 关联 | ⏳ 后续 |
+
+验证命令与结果：
+
+```bash
+cd minimal
+cargo test                     # 2 passed
+proxybot start --no-open --data-dir /tmp/test ...
+curl -x http://127.0.0.1:PORT --cacert ca.pem https://example.com/   # 200，UI 可见
+curl --connect-to example.com:443:127.0.0.1:TRANSPARENT_PORT --cacert ca.pem https://example.com/  # 200
+curl --connect-to example.com:80:127.0.0.1:TRANSPARENT_PORT http://example.com/                    # 200
+```
+
+未在 CI 中验证：pf 网关真实生效（需要 sudo/网络设备）、签名安装、iPhone/Android 真机 CA 信任。

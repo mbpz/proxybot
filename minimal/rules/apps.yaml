@@ -1,0 +1,62 @@
+# Built-in app classification rules.
+#
+# `domains` are matched as host suffixes: "example.com" matches example.com and
+# any subdomain. The longest matching rule wins. Users can override this file
+# by editing `<data-dir>/rules/apps.yaml`; the web UI shows the active path.
+apps:
+  - app: WeChat
+    domains:
+      - weixin.qq.com
+      - wechat.com
+      - qq.com
+      - wechatpay.com
+      - wx.qq.com
+      - gtimg.cn
+
+  - app: Douyin
+    domains:
+      - douyin.com
+      - tiktokv.com
+      - bytecdn.com
+      - douyinvod.com
+      - snssdk.com
+      - amemv.com
+
+  - app: Alipay
+    domains:
+      - alipay.com
+      - alipayusercontent.com
+      - alipayobjects.com
+      - antgroup.com
+      - mybank.com
+
+  - app: Xiaohongshu
+    domains:
+      - xiaohongshu.com
+      - xhscdn.com
+      - xhsstatic.com
+
+  - app: Taobao
+    domains:
+      - taobao.com
+      - tmall.com
+      - alicdn.com
+      - taobao.org
+
+  - app: Bilibili
+    domains:
+      - bilibili.com
+      - biliapi.net
+      - hdslb.com
+      - bilibili.tv
+
+  - app: JD
+    domains:
+      - jd.com
+      - 360buyimg.com
+
+  - app: Weibo
+    domains:
+      - weibo.com
+      - sinaimg.cn
+      - sina.com.cn

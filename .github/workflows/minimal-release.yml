@@ -1,0 +1,89 @@
+name: Minimal CLI release
+
+# Manual-only release for the CLI + local web UI build in `minimal/`.
+# End users install it with minimal/install.sh; no Homebrew or toolchain needed.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CLI version, without the v prefix (for example 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            arch: arm64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            minimal/target
+          key: minimal-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('minimal/Cargo.lock') }}
+          restore-keys: minimal-${{ runner.os }}-${{ matrix.target }}-
+
+      - name: Build
+        run: cargo build --release --locked --manifest-path minimal/Cargo.toml --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          set -eu
+          mkdir -p dist
+          cp "minimal/target/${{ matrix.target }}/release/proxybot" dist/proxybot
+          ASSET="proxybot-min-${{ matrix.target }}.tar.gz"
+          tar -czf "dist/${ASSET}" -C dist proxybot
+          shasum -a 256 "dist/${ASSET}" > "dist/${ASSET}.sha256"
+          cat "dist/${ASSET}.sha256"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: minimal-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            dist/proxybot-min-${{ matrix.target }}.tar.gz
+            dist/proxybot-min-${{ matrix.target }}.tar.gz.sha256
+
+  publish:
+    name: Publish CLI release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: minimal-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: minimal-v${{ inputs.version }}
+          name: ProxyBot CLI v${{ inputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ProxyBot</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1f2630; --border: #2d333b;
+    --text: #e6edf3; --muted: #8b949e; --accent: #2f81f7; --green: #3fb950;
+    --yellow: #d29922; --red: #f85149; --purple: #bc8cff; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
+  .badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  .badge.live { color: var(--green); border-color: #238636; }
+  nav { display: flex; gap: 4px; margin-left: auto; }
+  nav button { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  nav button.active { color: var(--text); background: var(--surface2); border-color: var(--border); }
+  main { padding: 14px 18px 28px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  input[type="search"], select, textarea { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; }
+  input[type="search"] { min-width: 220px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+  .chip.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  button.action { background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button.action:hover { border-color: var(--accent); }
+  .table-wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); background: var(--surface); padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  tbody td { padding: 7px 10px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--surface); }
+  tbody tr.selected { background: #1c2a3d; }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .status-2 { color: var(--green); } .status-3 { color: var(--yellow); } .status-4 { color: var(--red); } .status-5 { color: var(--purple); }
+  .app { color: var(--accent); font-weight: 600; }
+  .empty { padding: 48px 16px; text-align: center; color: var(--muted); }
+  .detail { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; z-index: 20; }
+  .detail.open { display: block; }
+  .detail-panel { position: absolute; right: 0; top: 0; bottom: 0; width: min(860px, 92vw); background: var(--bg); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+  .detail-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .detail-head h2 { font-size: 14px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-body { overflow: auto; padding: 14px 16px 40px; }
+  .detail-body h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .5px; margin: 18px 0 6px; }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow: auto; font-family: var(--mono); font-size: 12px; max-height: 340px; white-space: pre-wrap; word-break: break-word; }
+  .kv { display: grid; grid-template-columns: 210px 1fr; gap: 4px 12px; font-family: var(--mono); font-size: 12px; }
+  .kv div { overflow-wrap: anywhere; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-width: 880px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; }
+  .panel p { color: var(--muted); margin: 8px 0; }
+  .panel code, .mono-code { font-family: var(--mono); background: var(--surface2); padding: 1px 5px; border-radius: 4px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .qr { background: #fff; border-radius: 8px; padding: 8px; width: 216px; }
+  .qr img { width: 200px; height: 200px; display: block; }
+  textarea { width: 100%; min-height: 340px; font-family: var(--mono); font-size: 12px; }
+  .notice { color: var(--green); font-size: 12px; margin-left: 8px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ProxyBot</h1>
+  <span id="live-badge" class="badge live">● live</span>
+  <span id="count" class="badge">0 requests</span>
+  <nav>
+    <button id="tab-live" class="active" type="button">Live</button>
+    <button id="tab-setup" type="button">Setup</button>
+    <button id="tab-rules" type="button">Rules</button>
+  </nav>
+</header>
+
+<main>
+  <section id="view-live">
+    <div class="toolbar">
+      <input id="q" type="search" placeholder="Filter host, path, app…" autocomplete="off" />
+      <select id="method">
+        <option value="all">Any method</option>
+        <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option>
+        <option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+      </select>
+      <select id="status">
+        <option value="all">Any status</option>
+        <option value="2">2xx</option><option value="3">3xx</option>
+        <option value="4">4xx</option><option value="5">5xx</option>
+      </select>
+      <button id="pause" class="action" type="button">Pause</button>
+      <button id="clear" class="action" type="button">Clear</button>
+      <a id="har" class="action" href="/api/har" download="proxybot.har" style="text-decoration:none">Export HAR</a>
+    </div>
+    <div class="chips" id="apps">
+      <button class="chip active" data-app="all" type="button">All apps</button>
+      <button class="chip" data-app="WeChat" type="button">WeChat</button>
+      <button class="chip" data-app="Douyin" type="button">Douyin</button>
+      <button class="chip" data-app="Alipay" type="button">Alipay</button>
+      <button class="chip" data-app="Xiaohongshu" type="button">Xiaohongshu</button>
+      <button class="chip" data-app="Taobao" type="button">Taobao</button>
+      <button class="chip" data-app="Bilibili" type="button">Bilibili</button>
+      <button class="chip" data-app="JD" type="button">JD</button>
+      <button class="chip" data-app="Weibo" type="button">Weibo</button>
+    </div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table>
+        <colgroup>
+          <col style="width:92px" /><col style="width:104px" /><col style="width:74px" />
+          <col style="width:190px" /><col /><col style="width:70px" /><col style="width:84px" />
+        </colgroup>
+        <thead>
+          <tr><th>Time</th><th>App</th><th>Method</th><th>Host</th><th>Path</th><th>Status</th><th>Duration</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty">Waiting for traffic. Configure the device proxy or gateway in Setup.</div>
+    </div>
+  </section>
+
+  <section id="view-setup" class="hidden">
+    <div class="panel">
+      <h2>Connect a device</h2>
+      <div class="row">
+        <div style="flex:1 1 420px">
+          <p><strong>Mode 1 — HTTP proxy (no admin)</strong><br />
+            Set the device Wi-Fi HTTP proxy to <code id="proxy-addr">…</code>, then open
+            <code id="ca-page">…</code> on the device and install the CA.</p>
+          <p><strong>Mode 2 — Side-router / gateway (pf, needs admin)</strong><br />
+            Start the CLI with <code>proxybot start --gateway</code>, then set the device Wi-Fi
+            <strong>gateway</strong> to <code id="gateway-addr">…</code> (DNS can stay on the router).
+            HTTP/HTTPS is redirected to ProxyBot; other traffic is NATed.</p>
+          <p class="muted">Both modes need the CA trusted on the device before HTTPS can be decrypted:
+            iOS Settings → General → About → Certificate Trust Settings; Android install as a user CA.
+            Certificate-pinned apps will refuse interception — that is expected.</p>
+          <p>Custom ports: <code>proxybot start --proxy-port … --transparent-port … --web-port …</code></p>
+        </div>
+        <div class="qr" id="qr-wrap">
+          <img id="qr" alt="Device setup QR code" src="/api/qr.svg" />
+        </div>
+      </div>
+      <h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:20px">Current values</h3>
+      <div class="kv" id="setup-kv"></div>
+    </div>
+  </section>
+
+  <section id="view-rules" class="hidden">
+    <div class="panel">
+      <h2>App classification rules</h2>
+      <p>YAML file: <code id="rules-path">…</code>. Longest domain suffix wins. Rules reload immediately after save.</p>
+      <textarea id="rules-text" spellcheck="false"></textarea>
+      <div class="toolbar" style="margin-top:10px">
+        <button id="rules-save" class="action" type="button">Save rules</button>
+        <span id="rules-notice" class="notice"></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="detail" class="detail">
+  <div class="detail-panel">
+    <div class="detail-head">
+      <h2 id="detail-title">Request</h2>
+      <span class="badge" id="detail-id"></span>
+      <button class="action" id="detail-close" type="button" style="margin-left:auto">Close</button>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
+</div>
+
+<script>
+const state = { app: "all", paused: false, rows: [], selected: null, setup: null };
+
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const statusClass = (status) => status ? "status-" + String(status)[0] : "muted";
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour12: false }) + "." + String(new Date(ms).getMilliseconds()).padStart(3, "0");
+const fmtDuration = (ms) => ms == null ? "–" : ms >= 1000 ? (ms / 1000).toFixed(2) + "s" : ms + "ms";
+
+function currentQuery() {
+  const params = new URLSearchParams();
+  const q = $("q").value.trim();
+  if (q) params.set("q", q);
+  if (state.app !== "all") params.set("app", state.app);
+  if ($("method").value !== "all") params.set("method", $("method").value);
+  if ($("status").value !== "all") params.set("status", $("status").value);
+  return params;
+}
+
+function renderRow(row) {
+  const tr = document.createElement("tr");
+  tr.dataset.id = row.id;
+  tr.innerHTML = `
+    <td class="mono muted">${esc(fmtTime(row.ts))}</td>
+    <td><span class="app">${esc(row.app || "—")}</span></td>
+    <td class="mono">${esc(row.method)}</td>
+    <td class="mono" title="${esc(row.host)}">${esc(row.host)}</td>
+    <td class="mono" title="${esc(row.path)}">${esc(row.path)}</td>
+    <td class="mono ${statusClass(row.status)}">${row.status ?? "–"}</td>
+    <td class="mono muted">${esc(fmtDuration(row.duration_ms))}</td>`;
+  tr.addEventListener("click", () => openDetail(row.id));
+  return tr;
+}
+
+function renderRows() {
+  const tbody = $("rows");
+  tbody.textContent = "";
+  for (const row of state.rows) tbody.appendChild(renderRow(row));
+  $("empty").classList.toggle("hidden", state.rows.length > 0);
+  $("count").textContent = `${state.rows.length} request${state.rows.length === 1 ? "" : "s"}`;
+  updateHarLink();
+}
+
+function updateHarLink() {
+  const params = currentQuery();
+  $("har").href = "/api/har" + (params.toString() ? "?" + params.toString() : "");
+}
+
+async function loadRequests() {
+  const params = currentQuery();
+  params.set("limit", "300");
+  const response = await fetch("/api/requests?" + params.toString());
+  if (!response.ok) return;
+  state.rows = await response.json();
+  renderRows();
+}
+
+async function openDetail(id) {
+  state.selected = id;
+  const response = await fetch("/api/requests/" + id);
+  if (!response.ok) return;
+  const detail = await response.json();
+  $("detail-id").textContent = "#" + detail.id;
+  $("detail-title").textContent = `${detail.method} ${detail.host}${detail.path}`;
+  const body = $("detail-body");
+  const url = `${detail.scheme}://${detail.host}${detail.path}`;
+  body.innerHTML = `
+    <h3>Summary</h3>
+    <div class="kv">
+      <div>App</div><div>${esc(detail.app || "—")} <span class="muted">(${esc(detail.app_source || "unmatched")})</span></div>
+      <div>Client</div><div>${esc(detail.client_ip || "—")}</div>
+      <div>Status</div><div class="${statusClass(detail.status)}">${detail.status ?? "–"}</div>
+      <div>Duration</div><div>${esc(fmtDuration(detail.duration_ms))}</div>
+      <div>URL</div><div>${esc(url)}</div>
+    </div>
+    <div class="toolbar" style="margin-top:12px">
+      <button class="action" type="button" id="copy-curl">Copy as cURL</button>
+      <a class="action" href="/api/har?q=${encodeURIComponent(detail.host)}" download="proxybot.har" style="text-decoration:none">Export host HAR</a>
+    </div>
+    <h3>Request headers</h3>
+    ${headersTable(detail.req_headers)}
+    <h3>Request body</h3>
+    ${bodyBlock(detail.req_body)}
+    <h3>Response headers</h3>
+    ${headersTable(detail.resp_headers)}
+    <h3>Response body</h3>
+    ${bodyBlock(detail.resp_body)}
+    ${detail.error ? `<h3>Error</h3><pre>${esc(detail.error)}</pre>` : ""}`;
+  body.querySelector("#copy-curl").addEventListener("click", async () => {
+    const headers = detail.req_headers
+      .filter(([name]) => !["content-length", "host"].includes(name.toLowerCase()))
+      .map(([name, value]) => `-H ${JSON.stringify(name + ": " + value)}`).join(" ");
+    let curl = `curl -X ${detail.method} ${JSON.stringify(url)} ${headers}`;
+    if (detail.req_body && detail.req_body.encoding === "utf8") curl += ` --data ${JSON.stringify(detail.req_body.text)}`;
+    try { await navigator.clipboard.writeText(curl); } catch (_) {}
+  });
+  $("detail").classList.add("open");
+}
+
+function headersTable(headers) {
+  if (!headers || !headers.length) return `<p class="muted">None</p>`;
+  return `<div class="kv">${headers.map(([name, value]) => `<div>${esc(name)}</div><div>${esc(value)}</div>`).join("")}</div>`;
+}
+
+function bodyBlock(body) {
+  if (!body) return `<p class="muted">No body captured (streamed, empty, or larger than 1 MB).</p>`;
+  if (body.encoding === "utf8") {
+    let text = body.text;
+    try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+    return `<pre>${esc(text)}</pre>${body.truncated ? `<p class="muted">truncated at ${body.size} bytes</p>` : ""}`;
+  }
+  return `<p class="muted">Binary body (${body.size} bytes, base64):</p><pre>${esc(body.text)}</pre>`;
+}
+
+async function loadSetup() {
+  const response = await fetch("/api/setup");
+  if (!response.ok) return;
+  state.setup = await response.json();
+  const setup = state.setup;
+  $("proxy-addr").textContent = `${setup.lan_ip}:${setup.proxy_port}`;
+  $("ca-page").textContent = setup.ca_page_url;
+  $("gateway-addr").textContent = setup.lan_ip;
+  $("qr").src = "/api/qr.svg?data=" + encodeURIComponent(setup.ca_page_url);
+  $("setup-kv").innerHTML = [
+    ["Device CA page", setup.ca_page_url],
+    ["CA certificate", setup.ca_url],
+    ["Mac LAN IP", setup.lan_ip],
+    ["Explicit proxy", `${setup.lan_ip}:${setup.proxy_port}`],
+    ["Transparent port", String(setup.transparent_port)],
+    ["Web UI", `http://127.0.0.1:${setup.web_port}`],
+  ].map(([name, value]) => `<div>${esc(name)}</div><div>${esc(value)}</div>`).join("");
+}
+
+async function loadRules() {
+  const [rulesResponse, pathResponse] = await Promise.all([
+    fetch("/api/rules"),
+    fetch("/api/setup")
+  ]);
+  const text = await rulesResponse.text();
+  $("rules-text").value = text;
+  const setup = state.setup || (pathResponse.ok ? await pathResponse.json() : null);
+  $("rules-path").textContent = setup ? "~/Library/Application Support/ProxyBot/rules/apps.yaml" : "rules/apps.yaml";
+}
+
+async function saveRules() {
+  const response = await fetch("/api/rules", { method: "PUT", body: $("rules-text").value });
+  $("rules-notice").textContent = response.ok ? "Saved." : "Save failed: " + (await response.text());
+  setTimeout(() => { $("rules-notice").textContent = ""; }, 2500);
+}
+
+function showTab(name) {
+  for (const tab of ["live", "setup", "rules"]) {
+    $("view-" + tab).classList.toggle("hidden", tab !== name);
+    $("tab-" + tab).classList.toggle("active", tab === name);
+  }
+  if (name === "setup") loadSetup();
+  if (name === "rules") loadRules();
+}
+
+let source = null;
+function connectStream() {
+  source = new EventSource("/api/stream");
+  source.addEventListener("request", (event) => {
+    if (state.paused) return;
+    try {
+      const envelope = JSON.parse(event.data);
+      state.rows.unshift(envelope.request);
+      if (state.rows.length > 300) state.rows.pop();
+      renderRows();
+    } catch (_) {}
+  });
+  source.onerror = () => {
+    $("live-badge").textContent = "● reconnecting";
+    $("live-badge").classList.remove("live");
+    setTimeout(() => { source.close(); connectStream(); }, 1500);
+  };
+  source.onopen = () => {
+    $("live-badge").textContent = "● live";
+    $("live-badge").classList.add("live");
+  };
+}
+
+$("q").addEventListener("input", () => { loadRequests(); });
+$("method").addEventListener("change", () => loadRequests());
+$("status").addEventListener("change", () => loadRequests());
+for (const chip of document.querySelectorAll("#apps .chip")) {
+  chip.addEventListener("click", () => {
+    state.app = chip.dataset.app;
+    for (const other of document.querySelectorAll("#apps .chip")) other.classList.toggle("active", other === chip);
+    loadRequests();
+  });
+}
+$("pause").addEventListener("click", () => {
+  state.paused = !state.paused;
+  $("pause").textContent = state.paused ? "Resume" : "Pause";
+});
+$("clear").addEventListener("click", async () => {
+  if (!confirm("Clear all captured requests?")) return;
+  await fetch("/api/clear", { method: "POST" });
+  state.rows = [];
+  renderRows();
+});
+$("detail-close").addEventListener("click", () => $("detail").classList.remove("open"));
+$("detail").addEventListener("click", (event) => { if (event.target === $("detail")) $("detail").classList.remove("open"); });
+$("tab-live").addEventListener("click", () => showTab("live"));
+$("tab-setup").addEventListener("click", () => showTab("setup"));
+$("tab-rules").addEventListener("click", () => showTab("rules"));
+$("rules-save").addEventListener("click", saveRules);
+
+loadRequests();
+loadSetup();
+connectStream();
+</script>
+</body>
+</html>

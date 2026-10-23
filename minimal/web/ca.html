@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ProxyBot setup</title>
+<style>
+  body { margin: 0; font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; }
+  main { max-width: 640px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  h2 { font-size: 15px; margin: 26px 0 6px; color: #8b949e; text-transform: uppercase; letter-spacing: .6px; }
+  p, li { color: #c9d1d9; }
+  code { font-family: ui-monospace, Menlo, monospace; background: #1f2630; padding: 2px 6px; border-radius: 4px; }
+  a.button { display: inline-block; background: #2f81f7; color: #fff; text-decoration: none; padding: 10px 16px; border-radius: 8px; font-weight: 600; margin-top: 8px; }
+  .box { border: 1px solid #2d333b; background: #161b22; border-radius: 10px; padding: 16px 18px; margin-top: 12px; }
+  .muted { color: #8b949e; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ProxyBot device setup</h1>
+  <p class="muted">This page is served by the Mac running ProxyBot. Do not close capture on the Mac while installing.</p>
+
+  <h2>1. Install the ProxyBot CA</h2>
+  <div class="box">
+    <p>Download and install the certificate on this device:</p>
+    <a class="button" href="{{CA_URL}}">Download CA certificate</a>
+    <p class="muted">iOS: after downloading, go to Settings → General → VPN &amp; Device Management to install the profile, then Settings → General → About → Certificate Trust Settings and enable full trust for “ProxyBot Local CA”.<br />
+    Android: Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate.</p>
+  </div>
+
+  <h2>2. Capture this device’s traffic</h2>
+  <div class="box">
+    <p><strong>Mode 1 · HTTP proxy</strong> (no admin): Wi-Fi → HTTP proxy → Manual → server <code>{{PROXY}}</code>. Leave gateway and DNS unchanged.</p>
+    <p><strong>Mode 2 · Side-router / gateway</strong> (Mac running with <code>proxybot start --gateway</code>): Wi-Fi → configure IP → gateway <code>{{GATEWAY}}</code>, keep the current DNS. HTTP/HTTPS is redirected; other traffic is NATed.</p>
+    <p class="muted">Certificate-pinned apps will refuse decryption; that is an application security boundary, not a ProxyBot failure.</p>
+  </div>
+
+  <h2>3. Verify</h2>
+  <div class="box">
+    <p>Open <code>http://example.com</code>, then <code>https://example.com</code>. Both should appear on the Mac’s ProxyBot web UI (Live tab).</p>
+  </div>
+
+  <h2>4. Clean up</h2>
+  <div class="box">
+    <p>When finished: turn the Wi-Fi proxy off (or restore the gateway), stop capture on the Mac, and remove the CA from the device.</p>
+  </div>
+</main>
+</body>
+</html>

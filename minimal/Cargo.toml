@@ -1,0 +1,40 @@
+[package]
+name = "proxybot-min"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal macOS traffic debugger: transparent gateway + local web UI"
+license = "MIT"
+publish = false
+
+# Standalone workspace: this crate is intentionally independent from the legacy
+# Tauri desktop app at the repository root.
+[workspace]
+
+[[bin]]
+name = "proxybot"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive", "env"] }
+hudsucker = "0.25"
+http-body-util = "0.1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rusqlite = "0.37"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"
