@@ -76,3 +76,6 @@ e2e-report/
 /.audit/
 /.cache-cargo/
 /.cache-gh/
+
+# Local Playwright browser cache
+/.cache-playwright/
