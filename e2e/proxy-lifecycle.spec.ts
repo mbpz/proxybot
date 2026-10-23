@@ -37,7 +37,9 @@ test.describe("App shell", () => {
 
     await expect(page.getByText("Capture stopped")).toBeVisible();
     await page.getByRole("button", { name: "Start Capture" }).click();
-    await expect(page.getByText("Capturing")).toBeVisible();
+    // The capture bar and the empty traffic state can both say "Capturing";
+    // assert on the live-status region instead of the whole page.
+    await expect(page.getByRole("status").filter({ hasText: "Capturing" })).toBeVisible();
     await page.getByRole("button", { name: "Stop Capture" }).click();
     await page
       .getByRole("dialog")
