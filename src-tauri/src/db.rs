@@ -804,7 +804,7 @@ pub fn record_http_request(
             resp_status,
             resp_headers_json,
             resp_body_bytes,
-            duration_ms,
+            duration_ms.map(|value| value as i64),
             device_id,
             app_tag,
             session_id,

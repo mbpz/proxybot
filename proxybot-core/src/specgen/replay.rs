@@ -383,7 +383,7 @@ pub fn build_mock_router(state: MockState) -> Router {
     Router::new()
         .route("/", get(echo))
         .route(
-            "/*path",
+            "/{*path}",
             get(echo_path)
                 .post(echo_path)
                 .put(echo_path)
