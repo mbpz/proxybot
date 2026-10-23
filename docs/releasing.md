@@ -56,14 +56,68 @@ in [GitHub issue #27](https://github.com/mbpz/proxybot/issues/27); physical-devi
 evidence is tracked in
 [issue #28](https://github.com/mbpz/proxybot/issues/28).
 
-## Publish
+## Provision signing credentials (issue #27)
 
-After the version commit is on a green `main` branch, create and push the exact
-tag:
+Signed releases require an Apple Developer Program membership. CI imports the
+Developer ID certificate from repository secrets, so the release machine itself
+does not need a signing identity. Never commit a certificate, private key, or
+password.
+
+1. In [developer.apple.com](https://developer.apple.com/account/resources/certificates/list),
+   create a **Developer ID Application** certificate, download the `.cer`,
+   import it into Keychain, and export it as a password-protected `.p12`.
+   Confirm it is visible with:
+
+   ```bash
+   security find-identity -v -p codesigning
+   ```
+
+2. Create an app-specific password at [appleid.apple.com](https://appleid.apple.com).
+3. Find your Team ID on the Apple Developer account page.
+4. Encode the certificate and set all seven repository secrets:
+
+   ```bash
+   base64 -i DeveloperID.p12 | tr -d '\n' > cert.b64
+
+   gh secret set APPLE_CERTIFICATE < cert.b64
+   gh secret set APPLE_CERTIFICATE_PASSWORD       # .p12 export password
+   gh secret set APPLE_SIGNING_IDENTITY --body "Developer ID Application: Your Name (TEAMID)"
+   gh secret set APPLE_ID
+   gh secret set APPLE_PASSWORD                   # app-specific password
+   gh secret set APPLE_TEAM_ID
+   gh secret set KEYCHAIN_PASSWORD --body "$(openssl rand -base64 24)"
+
+   rm cert.b64 DeveloperID.p12
+   ```
+
+5. Verify names only (never values):
+
+   ```bash
+   ./scripts/release-preflight.sh
+   gh secret list
+   ```
+
+The preflight fails while any secret is absent, which is intentional: the
+workflow refuses to publish an ad-hoc-signed application.
+
+## Publish (manual)
+
+The Release workflow is **manual-only**. Pushing a tag no longer starts a
+build; the tag must still exist on `origin` because the workflow checks out
+`ref: vX.Y.Z`.
+
+After the version commit is on a green `main`:
 
 ```bash
 git tag -s v1.3.1 -m "ProxyBot v1.3.1"
 git push origin v1.3.1
+
+# Checks tag, auth, and secrets, then dispatches the workflow:
+./scripts/release-preflight.sh --dispatch
+
+# Or dispatch directly:
+gh workflow run release.yml -f version=v1.3.1
+gh run list --workflow=release.yml --limit 1
 ```
 
 The workflow builds both DMGs through the Tauri bundler. For each architecture it
@@ -98,8 +152,11 @@ packaged binary; it does not prove signed installation or visible UI behavior.
 
 A workflow definition is not proof that a release succeeded. Record the hosted
 run URL and the results of installing and starting both architectures before
-calling a release verified. Homebrew remains unsupported until a maintained tap
-installs one of these verified artifacts and passes its own smoke test.
+calling a release verified. Use the
+[device validation template](https://github.com/mbpz/proxybot/blob/main/docs/status/device-validation-template.md) for the
+physical iOS/Android evidence tracked in issue #28. Homebrew remains unsupported
+until a maintained tap installs one of these verified artifacts and passes its
+own smoke test.
 
 Until the first such release exists, all published artifacts are development
 previews. The latest published artifact is `v1.2.15` (2026-05-15); the unreleased

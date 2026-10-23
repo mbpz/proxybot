@@ -48,7 +48,7 @@ The Setup page walks through four steps:
 4. **Install and verify the CA** — the platform-specific certificate steps.
 
 Step 1 and step 2 are separate lifecycles: a failure in one does not imply that
-the other is running. A failure in one does not imply that the other is running.
+the other is running.
 Do not use `127.0.0.1` on the phone; it refers to the phone itself. If the Mac
 changes networks, stop the Setup Server and prepare again.
 
@@ -115,7 +115,9 @@ capture.
   signed, notarized, and install-verified distribution pipeline.
 - Browser Playwright tests use a mock desktop Adapter and do not prove this real
   device journey; the packaged acceptance lane proves the backend journey only.
-- Physical iOS and Android validation is still tracked as release evidence.
+- Physical iOS and Android validation is still tracked as release evidence; use
+  the [device validation record](https://github.com/mbpz/proxybot/blob/main/docs/status/device-validation-template.md)
+  when collecting it.
 - Labs (AI analysis, Generate/Deploy, Graph/Topology) are experimental and off by
   default; they are not part of the supported first-capture journey.
 

@@ -183,8 +183,8 @@
 
 ### P0（决定「可信发布」）
 
-1. 关闭 issue #27：配置 Developer ID + 公证凭据，跑通一次真实 tag 发布，产出 arm64/x64 两个已签名 DMG、sha256、SPDX SBOM、provenance attestation。
-2. 关闭 issue #28：在物理 iOS/Android 设备上按 `docs/getting-started.md` 走通显式代理 + CA 信任 + 首个 HTTPS 请求，把结果留作 release evidence。
+1. 关闭 issue #27：配置 Developer ID + 公证凭据，跑通一次手动 Release（tag + workflow_dispatch，见 [发布 runbook](../../docs/releasing.md)），产出 arm64/x64 两个已签名 DMG、sha256、SPDX SBOM、provenance attestation；预检脚本：`scripts/release-preflight.sh --dispatch`。
+2. 关闭 issue #28：在物理 iOS/Android 设备上按 `docs/getting-started.md` 走通显式代理 + CA 信任 + 首个 HTTPS 请求，用 [device validation template](device-validation-template.md) 记录并留作 release evidence。
 3. 把「已验证发布」与「源码构建」的声明继续分开：在 release 产出证据前，README 不承诺签名安装体验。
 
 ### P1（决定「产品可用」）
