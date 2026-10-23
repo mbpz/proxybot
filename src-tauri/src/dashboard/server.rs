@@ -281,11 +281,13 @@ fn http_response(status: &str, content_type: &str, body: &str) -> String {
 }
 
 fn generate_token() -> String {
-    use rand::{rngs::OsRng, RngCore};
+    use rand::{rngs::OsRng, TryRngCore};
     use std::fmt::Write;
 
     let mut bytes = [0_u8; 16];
-    OsRng.fill_bytes(&mut bytes);
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .expect("operating-system RNG unavailable");
     let mut token = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(token, "{byte:02x}").expect("writing to a String cannot fail");

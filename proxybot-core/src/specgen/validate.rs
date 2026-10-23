@@ -1,7 +1,6 @@
 //! Validate LLM output against an embedded JSON schema.
 
 use crate::specgen::error::SpecError;
-use jsonschema::JSONSchema;
 use serde_json::Value;
 
 const OPENAPI_PATHS_SCHEMA: &str = "{
@@ -42,13 +41,15 @@ const OPENAPI_PATHS_SCHEMA: &str = "{
 pub fn validate_paths_object(candidate: &Value) -> Result<(), SpecError> {
     let schema: Value =
         serde_json::from_str(OPENAPI_PATHS_SCHEMA).expect("embedded schema is valid JSON");
-    let compiled = JSONSchema::options()
+    let validator = jsonschema::options()
         .with_draft(jsonschema::Draft::Draft7)
-        .compile(&schema)
+        .build(&schema)
         .map_err(|e| SpecError::RenderFailed(format!("schema compile: {e}")))?;
-    let result = compiled.validate(candidate);
-    if let Err(errors) = result {
-        let msgs: Vec<String> = errors.map(|e| e.to_string()).collect();
+    if !validator.is_valid(candidate) {
+        let msgs: Vec<String> = validator
+            .iter_errors(candidate)
+            .map(|e| e.to_string())
+            .collect();
         return Err(SpecError::RenderFailed(format!(
             "LLM output does not match schema: {}",
             msgs.join("; ")
