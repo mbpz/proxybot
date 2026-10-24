@@ -432,6 +432,7 @@ CREATE INDEX idx_requests_app ON requests(app);
 | 一键安装脚本（pinned 与 latest） | ✅ 已用发布产物实测安装并启动抓包 |
 | WebSocket 帧（双向、UI 展示） | ✅ 已实现并本机实测（permessage-deflate 暂不支持） |
 | Chunked/未知长度响应体（Tee body） | ✅ 已实现并本机实测 |
+| TLS SNI 尝试记录（证书 pinning 可见性） | ✅ 0.1.2：TLS 标签页 + `rules/passthrough.txt` |
 | HTTP/2、WS 压缩、DNS 关联 | ⏳ 后续 |
 
 验证命令与结果：

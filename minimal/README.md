@@ -146,6 +146,20 @@ Implemented and locally verified (2026-10-23):
   (text as UTF-8, binary as hex). permessage-deflate is not supported: clients
   that negotiate compression see a protocol error through the proxy.
 
+### Certificate pinning and TLS attempts
+
+Apps that pin certificates reject the ProxyBot CA during the TLS handshake
+(`CertificateUnknown` / handshake EOF in the terminal). Those handshakes cannot
+be decrypted. To make the failure visible and keep the app usable:
+
+- The **TLS** tab lists every observed SNI host, its attempt count, and whether
+  it was intercepted or passed through.
+- Add the host suffix to
+  `~/Library/Application Support/ProxyBot/rules/passthrough.txt` (one per line,
+  subdomains match automatically) and restart ProxyBot. Matching hosts are then
+  forwarded as raw TLS without interception: the app works normally, the host
+  still appears in the TLS tab, but HTTP bodies are not captured.
+
 Known MVP gaps: HTTP/2 is disabled (clients fall back to HTTP/1.1); transparent
 HTTP only rewrites the first request on a connection (it forces
 `Connection: close`); WebSocket compression is unsupported.

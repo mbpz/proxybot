@@ -22,6 +22,8 @@ pub struct CaptureState {
     pub store: Arc<Store>,
     pub events: broadcast::Sender<String>,
     pub rules: Arc<RwLock<Rules>>,
+    /// Host suffixes that are forwarded without TLS interception (pinned apps).
+    pub passthrough: Arc<RwLock<Vec<String>>>,
 }
 
 pub struct CaptureHandler {
@@ -65,6 +67,38 @@ impl CaptureHandler {
 }
 
 impl HttpHandler for CaptureHandler {
+    fn should_intercept_tls(
+        &mut self,
+        ctx: &HttpContext,
+        client_hello: hudsucker::rustls::server::ClientHello<'_>,
+    ) -> impl std::future::Future<Output = bool> + Send {
+        let state = self.state.clone();
+        let host = client_hello.server_name().map(str::to_string);
+        let client_ip = ctx.client_addr.ip().to_string();
+        async move {
+            let Some(host) = host else {
+                return true;
+            };
+            let passthrough = {
+                let list = state.passthrough.read().await;
+                is_passthrough(&list, &host)
+            };
+            if let Err(error) =
+                state
+                    .store
+                    .insert_tls_attempt(now_ms(), &host, Some(&client_ip), passthrough)
+            {
+                tracing::warn!(%error, "failed to persist TLS attempt");
+            }
+            if passthrough {
+                tracing::info!(%host, "TLS passthrough (pinned app or configured)");
+                false
+            } else {
+                true
+            }
+        }
+    }
+
     fn handle_request(
         &mut self,
         ctx: &HttpContext,
@@ -479,4 +513,12 @@ async fn capture_body(body: Body, headers: &hudsucker::hyper::HeaderMap) -> (Bod
             (Body::empty(), None, true)
         }
     }
+}
+
+fn is_passthrough(list: &[String], host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    list.iter().any(|suffix| {
+        let suffix = suffix.trim().trim_start_matches("*.").to_ascii_lowercase();
+        !suffix.is_empty() && (host == suffix || host.ends_with(&format!(".{suffix}")))
+    })
 }

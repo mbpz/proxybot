@@ -1,7 +1,7 @@
 //! Local web UI and JSON API.
 
 use crate::rules::Rules;
-use crate::store::{HarExport, ListFilter, RequestSummary, Store, WsFrameRecord, WsHost};
+use crate::store::{HarExport, ListFilter, RequestSummary, Store, TlsHost, WsFrameRecord, WsHost};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -52,6 +52,7 @@ pub async fn serve(state: WebState, addr: SocketAddr) -> anyhow::Result<()> {
         .route("/api/stream", get(stream))
         .route("/api/ws/hosts", get(ws_hosts))
         .route("/api/ws", get(ws_frames))
+        .route("/api/tls/hosts", get(tls_hosts))
         .route("/api/rules", get(get_rules).put(put_rules))
         .route("/api/har", get(har))
         .route("/api/clear", post(clear))
@@ -186,6 +187,12 @@ async fn clear(State(state): State<WebState>) -> Result<StatusCode, (StatusCode,
 struct WsQuery {
     host: Option<String>,
     limit: Option<usize>,
+}
+
+async fn tls_hosts(
+    State(state): State<WebState>,
+) -> Result<Json<Vec<TlsHost>>, (StatusCode, String)> {
+    state.store.tls_hosts().map(Json).map_err(internal_error)
 }
 
 async fn ws_hosts(

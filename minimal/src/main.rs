@@ -210,6 +210,9 @@ async fn run_start(args: StartArgs) -> Result<()> {
     rules::Rules::ensure_file(&rules_path)?;
     let rules = Arc::new(RwLock::new(rules::Rules::load_or_default(&rules_path)));
 
+    let passthrough_path = data_dir.join("rules").join("passthrough.txt");
+    let passthrough = Arc::new(RwLock::new(load_passthrough(&passthrough_path)));
+
     let ca_material = ca::load_or_create(&data_dir)?;
     let ca_pem = Arc::new(ca_material.cert_pem.clone());
     let issuer = ca::issuer(&ca_material)?;
@@ -225,6 +228,7 @@ async fn run_start(args: StartArgs) -> Result<()> {
         store: store.clone(),
         events: events.clone(),
         rules: rules.clone(),
+        passthrough: passthrough.clone(),
     });
     let http_state = capture_state.clone();
     let ws_state = capture_state.clone();
@@ -313,6 +317,7 @@ async fn run_start(args: StartArgs) -> Result<()> {
         args.ca_port
     );
     println!("  Data            {}", data_dir.display());
+    println!("  Passthrough     {}", passthrough_path.display());
     println!("Press Ctrl+C to stop.");
     println!();
 
@@ -345,4 +350,23 @@ fn default_data_dir() -> PathBuf {
 
 fn rules_path(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join("rules").join("apps.yaml")
+}
+
+/// Domain suffixes that are forwarded without TLS interception. Pinned apps
+/// (CertificateUnknown) keep working with this list; their traffic is visible
+/// as a TLS attempt but cannot be decrypted.
+fn load_passthrough(path: &std::path::Path) -> Vec<String> {
+    if !path.exists() {
+        let _ = std::fs::write(
+            path,
+            "# Host suffixes to pass through WITHOUT TLS interception.\n             # Use this for certificate-pinned apps (e.g. douyin.com) so they keep\n             # working; traffic is still recorded as a TLS attempt, but not decrypted.\n             # One suffix per line; subdomains match automatically.\n             # douyin.com\n",
+        );
+    }
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect()
 }

@@ -246,6 +246,14 @@ impl Store {
                 truncated   INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_ws_host_ts ON ws_frames(host, ts DESC);
+            CREATE TABLE IF NOT EXISTS tls_attempts (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          INTEGER NOT NULL,
+                host        TEXT NOT NULL,
+                client_ip   TEXT,
+                passthrough INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_tls_host_ts ON tls_attempts(host, ts DESC);
             "#,
         )?;
         Ok(Self {
@@ -693,5 +701,51 @@ impl Store {
             params![bytes, i64::from(truncated), id],
         )?;
         Ok(())
+    }
+}
+
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TlsHost {
+    pub host: String,
+    pub attempts: i64,
+    pub last_ts: i64,
+    pub passthrough: bool,
+}
+
+impl Store {
+    pub fn insert_tls_attempt(&self, ts: i64, host: &str, client_ip: Option<&str>, passthrough: bool) -> Result<()> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        conn.execute(
+            "INSERT INTO tls_attempts (ts, host, client_ip, passthrough) VALUES (?1, ?2, ?3, ?4)",
+            params![ts, host, client_ip, i64::from(passthrough)],
+        )?;
+        conn.execute(
+            "DELETE FROM tls_attempts WHERE id NOT IN (SELECT id FROM tls_attempts ORDER BY id DESC LIMIT 20000)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn tls_hosts(&self) -> Result<Vec<TlsHost>> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT host, COUNT(*) AS attempts, MAX(ts) AS last_ts,
+                    MAX(passthrough) AS passthrough
+             FROM tls_attempts GROUP BY host ORDER BY last_ts DESC LIMIT 500",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TlsHost {
+                host: row.get(0)?,
+                attempts: row.get(1)?,
+                last_ts: row.get(2)?,
+                passthrough: row.get::<_, i64>(3)? != 0,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
     }
 }
