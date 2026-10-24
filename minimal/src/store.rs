@@ -39,6 +39,10 @@ pub struct BodyView {
     pub text: String,
     pub size: usize,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_hex: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -360,12 +364,25 @@ impl Store {
                     let resp_body: Option<Vec<u8>> = row.get(17)?;
                     let resp_truncated: i64 = row.get(18)?;
                     let error: Option<String> = row.get(19)?;
+                    let req_headers: Vec<(String, String)> =
+                        serde_json::from_str(&req_headers).unwrap_or_default();
+                    let resp_headers: Vec<(String, String)> =
+                        serde_json::from_str(&resp_headers).unwrap_or_default();
+                    let mut req_body = req_body.map(|bytes| body_view(&bytes, req_truncated != 0));
+                    let mut resp_body =
+                        resp_body.map(|bytes| body_view(&bytes, resp_truncated != 0));
+                    if let Some(body) = req_body.as_mut() {
+                        body.note = body_note(true, &summary.path, &req_headers, &resp_headers, body);
+                    }
+                    if let Some(body) = resp_body.as_mut() {
+                        body.note = body_note(false, &summary.path, &req_headers, &resp_headers, body);
+                    }
                     Ok(RequestDetail {
                         summary,
-                        req_headers: serde_json::from_str(&req_headers).unwrap_or_default(),
-                        req_body: req_body.map(|bytes| body_view(&bytes, req_truncated != 0)),
-                        resp_headers: serde_json::from_str(&resp_headers).unwrap_or_default(),
-                        resp_body: resp_body.map(|bytes| body_view(&bytes, resp_truncated != 0)),
+                        req_headers,
+                        req_body,
+                        resp_headers,
+                        resp_body,
                         error,
                     })
                 },
@@ -483,14 +500,85 @@ fn body_view(bytes: &[u8], truncated: bool) -> BodyView {
             text: text.to_string(),
             size: bytes.len(),
             truncated,
+            note: None,
+            preview_hex: None,
         },
         _ => BodyView {
             encoding: "base64".into(),
             text: base64::engine::general_purpose::STANDARD.encode(bytes),
             size: bytes.len(),
             truncated,
+            note: None,
+            preview_hex: Some(hex_preview(bytes, 128)),
         },
     }
+}
+
+fn hex_preview(bytes: &[u8], cap: usize) -> String {
+    let mut out = String::new();
+    for (index, byte) in bytes.iter().take(cap).enumerate() {
+        if index % 16 == 0 {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&format!("{index:08x}  "));
+        }
+        out.push_str(&format!("{byte:02x} "));
+    }
+    if bytes.len() > cap {
+        out.push_str("…");
+    }
+    out
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn body_note(
+    is_request: bool,
+    path: &str,
+    req_headers: &[(String, String)],
+    resp_headers: &[(String, String)],
+    body: &BodyView,
+) -> Option<String> {
+    let upgrade = header_value(req_headers, "upgrade").unwrap_or_default().to_ascii_lowercase();
+    if path.to_ascii_lowercase().contains("/mmtls") || upgrade.contains("mmtls") {
+        return Some(
+            "WeChat MMTLS: application-layer encrypted frame. TLS interception cannot decrypt it \
+             (no HTTP body). Use this only as binary/protocol evidence."
+                .into(),
+        );
+    }
+    if header_value(req_headers, "x-tt-").is_some()
+        || req_headers.iter().any(|(key, _)| key.to_ascii_lowercase().starts_with("x-tt-"))
+    {
+        return Some("ByteDance/TTNet binary frame (application-layer protocol; may be encrypted).".into());
+    }
+    if let Some(decoded_from) = header_value(
+        if is_request { req_headers } else { resp_headers },
+        "x-proxybot-decoded-from",
+    ) {
+        return Some(format!(
+            "Body decoded from {} before storage; content above is plaintext.",
+            decoded_from
+        ));
+    }
+    let encoding = header_value(if is_request { req_headers } else { resp_headers }, "content-encoding")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !encoding.is_empty() && encoding != "identity" {
+        return Some(format!(
+            "Body is still {encoding}-encoded (decode failed or unsupported).",
+        ));
+    }
+    if body.encoding == "base64" {
+        return Some("Binary body (application/octet-stream or unknown format).".into());
+    }
+    None
 }
 
 fn is_mostly_text(text: &str) -> bool {
@@ -694,11 +782,18 @@ impl Store {
         Ok(result)
     }
 
-    pub fn update_response_body(&self, id: i64, bytes: &[u8], truncated: bool) -> Result<()> {
+    pub fn update_response_body(
+        &self,
+        id: i64,
+        bytes: &[u8],
+        truncated: bool,
+        headers: &[(String, String)],
+    ) -> Result<()> {
         let conn = self.conn.lock().expect("store mutex poisoned");
+        let headers = serde_json::to_string(headers).unwrap_or_else(|_| "[]".into());
         conn.execute(
-            "UPDATE requests SET resp_body = ?1, resp_truncated = ?2 WHERE id = ?3",
-            params![bytes, i64::from(truncated), id],
+            "UPDATE requests SET resp_body = ?1, resp_truncated = ?2, resp_headers = ?3 WHERE id = ?4",
+            params![bytes, i64::from(truncated), headers, id],
         )?;
         Ok(())
     }

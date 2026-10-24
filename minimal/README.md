@@ -160,6 +160,16 @@ be decrypted. To make the failure visible and keep the app usable:
   forwarded as raw TLS without interception: the app works normally, the host
   still appears in the TLS tab, but HTTP bodies are not captured.
 
+### Body decoding and encrypted app protocols
+
+- gzip/deflate/brotli HTTP bodies are decompressed before storage and marked as
+  decoded in the detail view.
+- WeChat MMTLS (`/mmtls/...`, `Upgrade: mmtls`) and ByteDance/TTNet binary frames
+  are **application-layer encrypted**; TLS MITM cannot turn them into plaintext.
+  The detail view labels them explicitly and shows a hex preview instead of a
+  misleading base64 blob.
+- JSON/text/image bodies are shown as text or binary metadata as appropriate.
+
 Known MVP gaps: HTTP/2 is disabled (clients fall back to HTTP/1.1); transparent
 HTTP only rewrites the first request on a connection (it forces
 `Connection: close`); WebSocket compression is unsupported.

@@ -316,12 +316,14 @@ function headersTable(headers) {
 
 function bodyBlock(body) {
   if (!body) return `<p class="muted">No body captured (streamed, empty, or larger than 1 MB).</p>`;
+  const note = body.note ? `<p class="muted">${esc(body.note)}</p>` : "";
   if (body.encoding === "utf8") {
     let text = body.text;
     try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
-    return `<pre>${esc(text)}</pre>${body.truncated ? `<p class="muted">truncated at ${body.size} bytes</p>` : ""}`;
+    return `${note}<pre>${esc(text)}</pre>${body.truncated ? `<p class="muted">truncated at ${body.size} bytes</p>` : ""}`;
   }
-  return `<p class="muted">Binary body (${body.size} bytes, base64):</p><pre>${esc(body.text)}</pre>`;
+  const hex = body.preview_hex ? `<pre>${esc(body.preview_hex)}</pre>` : "";
+  return `${note}${hex}<details><summary class="muted">Base64 (${body.size} bytes)</summary><pre>${esc(body.text)}</pre></details>`;
 }
 
 async function loadSetup() {

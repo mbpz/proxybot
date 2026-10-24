@@ -11,6 +11,7 @@ use hudsucker::{
     Body, HttpContext, HttpHandler, RequestOrResponse, WebSocketContext, WebSocketHandler,
 };
 use http_body_util::{BodyExt, Full};
+use std::io::Read;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -132,7 +133,16 @@ impl HttpHandler for CaptureHandler {
                 rules.classify(&host)
             };
             let (head, body) = req.into_parts();
-            let (body, captured, truncated) = capture_body(body, &head.headers).await;
+            let (body, mut captured, truncated) = capture_body(body, &head.headers).await;
+            let mut headers = headers;
+            if let Some(bytes) = captured.as_mut() {
+                if let Some(encoding) = content_encoding(&head.headers) {
+                    if let Some(decoded) = decode_content(bytes, &encoding) {
+                        *bytes = decoded;
+                        headers.push(("x-proxybot-decoded-from".into(), encoding));
+                    }
+                }
+            }
             let req = Request::from_parts(head, body);
             self.pending = Some(Pending {
                 ts_ms: now_ms(),
@@ -181,6 +191,7 @@ impl HttpHandler for CaptureHandler {
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
             let (parts, body) = res.into_parts();
+            let response_encoding = content_encoding(&parts.headers);
 
             // Tee every response body: forward bytes unchanged while buffering up
             // to MAX_BODY_BYTES for the inspector. This covers chunked responses
@@ -210,6 +221,7 @@ impl HttpHandler for CaptureHandler {
                 content_type,
                 error: None,
             };
+            let stored_resp_headers = captured.resp_headers.clone();
             match state.store.insert(&captured) {
                 Ok(summary) => {
                     if let Ok(json) = serde_json::to_string(&Envelope {
@@ -219,12 +231,24 @@ impl HttpHandler for CaptureHandler {
                         let _ = state.events.send(json);
                     }
                     let store = state.store.clone();
+                    let mut headers = stored_resp_headers.clone();
                     tokio::spawn(async move {
                         if let Some(capture) = rx.recv().await {
+                            let mut bytes = capture.bytes;
+                            if let Some(encoding) = response_encoding.as_deref() {
+                                if let Some(decoded) = decode_content(&bytes, encoding) {
+                                    bytes = decoded;
+                                    headers.push((
+                                        "x-proxybot-decoded-from".into(),
+                                        encoding.to_string(),
+                                    ));
+                                }
+                            }
                             if let Err(error) = store.update_response_body(
                                 summary.id,
-                                &capture.bytes,
+                                &bytes,
                                 capture.truncated,
+                                &headers,
                             ) {
                                 tracing::warn!(%error, "failed to persist response body");
                             }
@@ -521,4 +545,33 @@ fn is_passthrough(list: &[String], host: &str) -> bool {
         let suffix = suffix.trim().trim_start_matches("*.").to_ascii_lowercase();
         !suffix.is_empty() && (host == suffix || host.ends_with(&format!(".{suffix}")))
     })
+}
+
+fn content_encoding(headers: &hudsucker::hyper::HeaderMap) -> Option<String> {
+    headers
+        .get(hudsucker::hyper::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty() && value != "identity")
+}
+
+fn decode_content(bytes: &[u8], encoding: &str) -> Option<Vec<u8>> {
+    const LIMIT: u64 = 4 * 1024 * 1024;
+    let mut output = Vec::new();
+    match encoding {
+        "gzip" | "x-gzip" => {
+            let mut decoder = flate2::read::GzDecoder::new(bytes);
+            decoder.by_ref().take(LIMIT).read_to_end(&mut output).ok()?;
+        }
+        "deflate" => {
+            let mut decoder = flate2::read::ZlibDecoder::new(bytes);
+            decoder.by_ref().take(LIMIT).read_to_end(&mut output).ok()?;
+        }
+        "br" => {
+            let mut decoder = brotli::Decompressor::new(bytes, 4096);
+            decoder.by_ref().take(LIMIT).read_to_end(&mut output).ok()?;
+        }
+        _ => return None,
+    }
+    Some(output)
 }
