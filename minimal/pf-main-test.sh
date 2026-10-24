@@ -27,12 +27,15 @@ rdr-anchor "com.apple/*"
 rdr pass on ${IFACE} inet proto tcp from any to any port {80, 443} -> 127.0.0.1 port ${PORT}
 nat on ${IFACE} inet from ${CIDR} to any -> (${IFACE})
 
-anchor "com.apple/*"
-load anchor "com.apple" from "/etc/pf.anchors/com.apple"
+# Keep our LAN pass rules BEFORE the com.apple anchors so a stale Application
+# Firewall dynamic anchor cannot block phone -> Mac traffic.
 block drop quick on ${IFACE} inet proto udp from ${CIDR} to any port {80, 443}
 pass in quick on lo0 inet from any to any keep state
 pass in quick on ${IFACE} inet from ${CIDR} to any keep state
 pass out quick on ${IFACE} inet from any to any keep state
+
+anchor "com.apple/*"
+load anchor "com.apple" from "/etc/pf.anchors/com.apple"
 RULES
     pfctl -n -f "$CONF"
     # Avoid duplicate rules from the app-owned anchor while testing.
