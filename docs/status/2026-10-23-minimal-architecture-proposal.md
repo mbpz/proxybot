@@ -428,7 +428,8 @@ CREATE INDEX idx_requests_app ON requests(app);
 | pf 安装/卸载/状态/`--dry-run` | ✅ 代码完成；真实 pf 需管理员，CI 未执行 |
 | App 归因（YAML 规则 + SNI/host 最长后缀） | ✅ 已实现，规则可在 UI 编辑 |
 | 一键安装脚本（下载臂/校验 sha256/无需语言运行时） | ✅ `minimal/install.sh` |
-| 手动 CLI release workflow + 本地打包脚本 | ✅ 已添加 |
+| 手动 CLI release workflow + 本地打包脚本 | ✅ 已跑通 `minimal-v0.1.0`（arm64/x64 + sha256） |
+| 一键安装脚本（pinned 与 latest） | ✅ 已用发布产物实测安装并启动抓包 |
 | WebSocket 帧（双向、UI 展示） | ✅ 已实现并本机实测（permessage-deflate 暂不支持） |
 | Chunked/未知长度响应体（Tee body） | ✅ 已实现并本机实测 |
 | HTTP/2、WS 压缩、DNS 关联 | ⏳ 后续 |

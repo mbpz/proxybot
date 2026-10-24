@@ -39,9 +39,9 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 echo "Downloading ${ASSET} from ${BASE} ..."
-curl --fail --location --silent --show-error --retry 3 \
+curl --http1.1 --fail --location --silent --show-error --retry 5 --retry-all-errors \
   "${BASE}/${ASSET}" -o "${TMP}/${ASSET}"
-curl --fail --location --silent --show-error --retry 3 \
+curl --http1.1 --fail --location --silent --show-error --retry 5 --retry-all-errors \
   "${BASE}/${ASSET}.sha256" -o "${TMP}/${ASSET}.sha256"
 
 EXPECTED="$(cut -d ' ' -f1 "${TMP}/${ASSET}.sha256")"

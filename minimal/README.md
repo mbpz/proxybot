@@ -65,7 +65,10 @@ SHA-256, and installs `proxybot` to `~/.local/bin` (override with
 is required at install time.
 
 Releases are built by the manual **Minimal CLI release** workflow
-(`.github/workflows/minimal-release.yml`).
+(`.github/workflows/minimal-release.yml`). The first release,
+`minimal-v0.1.0` (2026-10-24), ships arm64/x64 archives with SHA-256 checksums;
+both `PROXYBOT_VERSION=0.1.0` and the default `latest` install paths were
+verified locally.
 
 ## Use
 
