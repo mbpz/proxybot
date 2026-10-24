@@ -203,14 +203,24 @@ fn run_rules(args: RulesArgs) -> Result<()> {
 }
 
 async fn run_start(args: StartArgs) -> Result<()> {
+    // pf redirects LAN traffic to the Mac's LAN IP (not loopback), so the
+    // transparent adapter must listen on all interfaces in gateway mode.
+    // PROXYBOT_TRANSPARENT_BIND=all is an explicit override for tests/dev.
+    let transparent_bind_all = args.gateway
+        || std::env::var("PROXYBOT_TRANSPARENT_BIND")
+            .map(|value| value == "all")
+            .unwrap_or(false);
+    let transparent_bind: SocketAddr = if transparent_bind_all {
+        ([0, 0, 0, 0], args.transparent_port).into()
+    } else {
+        ([127, 0, 0, 1], args.transparent_port).into()
+    };
+
     ensure_port_available(
         ([0, 0, 0, 0], args.proxy_port).into(),
         "explicit proxy",
     )?;
-    ensure_port_available(
-        ([127, 0, 0, 1], args.transparent_port).into(),
-        "transparent adapter",
-    )?;
+    ensure_port_available(transparent_bind, "transparent adapter")?;
     ensure_port_available(([127, 0, 0, 1], args.web_port).into(), "web UI")?;
     ensure_port_available(([0, 0, 0, 0], args.ca_port).into(), "device CA page")?;
 
@@ -286,7 +296,7 @@ async fn run_start(args: StartArgs) -> Result<()> {
         }
     });
 
-    let transparent_addr: SocketAddr = ([127, 0, 0, 1], args.transparent_port).into();
+    let transparent_addr = transparent_bind;
     let explicit_addr: SocketAddr = ([127, 0, 0, 1], args.proxy_port).into();
     tokio::spawn(async move {
         if let Err(error) = transparent::serve(transparent_addr, explicit_addr).await {

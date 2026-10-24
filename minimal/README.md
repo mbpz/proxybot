@@ -40,7 +40,12 @@ iOS/Android ── all IP traffic ──▶ Mac (gateway) ──▶ router ─�
 - Run `proxybot start --gateway` (asks for admin; rules are removed on Ctrl+C).
 - Set the device Wi-Fi **gateway** to the Mac's LAN IP; keep DNS on the router.
 - Enables IP forwarding, pf redirect for :80/:443, and NAT for everything else.
-- Covers nearly all IP traffic; the Mac is a single point of failure while active.
+  pf redirects to the Mac's **LAN IP** (not loopback), so in gateway mode the
+  transparent adapter listens on `0.0.0.0:<transparent_port>`.
+- Covers every TCP :80/:443 connection from the device regardless of whether the
+  app honours the system proxy; `--block-quic` forces QUIC apps back to TCP.
+  UDP/DNS/ICMP are not HTTP and are not inspected (pf NATs them).
+- The Mac is a single point of failure while active.
 
 | | Mode 1 · HTTP proxy | Mode 2 · Side-router |
 | --- | --- | --- |
