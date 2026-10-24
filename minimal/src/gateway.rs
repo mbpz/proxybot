@@ -48,7 +48,6 @@ pub fn detect(transparent_port: u16) -> Result<GatewayConfig> {
 /// `com.apple/*` so the stock macOS pf.conf evaluates its rdr/nat rules.
 pub fn render_rules(config: &GatewayConfig) -> String {
     let iface = &config.interface;
-    let ip = &config.lan_ip;
     let cidr = &config.lan_cidr;
     let port = config.transparent_port;
     // pf requires anchors to be ordered: translation rules (rdr/nat) first,
@@ -62,10 +61,14 @@ pub fn render_rules(config: &GatewayConfig) -> String {
     } else {
         String::new()
     };
+    // Redirect to loopback, not the LAN IP. macOS pf delivers redirects to
+    // 127.0.0.1 cleanly; redirecting to an address assigned to the same
+    // interface can be dropped before reaching a local listener.
     format!(
-        "rdr pass on {iface} inet proto tcp from any to any port {{80, 443}} -> {ip} port {port}\n\
+        "rdr pass on {iface} inet proto tcp from any to any port {{80, 443}} -> 127.0.0.1 port {port}\n\
          nat on {iface} inet from {cidr} to any -> ({iface})\n\
          {quic_block}\
+         pass in quick on lo0 inet from any to any keep state\n\
          pass in quick on {iface} inet from {cidr} to any keep state\n\
          pass out quick on {iface} inet from any to any keep state\n"
     )
