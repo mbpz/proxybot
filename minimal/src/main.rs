@@ -61,6 +61,9 @@ struct StartArgs {
     /// Install pf gateway rules while capture runs (requires admin).
     #[arg(long)]
     gateway: bool,
+    /// With --gateway, also block QUIC (UDP 80/443) to force TCP capture.
+    #[arg(long)]
+    block_quic: bool,
     /// Data directory for the CA, database, and rules.
     #[arg(long, env = "PROXYBOT_DATA_DIR")]
     data_dir: Option<PathBuf>,
@@ -75,6 +78,7 @@ impl Default for StartArgs {
             ca_port: 8090,
             no_open: false,
             gateway: false,
+            block_quic: false,
             data_dir: None,
         }
     }
@@ -98,6 +102,9 @@ enum GatewayCommand {
         interface: Option<String>,
         #[arg(long)]
         lan_cidr: Option<String>,
+        /// Drop QUIC (UDP 80/443) so apps fall back to TCP/TLS capture.
+        #[arg(long)]
+        block_quic: bool,
     },
     /// Remove the pf anchor and restore forwarding state.
     Uninstall {
@@ -153,6 +160,7 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             transparent_port,
             interface,
             lan_cidr,
+            block_quic,
         } => {
             let mut config = gateway::detect(transparent_port)?;
             if let Some(interface) = interface {
@@ -161,6 +169,7 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             if let Some(lan_cidr) = lan_cidr {
                 config.lan_cidr = lan_cidr;
             }
+            config.block_quic = block_quic;
             gateway::install(&config, &data_dir, dry_run)
         }
         GatewayCommand::Uninstall { dry_run } => gateway::uninstall(&data_dir, dry_run),
@@ -278,7 +287,8 @@ async fn run_start(args: StartArgs) -> Result<()> {
 
     let mut gateway_installed = false;
     if args.gateway {
-        let config = gateway::detect(args.transparent_port)?;
+        let mut config = gateway::detect(args.transparent_port)?;
+        config.block_quic = args.block_quic;
         gateway::install(&config, &data_dir, false)?;
         gateway_installed = true;
     }
@@ -295,6 +305,9 @@ async fn run_start(args: StartArgs) -> Result<()> {
         "  Gateway mode    device Wi-Fi gateway = {lan_ip}  (pf redirect :80/:443 -> :{})",
         args.transparent_port
     );
+    if args.gateway && args.block_quic {
+        println!("  QUIC            blocked for the device subnet (forces TCP fallback)");
+    }
     println!(
         "  CA page         http://{lan_ip}:{}/  (open on the test device)",
         args.ca_port

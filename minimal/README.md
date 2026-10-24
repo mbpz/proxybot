@@ -50,6 +50,12 @@ iOS/Android ── all IP traffic ──▶ Mac (gateway) ──▶ router ─�
 | Failure impact | only proxied apps | all device traffic |
 | Best for | app dev, QA, API debugging | reverse engineering, full capture |
 
+> Many apps do not honour the iOS/Android system HTTP proxy for all traffic
+> (Douyin/ByteDance apps use their own networking stack and QUIC). Use the
+> side-router mode (`--gateway --block-quic`) when an app produces no rows in
+> HTTP proxy mode. Pinned apps can still reject MITM after the connection is
+> redirected; that is an application boundary, not a proxy failure.
+
 Both modes share the same CA, MITM engine, SQLite history, app rules, web UI and
 HAR export; only the listener and the device-side setting differ.
 
@@ -105,7 +111,10 @@ proxybot rules show
 - **Explicit proxy** — set the device Wi-Fi HTTP proxy to `<Mac LAN IP>:8088`.
 - **Transparent gateway** — with `--gateway`, set the device Wi-Fi **gateway** to
   the Mac's LAN IP. pf redirects :80/:443 into the local proxy, other traffic is
-  NATed, and DNS can stay on the router.
+  NATed, and DNS can stay on the router. Apps that ignore the iOS/Android system
+  proxy (many Chinese apps use their own network stack) are only visible in this
+  mode. Add `--block-quic` to drop QUIC/UDP 80/443 so those apps fall back to
+  TCP/TLS; certificate-pinned apps may still refuse decryption.
 - On the device, open the CA page printed by the CLI (default
   `http://<Mac LAN IP>:8090/`), install the CA, and trust it (iOS requires the
   Certificate Trust Settings step).
@@ -176,6 +185,8 @@ rdr pass on <iface> inet proto tcp from any to any port {80, 443} -> <lan_ip> po
 pass in quick on <iface> inet from <lan_cidr> to any keep state
 pass out quick on <iface> inet from any to any keep state
 nat on <iface> inet from <lan_cidr> to any -> (<iface>)
+# only with --block-quic:
+block drop quick on <iface> inet proto udp from <lan_cidr> to any port {80, 443}
 ```
 
 and enables `net.inet.ip.forwarding`. `proxybot gateway uninstall` flushes the

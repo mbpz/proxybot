@@ -10,17 +10,45 @@ apps:
       - wechat.com
       - qq.com
       - wechatpay.com
+      - wechatpay.cn
+      - weixinbridge.com
+      - servicewechat.com
       - wx.qq.com
       - gtimg.cn
+      - tlivesource.com
+      - tlivedns.com
 
   - app: Douyin
     domains:
       - douyin.com
-      - tiktokv.com
-      - bytecdn.com
       - douyinvod.com
+      - douyinpic.com
+      - douyinstatic.com
+      - douyincdn.com
       - snssdk.com
       - amemv.com
+      - tiktokv.com
+      - tiktokcdn.com
+      - tiktokcdn-us.com
+      - bytecdn.com
+      - byteimg.com
+      - bytedance.com
+      - bytedance.net
+      - pstatp.com
+      - zijieapi.com
+      - ibytedtos.com
+      - bytetos.com
+      - volccdn.com
+      - volces.com
+      - vlabvod.com
+      - ixigua.com
+      - toutiao.com
+      - byteoversea.com
+      - muscdn.com
+      - musically.com
+      - bytegecko.com
+      - bytednsdoc.com
+      - zjcdn.com
 
   - app: Alipay
     domains:

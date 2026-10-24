@@ -19,6 +19,10 @@ pub struct GatewayConfig {
     pub lan_ip: String,
     pub lan_cidr: String,
     pub transparent_port: u16,
+    /// Drop QUIC/UDP 443 so apps that would otherwise bypass the TCP proxy fall
+    /// back to TCP/TLS. This is opt-in because it changes app behaviour.
+    #[serde(default)]
+    pub block_quic: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,6 +40,7 @@ pub fn detect(transparent_port: u16) -> Result<GatewayConfig> {
         lan_ip,
         lan_cidr,
         transparent_port,
+        block_quic: false,
     })
 }
 
@@ -46,11 +51,19 @@ pub fn render_rules(config: &GatewayConfig) -> String {
     let ip = &config.lan_ip;
     let cidr = &config.lan_cidr;
     let port = config.transparent_port;
+    let quic_block = if config.block_quic {
+        format!(
+            "block drop quick on {iface} inet proto udp from {cidr} to any port {{80, 443}}\n"
+        )
+    } else {
+        String::new()
+    };
     format!(
         "rdr pass on {iface} inet proto tcp from any to any port {{80, 443}} -> {ip} port {port}\n\
          pass in quick on {iface} inet from {cidr} to any keep state\n\
          pass out quick on {iface} inet from any to any keep state\n\
-         nat on {iface} inet from {cidr} to any -> ({iface})\n"
+         nat on {iface} inet from {cidr} to any -> ({iface})\n\
+         {quic_block}"
     )
 }
 
