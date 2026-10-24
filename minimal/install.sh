@@ -7,6 +7,8 @@
 #   PROXYBOT_VERSION=v0.1.0   install a specific release (tag minimal-v<version>)
 #   PROXYBOT_PREFIX=/usr/local/bin
 #   PROXYBOT_REPO=owner/repo
+#   PROXYBOT_LOCAL_BINARY=/path/to/proxybot   install a local binary
+#   PROXYBOT_LOCAL_ARCHIVE=/path/to.tar.gz    install a locally packaged archive
 set -eu
 
 REPO="${PROXYBOT_REPO:-mbpz/proxybot}"
@@ -45,6 +47,30 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 if [ -n "${PROXYBOT_LOCAL_BINARY:-}" ]; then
   mkdir -p "$PREFIX"
   install -m 0755 "$PROXYBOT_LOCAL_BINARY" "${PREFIX}/proxybot"
+  echo "Installed $( "${PREFIX}/proxybot" --version ) to ${PREFIX}/proxybot"
+  exit 0
+fi
+
+# Offline/development path: install a locally packaged archive, e.g. from
+# `sh minimal/package.sh` (dist/proxybot-min-<target>.tar.gz).
+if [ -n "${PROXYBOT_LOCAL_ARCHIVE:-}" ]; then
+  [ -f "${PROXYBOT_LOCAL_ARCHIVE}" ] || {
+    echo "local archive not found: ${PROXYBOT_LOCAL_ARCHIVE}" >&2
+    exit 1
+  }
+  cp "${PROXYBOT_LOCAL_ARCHIVE}" "${TMP}/proxybot-local.tar.gz"
+  if [ -f "${PROXYBOT_LOCAL_ARCHIVE}.sha256" ]; then
+    EXPECTED="$(cut -d ' ' -f1 "${PROXYBOT_LOCAL_ARCHIVE}.sha256")"
+    ACTUAL="$(shasum -a 256 "${TMP}/proxybot-local.tar.gz" | cut -d ' ' -f1)"
+    [ "$EXPECTED" = "$ACTUAL" ] || {
+      echo "checksum mismatch for ${PROXYBOT_LOCAL_ARCHIVE}" >&2
+      exit 1
+    }
+    echo "Checksum verified."
+  fi
+  tar -xzf "${TMP}/proxybot-local.tar.gz" -C "$TMP"
+  mkdir -p "$PREFIX"
+  install -m 0755 "${TMP}/proxybot" "${PREFIX}/proxybot"
   echo "Installed $( "${PREFIX}/proxybot" --version ) to ${PREFIX}/proxybot"
   exit 0
 fi

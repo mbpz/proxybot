@@ -97,6 +97,26 @@ SHA-256, and installs `proxybot` to `~/.local/bin` (override with
 `PROXYBOT_PREFIX`). No Homebrew, Node, Python, or Rust toolchain is required at
 install time.
 
+### Local development loop (no GitHub download)
+
+For fast local debugging, build from this checkout instead of downloading a
+release:
+
+```bash
+sh minimal/dev-run.sh start --gateway --block-quic   # build + run, Ctrl+C stops
+sh minimal/dev-run.sh list                           # any proxybot command
+sh minimal/dev-install.sh                            # build + install ~/.local/bin
+
+# Or produce the same archive layout locally, then install it offline:
+sh minimal/package.sh
+PROXYBOT_LOCAL_ARCHIVE=minimal/dist/proxybot-min-$(uname -m | sed 's/arm64/aarch64-apple-darwin/;s/x86_64/x86_64-apple-darwin/').tar.gz \
+  sh minimal/install.sh
+```
+
+`dev-run.sh` and `dev-install.sh` reuse the repository-local `.cache-cargo`
+when present and build offline by default, so the loop is typically a few
+seconds after the first build.
+
 Releases are built by the manual **Minimal CLI release** workflow
 (`.github/workflows/minimal-release.yml`). The first release,
 `minimal-v0.1.0` (2026-10-24), ships arm64/x64 archives with SHA-256 checksums;
