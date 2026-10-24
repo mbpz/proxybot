@@ -217,6 +217,8 @@ async fn run_start(args: StartArgs) -> Result<()> {
         events: events.clone(),
         rules: rules.clone(),
     });
+    let http_state = capture_state.clone();
+    let ws_state = capture_state.clone();
 
     let lan_ip = gateway::detect(args.transparent_port)
         .map(|config| config.lan_ip)
@@ -247,7 +249,8 @@ async fn run_start(args: StartArgs) -> Result<()> {
         .with_addr(proxy_addr)
         .with_ca(authority)
         .with_rustls_connector(hudsucker::rustls::crypto::aws_lc_rs::default_provider())
-        .with_http_handler(capture::CaptureHandler::new(capture_state))
+        .with_http_handler(capture::CaptureHandler::new(http_state))
+        .with_websocket_handler(capture::CaptureHandler::new(ws_state))
         .with_graceful_shutdown(async move {
             let _ = shutdown_rx.await;
         })

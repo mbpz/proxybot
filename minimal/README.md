@@ -89,6 +89,7 @@ The web UI has three views:
 
 - **Live** — request list with app filter chips, search, method/status filters,
   pause, clear, HAR export; click a row for headers/bodies/cURL.
+- **WebSocket** — frames grouped by host, both directions, expandable payloads.
 - **Setup** — explicit-proxy and gateway instructions, LAN values, QR code that
   opens the device CA page.
 - **Rules** — edit the YAML app classification rules in place; changes apply
@@ -105,11 +106,15 @@ Implemented and locally verified (2026-10-23):
   exercised by CI; use `proxybot gateway install --dry-run` to inspect).
 - `proxybot gateway status` and `gateway uninstall` (privileged operations are
   untested in CI).
+- Response bodies are streamed through a tee wrapper, so chunked / unknown-length
+  responses are captured (up to 1 MB, truncated flag) without breaking downloads.
+- WebSocket frames are captured in both directions and shown in the UI
+  (text as UTF-8, binary as hex). permessage-deflate is not supported: clients
+  that negotiate compression see a protocol error through the proxy.
 
-Known MVP gaps: HTTP/2 is disabled (clients fall back to HTTP/1.1); chunked /
-unknown-length response bodies are forwarded but not shown; WebSocket frames are
-not captured yet; transparent HTTP only rewrites the first request on a
-connection (it forces `Connection: close`).
+Known MVP gaps: HTTP/2 is disabled (clients fall back to HTTP/1.1); transparent
+HTTP only rewrites the first request on a connection (it forces
+`Connection: close`); WebSocket compression is unsupported.
 
 ## What is intentionally missing
 

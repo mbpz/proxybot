@@ -233,6 +233,19 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts DESC);
             CREATE INDEX IF NOT EXISTS idx_requests_host ON requests(host);
             CREATE INDEX IF NOT EXISTS idx_requests_app ON requests(app);
+            CREATE TABLE IF NOT EXISTS ws_frames (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts          INTEGER NOT NULL,
+                host        TEXT NOT NULL,
+                client_ip   TEXT,
+                direction   TEXT NOT NULL,
+                opcode      INTEGER NOT NULL,
+                size        INTEGER NOT NULL,
+                encoding    TEXT NOT NULL,
+                payload     TEXT,
+                truncated   INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_ws_host_ts ON ws_frames(host, ts DESC);
             "#,
         )?;
         Ok(Self {
@@ -564,5 +577,121 @@ fn entry_from_detail(detail: &RequestDetail) -> HarEntry {
             wait: summary.duration_ms.unwrap_or(0),
             receive: 0,
         },
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct WsFrameInput {
+    pub ts_ms: i64,
+    pub host: String,
+    pub client_ip: Option<String>,
+    pub direction: String,
+    pub opcode: u8,
+    pub size: usize,
+    pub encoding: String,
+    pub payload: String,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WsFrameRecord {
+    pub id: i64,
+    pub ts: i64,
+    pub host: String,
+    pub client_ip: Option<String>,
+    pub direction: String,
+    pub opcode: u8,
+    pub size: usize,
+    pub encoding: String,
+    pub payload: String,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WsHost {
+    pub host: String,
+    pub frames: i64,
+    pub last_ts: i64,
+}
+
+impl Store {
+    pub fn insert_ws_frame(&self, frame: &WsFrameInput) -> Result<()> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        conn.execute(
+            "INSERT INTO ws_frames (ts, host, client_ip, direction, opcode, size, encoding, payload, truncated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                frame.ts_ms,
+                frame.host,
+                frame.client_ip,
+                frame.direction,
+                i64::from(frame.opcode),
+                frame.size as i64,
+                frame.encoding,
+                frame.payload,
+                i64::from(frame.truncated),
+            ],
+        )?;
+        conn.execute(
+            "DELETE FROM ws_frames WHERE id NOT IN (SELECT id FROM ws_frames ORDER BY id DESC LIMIT 20000)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn ws_hosts(&self) -> Result<Vec<WsHost>> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT host, COUNT(*) AS frames, MAX(ts) AS last_ts FROM ws_frames GROUP BY host ORDER BY last_ts DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(WsHost {
+                host: row.get(0)?,
+                frames: row.get(1)?,
+                last_ts: row.get(2)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn ws_frames(&self, host: &str, limit: usize) -> Result<Vec<WsFrameRecord>> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT id, ts, host, client_ip, direction, opcode, size, encoding, payload, truncated
+             FROM ws_frames WHERE host = ?1 ORDER BY ts DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![host, limit as i64], |row| {
+            Ok(WsFrameRecord {
+                id: row.get(0)?,
+                ts: row.get(1)?,
+                host: row.get(2)?,
+                client_ip: row.get(3)?,
+                direction: row.get(4)?,
+                opcode: row.get::<_, i64>(5)? as u8,
+                size: row.get::<_, i64>(6)? as usize,
+                encoding: row.get(7)?,
+                payload: row.get(8)?,
+                truncated: row.get::<_, i64>(9)? != 0,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn update_response_body(&self, id: i64, bytes: &[u8], truncated: bool) -> Result<()> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        conn.execute(
+            "UPDATE requests SET resp_body = ?1, resp_truncated = ?2 WHERE id = ?3",
+            params![bytes, i64::from(truncated), id],
+        )?;
+        Ok(())
     }
 }

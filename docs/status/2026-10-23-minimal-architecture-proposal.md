@@ -429,7 +429,9 @@ CREATE INDEX idx_requests_app ON requests(app);
 | App 归因（YAML 规则 + SNI/host 最长后缀） | ✅ 已实现，规则可在 UI 编辑 |
 | 一键安装脚本（下载臂/校验 sha256/无需语言运行时） | ✅ `minimal/install.sh` |
 | 手动 CLI release workflow + 本地打包脚本 | ✅ 已添加 |
-| WebSocket 帧、HTTP/2、chunked 响应体、DNS 关联 | ⏳ 后续 |
+| WebSocket 帧（双向、UI 展示） | ✅ 已实现并本机实测（permessage-deflate 暂不支持） |
+| Chunked/未知长度响应体（Tee body） | ✅ 已实现并本机实测 |
+| HTTP/2、WS 压缩、DNS 关联 | ⏳ 后续 |
 
 验证命令与结果：
 
@@ -439,7 +441,8 @@ cargo test                     # 2 passed
 proxybot start --no-open --data-dir /tmp/test ...
 curl -x http://127.0.0.1:PORT --cacert ca.pem https://example.com/   # 200，UI 可见
 curl --connect-to example.com:443:127.0.0.1:TRANSPARENT_PORT --cacert ca.pem https://example.com/  # 200
-curl --connect-to example.com:80:127.0.0.1:TRANSPARENT_PORT http://example.com/                    # 200
+curl --connect-to example.com:80:127.0.0.1:TRANSPARENT_PORT http://example.com/                    # 200 (chunked body captured)
+python3 ws_test.py   # WebSocket echo through the proxy: c2s/s2c frames visible at /api/ws
 ```
 
 未在 CI 中验证：pf 网关真实生效（需要 sudo/网络设备）、签名安装、iPhone/Android 真机 CA 信任。

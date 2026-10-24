@@ -1,7 +1,7 @@
 //! Local web UI and JSON API.
 
 use crate::rules::Rules;
-use crate::store::{HarExport, ListFilter, RequestSummary, Store};
+use crate::store::{HarExport, ListFilter, RequestSummary, Store, WsFrameRecord, WsHost};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -50,6 +50,8 @@ pub async fn serve(state: WebState, addr: SocketAddr) -> anyhow::Result<()> {
         .route("/api/requests", get(list))
         .route("/api/requests/{id}", get(detail))
         .route("/api/stream", get(stream))
+        .route("/api/ws/hosts", get(ws_hosts))
+        .route("/api/ws", get(ws_frames))
         .route("/api/rules", get(get_rules).put(put_rules))
         .route("/api/har", get(har))
         .route("/api/clear", post(clear))
@@ -178,6 +180,34 @@ async fn har(
 async fn clear(State(state): State<WebState>) -> Result<StatusCode, (StatusCode, String)> {
     state.store.clear().map_err(internal_error)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct WsQuery {
+    host: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn ws_hosts(
+    State(state): State<WebState>,
+) -> Result<Json<Vec<WsHost>>, (StatusCode, String)> {
+    state.store.ws_hosts().map(Json).map_err(internal_error)
+}
+
+async fn ws_frames(
+    State(state): State<WebState>,
+    Query(query): Query<WsQuery>,
+) -> Result<Json<Vec<WsFrameRecord>>, (StatusCode, String)> {
+    let host = query.host.unwrap_or_default();
+    if host.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    let limit = query.limit.unwrap_or(500).clamp(1, 2000);
+    state
+        .store
+        .ws_frames(&host, limit)
+        .map(Json)
+        .map_err(internal_error)
 }
 
 #[derive(Deserialize)]

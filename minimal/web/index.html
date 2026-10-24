@@ -70,6 +70,7 @@
   <nav>
     <button id="tab-live" class="active" type="button">Live</button>
     <button id="tab-setup" type="button">Setup</button>
+    <button id="tab-ws" type="button">WebSocket</button>
     <button id="tab-rules" type="button">Rules</button>
   </nav>
 </header>
@@ -144,6 +145,26 @@
     </div>
   </section>
 
+  <section id="view-ws" class="hidden">
+    <div class="panel">
+      <h2>WebSocket frames</h2>
+      <p class="muted">Frames forwarded through the MITM proxy. Text frames are shown as UTF-8; binary frames as hex (first 32 KB).</p>
+      <div class="toolbar">
+        <button id="ws-refresh" class="action" type="button">Refresh</button>
+        <span id="ws-status" class="muted"></span>
+      </div>
+      <div class="chips" id="ws-hosts" style="margin-bottom:10px"></div>
+      <div class="table-wrap">
+        <table>
+          <colgroup><col style="width:92px" /><col style="width:70px" /><col style="width:90px" /><col style="width:80px" /><col /></colgroup>
+          <thead><tr><th>Time</th><th>Dir</th><th>Opcode</th><th>Size</th><th>Payload</th></tr></thead>
+          <tbody id="ws-rows"></tbody>
+        </table>
+        <div id="ws-empty" class="empty">No WebSocket frames yet.</div>
+      </div>
+    </div>
+  </section>
+
   <section id="view-rules" class="hidden">
     <div class="panel">
       <h2>App classification rules</h2>
@@ -169,7 +190,7 @@
 </div>
 
 <script>
-const state = { app: "all", paused: false, rows: [], selected: null, setup: null };
+const state = { app: "all", paused: false, rows: [], selected: null, setup: null, wsHost: null };
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -318,22 +339,78 @@ async function saveRules() {
   setTimeout(() => { $("rules-notice").textContent = ""; }, 2500);
 }
 
+const opcodeName = (opcode) => ({ 0: "frame", 1: "text", 2: "binary", 8: "close", 9: "ping", 10: "pong" }[opcode] || String(opcode));
+const wsPayloadPreview = (frame) => {
+  const text = frame.encoding === "utf8" ? frame.payload : frame.payload;
+  return text.length > 160 ? text.slice(0, 160) + "…" : text;
+};
+
+async function loadWsHosts() {
+  const response = await fetch("/api/ws/hosts");
+  if (!response.ok) return;
+  const hosts = await response.json();
+  const container = $("ws-hosts");
+  container.textContent = "";
+  if (!hosts.length) { $("ws-status").textContent = "no WebSocket traffic"; return; }
+  if (!state.wsHost || !hosts.some((h) => h.host === state.wsHost)) state.wsHost = hosts[0].host;
+  for (const host of hosts) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (host.host === state.wsHost ? " active" : "");
+    chip.textContent = `${host.host} (${host.frames})`;
+    chip.addEventListener("click", () => { state.wsHost = host.host; loadWsHosts(); loadWsFrames(); });
+    container.appendChild(chip);
+  }
+  loadWsFrames();
+}
+
+async function loadWsFrames() {
+  if (!state.wsHost) return;
+  const response = await fetch("/api/ws?host=" + encodeURIComponent(state.wsHost));
+  if (!response.ok) return;
+  const frames = await response.json();
+  const tbody = $("ws-rows");
+  tbody.textContent = "";
+  $("ws-empty").classList.toggle("hidden", frames.length > 0);
+  for (const frame of frames) {
+    const tr = document.createElement("tr");
+    const dir = frame.direction === "c2s" ? "→" : "←";
+    tr.innerHTML = `<td class="mono muted">${esc(fmtTime(frame.ts))}</td>
+      <td class="mono">${dir}</td>
+      <td class="mono">${esc(opcodeName(frame.opcode))}</td>
+      <td class="mono muted">${frame.size}</td>
+      <td class="mono" title="click to expand">${esc(wsPayloadPreview(frame))}${frame.truncated ? " (truncated)" : ""}</td>`;
+    const detail = document.createElement("tr");
+    detail.className = "hidden";
+    detail.innerHTML = `<td colspan="5"><pre>${esc(frame.payload || "(empty)")}</pre></td>`;
+    tr.addEventListener("click", () => detail.classList.toggle("hidden"));
+    tbody.appendChild(tr);
+    tbody.appendChild(detail);
+  }
+  $("ws-status").textContent = `${frames.length} frame${frames.length === 1 ? "" : "s"} for ${state.wsHost}`;
+}
+
 function showTab(name) {
-  for (const tab of ["live", "setup", "rules"]) {
+  for (const tab of ["live", "setup", "rules", "ws"]) {
     $("view-" + tab).classList.toggle("hidden", tab !== name);
     $("tab-" + tab).classList.toggle("active", tab === name);
   }
   if (name === "setup") loadSetup();
   if (name === "rules") loadRules();
+  if (name === "ws") loadWsHosts();
 }
 
 let source = null;
 function connectStream() {
   source = new EventSource("/api/stream");
   source.addEventListener("request", (event) => {
-    if (state.paused) return;
     try {
       const envelope = JSON.parse(event.data);
+      if (envelope.type === "ws") {
+        if (!$("view-ws").classList.contains("hidden")) loadWsHosts();
+        return;
+      }
+      if (state.paused) return;
       state.rows.unshift(envelope.request);
       if (state.rows.length > 300) state.rows.pop();
       renderRows();
@@ -375,6 +452,8 @@ $("detail").addEventListener("click", (event) => { if (event.target === $("detai
 $("tab-live").addEventListener("click", () => showTab("live"));
 $("tab-setup").addEventListener("click", () => showTab("setup"));
 $("tab-rules").addEventListener("click", () => showTab("rules"));
+$("tab-ws").addEventListener("click", () => showTab("ws"));
+$("ws-refresh").addEventListener("click", () => { loadWsHosts(); });
 $("rules-save").addEventListener("click", saveRules);
 
 loadRequests();

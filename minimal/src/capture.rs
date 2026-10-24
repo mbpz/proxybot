@@ -1,16 +1,21 @@
-//! Capture handler: turns hudsucker HTTP exchanges into persisted requests and
-//! live web events.
+//! Capture handler: turns hudsucker HTTP exchanges and WebSocket frames into
+//! persisted records and live web events.
 
 use crate::rules::Rules;
-use crate::store::{Captured, RequestSummary, Store, MAX_BODY_BYTES};
-use hudsucker::hyper::body::Bytes;
+use crate::store::{Captured, RequestSummary, Store, WsFrameInput, MAX_BODY_BYTES};
+use hudsucker::hyper::body::{Body as HttpBody, Bytes, Frame, SizeHint};
 use hudsucker::hyper::header::{ACCEPT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST};
 use hudsucker::hyper::{Request, Response};
-use hudsucker::{Body, HttpContext, HttpHandler, RequestOrResponse};
+use hudsucker::tokio_tungstenite::tungstenite::Message;
+use hudsucker::{
+    Body, HttpContext, HttpHandler, RequestOrResponse, WebSocketContext, WebSocketHandler,
+};
 use http_body_util::{BodyExt, Full};
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 #[derive(Clone)]
 pub struct CaptureState {
@@ -79,16 +84,13 @@ impl HttpHandler for CaptureHandler {
             .collect();
         let method = req.method().as_str().to_string();
         let (host, path, scheme) = request_target(&req);
-        let content_type = req
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
 
         // Ask upstream for uncompressed bodies so the inspector shows JSON/text
         // rather than gzip. This is a normal MITM debugging trade-off.
-        req.headers_mut()
-            .insert(ACCEPT_ENCODING, hudsucker::hyper::header::HeaderValue::from_static("identity"));
+        req.headers_mut().insert(
+            ACCEPT_ENCODING,
+            hudsucker::hyper::header::HeaderValue::from_static("identity"),
+        );
 
         async move {
             let app = {
@@ -112,7 +114,6 @@ impl HttpHandler for CaptureHandler {
                 req_truncated: truncated,
                 started: Instant::now(),
             });
-            let _ = content_type;
             RequestOrResponse::Request(req)
         }
     }
@@ -146,8 +147,13 @@ impl HttpHandler for CaptureHandler {
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
             let (parts, body) = res.into_parts();
-            let (body, captured, truncated) = capture_body(body, &parts.headers).await;
-            let res = Response::from_parts(parts, body);
+
+            // Tee every response body: forward bytes unchanged while buffering up
+            // to MAX_BODY_BYTES for the inspector. This covers chunked responses
+            // and unknown lengths without breaking large downloads.
+            let (tx, mut rx) = mpsc::unbounded_channel::<BodyCapture>();
+            let tee = TeeBody::new(body, MAX_BODY_BYTES, tx);
+            let res = Response::from_parts(parts, Body::from(tee.boxed()));
 
             let duration_ms = Some(pending.started.elapsed().as_millis() as u64);
             let captured = Captured {
@@ -165,28 +171,170 @@ impl HttpHandler for CaptureHandler {
                 req_body: pending.req_body,
                 req_truncated: pending.req_truncated,
                 resp_headers,
-                resp_body: captured,
-                resp_truncated: truncated,
+                resp_body: None,
+                resp_truncated: false,
                 content_type,
                 error: None,
             };
-            publish(&state, captured);
+            match state.store.insert(&captured) {
+                Ok(summary) => {
+                    if let Ok(json) = serde_json::to_string(&Envelope {
+                        kind: "request",
+                        request: summary.clone(),
+                    }) {
+                        let _ = state.events.send(json);
+                    }
+                    let store = state.store.clone();
+                    tokio::spawn(async move {
+                        if let Some(capture) = rx.recv().await {
+                            if let Err(error) = store.update_response_body(
+                                summary.id,
+                                &capture.bytes,
+                                capture.truncated,
+                            ) {
+                                tracing::warn!(%error, "failed to persist response body");
+                            }
+                        }
+                    });
+                }
+                Err(error) => tracing::warn!(%error, "failed to persist captured request"),
+            }
+
             res
         }
     }
 }
 
-fn publish(state: &CaptureState, captured: Captured) {
-    match state.store.insert(&captured) {
-        Ok(summary) => {
-            if let Ok(json) = serde_json::to_string(&Envelope {
-                kind: "request",
-                request: summary,
-            }) {
-                let _ = state.events.send(json);
+impl WebSocketHandler for CaptureHandler {
+    fn handle_message(
+        &mut self,
+        ctx: &WebSocketContext,
+        message: Message,
+    ) -> impl std::future::Future<Output = Option<Message>> + Send {
+        let state = self.state.clone();
+        let meta = ws_meta(ctx);
+        let (opcode, size, encoding, payload, truncated) = ws_payload(&message);
+
+        async move {
+            if let Some(meta) = meta {
+                let frame = WsFrameInput {
+                    ts_ms: now_ms(),
+                    host: meta.host.clone(),
+                    client_ip: meta.client_ip,
+                    direction: meta.direction.to_string(),
+                    opcode,
+                    size,
+                    encoding,
+                    payload,
+                    truncated,
+                };
+                if let Err(error) = state.store.insert_ws_frame(&frame) {
+                    tracing::warn!(%error, "failed to persist WebSocket frame");
+                } else {
+                    let event = serde_json::json!({
+                        "type": "ws",
+                        "host": frame.host,
+                    });
+                    let _ = state.events.send(event.to_string());
+                }
             }
+            Some(message)
         }
-        Err(error) => tracing::warn!(%error, "failed to persist captured request"),
+    }
+}
+
+struct BodyCapture {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+/// A body wrapper that forwards frames and records up to `cap` bytes.
+struct TeeBody {
+    // Mutex makes the body `Sync` (required by http-body-util's `boxed`), and
+    // `Pin<Box<_>>` keeps the inner body pollable without an `Unpin` bound.
+    inner: Mutex<Option<Pin<Box<Body>>>>,
+    buffer: Vec<u8>,
+    truncated: bool,
+    cap: usize,
+    sink: Option<mpsc::UnboundedSender<BodyCapture>>,
+}
+
+impl TeeBody {
+    fn new(inner: Body, cap: usize, sink: mpsc::UnboundedSender<BodyCapture>) -> Self {
+        Self {
+            inner: Mutex::new(Some(Box::pin(inner))),
+            buffer: Vec::new(),
+            truncated: false,
+            cap,
+            sink: Some(sink),
+        }
+    }
+
+    fn finish(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            let _ = sink.send(BodyCapture {
+                bytes: std::mem::take(&mut self.buffer),
+                truncated: self.truncated,
+            });
+        }
+    }
+}
+
+impl HttpBody for TeeBody {
+    type Data = Bytes;
+    type Error = hudsucker::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        let mut guard = this.inner.lock().expect("tee body mutex poisoned");
+        let Some(inner) = guard.as_mut() else {
+            return Poll::Ready(None);
+        };
+        let result = inner.as_mut().poll_frame(cx);
+        match &result {
+            Poll::Ready(Some(Ok(frame))) => {
+                if let Some(data) = frame.data_ref() {
+                    let remaining = this.cap.saturating_sub(this.buffer.len());
+                    if data.len() > remaining {
+                        this.truncated = true;
+                    }
+                    this.buffer
+                        .extend_from_slice(&data[..data.len().min(remaining)]);
+                }
+            }
+            Poll::Ready(Some(Err(_))) | Poll::Ready(None) => {
+                guard.take();
+                drop(guard);
+                this.finish();
+            }
+            Poll::Pending => {}
+        }
+        result
+    }
+
+    fn is_end_stream(&self) -> bool {
+        let guard = self.inner.lock().expect("tee body mutex poisoned");
+        guard
+            .as_ref()
+            .map(|inner| inner.is_end_stream())
+            .unwrap_or(true)
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        let guard = self.inner.lock().expect("tee body mutex poisoned");
+        guard
+            .as_ref()
+            .map(|inner| inner.size_hint())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for TeeBody {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -195,6 +343,86 @@ struct Envelope<'a> {
     #[serde(rename = "type")]
     kind: &'a str,
     request: RequestSummary,
+}
+
+struct WsMeta {
+    host: String,
+    client_ip: Option<String>,
+    direction: &'static str,
+}
+
+fn ws_meta(ctx: &WebSocketContext) -> Option<WsMeta> {
+    match ctx {
+        WebSocketContext::ClientToServer { src, dst, .. } => Some(WsMeta {
+            host: dst.host().unwrap_or("unknown").to_string(),
+            client_ip: Some(src.ip().to_string()),
+            direction: "c2s",
+        }),
+        WebSocketContext::ServerToClient { src, dst, .. } => Some(WsMeta {
+            host: src.host().unwrap_or("unknown").to_string(),
+            client_ip: Some(dst.ip().to_string()),
+            direction: "s2c",
+        }),
+    }
+}
+
+const WS_PAYLOAD_CAP: usize = 32 * 1024;
+
+fn ws_payload(message: &Message) -> (u8, usize, String, String, bool) {
+    match message {
+        Message::Text(text) => {
+            let raw = text.as_bytes();
+            (
+                1,
+                raw.len(),
+                "utf8".into(),
+                String::from_utf8_lossy(&raw[..raw.len().min(WS_PAYLOAD_CAP)]).into_owned(),
+                raw.len() > WS_PAYLOAD_CAP,
+            )
+        }
+        Message::Binary(bytes) => (
+            2,
+            bytes.len(),
+            "hex".into(),
+            hex_prefix(bytes, WS_PAYLOAD_CAP),
+            bytes.len() > WS_PAYLOAD_CAP,
+        ),
+        Message::Ping(bytes) => (
+            9,
+            bytes.len(),
+            "hex".into(),
+            hex_prefix(bytes, WS_PAYLOAD_CAP),
+            bytes.len() > WS_PAYLOAD_CAP,
+        ),
+        Message::Pong(bytes) => (
+            10,
+            bytes.len(),
+            "hex".into(),
+            hex_prefix(bytes, WS_PAYLOAD_CAP),
+            bytes.len() > WS_PAYLOAD_CAP,
+        ),
+        Message::Close(_) => (8, 0, "utf8".into(), String::new(), false),
+        Message::Frame(frame) => {
+            let payload = frame.payload();
+            (
+                0,
+                payload.len(),
+                "hex".into(),
+                hex_prefix(payload, WS_PAYLOAD_CAP),
+                payload.len() > WS_PAYLOAD_CAP,
+            )
+        }
+    }
+}
+
+fn hex_prefix(bytes: &[u8], cap: usize) -> String {
+    let bytes = &bytes[..bytes.len().min(cap)];
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
 }
 
 fn now_ms() -> i64 {
@@ -221,11 +449,7 @@ fn request_target(req: &Request<Body>) -> (String, String, String) {
         .path_and_query()
         .map(|value| value.as_str().to_string())
         .unwrap_or_else(|| "/".to_string());
-    let scheme = req
-        .uri()
-        .scheme_str()
-        .unwrap_or("https")
-        .to_string();
+    let scheme = req.uri().scheme_str().unwrap_or("https").to_string();
     (host, path, scheme)
 }
 
