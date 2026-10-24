@@ -39,6 +39,8 @@ enum Command {
     Rules(RulesArgs),
     /// Print version information.
     Version,
+    /// List every command with a detailed description and examples.
+    List,
 }
 
 #[derive(Args)]
@@ -149,8 +151,106 @@ async fn main() -> Result<()> {
             println!("proxybot {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+        Command::List => {
+            print_command_list();
+            Ok(())
+        }
     }
 }
+
+fn print_command_list() {
+    let data_dir = default_data_dir();
+    println!("ProxyBot {} — command reference", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("USAGE");
+    println!("  proxybot [COMMAND] [OPTIONS]");
+    println!("  proxybot                       same as `proxybot start`");
+    println!();
+    println!("DEFAULTS");
+    println!("  data directory  {}", data_dir.display());
+    println!("  web UI          http://127.0.0.1:8899  (loopback only)");
+    println!("  CA page         http://<Mac LAN IP>:8090  (open on the test device)");
+    println!();
+    println!("CAPTURE");
+    println!("  start");
+    println!("      Start the explicit HTTP proxy, the local web UI and (with --gateway)");
+    println!("      the pf side-router. Opens the web UI unless --no-open is set.");
+    println!();
+    println!("      --proxy-port <PORT>        device Wi-Fi HTTP proxy port (default 8088)");
+    println!("      --transparent-port <PORT>  pf redirect target (default 8089)");
+    println!("      --web-port <PORT>          loopback Web UI port (default 8899)");
+    println!("      --ca-port <PORT>           LAN CA page port (default 8090)");
+    println!("      --gateway                  install pf rules while running (requires admin);");
+    println!("                                 transparent adapter listens on 0.0.0.0:<transparent-port>");
+    println!("      --block-quic               with --gateway, drop QUIC (UDP 80/443) so apps");
+    println!("                                 fall back to TCP/TLS and become capturable");
+    println!("      --no-open                  do not open a browser");
+    println!("      --data-dir <DIR>           CA, SQLite and rules directory");
+    println!();
+    println!("      Examples:");
+    println!("        proxybot start                              # HTTP proxy mode (no admin)");
+    println!("        proxybot start --gateway --block-quic       # side-router mode (admin)");
+    println!("        proxybot start --proxy-port 9090 --web-port 9999");
+    println!("        proxybot start --no-open --data-dir /tmp/proxybot");
+    println!();
+    println!("GATEWAY (macOS pf; install/uninstall ask for admin)");
+    println!("  gateway install");
+    println!("      Write the pf anchor, enable IP forwarding and load redirect/NAT rules.");
+    println!("      --dry-run                  print generated rules and commands only");
+    println!("      --transparent-port <PORT>  redirect target port (default 8089)");
+    println!("      --interface <NAME>         override detected LAN interface (e.g. en0)");
+    println!("      --lan-cidr <CIDR>          override detected LAN subnet (e.g. 192.168.1.0/24)");
+    println!("      --block-quic               also block UDP 80/443 for the LAN subnet");
+    println!();
+    println!("  gateway uninstall [--dry-run]");
+    println!("      Remove rules, flush the anchor and restore the previous IP-forwarding value.");
+    println!();
+    println!("  gateway status");
+    println!("      Print IP forwarding state and the currently loaded anchor rules.");
+    println!();
+    println!("      Examples:");
+    println!("        proxybot gateway install --dry-run");
+    println!("        proxybot gateway install --block-quic");
+    println!("        proxybot gateway status");
+    println!("        proxybot gateway uninstall");
+    println!();
+    println!("RULES (app classification)");
+    println!("  rules path    Print the active YAML rules path.");
+    println!("  rules show    Print the active YAML rules.");
+    println!("  rules reset   Restore the built-in rules file (restart to reload).");
+    println!();
+    println!("      Examples:");
+    println!("        proxybot rules path");
+    println!("        proxybot rules show | head -40");
+    println!("        proxybot rules reset");
+    println!();
+    println!("MISC");
+    println!("  version       Print the CLI version.");
+    println!("  list          Print this reference.");
+    println!();
+    println!("ENVIRONMENT");
+    println!("  PROXYBOT_DATA_DIR=<DIR>          same as --data-dir");
+    println!("  PROXYBOT_TRANSPARENT_BIND=all    dev/test override: bind the transparent");
+    println!("                                   adapter on 0.0.0.0 outside --gateway mode");
+    println!("  Installer (minimal/install.sh):");
+    println!("    PROXYBOT_VERSION=0.1.7         pin a CLI release");
+    println!("    PROXYBOT_PREFIX=/usr/local/bin install prefix (default ~/.local/bin)");
+    println!("    PROXYBOT_LOCAL_BINARY=<path>   install an already-built binary");
+    println!("    PROXYBOT_DOWNLOAD_BASE=<url>   mirror serving proxybot-min-*.tar.gz");
+    println!("    PROXYBOT_REPO=owner/repo       override the GitHub repository");
+    println!();
+    println!("NOTES");
+    println!("  * HTTP proxy mode: device Wi-Fi HTTP proxy = <Mac IP>:8088; no admin.");
+    println!("  * Gateway mode: device Wi-Fi router/gateway = <Mac IP>, HTTP proxy OFF;");
+    println!("    set a manual IP in the same subnet and keep DNS on the router.");
+    println!("  * Gateway mode captures all device TCP :80/:443, not UDP/DNS/ICMP.");
+    println!("  * Install/trust the CA from http://<Mac IP>:8090 on the test device.");
+    println!("  * Certificate-pinned apps may reject the CA (TLS tab shows SNI attempts);");
+    println!("    add their domains to <data>/rules/passthrough.txt to keep them working.");
+    println!("  * Ctrl+C stops capture and, in --gateway mode, removes the pf rules.");
+    println!("  * The Web UI is loopback-only; the CA page and transparent adapter are on the LAN.");
+}
+
 
 fn run_gateway(args: GatewayArgs) -> Result<()> {
     let data_dir = default_data_dir();
