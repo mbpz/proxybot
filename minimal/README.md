@@ -13,9 +13,9 @@ phone --Wi-Fi gateway-----> Mac:8089 ─┴--> single binary --> upstream
                                               └─ web UI  http://127.0.0.1:8899
 ```
 
-## Two capture modes (user selects)
+## Capture modes
 
-### Mode 1 — HTTP proxy (default, no admin)
+### HTTP proxy — supported (default)
 
 ```
 iOS/Android ── HTTP / CONNECT ──▶ Mac :8088 (ProxyBot) ──▶ router ──▶ internet
@@ -25,10 +25,14 @@ iOS/Android ── HTTP / CONNECT ──▶ Mac :8088 (ProxyBot) ──▶ route
 
 - Set the device Wi-Fi HTTP proxy to `<Mac LAN IP>:8088`.
 - No pf, no NAT, no IP forwarding, no administrator rights.
-- Mac failure only affects proxied apps; the device can still browse normally.
-- Covers HTTP/HTTPS from apps that honour the system proxy.
+- Mac/ProxyBot failure only affects proxied apps; the device can still browse
+  normally, so this is the safe mode for day-to-day debugging.
+- Covers Safari, WKWebView / mini-program pages, and apps that honour the system
+  proxy. Verified on iPhone Safari/WKWebView over HTTP and HTTPS (decrypted JSON
+  bodies included).
+- Install/trust the CA from `http://<Mac IP>:8090` before HTTPS can be decrypted.
 
-### Mode 2 — Side-router / gateway (admin, opt-in)
+### Side-router / gateway — EXPERIMENTAL
 
 ```
 iOS/Android ── all IP traffic ──▶ Mac (gateway) ──▶ router ──▶ internet
@@ -37,32 +41,33 @@ iOS/Android ── all IP traffic ──▶ Mac (gateway) ──▶ router ─�
                                      └─ other traffic NAT ──▶ router
 ```
 
+> **Not recommended yet.** On current macOS, pf `rdr` delivery from a LAN device
+> to the local transparent listener is unreliable; a stopped/failed gateway can
+> leave the test device without internet. Keep the phone on automatic IP while
+> not actively testing it.
+
 - Run `proxybot start --gateway` (asks for admin; rules are removed on Ctrl+C).
 - Set the device Wi-Fi **gateway** to the Mac's LAN IP; keep DNS on the router.
-- Enables IP forwarding, pf redirect for :80/:443, and NAT for everything else.
-  pf redirects to the Mac's **LAN IP** (not loopback), so in gateway mode the
-  transparent adapter listens on `0.0.0.0:<transparent_port>`.
-- Covers every TCP :80/:443 connection from the device regardless of whether the
-  app honours the system proxy; `--block-quic` forces QUIC apps back to TCP.
-  UDP/DNS/ICMP are not HTTP and are not inspected (pf NATs them).
-- The Mac is a single point of failure while active.
+- Enables IP forwarding, pf redirect for :80/:443 and NAT for everything else;
+  `--block-quic` forces QUIC apps back to TCP.
+- Intended to cover every TCP :80/:443 connection from the device regardless of
+  whether the app honours the system proxy. UDP/DNS/ICMP are not inspected.
+- Known problems: pf redirect may not reach the adapter, and flushing the main
+  pf ruleset can break the device's local access to the Mac. Needs further
+  research (likely a Network Extension or a different redirect mechanism).
 
-| | Mode 1 · HTTP proxy | Mode 2 · Side-router |
+| | HTTP proxy | Side-router (experimental) |
 | --- | --- | --- |
+| Status | **supported / default** | experimental, not recommended |
 | Device setting | Wi-Fi HTTP proxy | Wi-Fi gateway |
 | Mac privileges | none | admin (pf + sysctl) |
-| Coverage | HTTP/HTTPS via system proxy | all IP traffic |
-| Failure impact | only proxied apps | all device traffic |
-| Best for | app dev, QA, API debugging | reverse engineering, full capture |
+| Coverage | HTTP/HTTPS via system proxy | all TCP :80/:443 (when pf works) |
+| Failure impact | only proxied apps | all device traffic / no internet |
+| Best for | app dev, QA, API debugging | future full-device capture research |
 
-> Many apps do not honour the iOS/Android system HTTP proxy for all traffic
-> (Douyin/ByteDance apps use their own networking stack and QUIC). Use the
-> side-router mode (`--gateway --block-quic`) when an app produces no rows in
-> HTTP proxy mode. Pinned apps can still reject MITM after the connection is
-> redirected; that is an application boundary, not a proxy failure.
-
-Both modes share the same CA, MITM engine, SQLite history, app rules, web UI and
-HAR export; only the listener and the device-side setting differ.
+Both modes share the same CA, MITM engine, SQLite history, app rules, Web UI and
+HAR export. Apps with certificate pinning can still reject MITM; MMTLS/TTNet
+bodies remain application-encrypted (see below).
 
 ## Install
 
@@ -103,7 +108,7 @@ For fast local debugging, build from this checkout instead of downloading a
 release:
 
 ```bash
-sh minimal/dev-run.sh start --gateway --block-quic   # build + run, Ctrl+C stops
+sh minimal/dev-run.sh start                        # build + run HTTP proxy mode
 sh minimal/dev-run.sh list                           # any proxybot command
 sh minimal/dev-install.sh                            # build + install ~/.local/bin
 
@@ -126,20 +131,20 @@ verified locally.
 ## Use
 
 ```bash
-proxybot start              # explicit proxy (:8088) + local web UI (:8899), opens browser
-proxybot start --gateway    # also installs the pf gateway (asks for admin, auto-removes on Ctrl+C)
+proxybot start              # HTTP proxy (:8088) + local web UI (:8899), opens browser
+proxybot list               # full command reference
+# EXPERIMENTAL (needs admin; may break the device's internet):
+proxybot start --gateway
 proxybot gateway status
 proxybot gateway uninstall
 proxybot rules show
 ```
 
 - **Explicit proxy** — set the device Wi-Fi HTTP proxy to `<Mac LAN IP>:8088`.
-- **Transparent gateway** — with `--gateway`, set the device Wi-Fi **gateway** to
-  the Mac's LAN IP. pf redirects :80/:443 into the local proxy, other traffic is
-  NATed, and DNS can stay on the router. Apps that ignore the iOS/Android system
-  proxy (many Chinese apps use their own network stack) are only visible in this
-  mode. Add `--block-quic` to drop QUIC/UDP 80/443 so those apps fall back to
-  TCP/TLS; certificate-pinned apps may still refuse decryption.
+- **Transparent gateway (experimental)** — with `--gateway`, set the device
+  Wi-Fi **gateway** to the Mac's LAN IP. pf should redirect :80/:443 into the
+  local proxy and NAT everything else, but this path is unreliable on current
+  macOS; see the warning above. Keep the device on automatic IP when not testing.
 - On the device, open the CA page printed by the CLI (default
   `http://<Mac LAN IP>:8090/`), install the CA, and trust it (iOS requires the
   Certificate Trust Settings step).
@@ -149,22 +154,27 @@ The web UI has three views:
 - **Live** — request list with app filter chips, search, method/status filters,
   pause, clear, HAR export; click a row for headers/bodies/cURL.
 - **WebSocket** — frames grouped by host, both directions, expandable payloads.
-- **Setup** — explicit-proxy and gateway instructions, LAN values, QR code that
-  opens the device CA page.
+- **Setup** — HTTP proxy instructions (supported), experimental gateway under a
+  collapsed warning, LAN values, QR code that opens the device CA page.
 - **Rules** — edit the YAML app classification rules in place; changes apply
   immediately.
 
 ## Current status
 
-Implemented and locally verified (2026-10-23):
+Verified on an iPhone (2026-10-24): HTTP proxy mode captured Safari and WeChat
+WKWebView traffic, including decrypted HTTPS JSON bodies (`welfarem.maidelong.com`,
+`dmall.com` APIs). Gateway mode remains experimental: pf redirect delivery was
+not reliable, so it is hidden behind a warning and is not part of the supported
+workflow.
+
+Implemented and locally verified:
 
 - `proxybot start` with explicit HTTPS capture, CA download/trust, SSE live UI,
   detail view, filters, HAR export, SQLite history, YAML app rules.
 - Transparent adapter end-to-end: direct TLS with SNI and plain HTTP both reach
-  the MITM engine and appear in the UI (the pf installation itself is not
-  exercised by CI; use `proxybot gateway install --dry-run` to inspect).
-- `proxybot gateway status` and `gateway uninstall` (privileged operations are
-  untested in CI).
+  the MITM engine and appear in the UI (unit/local test only; gateway/pf is not
+  exercised by CI and is currently marked experimental).
+- `proxybot gateway status` / `uninstall` remain available for cleanup research.
 - Response bodies are streamed through a tee wrapper, so chunked / unknown-length
   responses are captured (up to 1 MB, truncated flag) without breaking downloads.
 - WebSocket frames are captured in both directions and shown in the UI
@@ -197,7 +207,8 @@ be decrypted. To make the failure visible and keep the app usable:
 
 Known MVP gaps: HTTP/2 is disabled (clients fall back to HTTP/1.1); transparent
 HTTP only rewrites the first request on a connection (it forces
-`Connection: close`); WebSocket compression is unsupported.
+`Connection: close`); WebSocket compression is unsupported. Gateway mode needs a
+different redirect mechanism before it can be supported.
 
 ## What is intentionally missing
 
@@ -224,13 +235,13 @@ Data lives in `~/Library/Application Support/ProxyBot/`:
 | `rules/apps.yaml` | app classification rules |
 | `gateway.json` | previous forwarding state used for cleanup |
 
-## Gateway details
+## Gateway details (experimental)
 
 `proxybot gateway install` loads a dedicated pf anchor
 (`com.apple/proxybot`) with:
 
 ```text
-rdr pass on <iface> inet proto tcp from any to any port {80, 443} -> <lan_ip> port <transparent_port>
+rdr pass on <iface> inet proto tcp from any to any port {80, 443} -> 127.0.0.1 port <transparent_port>
 pass in quick on <iface> inet from <lan_cidr> to any keep state
 pass out quick on <iface> inet from any to any keep state
 nat on <iface> inet from <lan_cidr> to any -> (<iface>)
@@ -242,5 +253,8 @@ and enables `net.inet.ip.forwarding`. `proxybot gateway uninstall` flushes the
 anchor and restores the previous forwarding value. Use `--dry-run` to inspect
 the rules/commands without changing the system.
 
-The gateway path is macOS/pf-specific and cannot be exercised in CI; explicit
-proxy mode has no privileged dependencies and is the primary tested path.
+The gateway path is macOS/pf-specific and cannot be exercised in CI. It is
+currently **experimental**: on this macOS version the redirected packets were
+not delivered reliably to the transparent listener, and loading rules into the
+main pf ruleset broke the device's local access to the Mac. HTTP proxy mode has
+no privileged dependencies and is the primary supported path.

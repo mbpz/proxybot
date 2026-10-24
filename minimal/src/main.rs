@@ -60,7 +60,7 @@ struct StartArgs {
     /// Do not open the browser automatically.
     #[arg(long)]
     no_open: bool,
-    /// Install pf gateway rules while capture runs (requires admin).
+    /// EXPERIMENTAL: install pf gateway rules while capture runs (requires admin).
     #[arg(long)]
     gateway: bool,
     /// With --gateway, also block QUIC (UDP 80/443) to force TCP capture.
@@ -94,7 +94,7 @@ struct GatewayArgs {
 
 #[derive(Subcommand)]
 enum GatewayCommand {
-    /// Install the pf redirect/NAT anchor and enable IP forwarding.
+    /// EXPERIMENTAL: install the pf redirect/NAT anchor and enable IP forwarding.
     Install {
         #[arg(long)]
         dry_run: bool,
@@ -193,9 +193,11 @@ fn print_command_list() {
     println!("        proxybot start --proxy-port 9090 --web-port 9999");
     println!("        proxybot start --no-open --data-dir /tmp/proxybot");
     println!();
-    println!("GATEWAY (macOS pf; install/uninstall ask for admin)");
-    println!("  gateway install");
+    println!("GATEWAY (EXPERIMENTAL — macOS pf; install/uninstall ask for admin)");
+    println!("  gateway install [EXPERIMENTAL]");
     println!("      Write the pf anchor, enable IP forwarding and load redirect/NAT rules.");
+    println!("      Not recommended yet: pf redirect delivery is unreliable on macOS and a");
+    println!("      stopped gateway can leave the device without internet.");
     println!("      --dry-run                  print generated rules and commands only");
     println!("      --transparent-port <PORT>  redirect target port (default 8089)");
     println!("      --interface <NAME>         override detected LAN interface (e.g. en0)");
@@ -243,7 +245,7 @@ fn print_command_list() {
     println!("  * HTTP proxy mode: device Wi-Fi HTTP proxy = <Mac IP>:8088; no admin.");
     println!("  * Gateway mode: device Wi-Fi router/gateway = <Mac IP>, HTTP proxy OFF;");
     println!("    set a manual IP in the same subnet and keep DNS on the router.");
-    println!("  * Gateway mode captures all device TCP :80/:443, not UDP/DNS/ICMP.");
+    println!("  * Gateway mode is experimental; HTTP proxy mode is the supported path.");
     println!("  * Install/trust the CA from http://<Mac IP>:8090 on the test device.");
     println!("  * Certificate-pinned apps may reject the CA (TLS tab shows SNI attempts);");
     println!("    add their domains to <data>/rules/passthrough.txt to keep them working.");
@@ -262,6 +264,10 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             lan_cidr,
             block_quic,
         } => {
+            eprintln!(
+                "WARNING: gateway mode is experimental on macOS. Verify the device keeps\n\
+                 internet access and use `proxybot gateway uninstall` afterwards."
+            );
             let mut config = gateway::detect(transparent_port)?;
             if let Some(interface) = interface {
                 config.interface = interface;
@@ -412,6 +418,11 @@ async fn run_start(args: StartArgs) -> Result<()> {
 
     let mut gateway_installed = false;
     if args.gateway {
+        eprintln!(
+            "WARNING: --gateway is experimental on macOS. pf redirect delivery is unreliable\n\
+             and a stopped/failed gateway can leave the test device without internet.\n\
+             Prefer plain `proxybot start` with the device Wi-Fi HTTP proxy."
+        );
         let mut config = gateway::detect(args.transparent_port)?;
         config.block_quic = args.block_quic;
         gateway::install(&config, &data_dir, false)?;

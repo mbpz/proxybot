@@ -116,7 +116,7 @@
         </thead>
         <tbody id="rows"></tbody>
       </table>
-      <div id="empty" class="empty">Waiting for traffic. Configure the device proxy or gateway in Setup.</div>
+      <div id="empty" class="empty">Waiting for traffic. Set the device Wi-Fi HTTP proxy in Setup, then open a page.</div>
     </div>
   </section>
 
@@ -125,14 +125,19 @@
       <h2>Connect a device</h2>
       <div class="row">
         <div style="flex:1 1 420px">
-          <p><strong>Mode 1 — HTTP proxy (no admin)</strong><br />
+          <p><strong>Mode 1 — HTTP proxy (supported, no admin)</strong><br />
             Set the device Wi-Fi HTTP proxy to <code id="proxy-addr">…</code>, then open
             <code id="ca-page">…</code> on the device and install the CA.</p>
-          <p><strong>Mode 2 — Side-router / gateway (pf, needs admin)</strong><br />
-            Start the CLI with <code>proxybot start --gateway</code>, then set the device Wi-Fi
-            <strong>gateway</strong> to <code id="gateway-addr">…</code> (DNS can stay on the router).
-            HTTP/HTTPS is redirected to ProxyBot; other traffic is NATed.</p>
-          <p class="muted">Both modes need the CA trusted on the device before HTTPS can be decrypted:
+          <details>
+            <summary><strong>Mode 2 — Side-router / gateway (experimental)</strong></summary>
+            <p class="muted">Not recommended yet: macOS pf redirect delivery is unreliable and a
+              failed/stopped gateway can leave the device without internet. Keep the phone on
+              automatic IP when you are not actively testing this mode.</p>
+            <p>Start the CLI with <code>proxybot start --gateway</code>, then set the device Wi-Fi
+              <strong>gateway</strong> to <code id="gateway-addr">…</code> (DNS can stay on the router).
+              HTTP/HTTPS is redirected to ProxyBot; other traffic is NATed.</p>
+          </details>
+          <p class="muted">HTTP proxy mode needs the CA trusted on the device before HTTPS can be decrypted:
             iOS Settings → General → About → Certificate Trust Settings; Android install as a user CA.
             Certificate-pinned apps will refuse interception — that is expected.</p>
           <p>Custom ports: <code>proxybot start --proxy-port … --transparent-port … --web-port …</code></p>

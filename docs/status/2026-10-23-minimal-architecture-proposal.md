@@ -423,9 +423,9 @@ CREATE INDEX idx_requests_app ON requests(app);
 | --- | --- |
 | 单二进制 CLI（start / gateway / rules） | ✅ 已实现 |
 | 本地 Web UI（Live / Setup / Rules，SSE 实时、详情、过滤、HAR 导出、二维码） | ✅ 已实现 |
-| HTTP 代理模式 + CA 下载/信任 | ✅ 本机 curl 实测通过 |
+| HTTP 代理模式 + CA 下载/信任 | ✅ iPhone 真机实测通过（Safari/WKWebView/JSON） |
 | 旁路由透明适配器（SNI/Host 嗅探 → CONNECT/absolute-form 转交 MITM） | ✅ 本机直连 TLS/HTTP 实测通过 |
-| pf 安装/卸载/状态/`--dry-run` | ✅ 代码完成；真实 pf 需管理员，CI 未执行 |
+| pf 安装/卸载/状态/`--dry-run` | ⚠️ 代码完成但真机不可用，gateway 标记实验性 |
 | App 归因（YAML 规则 + SNI/host 最长后缀） | ✅ 已实现，规则可在 UI 编辑 |
 | 一键安装脚本（下载臂/校验 sha256/无需语言运行时） | ✅ `minimal/install.sh` |
 | 手动 CLI release workflow + 本地打包脚本 | ✅ 已跑通 `minimal-v0.1.0`（arm64/x64 + sha256） |
@@ -448,3 +448,24 @@ python3 ws_test.py   # WebSocket echo through the proxy: c2s/s2c frames visible 
 ```
 
 未在 CI 中验证：pf 网关真实生效（需要 sudo/网络设备）、签名安装、iPhone/Android 真机 CA 信任。
+
+---
+
+## 8. 真机验证与定位调整（2026-10-24）
+
+**HTTP 代理模式已通过 iPhone 真机验证**：
+
+- 设备 Wi-Fi HTTP 代理 = Mac:8088，CA 安装并信任；
+- Safari 打开 HTTPS 站点（`welfarem.maidelong.com`）可解密；
+- WKWebView / 小程序页面、`dmall.com` 接口 JSON 请求/响应均可查看；
+- Live、TLS、WebSocket、HAR、body 解码功能正常。
+
+**gateway（旁路由）模式仍不可用，标记为实验性**：
+
+- 设备改为手动 IP + 路由器=Mac 后，pf `rdr` 计数会增长，但重定向到
+  `127.0.0.1:8089` / LAN IP 的包没有稳定到达透明适配器；
+- 把规则加载到 main pf ruleset 后，设备访问 Mac:8090 也会被破坏；
+- 结论：macOS 上基于 pf 的重定向方案不可靠，需要重新调研
+  （候选：Network Extension / 系统扩展，或不同的重定向机制）。
+- 产品层面：HTTP 代理为唯一正式支持路径；`--gateway` 保留但加警告，
+  UI 默认折叠，不做支持承诺。
