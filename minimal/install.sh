@@ -44,7 +44,14 @@ curl --fail --location --silent --show-error --retry 3 \
 curl --fail --location --silent --show-error --retry 3 \
   "${BASE}/${ASSET}.sha256" -o "${TMP}/${ASSET}.sha256"
 
-( cd "$TMP" && shasum -a 256 -c "${ASSET}.sha256" >/dev/null )
+EXPECTED="$(cut -d ' ' -f1 "${TMP}/${ASSET}.sha256")"
+ACTUAL="$(shasum -a 256 "${TMP}/${ASSET}" | cut -d ' ' -f1)"
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+  echo "checksum mismatch for ${ASSET}" >&2
+  echo "expected: $EXPECTED" >&2
+  echo "actual:   $ACTUAL" >&2
+  exit 1
+fi
 echo "Checksum verified."
 
 mkdir -p "$PREFIX"

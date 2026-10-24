@@ -55,7 +55,7 @@ jobs:
           cp "minimal/target/${{ matrix.target }}/release/proxybot" dist/proxybot
           ASSET="proxybot-min-${{ matrix.target }}.tar.gz"
           tar -czf "dist/${ASSET}" -C dist proxybot
-          shasum -a 256 "dist/${ASSET}" > "dist/${ASSET}.sha256"
+          ( cd dist && shasum -a 256 "${ASSET}" > "${ASSET}.sha256" )
           cat "dist/${ASSET}.sha256"
 
       - name: Upload release assets

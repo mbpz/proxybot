@@ -8,5 +8,5 @@ mkdir -p dist
 cp target/release/proxybot dist/proxybot
 ASSET="proxybot-min-${TARGET}.tar.gz"
 tar -czf "dist/${ASSET}" -C dist proxybot
-shasum -a 256 "dist/${ASSET}" > "dist/${ASSET}.sha256"
+( cd dist && shasum -a 256 "${ASSET}" > "${ASSET}.sha256" )
 echo "built minimal/dist/${ASSET}"
