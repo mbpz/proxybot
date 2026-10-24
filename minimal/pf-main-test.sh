@@ -11,6 +11,7 @@ set -eu
 IFACE="${PROXYBOT_IFACE:-en1}"
 CIDR="${PROXYBOT_CIDR:-192.168.3.0/24}"
 PORT="${PROXYBOT_TRANSPARENT_PORT:-8089}"
+RDR_IP="${PROXYBOT_RDR_IP:-127.0.0.1}"
 CONF="/tmp/proxybot-pf-main.conf"
 
 usage() { echo "usage: sudo sh $0 install|restore" >&2; exit 2; }
@@ -24,7 +25,7 @@ dummynet-anchor "com.apple/*"
 nat-anchor "com.apple/*"
 rdr-anchor "com.apple/*"
 
-rdr pass on ${IFACE} inet proto tcp from any to any port {80, 443} -> 127.0.0.1 port ${PORT}
+rdr pass on ${IFACE} inet proto tcp from any to any port {80, 443} -> ${RDR_IP} port ${PORT}
 nat on ${IFACE} inet from ${CIDR} to any -> (${IFACE})
 
 # Keep our LAN pass rules BEFORE the com.apple anchors so a stale Application
@@ -43,7 +44,7 @@ RULES
     sudo pfctl -f "$CONF"
     sudo sysctl -w net.inet.ip.forwarding=1
     sudo pfctl -e >/dev/null 2>&1 || true
-    echo "main pf ruleset loaded from $CONF (iface=$IFACE cidr=$CIDR port=$PORT)"
+    echo "main pf ruleset loaded from $CONF (iface=$IFACE cidr=$CIDR rdr=$RDR_IP port=$PORT)"
     echo "test the phone now; restore with: sudo sh $0 restore"
     ;;
   restore)
