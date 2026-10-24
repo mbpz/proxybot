@@ -51,6 +51,10 @@ pub fn render_rules(config: &GatewayConfig) -> String {
     let ip = &config.lan_ip;
     let cidr = &config.lan_cidr;
     let port = config.transparent_port;
+    // pf requires anchors to be ordered: translation rules (rdr/nat) first,
+    // then filtering (block/pass). A mixed order is rejected with
+    // "Rules must be in order: options, normalization, queueing, translation,
+    // filtering".
     let quic_block = if config.block_quic {
         format!(
             "block drop quick on {iface} inet proto udp from {cidr} to any port {{80, 443}}\n"
@@ -60,10 +64,10 @@ pub fn render_rules(config: &GatewayConfig) -> String {
     };
     format!(
         "rdr pass on {iface} inet proto tcp from any to any port {{80, 443}} -> {ip} port {port}\n\
-         pass in quick on {iface} inet from {cidr} to any keep state\n\
-         pass out quick on {iface} inet from any to any keep state\n\
          nat on {iface} inet from {cidr} to any -> ({iface})\n\
-         {quic_block}"
+         {quic_block}\
+         pass in quick on {iface} inet from {cidr} to any keep state\n\
+         pass out quick on {iface} inet from any to any keep state\n"
     )
 }
 
@@ -78,6 +82,7 @@ pub fn install(config: &GatewayConfig, data_dir: &Path, dry_run: bool) -> Result
     }
 
     let previous = sysctl_value("net.inet.ip.forwarding").unwrap_or_else(|_| "0".into());
+    let previous_for_rollback = previous.clone();
     let state = InstallState {
         previous_forwarding: previous,
         installed_at: now_ms(),
@@ -94,7 +99,16 @@ pub fn install(config: &GatewayConfig, data_dir: &Path, dry_run: bool) -> Result
         "mkdir -p /etc/pf.anchors && cp '{}' {ANCHOR_FILE} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {ANCHOR} -f {ANCHOR_FILE} && pfctl -e",
         tmp.display()
     );
-    run_privileged(&script).context("install pf gateway rules (admin required)")?;
+    if let Err(error) = run_privileged(&script) {
+        // Roll back partial state: forwarding may already be enabled even when
+        // pf rejected the rules.
+        let rollback = format!(
+            "pfctl -a {ANCHOR} -F all 2>/dev/null || true; rm -f {ANCHOR_FILE}; sysctl -w net.inet.ip.forwarding={previous_for_rollback} >/dev/null; true"
+        );
+        let _ = run_privileged(&rollback);
+        let _ = fs::remove_file(data_dir.join("gateway.json"));
+        return Err(error).context("install pf gateway rules (admin required); previous state restored");
+    }
     println!(
         "gateway installed on {} ({}) with transparent port {}",
         config.interface, config.lan_ip, config.transparent_port

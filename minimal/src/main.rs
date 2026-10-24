@@ -203,6 +203,17 @@ fn run_rules(args: RulesArgs) -> Result<()> {
 }
 
 async fn run_start(args: StartArgs) -> Result<()> {
+    ensure_port_available(
+        ([0, 0, 0, 0], args.proxy_port).into(),
+        "explicit proxy",
+    )?;
+    ensure_port_available(
+        ([127, 0, 0, 1], args.transparent_port).into(),
+        "transparent adapter",
+    )?;
+    ensure_port_available(([127, 0, 0, 1], args.web_port).into(), "web UI")?;
+    ensure_port_available(([0, 0, 0, 0], args.ca_port).into(), "device CA page")?;
+
     let data_dir = args.data_dir.clone().unwrap_or_else(default_data_dir);
     std::fs::create_dir_all(data_dir.join("rules"))?;
 
@@ -336,6 +347,14 @@ async fn run_start(args: StartArgs) -> Result<()> {
     web_task.abort();
     ca_task.abort();
     Ok(())
+}
+
+fn ensure_port_available(addr: SocketAddr, label: &str) -> Result<()> {
+    std::net::TcpListener::bind(addr).map(|listener| drop(listener)).with_context(|| {
+        format!(
+            "{label} port {addr} is already in use; stop the previous `proxybot` process (Ctrl+C or `pkill -f 'proxybot start'`) and retry"
+        )
+    })
 }
 
 fn default_data_dir() -> PathBuf {
