@@ -28,7 +28,10 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 
-if [ "$VERSION" = "latest" ]; then
+if [ -n "${PROXYBOT_DOWNLOAD_BASE:-}" ]; then
+  # Mirror / offline base URL that serves the same proxybot-min-*.tar.gz assets.
+  BASE="${PROXYBOT_DOWNLOAD_BASE}"
+elif [ "$VERSION" = "latest" ]; then
   BASE="https://github.com/${REPO}/releases/latest/download"
 else
   BASE="https://github.com/${REPO}/releases/download/minimal-v${VERSION}"
@@ -37,6 +40,14 @@ ASSET="proxybot-min-${TARGET}.tar.gz"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# Offline/development path: install an already built binary directly.
+if [ -n "${PROXYBOT_LOCAL_BINARY:-}" ]; then
+  mkdir -p "$PREFIX"
+  install -m 0755 "$PROXYBOT_LOCAL_BINARY" "${PREFIX}/proxybot"
+  echo "Installed $( "${PREFIX}/proxybot" --version ) to ${PREFIX}/proxybot"
+  exit 0
+fi
 
 echo "Downloading ${ASSET} from ${BASE} ..."
 curl --http1.1 --fail --location --silent --show-error --retry 5 --retry-all-errors \

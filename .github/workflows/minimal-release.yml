@@ -72,12 +72,20 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+
       - name: Collect assets
         uses: actions/download-artifact@v8
         with:
           pattern: minimal-*
           path: release-assets
           merge-multiple: true
+
+      - name: Include the installer as a release asset
+        run: |
+          set -eu
+          cp minimal/install.sh release-assets/install.sh
+          ( cd release-assets && shasum -a 256 install.sh > install.sh.sha256 )
 
       - name: Publish
         uses: softprops/action-gh-release@v3
