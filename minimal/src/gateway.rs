@@ -76,7 +76,7 @@ pub fn install(config: &GatewayConfig, data_dir: &Path, dry_run: bool) -> Result
     if dry_run {
         println!("# {ANCHOR_FILE}\n{rules}");
         println!(
-            "# would run: sysctl -w net.inet.ip.forwarding=1 && pfctl -a {ANCHOR} -f {ANCHOR_FILE} && pfctl -e"
+            "# would run: sysctl -w net.inet.ip.forwarding=1 && pfctl -a {ANCHOR} -f {ANCHOR_FILE} && pfctl -e (already-enabled is OK)"
         );
         return Ok(());
     }
@@ -96,7 +96,7 @@ pub fn install(config: &GatewayConfig, data_dir: &Path, dry_run: bool) -> Result
     let tmp = std::env::temp_dir().join("proxybot-pf.conf");
     fs::write(&tmp, rules)?;
     let script = format!(
-        "mkdir -p /etc/pf.anchors && cp '{}' {ANCHOR_FILE} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {ANCHOR} -f {ANCHOR_FILE} && pfctl -e",
+        "mkdir -p /etc/pf.anchors && cp '{}' {ANCHOR_FILE} && sysctl -w net.inet.ip.forwarding=1 && pfctl -a {ANCHOR} -f {ANCHOR_FILE} && {{ pfctl -e >/dev/null 2>&1 || true; }}",
         tmp.display()
     );
     if let Err(error) = run_privileged(&script) {
