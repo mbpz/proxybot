@@ -453,6 +453,15 @@ python3 ws_test.py   # WebSocket echo through the proxy: c2s/s2c frames visible 
 
 ## 8. 真机验证与定位调整（2026-10-24）
 
+### gateway 分阶段验证计划
+
+1. **Stage 1（进行中）**：仅 IPv4 转发 + NAT，验证同一 Wi-Fi 接口上的
+   client→Mac→router 往返。脚本：`minimal/pf-nat-test.sh`。
+2. **Stage 2**：在 Stage 1 通过后加入 `rdr` 到透明适配器，验证代理接管。
+3. **Stage 3**：抓包、DNS、IPv6、故障保护。
+4. 若 Stage 1 失败，则同接口转发不可行，需要虚拟网卡/桥接/Network Extension，
+   不能只改 iPhone 配置。
+
 **HTTP 代理模式已通过 iPhone 真机验证**：
 
 - 设备 Wi-Fi HTTP 代理 = Mac:8088，CA 安装并信任；

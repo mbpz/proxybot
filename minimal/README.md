@@ -258,3 +258,21 @@ currently **experimental**: on this macOS version the redirected packets were
 not delivered reliably to the transparent listener, and loading rules into the
 main pf ruleset broke the device's local access to the Mac. HTTP proxy mode has
 no privileged dependencies and is the primary supported path.
+
+### Gateway research: staged validation
+
+Do not debug NAT, pf redirect and MITM all at once. Use the staged scripts:
+
+```bash
+# Stop proxybot and any old gateway first.
+sudo sh minimal/pf-nat-test.sh install   # Stage 1: same-interface forwarding + NAT only
+# iPhone: manual IP 192.168.3.20, router <Mac IP>, DNS 223.5.5.5, proxy off
+# Test http://captive.apple.com/hotspot-detect.html and https://example.com
+sudo sh minimal/pf-nat-test.sh restore
+```
+
+- Stage 1 passing proves macOS can forward/NAT from the Wi-Fi client back out
+  the same interface. Only then add `rdr` + the transparent adapter (Stage 2).
+- If Stage 1 fails, the architecture must change (bridge/TUN/Network Extension);
+  changing the iPhone IP cannot fix it.
+- Stage 1 is NAT-only: it does **not** capture or proxy anything yet.
