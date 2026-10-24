@@ -55,14 +55,36 @@ HAR export; only the listener and the device-side setting differ.
 
 ## Install
 
+Recommended (works even when `raw.githubusercontent.com` is blocked, because the
+installer is attached to the GitHub release):
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mbpz/proxybot/main/minimal/install.sh | sh
+curl -fsSL https://github.com/mbpz/proxybot/releases/latest/download/install.sh | sh
+```
+
+Other options:
+
+```bash
+# From a repository checkout
+sh minimal/install.sh
+
+# Pin a release
+PROXYBOT_VERSION=0.1.0 sh minimal/install.sh
+
+# Install an already-built local binary (offline)
+PROXYBOT_LOCAL_BINARY=minimal/target/release/proxybot sh minimal/install.sh
+
+# Mirror that serves the same proxybot-min-*.tar.gz assets
+PROXYBOT_DOWNLOAD_BASE=https://your-mirror.example/proxybot sh minimal/install.sh
+
+# Custom prefix (default ~/.local/bin)
+PROXYBOT_PREFIX=/usr/local/bin sh minimal/install.sh
 ```
 
 The script downloads the matching macOS arm64/x64 release archive, verifies its
 SHA-256, and installs `proxybot` to `~/.local/bin` (override with
-`PROXYBOT_PREFIX=/usr/local/bin`). No Homebrew, Node, Python, or Rust toolchain
-is required at install time.
+`PROXYBOT_PREFIX`). No Homebrew, Node, Python, or Rust toolchain is required at
+install time.
 
 Releases are built by the manual **Minimal CLI release** workflow
 (`.github/workflows/minimal-release.yml`). The first release,
