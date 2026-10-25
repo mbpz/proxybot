@@ -455,9 +455,11 @@ python3 ws_test.py   # WebSocket echo through the proxy: c2s/s2c frames visible 
 
 ### gateway 分阶段验证计划
 
-1. **Stage 1（进行中）**：仅 IPv4 转发 + NAT，验证同一 Wi-Fi 接口上的
-   client→Mac→router 往返。脚本：`minimal/pf-nat-test.sh`。
-2. **Stage 2**：在 Stage 1 通过后加入 `rdr` 到透明适配器，验证代理接管。
+1. **Stage 1（2026-10-25 通过）**：仅 IPv4 转发 + NAT，真机验证
+   client→Mac→router 往返正常（NAT Packets 8569，tcpdump 可见 .20 与公网
+   双向流量和 DNS 响应）。脚本：`minimal/pf-nat-test.sh`。
+2. **Stage 2（进行中）**：NAT + `rdr` 到透明适配器，验证 TCP 流量接管。
+   脚本：`minimal/pf-rdr-test.sh`（需先 `proxybot start`，不要 --gateway）。
 3. **Stage 3**：抓包、DNS、IPv6、故障保护。
 4. 若 Stage 1 失败，则同接口转发不可行，需要虚拟网卡/桥接/Network Extension，
    不能只改 iPhone 配置。

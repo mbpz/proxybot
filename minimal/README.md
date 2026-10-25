@@ -276,3 +276,11 @@ sudo sh minimal/pf-nat-test.sh restore
 - If Stage 1 fails, the architecture must change (bridge/TUN/Network Extension);
   changing the iPhone IP cannot fix it.
 - Stage 1 is NAT-only: it does **not** capture or proxy anything yet.
+
+```bash
+# Stage 2: NAT + pf rdr into the transparent adapter.
+# Requires a running `proxybot start` (without --gateway).
+sudo sh minimal/pf-rdr-test.sh install
+# iPhone unchanged; test http://captive.apple.com/hotspot-detect.html
+sudo sh minimal/pf-rdr-test.sh restore
+```
