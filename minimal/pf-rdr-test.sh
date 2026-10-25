@@ -26,6 +26,7 @@ case "$1" in
 rdr pass on ${IFACE} inet proto tcp from any to any port {80, 443} -> ${RDR_IP} port ${PORT}
 nat on ${IFACE} inet from ${CIDR} to any -> (${IFACE})
 pass in quick on lo0 inet from any to any keep state
+pass out quick on lo0 inet from any to any keep state
 pass in quick on ${IFACE} inet from ${CIDR} to any keep state
 pass out quick on ${IFACE} inet from any to any keep state
 RULES

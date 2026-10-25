@@ -458,11 +458,16 @@ python3 ws_test.py   # WebSocket echo through the proxy: c2s/s2c frames visible 
 1. **Stage 1（2026-10-25 通过）**：仅 IPv4 转发 + NAT，真机验证
    client→Mac→router 往返正常（NAT Packets 8569，tcpdump 可见 .20 与公网
    双向流量和 DNS 响应）。脚本：`minimal/pf-nat-test.sh`。
-2. **Stage 2（进行中）**：NAT + `rdr` 到透明适配器，验证 TCP 流量接管。
-   脚本：`minimal/pf-rdr-test.sh`（需先 `proxybot start`，不要 --gateway）。
+2. **Stage 2（2026-10-25 失败）**：NAT 正常，`rdr` 规则计数增长
+   （80: 78 packets/5 states，443: 80 packets/16 states），但透明适配器收不到
+   任何连接；改为重定向到 LAN IP 同样失败。结论：当前 macOS 上 pf `rdr`
+   无法把重定向流量投递给本地监听进程，pf 方案不可用。
+   脚本：`minimal/pf-rdr-test.sh`。
 3. **Stage 3**：抓包、DNS、IPv6、故障保护。
 4. 若 Stage 1 失败，则同接口转发不可行，需要虚拟网卡/桥接/Network Extension，
    不能只改 iPhone 配置。
+5. Stage 1 已通过，Stage 2 失败；下一步只能考虑 Network Extension /
+   系统扩展、TUN 用户态转发，或退化为 HTTP 代理 + 被动抓包。
 
 **HTTP 代理模式已通过 iPhone 真机验证**：
 
