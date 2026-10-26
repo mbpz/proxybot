@@ -156,7 +156,7 @@ status/TUN/forwarding/Mac checks. For each test record whether the gateway was
 still `running`, `stale`, `exited` or `stopped`, and whether network recovery
 needed manual `gateway stop`.
 
-## launchd boundary (design, not implemented)
+## launchd service (implementation pending tests)
 
 Decisions required before code:
 
@@ -175,6 +175,6 @@ Decisions required before code:
 5. **Uninstall:** remove service definition, stop supervisor, restore network
    state, and verify no TUN/pf/process remains.
 
-The current beta has no launchd integration; the release checklist still lists
-launchd, sleep/wake, Wi-Fi changes and clean-environment uninstall as blocking
-gates.
+The service command/plist/install/uninstall implementation is present; see
+`docs/status/2026-10-launchd.md`. launchd remains unverified until the test matrix
+passes; the release checklist still lists it as blocking.

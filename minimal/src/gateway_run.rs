@@ -327,6 +327,10 @@ pub fn start(
         &state_dir().join("start.lock"),
         "another gateway start is already in progress",
     )?;
+    if crate::launchd::service_installed() {
+        eprintln!("launchd service is installed; delegating to its configured arguments");
+        return crate::launchd::start_service();
+    }
     if let Some(old) = read_state() {
         if alive(old.supervisor_pid) {
             bail!("gateway already running (instance {}, supervisor pid {})", old.instance_id, old.supervisor_pid);
@@ -776,6 +780,9 @@ pub fn status() -> Result<()> {
         println!("  stale state: default network/CIDR changed or unavailable");
     } else if supervisor_alive && heartbeat_age > 10 {
         println!("  stale state: heartbeat is old");
+    }
+    if crate::launchd::service_installed() {
+        println!("  launchd service installed ({})", crate::launchd::LABEL);
     }
     println!("  logs {}", state.log_dir);
     Ok(())

@@ -6,6 +6,7 @@
 mod ca;
 mod capture;
 mod gateway;
+mod launchd;
 mod gateway_run;
 mod rules;
 mod store;
@@ -124,6 +125,13 @@ enum GatewayCommand {
     },
     /// Stop the gateway and restore pf/forwarding.
     Stop,
+    /// Install a system LaunchDaemon that runs the foreground supervisor.
+    InstallService(launchd::InstallServiceArgs),
+    /// Remove the LaunchDaemon and clean gateway network state.
+    UninstallService,
+    /// Internal foreground supervisor entry point used by launchd.
+    #[command(hide = true)]
+    Service(launchd::ServiceArgs),
     /// Internal: detached supervisor owning sing-box and network recovery.
     #[command(hide = true)]
     Supervise(gateway_run::SuperviseArgs),
@@ -330,6 +338,9 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             gateway_run::start(block_quic, singbox, tun, client_ip, devices)
         }
         GatewayCommand::Stop => gateway_run::stop(),
+        GatewayCommand::InstallService(args) => launchd::install(args),
+        GatewayCommand::UninstallService => launchd::uninstall(),
+        GatewayCommand::Service(args) => launchd::run_service(args),
         GatewayCommand::Supervise(args) => gateway_run::supervise(args),
         GatewayCommand::Install {
             dry_run,
