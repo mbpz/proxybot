@@ -311,7 +311,12 @@ fn install_signal_handlers() {
     }
 }
 
-pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<()> {
+pub fn start(
+    block_quic: bool,
+    singbox: Option<PathBuf>,
+    tun: String,
+    client_ip: Option<String>,
+) -> Result<()> {
     if !is_root() {
         bail!("gateway start requires root: sudo proxybot gateway start");
     }
@@ -342,6 +347,9 @@ pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<
         .args(["gateway", "supervise", "--instance", &instance, "--singbox"])
         .arg(&bin)
         .args(["--tun", &tun]);
+    if let Some(client_ip) = client_ip.as_deref() {
+        cmd.args(["--client-ip", client_ip]);
+    }
     if block_quic {
         cmd.arg("--block-quic");
     }
@@ -412,6 +420,8 @@ pub struct SuperviseArgs {
     pub singbox: PathBuf,
     #[arg(long, default_value = "utun6")]
     pub tun: String,
+    #[arg(long)]
+    pub client_ip: Option<String>,
 }
 
 pub fn supervise(args: SuperviseArgs) -> Result<()> {
@@ -424,7 +434,13 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
     install_signal_handlers();
     let detected = crate::gateway::detect(8089)?;
     let config_path = dir.join("singbox.json");
-    let config = crate::singbox_config::build_config("127.0.0.1:8088", &args.tun, "127.0.0.1:8089", args.block_quic);
+    let config = crate::singbox_config::build_config(
+        "127.0.0.1:8088",
+        &args.tun,
+        "127.0.0.1:8089",
+        args.block_quic,
+        args.client_ip.as_deref(),
+    );
     fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
     let previous_forwarding = output("sysctl", &["-n", "net.inet.ip.forwarding"]).unwrap_or_else(|_| "0".into());
     let mut state = State {

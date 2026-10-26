@@ -35,7 +35,7 @@ Requests gain two fields in addition to the existing provenance fields:
 | `peer_ip` | IP | yes | actual Hudsucker TCP peer (`127.0.0.1` for gateway) |
 | `device_id` | string | yes | internal device identity when known |
 | `connection_id` | string | yes | gateway ingress/connection correlation key |
-| `identity_source` | enum | no | `adapter_metadata` / `device_port` / `unknown` |
+| `identity_source` | enum | no | `tun_source_ip` / `device_port` / `unknown` |
 | `confidence` | enum | no | `confirmed` / `inferred` / `unknown` |
 
 Rules:
@@ -68,12 +68,16 @@ Use an explicit **adapter metadata handoff**, not an inferred port mapping:
    `connection_id`, `client_ip`, `device_id` (optional), `identity_source`,
    `confidence`;
 3. Hudsucker records this metadata for the connection and attaches it to the
-   requests inside that CONNECT tunnel;
+   requests inside that CONNECT tunnel; the metadata mechanism is transport,
+   while the evidence type is `identity_source=tun_source_ip`;
 4. missing/conflicting metadata degrades to `client_ip=NULL`,
    `device_id=NULL`, `confidence=unknown`.
 
 Per-device HTTP outbound headers are acceptable for the prototype because
 sing-box's config is locally trusted and the outbound connects over loopback.
+The static per-device header is an `inferred` identity: it proves the configured
+route mapping, not a per-connection observation. `confirmed` is reserved for a
+future adapter that proves the ingress connection identity per CONNECT.
 HTTP/80 needs a per-device adapter/listener (or is deferred) because the single
 transparent adapter cannot know the originating device.
 
@@ -122,7 +126,10 @@ Harder:
 ## Evidence
 
 - `minimal/src/singbox_config.rs` generates per-device-capable outbounds.
-- `minimal/src/capture.rs` already stores `source_type`, `client_ip`, `peer_ip`,
-  `connection_id` and strips `X-ProxyBot-Source` before forwarding.
+- `minimal/src/capture.rs` stores `source_type`, `client_ip`, `peer_ip`,
+  `connection_id`, `identity_source`, `confidence` and strips `X-ProxyBot-*`
+  before forwarding.
+- P4.2 raw CONNECT capture and local loopback identity result:
+  `docs/status/2026-10-26-p4.2-single-device-metadata.md`.
 - sing-box v1.14.4 source: `protocol/http/outbound.go`,
   `sing/protocol/http/client.go`.

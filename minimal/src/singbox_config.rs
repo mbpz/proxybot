@@ -21,6 +21,9 @@ pub struct SingboxConfigArgs {
     /// TUN interface name.
     #[arg(long, default_value = "utun6")]
     pub tun: String,
+    /// Single-device prototype: attach this source IP to the outbound metadata.
+    #[arg(long)]
+    pub client_ip: Option<String>,
     /// Transparent adapter address used for plain HTTP/80.
     #[arg(long, default_value = "127.0.0.1:8089")]
     pub transparent: String,
@@ -28,7 +31,13 @@ pub struct SingboxConfigArgs {
 
 /// Build the gateway config. Kept here so the CLI and `gateway start` share one
 /// source of truth.
-pub fn build_config(http_proxy: &str, tun: &str, transparent: &str, block_quic: bool) -> serde_json::Value {
+pub fn build_config(
+    http_proxy: &str,
+    tun: &str,
+    transparent: &str,
+    block_quic: bool,
+    client_ip: Option<&str>,
+) -> serde_json::Value {
     let proxy_host = http_proxy.split(':').next().unwrap_or("127.0.0.1");
     let proxy_port = http_proxy
         .rsplit(':')
@@ -41,6 +50,12 @@ pub fn build_config(http_proxy: &str, tun: &str, transparent: &str, block_quic: 
         .next()
         .and_then(|port| port.parse::<u16>().ok())
         .unwrap_or(8089);
+    let mut headers = json!({"X-ProxyBot-Source": "gateway"});
+    if let Some(client_ip) = client_ip {
+        headers["X-ProxyBot-Client-IP"] = json!(client_ip);
+        headers["X-ProxyBot-Identity-Source"] = json!("tun_source_ip");
+        headers["X-ProxyBot-Confidence"] = json!("inferred");
+    }
     let mut rules = vec![json!({"action": "sniff"})];
     rules.push(json!({
         "network": ["tcp"],
@@ -70,7 +85,7 @@ pub fn build_config(http_proxy: &str, tun: &str, transparent: &str, block_quic: 
                 "tag": "mitm",
                 "server": proxy_host,
                 "server_port": proxy_port,
-                "headers": {"X-ProxyBot-Source": "gateway"}
+                "headers": headers
             },
             {"type": "direct", "tag": "direct"}
         ],
@@ -85,7 +100,13 @@ pub fn run(args: SingboxConfigArgs) -> Result<()> {
         .output
         .unwrap_or_else(|| data_dir.join("singbox-tun-mitm.json"));
 
-    let config = build_config(&args.http_proxy, &args.tun, &args.transparent, args.block_quic);
+    let config = build_config(
+        &args.http_proxy,
+        &args.tun,
+        &args.transparent,
+        args.block_quic,
+        args.client_ip.as_deref(),
+    );
     std::fs::write(&output, serde_json::to_vec_pretty(&config)?)
         .with_context(|| format!("write sing-box config {}", output.display()))?;
 

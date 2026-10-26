@@ -21,6 +21,13 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, RwLock};
 
 #[derive(Clone)]
+pub(crate) struct ClientIdentity {
+    client_ip: String,
+    connection_id: String,
+    identity_source: String,
+    confidence: String,
+}
+
 pub struct CaptureState {
     pub store: Arc<Store>,
     pub events: broadcast::Sender<String>,
@@ -33,6 +40,8 @@ pub struct CaptureState {
     pub sni_by_client: Arc<Mutex<HashMap<SocketAddr, String>>>,
     /// Source marker supplied by the gateway adapter on CONNECT.
     pub source_by_client: Arc<Mutex<HashMap<SocketAddr, String>>>,
+    /// Trusted metadata supplied by the loopback gateway adapter on CONNECT.
+    pub identity_by_client: Arc<Mutex<HashMap<SocketAddr, ClientIdentity>>>,
 }
 
 pub struct CaptureHandler {
@@ -47,6 +56,8 @@ struct Pending {
     peer_ip: Option<String>,
     device_id: Option<String>,
     connection_id: Option<String>,
+    identity_source: String,
+    confidence: String,
     scheme: String,
     method: String,
     host: String,
@@ -129,7 +140,37 @@ impl HttpHandler for CaptureHandler {
             .get("x-proxybot-source")
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
-        req.headers_mut().remove("x-proxybot-source");
+        let client_ip_marker = req
+            .headers()
+            .get("x-proxybot-client-ip")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let connection_id_marker = req
+            .headers()
+            .get("x-proxybot-connection-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let identity_source_marker = req
+            .headers()
+            .get("x-proxybot-identity-source")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let confidence_marker = req
+            .headers()
+            .get("x-proxybot-confidence")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        // Never let external clients inject identity metadata; metadata is
+        // accepted only from the loopback gateway adapter.
+        let header_names: Vec<_> = req
+            .headers()
+            .keys()
+            .filter(|name| name.as_str().to_ascii_lowercase().starts_with("x-proxybot-"))
+            .cloned()
+            .collect();
+        for name in header_names {
+            req.headers_mut().remove(name);
+        }
         let source_type = source_marker.clone().or_else(|| {
             state
                 .source_by_client
@@ -137,6 +178,11 @@ impl HttpHandler for CaptureHandler {
                 .ok()
                 .and_then(|map| map.get(&ctx.client_addr).cloned())
         }).unwrap_or_else(|| "local_proxy".to_string());
+        let identity = state
+            .identity_by_client
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&ctx.client_addr).cloned());
         let headers: Vec<(String, String)> = req
             .headers()
             .iter()
@@ -158,9 +204,35 @@ impl HttpHandler for CaptureHandler {
 
         async move {
             if req.method() == hudsucker::hyper::Method::CONNECT {
+                let trusted = ctx.client_addr.ip().is_loopback()
+                    && source_marker.as_deref() == Some("gateway");
                 if let Some(marker) = source_marker {
                     if let Ok(mut map) = state.source_by_client.lock() {
                         map.insert(ctx.client_addr, marker);
+                    }
+                }
+                if trusted {
+                    if let Some(client_ip) = client_ip_marker
+                        .as_deref()
+                        .and_then(|value| value.parse::<IpAddr>().ok())
+                    {
+                        let metadata_confirmed =
+                            confidence_marker.as_deref() == Some("confirmed");
+                        let identity = ClientIdentity {
+                            client_ip: client_ip.to_string(),
+                            connection_id: connection_id_marker
+                                .clone()
+                                .unwrap_or_else(|| ctx.client_addr.to_string()),
+                            identity_source: "tun_source_ip".into(),
+                            confidence: if metadata_confirmed {
+                                "confirmed".into()
+                            } else {
+                                "inferred".into()
+                            },
+                        };
+                        if let Ok(mut map) = state.identity_by_client.lock() {
+                            map.insert(ctx.client_addr, identity);
+                        }
                     }
                 }
                 return RequestOrResponse::Request(req);
@@ -248,15 +320,31 @@ impl HttpHandler for CaptureHandler {
             let req = Request::from_parts(head, body);
             self.pending = Some(Pending {
                 ts_ms: now_ms(),
-                client_ip: if source_type == "gateway" {
-                    None
-                } else {
-                    Some(client_ip.clone())
-                },
+                client_ip: identity
+                    .as_ref()
+                    .map(|identity| identity.client_ip.clone())
+                    .or_else(|| {
+                        if source_type == "gateway" {
+                            None
+                        } else {
+                            Some(client_ip.clone())
+                        }
+                    }),
                 source_type,
                 peer_ip: Some(client_ip.clone()),
                 device_id: None,
-                connection_id: Some(client_ip),
+                connection_id: identity
+                    .as_ref()
+                    .map(|identity| identity.connection_id.clone())
+                    .or_else(|| Some(client_ip)),
+                identity_source: identity
+                    .as_ref()
+                    .map(|identity| identity.identity_source.clone())
+                    .unwrap_or_else(|| "unknown".into()),
+                confidence: identity
+                    .as_ref()
+                    .map(|identity| identity.confidence.clone())
+                    .unwrap_or_else(|| "unknown".into()),
                 scheme,
                 method,
                 host,
@@ -318,6 +406,8 @@ impl HttpHandler for CaptureHandler {
                 peer_ip: pending.peer_ip,
                 device_id: pending.device_id,
                 connection_id: pending.connection_id,
+                identity_source: pending.identity_source,
+                confidence: pending.confidence,
                 scheme: pending.scheme,
                 method: pending.method,
                 host: pending.host,

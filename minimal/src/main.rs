@@ -115,6 +115,9 @@ enum GatewayCommand {
         /// TUN interface name.
         #[arg(long, default_value = "utun6")]
         tun: String,
+        /// Single-device prototype: attach this source IP to gateway metadata.
+        #[arg(long)]
+        client_ip: Option<String>,
     },
     /// Stop the gateway and restore pf/forwarding.
     Stop,
@@ -335,8 +338,8 @@ fn print_command_list() {
 fn run_gateway(args: GatewayArgs) -> Result<()> {
     let data_dir = default_data_dir();
     match args.command {
-        GatewayCommand::Start { block_quic, singbox, tun } => {
-            gateway_run::start(block_quic, singbox, tun)
+        GatewayCommand::Start { block_quic, singbox, tun, client_ip } => {
+            gateway_run::start(block_quic, singbox, tun, client_ip)
         }
         GatewayCommand::Stop => gateway_run::stop(),
         GatewayCommand::Supervise(args) => gateway_run::supervise(args),
@@ -438,6 +441,7 @@ async fn run_start(args: StartArgs) -> Result<()> {
         passthrough: passthrough.clone(),
         sni_by_client: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         source_by_client: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        identity_by_client: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     });
     let http_state = capture_state.clone();
     let ws_state = capture_state.clone();
