@@ -21,6 +21,10 @@ gate, not a wish list.
 
 ## Lifecycle gates (blocking)
 
+Lifecycle test matrix: `docs/status/2026-10-lifecycle-reliability.md`. The
+current supervisor has no sleep/Wi-Fi event handling; tests must be run before
+launchd design is accepted.
+
 - [ ] launchd: start/stop/repeat/abnormal exit behavior documented and tested.
 - [ ] Sleep/wake: no stale TUN or pf after wake; state/status accurate.
 - [ ] Wi-Fi switch/IP change: gateway recovers, reconfigures or reports failure.

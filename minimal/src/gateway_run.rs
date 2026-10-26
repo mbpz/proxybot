@@ -688,6 +688,13 @@ pub fn stop() -> Result<()> {
     Ok(())
 }
 
+fn tun_inet(tun: &str) -> Option<String> {
+    let text = output("ifconfig", &[tun]).ok()?;
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("inet ").map(str::to_string))
+        .map(|line| line.split_whitespace().next().unwrap_or_default().to_string())
+}
+
 pub fn status() -> Result<()> {
     let Some(state) = read_state() else {
         println!("gateway: stopped");
@@ -696,7 +703,16 @@ pub fn status() -> Result<()> {
     let supervisor_alive = alive(state.supervisor_pid);
     let heartbeat_age = now_ms().saturating_sub(state.last_heartbeat_at) / 1000;
     let child_alive = state.singbox_pid.map(alive).unwrap_or(false);
-    let display = if state.state == "running" && !supervisor_alive {
+    let tun_present = Command::new("ifconfig")
+        .arg(&state.tun)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let tun_addr = tun_inet(&state.tun);
+    let proxy_open = proxyport_open();
+    let current_network = crate::gateway::detect(8089).ok();
+    let unhealthy = !supervisor_alive || !child_alive || !tun_present || heartbeat_age > 10;
+    let display = if state.state == "running" && unhealthy {
         "stale"
     } else if state.state == "running" {
         "running"
@@ -706,6 +722,24 @@ pub fn status() -> Result<()> {
     println!("gateway: {display}");
     println!("  instance {}  supervisor {}  sing-box {:?}", state.instance_id, state.supervisor_pid, state.singbox_pid);
     println!("  heartbeat {}s ago  recovery {}", heartbeat_age, state.recovery_status);
+    println!(
+        "  health tun={} ({}) child={} proxy={}",
+        if tun_present { "up" } else { "absent" },
+        tun_addr.as_deref().unwrap_or("no-ipv4"),
+        if child_alive { "alive" } else { "missing" },
+        if proxy_open { "ok" } else { "down" }
+    );
+    match current_network {
+        Some(net) => {
+            println!("  network {} {} (state expected {} {})", net.interface, net.lan_cidr, state.iface, state.cidr);
+            if net.interface != state.iface {
+                println!("  stale state: network interface changed");
+            } else if net.lan_cidr != state.cidr {
+                println!("  stale state: LAN CIDR changed");
+            }
+        }
+        None => println!("  network unknown (Wi-Fi down or default route missing)"),
+    }
     if let Some(code) = state.exit_code {
         println!("  exit code {code}");
     }
