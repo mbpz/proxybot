@@ -18,6 +18,7 @@ the authority on current behavior.
 | [0006](0006-single-product-version-and-release-contract.md) | Single Product Version and signed release contract | Accepted |
 | [0007](0007-lightweight-positioning.md) | Lightweight positioning and removal of Android SSL bypass | Accepted |
 | [0008](0008-rockxy-clean-room-parity.md) | Rockxy Community clean-room parity policy | Accepted |
+| [0009](0009-gateway-device-identity.md) | Gateway device identity and metadata | Accepted |
 
 ## When to write an ADR
 
