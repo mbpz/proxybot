@@ -42,8 +42,10 @@
    mmbiz.qpic.cn), plus QUIC/UDP flows. Acceptance for C passed.
 2. Gateway forwarding was validated (Stage 1). Keep it as a prerequisite check,
    not a product feature.
-3. TUN minimal prototype: prove forwarded packets enter TUN and return. Plan:
-   `docs/status/2026-10-26-tun-probe-plan.md`.
+3. TUN minimal prototype: ingress is proven (`docs/status/2026-10-26-tun-probe-plan.md`).
+   Engine evaluation: `docs/status/2026-10-26-tun-engine-evaluation.md`;
+   tun2socks (MIT) is the chosen candidate for the TCP/UDP closed loop, with
+   sing-box (GPL-3.0) as a reference/alternative.
 4. Evaluate Network Extension only if productisation requires system lifecycle
    and supported interception.
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must
