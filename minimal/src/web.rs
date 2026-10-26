@@ -49,6 +49,7 @@ pub async fn serve(state: WebState, addr: SocketAddr) -> anyhow::Result<()> {
         .route("/ca.crt", get(ca_cert))
         .route("/api/setup", get(setup))
         .route("/api/requests", get(list))
+        .route("/api/devices", get(sources))
         .route("/api/requests/{id}", get(detail))
         .route("/api/stream", get(stream))
         .route("/api/ws/hosts", get(ws_hosts))
@@ -121,6 +122,12 @@ async fn list(
         .list(&filter)
         .map(Json)
         .map_err(internal_error)
+}
+
+async fn sources(
+    State(state): State<WebState>,
+) -> Result<Json<crate::store::SourceGroups>, (StatusCode, String)> {
+    state.store.sources().map(Json).map_err(internal_error)
 }
 
 async fn detail(

@@ -207,7 +207,28 @@ pub struct ListFilter {
     pub app: Option<String>,
     pub method: Option<String>,
     pub status: Option<String>,
+    pub client_ip: Option<String>,
+    pub source_type: Option<String>,
+    pub unknown: Option<bool>,
     pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceSummary {
+    pub client_ip: Option<String>,
+    pub source_type: String,
+    pub identity_source: String,
+    pub confidence: String,
+    pub device_id: Option<String>,
+    pub count: i64,
+    pub last_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceGroups {
+    pub sources: Vec<SourceSummary>,
+    pub unknown_count: i64,
 }
 
 #[derive(Clone)]
@@ -364,6 +385,37 @@ impl Store {
         })
     }
 
+    pub fn sources(&self) -> Result<SourceGroups> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut stmt = conn.prepare(
+            r#"SELECT client_ip, source_type, identity_source, confidence,
+                      COUNT(*), MAX(ts), NULL
+               FROM requests
+               WHERE client_ip IS NOT NULL
+               GROUP BY client_ip, source_type, identity_source, confidence
+               ORDER BY MAX(ts) DESC"#,
+        )?;
+        let sources = stmt
+            .query_map([], |row| {
+                Ok(SourceSummary {
+                    client_ip: row.get(0)?,
+                    source_type: row.get(1)?,
+                    identity_source: row.get(2)?,
+                    confidence: row.get(3)?,
+                    device_id: row.get(6)?,
+                    count: row.get(4)?,
+                    last_ts: row.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let unknown_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM requests WHERE source_type = 'gateway' AND client_ip IS NULL AND identity_source = 'unknown' AND confidence = 'unknown'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(SourceGroups { sources, unknown_count })
+    }
+
     pub fn list(&self, filter: &ListFilter) -> Result<Vec<RequestSummary>> {
         let (sql, params) = self.list_query(filter, true);
         let conn = self.conn.lock().expect("store mutex poisoned");
@@ -511,9 +563,35 @@ impl Store {
                 params.push(Value::Integer(class));
             }
         }
+        if let Some(client_ip) = filter
+            .client_ip
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            where_clauses.push("client_ip = ?".into());
+            params.push(Value::Text(client_ip.to_string()));
+        }
+        if let Some(source_type) = filter
+            .source_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            where_clauses.push("source_type = ?".into());
+            params.push(Value::Text(source_type.to_string()));
+        }
+        if filter.unknown == Some(true) {
+            where_clauses.push(
+                "source_type = 'gateway' AND client_ip IS NULL AND identity_source = 'unknown' AND confidence = 'unknown'"
+                    .into(),
+            );
+        }
 
         let limit = filter.limit.unwrap_or(200).clamp(1, 1000) as i64;
+        let offset = filter.offset.unwrap_or(0) as i64;
         params.push(Value::Integer(limit));
+        params.push(Value::Integer(offset));
 
         let columns = if include_id {
             "id, ts, client_ip, source_type, peer_ip, device_id, connection_id, identity_source, confidence, scheme, method, host, path, status, duration_ms, app, app_source, content_type, length(resp_body)"
@@ -521,7 +599,7 @@ impl Store {
             "*"
         };
         let sql = format!(
-            "SELECT {columns} FROM requests WHERE {} ORDER BY ts DESC, id DESC LIMIT ?",
+            "SELECT {columns} FROM requests WHERE {} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
             where_clauses.join(" AND ")
         );
         (sql, params)
@@ -901,5 +979,77 @@ impl Store {
             result.push(row?);
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn captured(client: Option<&str>, source: &str, identity: &str, confidence: &str, host: &str) -> Captured {
+        Captured {
+            ts_ms: 1000,
+            client_ip: client.map(str::to_string),
+            source_type: source.into(),
+            peer_ip: Some("127.0.0.1".into()),
+            device_id: None,
+            connection_id: Some("conn".into()),
+            identity_source: identity.into(),
+            confidence: confidence.into(),
+            scheme: "https".into(),
+            method: "GET".into(),
+            host: host.into(),
+            path: "/".into(),
+            status: Some(200),
+            duration_ms: Some(1),
+            app: None,
+            app_source: None,
+            req_headers: vec![],
+            req_body: None,
+            req_truncated: false,
+            resp_headers: vec![],
+            resp_body: None,
+            resp_truncated: false,
+            content_type: None,
+            error: None,
+        }
+    }
+
+    fn temp_store(name: &str) -> (Store, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!("proxybot-store-{name}-{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        (Store::open(&path).unwrap(), path)
+    }
+
+    #[test]
+    fn filters_by_source_and_unknown_identity() {
+        let (store, path) = temp_store("filters");
+        store.insert(&captured(Some("192.168.3.190"), "gateway", "tun_source_ip", "inferred", "a.test")).unwrap();
+        store.insert(&captured(Some("192.168.3.191"), "gateway", "tun_source_ip", "inferred", "b.test")).unwrap();
+        store.insert(&captured(None, "gateway", "unknown", "unknown", "c.test")).unwrap();
+        store.insert(&captured(Some("192.168.3.188"), "local_proxy", "unknown", "unknown", "d.test")).unwrap();
+
+        let by_ip = store
+            .list(&ListFilter { client_ip: Some("192.168.3.190".into()), ..Default::default() })
+            .unwrap();
+        assert_eq!(by_ip.len(), 1);
+        assert_eq!(by_ip[0].host, "a.test");
+
+        let unknown = store
+            .list(&ListFilter { unknown: Some(true), ..Default::default() })
+            .unwrap();
+        assert_eq!(unknown.len(), 1);
+        assert_eq!(unknown[0].host, "c.test");
+
+        let groups = store.sources().unwrap();
+        assert_eq!(groups.unknown_count, 1);
+        assert!(groups.sources.iter().any(|s| s.client_ip.as_deref() == Some("192.168.3.190")));
+        assert!(groups.sources.iter().any(|s| s.client_ip.as_deref() == Some("192.168.3.191")));
+        assert!(groups.sources.iter().any(|s| s.client_ip.as_deref() == Some("192.168.3.188")));
+
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 }

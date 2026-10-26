@@ -90,10 +90,15 @@
         <option value="2">2xx</option><option value="3">3xx</option>
         <option value="4">4xx</option><option value="5">5xx</option>
       </select>
+      <select id="source">
+        <option value="all">All sources</option>
+      </select>
+      <button id="reset-filters" class="action" type="button">Reset filters</button>
       <button id="pause" class="action" type="button">Pause</button>
       <button id="clear" class="action" type="button">Clear</button>
       <a id="har" class="action" href="/api/har" download="proxybot.har" style="text-decoration:none">Export HAR</a>
     </div>
+    <div class="chips" id="sources"></div>
     <div class="chips" id="apps">
       <button class="chip active" data-app="all" type="button">All apps</button>
       <button class="chip" data-app="WeChat" type="button">WeChat</button>
@@ -109,14 +114,15 @@
       <table>
         <colgroup>
           <col style="width:92px" /><col style="width:104px" /><col style="width:74px" />
-          <col style="width:190px" /><col /><col style="width:70px" /><col style="width:84px" />
+          <col style="width:140px" /><col style="width:190px" /><col /><col style="width:70px" /><col style="width:84px" />
         </colgroup>
         <thead>
-          <tr><th>Time</th><th>App</th><th>Method</th><th>Host</th><th>Path</th><th>Status</th><th>Duration</th></tr>
+          <tr><th>Time</th><th>App</th><th>Method</th><th>Source</th><th>Host</th><th>Path</th><th>Status</th><th>Duration</th></tr>
         </thead>
         <tbody id="rows"></tbody>
       </table>
       <div id="empty" class="empty">Waiting for traffic. Set the device Wi-Fi HTTP proxy in Setup, then open a page.</div>
+      <button id="more" class="action hidden" type="button" style="margin-top:8px">Load older</button>
     </div>
   </section>
 
@@ -229,7 +235,7 @@ sudo proxybot gateway stop</code></pre>
 </div>
 
 <script>
-const state = { app: "all", paused: false, rows: [], selected: null, setup: null, wsHost: null };
+const state = { app: "all", source: "all", paused: false, rows: [], offset: 0, selected: null, setup: null, wsHost: null };
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -244,7 +250,21 @@ function currentQuery() {
   if (state.app !== "all") params.set("app", state.app);
   if ($("method").value !== "all") params.set("method", $("method").value);
   if ($("status").value !== "all") params.set("status", $("status").value);
+  if (state.source === "unknown") params.set("unknown", "true");
+  else if (state.source !== "all") params.set("client_ip", state.source);
   return params;
+}
+
+function identityLabel(row) {
+  if (row.source_type !== "gateway") return "local proxy";
+  if (row.confidence === "unknown") return "identity unknown";
+  if (row.confidence === "confirmed") return "confirmed";
+  return "inferred";
+}
+
+function identityDetail(row) {
+  if (row.source_type !== "gateway") return "explicit proxy peer IP";
+  return `identity_source=${row.identity_source}; confidence=${row.confidence}; peer_ip=${row.peer_ip || "unknown"}`;
 }
 
 function renderRow(row) {
@@ -254,7 +274,8 @@ function renderRow(row) {
     <td class="mono muted">${esc(fmtTime(row.ts))}</td>
     <td><span class="app">${esc(row.app || "—")}</span></td>
     <td class="mono">${esc(row.method)}</td>
-    <td class="mono" title="${esc(row.host)}">${row.source_type && row.source_type !== "local_proxy" ? `<span class="chip" style="padding:1px 6px;font-size:10px">${esc(row.source_type)}</span> ` : ""}${esc(row.host)}</td>
+    <td class="mono" title="${esc(identityDetail(row))}">${esc(row.client_ip || "unknown")}<br><span class="app">${esc(identityLabel(row))}</span></td>
+    <td class="mono" title="${esc(row.host)}">${esc(row.host)}</td>
     <td class="mono" title="${esc(row.path)}">${esc(row.path)}</td>
     <td class="mono ${statusClass(row.status)}">${row.status ?? "–"}</td>
     <td class="mono muted">${esc(fmtDuration(row.duration_ms))}</td>`;
@@ -276,13 +297,75 @@ function updateHarLink() {
   $("har").href = "/api/har" + (params.toString() ? "?" + params.toString() : "");
 }
 
-async function loadRequests() {
+async function loadRequests(append = false) {
   const params = currentQuery();
   params.set("limit", "300");
+  params.set("offset", String(append ? state.offset : 0));
   const response = await fetch("/api/requests?" + params.toString());
   if (!response.ok) return;
-  state.rows = await response.json();
+  const rows = await response.json();
+  if (append) {
+    state.rows = state.rows.concat(rows);
+    state.offset += rows.length;
+  } else {
+    state.rows = rows;
+    state.offset = rows.length;
+  }
   renderRows();
+  $("more").classList.toggle("hidden", rows.length < 300);
+}
+
+$("more").addEventListener("click", () => loadRequests(true));
+
+async function loadSources() {
+  const response = await fetch("/api/devices");
+  if (!response.ok) return;
+  const data = await response.json();
+  const select = $("source");
+  const counts = new Map();
+  for (const item of data.sources || []) {
+    if (!item.client_ip) continue;
+    counts.set(item.client_ip, (counts.get(item.client_ip) || 0) + item.count);
+  }
+  const options = ['<option value="all">All sources</option>'];
+  if (data.unknown_count > 0) options.push(`<option value="unknown">Unknown identity (${data.unknown_count})</option>`);
+  for (const [ip, count] of [...counts.entries()].sort()) {
+    options.push(`<option value="${esc(ip)}">${esc(ip)} (${count})</option>`);
+  }
+  select.innerHTML = options.join("");
+  select.value = state.source;
+  const chips = ['<button class="chip" data-source="all" type="button">All sources</button>'];
+  if (data.unknown_count > 0) {
+    chips.push(`<button class="chip" data-source="unknown" type="button">Unknown identity (${data.unknown_count})</button>`);
+  }
+  for (const [ip, count] of [...counts.entries()].sort()) {
+    chips.push(`<button class="chip" data-source="${esc(ip)}" type="button">${esc(ip)} (${count})</button>`);
+  }
+  const sourceBox = $("sources");
+  sourceBox.innerHTML = chips.join("");
+  sourceBox.querySelectorAll(".chip").forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.source === state.source);
+    chip.addEventListener("click", () => {
+      state.source = chip.dataset.source;
+      loadRequests();
+    });
+  });
+  if (select.value !== state.source) {
+    state.source = "all";
+    select.value = "all";
+  }
+}
+
+function resetFilters() {
+  $("q").value = "";
+  $("method").value = "all";
+  $("status").value = "all";
+  $("source").value = "all";
+  state.app = "all";
+  state.source = "all";
+  state.offset = 0;
+  document.querySelectorAll("#apps .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.app === "all"));
+  loadRequests();
 }
 
 async function openDetail(id) {
@@ -298,12 +381,17 @@ async function openDetail(id) {
     <h3>Summary</h3>
     <div class="kv">
       <div>App</div><div>${esc(detail.app || "—")} <span class="muted">(${esc(detail.app_source || "unmatched")})</span></div>
-      <div>Client</div><div>${esc(detail.client_ip || "—")}</div>
+      <div>Source</div><div>${esc(detail.client_ip || "unknown")}</div>
+      <div>Peer</div><div>${esc(detail.peer_ip || "—")}</div>
+      <div>Device</div><div>${detail.device_id ? esc(detail.device_id) : "unregistered"}</div>
+      <div>Identity</div><div>${esc(detail.identity_source || "unknown")} · ${esc(detail.confidence || "unknown")}</div>
+      <div>Connection</div><div>${esc(detail.connection_id || "—")}</div>
       <div>Status</div><div class="${statusClass(detail.status)}">${detail.status ?? "–"}</div>
       <div>Duration</div><div>${esc(fmtDuration(detail.duration_ms))}</div>
       <div>URL</div><div>${esc(url)}</div>
     </div>
     <div class="toolbar" style="margin-top:12px">
+      <button class="action" type="button" id="view-source" ${detail.client_ip ? "" : "disabled"}>View source requests</button>
       <button class="action" type="button" id="copy-curl">Copy as cURL</button>
       <a class="action" href="/api/har?q=${encodeURIComponent(detail.host)}" download="proxybot.har" style="text-decoration:none">Export host HAR</a>
     </div>
@@ -316,6 +404,13 @@ async function openDetail(id) {
     <h3>Response body</h3>
     ${bodyBlock(detail.resp_body)}
     ${detail.error ? `<h3>Error</h3><pre>${esc(detail.error)}</pre>` : ""}`;
+  body.querySelector("#view-source").addEventListener("click", () => {
+    if (!detail.client_ip) return;
+    state.source = detail.client_ip;
+    $("source").value = detail.client_ip;
+    loadRequests();
+    $("detail").classList.remove("open");
+  });
   body.querySelector("#copy-curl").addEventListener("click", async () => {
     const headers = detail.req_headers
       .filter(([name]) => !["content-length", "host"].includes(name.toLowerCase()))
@@ -520,6 +615,8 @@ $("ws-refresh").addEventListener("click", () => { loadWsHosts(); });
 $("rules-save").addEventListener("click", saveRules);
 
 loadRequests();
+loadSources();
+setInterval(() => { if (!state.paused) loadSources(); }, 5000);
 loadSetup();
 connectStream();
 setInterval(() => {
