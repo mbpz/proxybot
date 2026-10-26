@@ -25,7 +25,9 @@ struct State {
 }
 
 fn state_dir() -> PathBuf {
-    std::env::temp_dir().join("proxybot-gateway")
+    // Keep root state/logs in a user-readable location. `temp_dir()` under sudo
+    // points at the root-only /var/folders path, which hides the failure log.
+    PathBuf::from("/tmp/proxybot-gateway")
 }
 fn state_path() -> PathBuf {
     state_dir().join("state.json")
@@ -118,10 +120,12 @@ fn read_state() -> Option<State> {
 }
 
 fn alive(pid: u32) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .status()
-        .map(|status| status.success())
+    // `kill -0` fails with EPERM when `gateway status` runs as the normal user
+    // against a root-owned sing-box; `ps` is readable and reports the truth.
+    Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "pid="])
+        .output()
+        .map(|out| out.status.success() && !String::from_utf8_lossy(&out.stdout).trim().is_empty())
         .unwrap_or(false)
 }
 
@@ -186,7 +190,10 @@ pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<
     fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
     let log_path = dir.join("singbox.log");
     let log = File::create(&log_path)?;
-    let child = Command::new(&bin)
+    // `nohup` detaches from the controlling terminal; without it, sing-box can
+    // receive SIGHUP when `gateway start` returns.
+    let child = Command::new("/usr/bin/nohup")
+        .arg(&bin)
         .args(["run", "-c"])
         .arg(&config_path)
         .stdout(Stdio::from(log.try_clone()?))
@@ -244,6 +251,14 @@ pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<
         let _ = cleanup(&state);
         let _ = fs::remove_file(state_path());
         return Err(error).context("install pf route-to; previous state restored");
+    }
+
+    thread::sleep(Duration::from_millis(300));
+    if !alive(state.pid) {
+        let tail = fs::read_to_string(&log_path).unwrap_or_default();
+        let _ = cleanup(&state);
+        let _ = fs::remove_file(state_path());
+        bail!("sing-box exited immediately after start\n--- log ---\n{tail}");
     }
 
     // Detached watchdog: restore pf if sing-box exits unexpectedly.
