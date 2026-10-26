@@ -15,8 +15,10 @@ after that.
   GPL, which is not the current license).
 - Go + gVisor user-space network stack; macOS build verified locally
   (`darwin/arm64`, 16 MB binary).
-- Proxy outlets: `direct`, `http`, `socks4`, `socks5`, `shadowsocks`, `ssh`,
-  `relay`, `reject`; supports gateway mode.
+- Proxy outlets: `direct://`, `http://`, `socks4://`, `socks5://`,
+  `shadowsocks://`, `ssh://`, `relay://`, `reject://`; supports gateway mode.
+  Always include `://`: without it tun2socks defaults to `socks5://` and a bare
+  `direct` becomes `socks5://direct` (UDP then fails with "missing port").
 - Device drivers (from `engine/parse.go`):
   - `tun://utunN` — engine creates/opens a TUN.
   - `fd://N` — attach an existing TUN file descriptor; on Darwin/iOS the
@@ -69,7 +71,7 @@ sudo sh minimal/pf-tun-test.sh restore 2>/dev/null || true
 # 1. Engine-owned TUN, direct outlet (no proxy): TCP/UDP closed loop
 #    (local build from source: /tmp/tun2socks/tun2socks)
 sudo /tmp/tun2socks/tun2socks \
-  -device tun://utun6 -proxy direct -interface en1 --loglevel debug
+  -device tun://utun6 -proxy direct:// -interface en1 --loglevel debug
 
 # 2. Second terminal: route forwarded phone traffic into that utun
 sudo sh minimal/pf-tun-test.sh install utun6
@@ -92,6 +94,6 @@ Expected results:
 | ICMP | engine may not forward; record actual behavior |
 | IPv6 | not enabled in this probe; record as unsupported/blocked |
 
-Then repeat with `-proxy http://127.0.0.1:8088` while `proxybot start` is running
+Then repeat with `-proxy http://127.0.0.1:8088` (scheme included) while `proxybot start` is running
 to verify TCP through the existing MITM proxy. Do not assume UDP follows HTTP
 CONNECT; test it separately (SOCKS5 UDP associate is the likely requirement).
