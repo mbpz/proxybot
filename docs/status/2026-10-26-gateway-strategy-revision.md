@@ -46,7 +46,9 @@
    Engine evaluation: `docs/status/2026-10-26-tun-engine-evaluation.md`;
    tun2socks (MIT) is the chosen candidate for the TCP/UDP closed loop, with
    sing-box (GPL-3.0) as a reference/alternative. **Direct TUN/TCP/UDP closed
-   loop passed** with tun2socks `direct://`; next is the HTTP-proxy/MITM outlet.
+   loop passed** with tun2socks `direct://`. HTTP proxy outlet is insufficient:
+   no UDP/DNS, and CONNECT-for-port-80 breaks plain HTTP through hudsucker.
+   Next: SOCKS5 (TCP CONNECT + UDP ASSOCIATE) outlet.
 4. Evaluate Network Extension only if productisation requires system lifecycle
    and supported interception.
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must

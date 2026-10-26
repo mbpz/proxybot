@@ -75,9 +75,22 @@ The `direct://` closed loop passed:
 - a bare `direct` proxy argument is parsed as `socks5://direct` and breaks UDP;
   the scheme-qualified `direct://` is required.
 
-Next: repeat the same probe with `--proxy http://127.0.0.1:8088` while ProxyBot's
-HTTP proxy is running, to verify TCP CONNECT/MITM. UDP with an HTTP proxy is not
-expected to work; SOCKS5 UDP associate must be evaluated separately.
+### HTTP proxy outlet result (2026-10-26): not sufficient
+
+Tested with `--proxy http://127.0.0.1:8088` and ProxyBot's HTTP proxy:
+
+- UDP: `dial 223.5.5.5:53: unsupported operation` — the HTTP proxy implementation
+  has no UDP support, so DNS fails and the gateway is unusable for normal apps.
+- TCP: tun2socks uses HTTP `CONNECT` for every TCP destination, including port
+  80. Hudsucker expects absolute-form requests for plain HTTP, so it logged
+  `Unknown protocol, read '[50,4F,53,54]' (POST)` / TLS handshake errors.
+- Conclusion: an HTTP proxy is **not** a complete gateway outlet. The TUN engine
+  needs a SOCKS5 outlet with TCP CONNECT **and UDP ASSOCIATE** (for DNS/QUIC),
+  or a different engine/outlet design.
+
+Next: add/evaluate a SOCKS5 server (TCP CONNECT + UDP ASSOCIATE) and use
+`--proxy socks5://127.0.0.1:1080`. Keep the direct outlet as the reference
+closed loop.
 
 ## Test procedure
 
