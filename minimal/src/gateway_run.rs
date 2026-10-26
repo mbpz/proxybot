@@ -711,7 +711,12 @@ pub fn status() -> Result<()> {
     let tun_addr = tun_inet(&state.tun);
     let proxy_open = proxyport_open();
     let current_network = crate::gateway::detect(8089).ok();
-    let unhealthy = !supervisor_alive || !child_alive || !tun_present || heartbeat_age > 10;
+    let network_changed = match current_network.as_ref() {
+        Some(net) => net.interface != state.iface || net.lan_cidr != state.cidr,
+        None => true,
+    };
+    let unhealthy =
+        !supervisor_alive || !child_alive || !tun_present || heartbeat_age > 10 || network_changed;
     let display = if state.state == "running" && unhealthy {
         "stale"
     } else if state.state == "running" {
@@ -753,6 +758,10 @@ pub fn status() -> Result<()> {
         println!("  stale state: supervisor is not running");
     } else if supervisor_alive && !child_alive && state.state == "running" {
         println!("  stale state: sing-box is not running");
+    } else if supervisor_alive && !tun_present && state.state == "running" {
+        println!("  stale state: TUN interface is missing");
+    } else if network_changed && state.state == "running" {
+        println!("  stale state: default network/CIDR changed or unavailable");
     } else if supervisor_alive && heartbeat_age > 10 {
         println!("  stale state: heartbeat is old");
     }

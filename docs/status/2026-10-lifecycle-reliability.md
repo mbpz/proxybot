@@ -28,6 +28,23 @@ and marks `stale` if the supervisor, child, TUN, heartbeat or default network
 does not match the recorded state. It diagnoses only; it does not silently
 reconfigure.
 
+## Test results (2026-10-26)
+
+### Sleep/wake while running: PASS (baseline)
+
+After `pmset sleepnow` and wake:
+
+```text
+gateway: running
+health tun=up (10.255.0.1) child=alive proxy=ok
+network en1 192.168.3.0/24 (state expected en1 192.168.3.0/24)
+forwarding: 1
+Mac https: 200
+```
+
+No stale state, TUN and child survived. Phone-after-wake and Wi-Fi change tests
+remain.
+
 ## Required tests (first batch)
 
 Run in a recoverable test environment; do not test during important work.
