@@ -29,8 +29,11 @@ case "$1" in
       exit 1
     fi
     cat > "$CONF" <<RULES
-# Only forwarded destinations: never steal traffic destined to the Mac itself
-# or to other LAN hosts (router DNS/DHCP/ICMP), which would break Mac internet.
+# Keep multicast/broadcast on the normal path (mDNS, discovery), then route
+# only internet-bound traffic: never steal traffic destined to the Mac itself or
+# to other LAN hosts (router DNS/DHCP/ICMP), which would break Mac internet.
+pass in quick on ${IFACE} inet from ${CIDR} to 224.0.0.0/4 keep state
+pass in quick on ${IFACE} inet from ${CIDR} to 255.255.255.255/32 keep state
 pass in quick on ${IFACE} route-to (${TUN} ${PEER}) inet from ${CIDR} to ! ${CIDR} keep state
 RULES
     pfctl -n -f "$CONF"

@@ -49,7 +49,9 @@ This probe is deliberately smaller than a transparent proxy:
   which validates the packet path. Bug found: the initial route-to rule matched
   every inbound packet from the LAN, including router DNS/DHCP/ICMP addressed to
   the Mac, so the Mac also lost internet. The rule now excludes LAN destinations
-  (`to ! <lan_cidr>`) and only forwards internet-bound phone traffic.
+  (`to ! <lan_cidr>`) and only forwards internet-bound phone traffic; a second
+  live run then captured 165 packets, all from the iPhone (DNS/ICMP/TCP/UDP to
+  public destinations), while the Mac kept its internet access.
 - `minimal/pf-tun-test.sh install utunN` loads the route-to rule; `restore`
   removes it and restores forwarding.
 - Both are local tools only; not integrated into `proxybot start --gateway`.
