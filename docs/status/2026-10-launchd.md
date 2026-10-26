@@ -38,6 +38,16 @@ The plist is `/Library/LaunchDaemons/com.proxybot.gateway.plist`, label
   because the installed plist owns them. Reinstall to change sing-box/TUN/device
   arguments.
 
+## One-command test runner
+
+```bash
+sudo sh minimal/gateway-launchd-test.sh
+```
+
+It installs the service, verifies no autostart, explicit start, duplicate-start
+rejection, crash/no-auto-restart, explicit restart, stop/no-restart, uninstall
+cleanup, and Mac internet. It always stops/uninstalls in the trap.
+
 ## Test matrix (pending)
 
 1. Install service while stopped: job loaded, gateway remains `stopped`.
