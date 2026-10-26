@@ -45,6 +45,11 @@ This probe is deliberately smaller than a transparent proxy:
 
 - `proxybot tun-probe` creates a utun, prints forwarded packets (IP/TCP/UDP),
   and exits after `--duration`; no return path.
+- First live run: TUN ingress worked (63 packets, including iPhone DNS/ICMP),
+  which validates the packet path. Bug found: the initial route-to rule matched
+  every inbound packet from the LAN, including router DNS/DHCP/ICMP addressed to
+  the Mac, so the Mac also lost internet. The rule now excludes LAN destinations
+  (`to ! <lan_cidr>`) and only forwards internet-bound phone traffic.
 - `minimal/pf-tun-test.sh install utunN` loads the route-to rule; `restore`
   removes it and restores forwarding.
 - Both are local tools only; not integrated into `proxybot start --gateway`.

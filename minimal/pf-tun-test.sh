@@ -29,7 +29,9 @@ case "$1" in
       exit 1
     fi
     cat > "$CONF" <<RULES
-pass in quick on ${IFACE} route-to (${TUN} ${PEER}) inet from ${CIDR} to any keep state
+# Only forwarded destinations: never steal traffic destined to the Mac itself
+# or to other LAN hosts (router DNS/DHCP/ICMP), which would break Mac internet.
+pass in quick on ${IFACE} route-to (${TUN} ${PEER}) inet from ${CIDR} to ! ${CIDR} keep state
 RULES
     pfctl -n -f "$CONF"
     PREV="$(sysctl -n net.inet.ip.forwarding)"
