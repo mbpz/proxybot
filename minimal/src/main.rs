@@ -10,6 +10,7 @@ mod rules;
 mod store;
 mod transparent;
 mod sniff;
+mod tun_probe;
 mod web;
 
 use anyhow::{Context, Result};
@@ -44,6 +45,8 @@ enum Command {
     List,
     /// Passive packet capture (flows, DNS, TLS SNI); requires root.
     Sniff(sniff::SniffArgs),
+    /// EXPERIMENTAL: create a utun and print packets routed into it (root).
+    TunProbe(tun_probe::TunProbeArgs),
 }
 
 #[derive(Args)]
@@ -159,6 +162,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Sniff(args) => sniff::run(args),
+        Command::TunProbe(args) => tun_probe::run(args),
     }
 }
 
@@ -230,6 +234,19 @@ fn print_command_list() {
     println!("        proxybot rules show | head -40");
     println!("        proxybot rules reset");
     println!();
+    println!("TUN PROBE (EXPERIMENTAL; ingress/return feasibility, requires sudo)");
+    println!("  tun-probe");
+    println!("      Create a utun interface and print IP packets routed into it.");
+    println!("      Does not forward or reply; intended to prove forwarded-device");
+    println!("      packets can enter a TUN before building a user-space engine.");
+    println!("      --duration <SECONDS>   run time (default 30)");
+    println!("      --address <IP>         local TUN address (default 10.255.0.1)");
+    println!("      --peer <IP>            TUN peer address (default 10.255.0.2)");
+    println!();
+    println!("      Examples:");
+    println!("        sudo proxybot tun-probe --duration 60");
+    println!("        sudo sh minimal/pf-tun-test.sh install utunN   # after it prints utunN");
+    println!();
     println!("SNIFF (EXPERIMENTAL; passive observation, requires sudo)");
     println!("  sniff");
     println!("      Capture packets on the default-route interface and print flow,");
@@ -252,7 +269,7 @@ fn print_command_list() {
     println!("  PROXYBOT_TRANSPARENT_BIND=all    dev/test override: bind the transparent");
     println!("                                   adapter on 0.0.0.0 outside --gateway mode");
     println!("  Installer (minimal/install.sh):");
-    println!("    PROXYBOT_VERSION=0.1.10         pin a CLI release");
+    println!("    PROXYBOT_VERSION=0.1.11         pin a CLI release");
     println!("    PROXYBOT_PREFIX=/usr/local/bin install prefix (default ~/.local/bin)");
     println!("    PROXYBOT_LOCAL_BINARY=<path>   install an already-built binary");
     println!("    PROXYBOT_DOWNLOAD_BASE=<url>   mirror serving proxybot-min-*.tar.gz");

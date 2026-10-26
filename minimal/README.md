@@ -175,6 +175,26 @@ final top-destination summary. This only sees packets that actually reach the Ma
 (capture on the same interface; forwarding must already work). It cannot decrypt
 HTTPS, and ECH/DoH can hide SNI/DNS. Requires root for BPF.
 
+## TUN forwarding probe (experimental, root)
+
+Before adding any user-space engine or MITM, prove that forwarded iPhone packets
+can enter a TUN interface:
+
+```bash
+# Terminal 1 (creates utunN and prints it)
+sudo proxybot tun-probe --duration 60
+
+# Terminal 2 (routes forwarded phone traffic into that utun; no return path)
+sudo sh minimal/pf-tun-test.sh install utunN
+
+# Watch terminal 1 for IP/TCP/UDP headers, then restore
+sudo sh minimal/pf-tun-test.sh restore
+```
+
+The phone has **no internet** while the route-to rule is active (there is no
+return path yet); keep it on automatic IP when not testing. This probe does not
+involve the HTTP proxy or MITM.
+
 ## Current status
 
 Verified on an iPhone (2026-10-24): HTTP proxy mode captured Safari and WeChat

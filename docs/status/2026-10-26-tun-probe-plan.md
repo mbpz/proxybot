@@ -41,6 +41,14 @@ This probe is deliberately smaller than a transparent proxy:
   or TCP stack.
 - Keep the HTTP proxy mode untouched; this is a separate experiment.
 
+## Implementation status (2026-10-26)
+
+- `proxybot tun-probe` creates a utun, prints forwarded packets (IP/TCP/UDP),
+  and exits after `--duration`; no return path.
+- `minimal/pf-tun-test.sh install utunN` loads the route-to rule; `restore`
+  removes it and restores forwarding.
+- Both are local tools only; not integrated into `proxybot start --gateway`.
+
 ## Non-goals
 
 - No full TCP stack implementation from scratch; evaluate mature user-space
