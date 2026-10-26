@@ -35,11 +35,15 @@
 
 1. `proxybot sniff` (implemented and verified 2026-10-26): interface, device
    filter, DNS, TLS SNI, flow/connection statistics; terminal + optional JSONL
-   log. Real run on en1: 298 packets / 45 flows unfiltered, and 19 packets /
-   8 flows with `--device 192.168.3.190` (the iPhone's current IP).
+   log. Real runs on en1: 298 packets / 45 flows unfiltered; with
+   `--device 192.168.3.190` it captured DNS queries (example.com, google.com,
+   calendar.google.com, apple-dns, qq/wechat CDNs) and TLS SNI (ecosia.org,
+   bing.com, example.com, google, apple, finderbdy/findercsysw.video.qq.com,
+   mmbiz.qpic.cn), plus QUIC/UDP flows. Acceptance for C passed.
 2. Gateway forwarding was validated (Stage 1). Keep it as a prerequisite check,
    not a product feature.
-3. TUN minimal prototype: prove forwarded packets enter TUN and return.
+3. TUN minimal prototype: prove forwarded packets enter TUN and return. Plan:
+   `docs/status/2026-10-26-tun-probe-plan.md`.
 4. Evaluate Network Extension only if productisation requires system lifecycle
    and supported interception.
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must
