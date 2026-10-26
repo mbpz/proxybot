@@ -59,15 +59,18 @@ proxybot gateway status
 sudo proxybot gateway stop
 ```
 
-## Failure injection still to perform
+## Failure injection evidence
 
-1. normal start/stop;
-2. kill sing-box (not supervisor) while running → `exited`, exit code/signal,
-   recovery success, Mac/iPhone return to normal;
-3. sing-box startup failure → start returns non-zero and no pf remains;
-4. repeated stop → idempotent;
-5. stale state → status reports stale, does not kill unrelated PIDs;
-6. forced recovery failure → `recovery_failed` is visible.
+1. normal start/status → `running`, supervisor and child PIDs recorded.
+2. `sudo kill -TERM <sing-box-pid>` while running:
+   - supervisor recorded `exited`, exit code 0 (sing-box handles TERM
+     gracefully), recovery `success`;
+   - `utun6` disappeared, `net.inet.ip.forwarding` restored to 0, Mac HTTPS 200.
+   - Note: because sing-box exits 0 on graceful TERM, the supervisor cannot
+     distinguish this from a self-exit; it reports `unexpected_child_exit`
+     rather than `signal_terminated`.
+3. Startup failure, repeated stop, stale state and forced recovery failure are
+   still to verify.
 
 ## Known limits
 

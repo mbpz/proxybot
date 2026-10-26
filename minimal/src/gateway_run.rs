@@ -227,7 +227,9 @@ fn terminate_child(child: &mut Child, dir: &Path) {
 
 fn exit_status_fields(status: &std::process::ExitStatus) -> (Option<i32>, Option<i32>, &'static str) {
     if let Some(code) = status.code() {
-        (Some(code), None, if code == 0 { "normal_exit" } else { "unexpected_child_exit" })
+        // sing-box handles SIGTERM and can exit 0; from the supervisor's point
+        // of view any child exit while running is still unexpected.
+        (Some(code), None, "unexpected_child_exit")
     } else if let Some(signal) = status.signal() {
         (None, Some(signal), "signal_terminated")
     } else {
