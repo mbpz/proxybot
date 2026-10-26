@@ -479,14 +479,26 @@ pub fn stop() -> Result<()> {
         return Ok(());
     };
     if !alive(state.supervisor_pid) {
+        if state.state == "stopped" && state.recovery_status == "success" {
+            println!("gateway is already stopped");
+            return Ok(());
+        }
         // Stale state: recover what we can, but never kill an unrelated PID.
         state.state = "recovering".into();
         let _ = write_state(&state);
         let recovery = restore_network(&state, Path::new(&state.log_dir));
         state.recovery_status = if recovery.is_ok() { "success" } else { "failed" }.into();
-        state.state = if recovery.is_ok() { "exited" } else { "recovery_failed" }.into();
+        state.state = if recovery.is_ok() {
+            "stopped"
+        } else {
+            "recovery_failed"
+        }
+        .into();
         let _ = write_state(&state);
-        println!("gateway stopped (stale supervisor state recovered)");
+        println!(
+            "gateway stopped (stale supervisor state; recovery: {})",
+            state.recovery_status
+        );
         return Ok(());
     }
     state.state = "stopping".into();
@@ -509,7 +521,12 @@ pub fn stop() -> Result<()> {
     let _ = Command::new("kill").args(["-KILL", &state.supervisor_pid.to_string()]).status();
     let recovery = restore_network(&state, Path::new(&state.log_dir));
     state.recovery_status = if recovery.is_ok() { "success" } else { "failed" }.into();
-    state.state = if recovery.is_ok() { "exited" } else { "recovery_failed" }.into();
+    state.state = if recovery.is_ok() {
+        "stopped"
+    } else {
+        "recovery_failed"
+    }
+    .into();
     let _ = write_state(&state);
     println!("gateway stopped (forced; recovery: {})", state.recovery_status);
     Ok(())

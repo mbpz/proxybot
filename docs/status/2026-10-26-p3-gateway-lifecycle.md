@@ -69,8 +69,14 @@ sudo proxybot gateway stop
    - Note: because sing-box exits 0 on graceful TERM, the supervisor cannot
      distinguish this from a self-exit; it reports `unexpected_child_exit`
      rather than `signal_terminated`.
-3. Startup failure, repeated stop, stale state and forced recovery failure are
-   still to verify.
+3. `--singbox /nonexistent`: start returns non-zero before spawning a supervisor;
+   no new pf/TUN remains.
+4. Normal stop: `stopped`, recovery success; second stop is idempotent.
+5. `kill -9 <sing-box>`: `exit_signal=9`, `exit_reason=signal_terminated`,
+   recovery success, `utun6` gone, forwarding restored, Mac 200.
+6. Stale state after an exited instance is recovered by `stop`; the status
+   transition is being tightened to `stopped` so repeated stop is quiet.
+7. Forced recovery failure is still to verify.
 
 ## Known limits
 
