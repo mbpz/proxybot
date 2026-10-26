@@ -86,7 +86,10 @@ Do not forge the device IP into `client_ip`; filtering/statistics should use
 - Implemented `proxybot singbox-config [--block-quic]`: default UDP/443 direct;
   optional sing-box route-layer reject for fallback tests.
 - Setup shows the policy; request list never fakes UDP rows.
-- Acceptance checklist: `docs/status/2026-10-26-p2-quic-policy.md`.
+- **P2 passed**: default direct and block mode compared on the phone; Bilibili
+  fell back to TCP/TLS and remained captured, UDP/443 reject matched, DNS and
+  Mac internet unaffected, cleanup restored the phone. See
+  `docs/status/2026-10-26-p2-quic-policy.md`.
 
 ### P3 — gateway lifecycle
 

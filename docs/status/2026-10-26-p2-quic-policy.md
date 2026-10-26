@@ -36,7 +36,11 @@ direct` or `blocked (fallback test)`.
 - sing-box log: `router: pre-match[3] network=udp port=443 => reject` matched
   the phone's QUIC attempts; no UDP rows were fabricated.
 - TCP/80, DNS (`223.5.5.5:53`) and the Mac's own internet remained working.
-- Cleanup/restore is the remaining checklist item for this run.
+- Cleanup/restore confirmed: ProxyBot and sing-box stopped, `utun6` gone, pf
+  anchors flushed, Mac HTTPS 200, iPhone back on automatic networking.
+  (`net.inet.ip.forwarding` returned to its previously saved value of 1; with no
+  TUN/route rules this is inert, but `sudo sysctl -w net.inet.ip.forwarding=0`
+  can be used if a fully pristine state is desired.)
 
 ## Acceptance checklist
 
@@ -47,7 +51,7 @@ direct` or `blocked (fallback test)`.
 | 3 | TCP fallback | browser may switch to TCP/TLS; record if it does |
 | 4 | Fallback HTTPS MITM | if fallback works, HTTPS still appears in ProxyBot |
 | 5 | No collateral damage | DNS, TCP/80, TCP/443 and Mac internet unaffected |
-| 6 | Clean restore | stop gateway; no temporary policy remains, iPhone recovers |
+| 6 | Clean restore | **PASS** — no processes/utun/pf route; iPhone recovered |
 
 Important: a page failure after blocking QUIC is not automatically a bug; a
 successful fallback is not guaranteed for every app. Record "rule effective"
