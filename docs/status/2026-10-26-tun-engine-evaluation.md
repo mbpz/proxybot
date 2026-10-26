@@ -115,8 +115,32 @@ This version/config does not show the reported 1.14.x UDP-relay failure; still,
 the full path must be validated through tun2socks + iPhone, not just the local
 SOCKS test.
 
-Next: `tun2socks --proxy socks5://127.0.0.1:1080` + pf route-to, then verify
-TCP, DNS, UDP/QUIC and Mac isolation on the phone.
+### SOCKS5 + MITM routing validation (local)
+
+After adding a sing-box HTTP outbound to Hudsucker and routing only **TCP 443**
+to it:
+
+```json
+"outbounds": [
+  {"type":"http","tag":"mitm","server":"127.0.0.1","server_port":8088},
+  {"type":"direct","tag":"direct"}
+],
+"route": {"rules":[{"network":["tcp"],"port":443,"outbound":"mitm"}],"final":"direct"}
+```
+
+Config: `minimal/examples/singbox-mitm.json`.
+
+Results on the Mac (local SOCKS client):
+
+- `curl --socks5-hostname 127.0.0.1:1080 --cacert ca.pem https://example.com`
+  → 200, and ProxyBot captured/decrypted the request;
+- plain HTTP 80 → direct, 200;
+- UDP DNS via SOCKS5 UDP ASSOCIATE → matching response (`PASS`);
+- route rule must be `network: ["tcp"]`; otherwise UDP 443 hits the HTTP outbound
+  and logs `UDP is not supported by outbound`.
+
+This establishes the phased path: **TCP/443 → Hudsucker MITM; TCP/80 direct for
+now; UDP/DNS direct**. Phone validation is next.
 
 ## Test procedure
 

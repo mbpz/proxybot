@@ -1,0 +1,16 @@
+{
+  "log": {"level": "debug"},
+  "inbounds": [
+    {"type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": 1080}
+  ],
+  "outbounds": [
+    {"type": "http", "tag": "mitm", "server": "127.0.0.1", "server_port": 8088},
+    {"type": "direct", "tag": "direct"}
+  ],
+  "route": {
+    "rules": [
+      {"network": ["tcp"], "port": 443, "outbound": "mitm"}
+    ],
+    "final": "direct"
+  }
+}
