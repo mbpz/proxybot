@@ -76,14 +76,22 @@ recovery success
 
 Sleep/wake did not restart the gateway.
 
-### Remaining first-batch tests
+### Cross-network / manual-stop matrix
 
-- sleep while Wi-Fi is disconnected;
-- Wi-Fi switch to a different CIDR / IP change (expect stale, no silent
-  reconfiguration);
-- wake with sing-box/TUN missing;
-- iPhone routing after Wi-Fi reconnect;
-- recovery-failure visibility (already exercised in P3).
+Completed lifecycle runner run (`/tmp/proxybot-lifecycle-20261026-234650`):
+
+```text
+PASS=13 FAIL=0 SKIP=0
+```
+
+Covered: start, sleep/wake, Wi-Fi off/on, different Wi-Fi/CIDR stale detection,
+manual stop, TUN removal, forwarding restore, Mac internet. Earlier direct tests
+also covered manual-stop sleep/wake and kill -9 recovery; recovery-failure
+injection was verified in P3.
+
+Known boundary: the runner aborted at the second sleep prompt in one run, and
+phone browsing after each network event remains a manual check. These are
+recorded limitations, not silent passes.
 
 ## Required tests (first batch)
 

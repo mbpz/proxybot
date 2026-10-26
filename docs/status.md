@@ -29,8 +29,9 @@ This is the single status overview. Phase records live under `docs/status/`.
 - Source/device UI: source dropdown grouping by `client_ip`, unknown-identity
   filter, identity labels, detail navigation and offset pagination; browser
   interaction verified.
-- Lifecycle baseline: sleep/wake, Wi-Fi loss/reconnect detection, and manual-stop
-  sleep/wake passed; launchd and IP-change reconfiguration remain gated.
+- Lifecycle baseline: sleep/wake, Wi-Fi loss/reconnect, different-Wi-Fi stale
+  detection, manual-stop sleep/wake and recovery passed. launchd and automatic
+  IP-change reconfiguration remain gated.
 
 ## Not verified / not supported
 
