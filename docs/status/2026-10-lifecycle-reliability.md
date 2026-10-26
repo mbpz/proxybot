@@ -42,8 +42,48 @@ forwarding: 1
 Mac https: 200
 ```
 
-No stale state, TUN and child survived. Phone-after-wake and Wi-Fi change tests
-remain.
+No stale state, TUN and child survived; phone regained internet after wake.
+
+### Wi-Fi off/on while running: PASS (detection)
+
+After turning Wi-Fi off:
+
+```text
+gateway: stale
+health tun=up child=alive proxy=ok
+network unknown (Wi-Fi down or default route missing)
+stale state: default network/CIDR changed or unavailable
+```
+
+After reconnecting to the same network:
+
+```text
+gateway: running
+network en1 192.168.3.0/24
+TUN up, forwarding 1, Mac https 200
+```
+
+This verifies detection, not automatic reconfiguration. Phone traffic after
+reconnect is still to be explicitly recorded.
+
+### Manual stop, then sleep/wake: PASS
+
+```text
+gateway: stopped
+exit reason supervisor_stop_requested
+recovery success
+```
+
+Sleep/wake did not restart the gateway.
+
+### Remaining first-batch tests
+
+- sleep while Wi-Fi is disconnected;
+- Wi-Fi switch to a different CIDR / IP change (expect stale, no silent
+  reconfiguration);
+- wake with sing-box/TUN missing;
+- iPhone routing after Wi-Fi reconnect;
+- recovery-failure visibility (already exercised in P3).
 
 ## Required tests (first batch)
 
