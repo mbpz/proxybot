@@ -61,6 +61,24 @@ Use **tun2socks** for the next prototype.
 - Keep `fd://N` as a follow-up option if engine-owned TUN lifecycle becomes a
   problem; it avoids changing the existing pf route-to target.
 
+## Validation result (2026-10-26)
+
+The `direct://` closed loop passed:
+
+- tun2socks created `utun6`, log showed `[STACK] tun://utun6 <-> direct://`;
+- `minimal/pf-tun-test.sh install utun6` configured `10.255.0.1/10.255.0.2`
+  and loaded the route-to rule;
+- the iPhone got internet again and the engine logged both **TCP** and **UDP**
+  sessions (DNS to 223.5.5.5, TCP 80/443, app UDP);
+- occasional `connection refused`/`reset` messages came from apps probing
+  unavailable endpoints, not from the tunnel;
+- a bare `direct` proxy argument is parsed as `socks5://direct` and breaks UDP;
+  the scheme-qualified `direct://` is required.
+
+Next: repeat the same probe with `--proxy http://127.0.0.1:8088` while ProxyBot's
+HTTP proxy is running, to verify TCP CONNECT/MITM. UDP with an HTTP proxy is not
+expected to work; SOCKS5 UDP associate must be evaluated separately.
+
 ## Test procedure
 
 ```bash

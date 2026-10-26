@@ -45,7 +45,8 @@
 3. TUN minimal prototype: ingress is proven (`docs/status/2026-10-26-tun-probe-plan.md`).
    Engine evaluation: `docs/status/2026-10-26-tun-engine-evaluation.md`;
    tun2socks (MIT) is the chosen candidate for the TCP/UDP closed loop, with
-   sing-box (GPL-3.0) as a reference/alternative.
+   sing-box (GPL-3.0) as a reference/alternative. **Direct TUN/TCP/UDP closed
+   loop passed** with tun2socks `direct://`; next is the HTTP-proxy/MITM outlet.
 4. Evaluate Network Extension only if productisation requires system lifecycle
    and supported interception.
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must
