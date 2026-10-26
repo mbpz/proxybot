@@ -48,7 +48,24 @@ It installs the service, verifies no autostart, explicit start, duplicate-start
 rejection, crash/no-auto-restart, explicit restart, stop/no-restart, uninstall
 cleanup, and Mac internet. It always stops/uninstalls in the trap.
 
-## Test matrix (pending)
+## Test result (2026-10-26)
+
+`sudo sh minimal/gateway-launchd-test.sh`:
+
+```text
+TEST COMPLETE PASS=22 FAIL=0
+```
+
+Covered: bad sing-box path rejection/no plist, install without autostart, launchd
+job loaded, explicit start, repeated start rejection with one supervisor, kill -9
+without auto-restart, explicit restart, stop/no restart, forwarding/TUN cleanup,
+uninstall removes plist/job, Mac internet.
+
+A `gateway status | grep -q` closed-pipe abort from Rust's panic-on-EPIPE was
+fixed by using default SIGPIPE behavior for the status command; it was diagnostic
+noise, not a lifecycle failure.
+
+## Test matrix
 
 1. Install service while stopped: job loaded, gateway remains `stopped`.
 2. Explicit `gateway start`: `running` via launchd; only one supervisor.

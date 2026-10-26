@@ -1,6 +1,6 @@
 # ADR-0011: launchd boundary for Gateway
 
-- **Status:** Proposed
+- **Status:** Accepted (service lifecycle tested; sleep/Wi-Fi under launchd still gated)
 - **Date:** 2026-10-26
 - **Phase:** lifecycle implementation design
 - **Scope:** launchd ownership, privileges, restart policy, wake behaviour

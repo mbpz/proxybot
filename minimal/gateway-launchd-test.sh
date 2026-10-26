@@ -36,11 +36,11 @@ cleanup(){
 }
 trap cleanup EXIT INT TERM
 
-status(){ "$BIN" gateway status 2>&1; }
-is_stopped(){ status | grep -q '^gateway: stopped'; }
-is_running(){ status | grep -q '^gateway: running'; }
-has_stale(){ status | grep -q '^gateway: stale'; }
-has_exited(){ status | grep -q '^gateway: exited'; }
+status_text(){ "$BIN" gateway status 2>&1; }
+is_stopped(){ case "$(status_text)" in *"gateway: stopped"*) return 0;; *) return 1;; esac; }
+is_running(){ case "$(status_text)" in *"gateway: running"*) return 0;; *) return 1;; esac; }
+has_stale(){ case "$(status_text)" in *"gateway: stale"*) return 0;; *) return 1;; esac; }
+has_exited(){ case "$(status_text)" in *"gateway: exited"*) return 0;; *) return 1;; esac; }
 
 banner "preconditions"
 "$BIN" gateway stop >/dev/null 2>&1 || true

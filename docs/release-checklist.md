@@ -25,7 +25,8 @@ Lifecycle test matrix: `docs/status/2026-10-lifecycle-reliability.md`. The
 current supervisor has no sleep/Wi-Fi event handling; tests must be run before
 launchd design is accepted.
 
-- [ ] launchd: design frozen; start/stop/repeat/abnormal exit behavior documented and tested.
+- [ ] launchd: service lifecycle tested (install/start/stop/crash/no-restart/
+  uninstall); sleep/wake and Wi-Fi switch under launchd still pending.
 - [ ] Sleep/wake: no stale TUN or pf after wake; state/status accurate.
 - [ ] Wi-Fi switch/IP change: gateway recovers, reconfigures or reports failure.
 - [ ] Recovery failure is visible/retryable; never reports clean stopped.

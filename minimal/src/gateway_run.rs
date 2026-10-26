@@ -703,6 +703,12 @@ fn tun_inet(tun: &str) -> Option<String> {
 }
 
 pub fn status() -> Result<()> {
+    // CLI output may be piped to `head`/`grep -q`; use normal SIGPIPE behavior
+    // instead of Rust's panic-on-EPIPE (release builds abort on panic).
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let Some(state) = read_state() else {
         println!("gateway: stopped");
         return Ok(());

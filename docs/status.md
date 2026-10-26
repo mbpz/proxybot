@@ -30,8 +30,11 @@ This is the single status overview. Phase records live under `docs/status/`.
   filter, identity labels, detail navigation and offset pagination; browser
   interaction verified.
 - Lifecycle baseline: sleep/wake, Wi-Fi loss/reconnect, different-Wi-Fi stale
-  detection, manual-stop sleep/wake and recovery passed. launchd and automatic
-  IP-change reconfiguration remain gated.
+  detection, manual-stop sleep/wake and recovery passed.
+- launchd service: install/no autostart, explicit start, duplicate-start
+  rejection, crash/no auto-restart, stop/no restart and uninstall passed
+  (PASS=22). Sleep/Wi-Fi under launchd and automatic IP-change reconfiguration
+  remain gated.
 
 ## Not verified / not supported
 
