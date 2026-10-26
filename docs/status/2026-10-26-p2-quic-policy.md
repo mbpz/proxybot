@@ -27,6 +27,17 @@ sudo sh minimal/pf-tun-test.sh install utun6
 ProxyBot's Setup page reads `<data>/quic-policy` and displays `UDP / QUIC:
 direct` or `blocked (fallback test)`.
 
+## Phone evidence (2026-10-26)
+
+- Default direct: Bilibili loaded; Setup showed `UDP / QUIC: direct`.
+- Block mode: Setup showed `blocked (fallback test)`; Bilibili loaded again,
+  proving TCP/TLS fallback for this browser; Bilibili HTTPS requests were
+  captured by ProxyBot.
+- sing-box log: `router: pre-match[3] network=udp port=443 => reject` matched
+  the phone's QUIC attempts; no UDP rows were fabricated.
+- TCP/80, DNS (`223.5.5.5:53`) and the Mac's own internet remained working.
+- Cleanup/restore is the remaining checklist item for this run.
+
 ## Acceptance checklist
 
 | # | Check | Pass condition |
