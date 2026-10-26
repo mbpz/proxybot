@@ -21,8 +21,13 @@ apps or all devices can be captured/decrypted.
   other methods fail with `Unknown protocol`. Fixed by routing TCP/80 to
   ProxyBot's transparent adapter (`override_address=127.0.0.1`,
   `override_port=8089`), which rewrites absolute-form requests and marks
-  `X-ProxyBot-Source: gateway`. Locally verified GET and POST (200/405 from the
-  test origin) with `source_type=gateway`; phone verification is next.
+  `X-ProxyBot-Source: gateway`. Locally verified GET and POST (200/405), and
+  verified on the phone: `captive.apple.com/hotspot-detect.html` over HTTP/80
+  was recorded as `source_type=gateway`, `client_ip=NULL`,
+  `peer_ip=127.0.0.1`, status 200. Safari sometimes upgrades the same URL to
+  HTTPS, which is expected.
+- DNS: sing-box logs show phone DNS packet connections to 223.5.5.5; DNS remains
+  on the direct route (not MITM/hijacked) and resolution works.
 - Provenance marker `X-ProxyBot-Source: gateway` from the sing-box HTTP outbound
   is stored as `source_type=gateway`; the header is stripped before forwarding.
 - Existing direct/HTTP-proxy mode keeps `source_type=local_proxy` and the real
@@ -30,8 +35,8 @@ apps or all devices can be captured/decrypted.
 
 ## Not verified / known boundaries
 
-- Phone HTTP/80 through the full TUN path.
-- UDP/DNS/QUIC/ICMP behavior and policy (currently direct; not MITM).
+- UDP/QUIC/ICMP behavior and policy (currently direct; not MITM); DNS works but
+  is not policy-controlled.
 - Multi-device identity/concurrency; gateway requests currently have
   `client_ip=null` and `peer_ip=127.0.0.1`.
 - Gateway lifecycle: crash recovery, Wi-Fi switch, sleep, one-command stop.
