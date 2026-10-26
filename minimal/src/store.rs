@@ -270,6 +270,9 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts DESC);
             CREATE INDEX IF NOT EXISTS idx_requests_host ON requests(host);
             CREATE INDEX IF NOT EXISTS idx_requests_app ON requests(app);
+            CREATE INDEX IF NOT EXISTS idx_requests_client_ip ON requests(client_ip);
+            CREATE INDEX IF NOT EXISTS idx_requests_source ON requests(source_type);
+            CREATE INDEX IF NOT EXISTS idx_requests_identity ON requests(source_type, client_ip, identity_source, confidence);
             CREATE TABLE IF NOT EXISTS ws_frames (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts          INTEGER NOT NULL,

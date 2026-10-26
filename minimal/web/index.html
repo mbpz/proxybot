@@ -235,7 +235,7 @@ sudo proxybot gateway stop</code></pre>
 </div>
 
 <script>
-const state = { app: "all", source: "all", paused: false, rows: [], offset: 0, selected: null, setup: null, wsHost: null };
+const state = { app: "all", source: "all", paused: false, rows: [], offset: 0, requestSeq: 0, sourceSignature: "", selected: null, setup: null, wsHost: null };
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
@@ -298,12 +298,15 @@ function updateHarLink() {
 }
 
 async function loadRequests(append = false) {
+  const seq = ++state.requestSeq;
   const params = currentQuery();
   params.set("limit", "300");
   params.set("offset", String(append ? state.offset : 0));
   const response = await fetch("/api/requests?" + params.toString());
   if (!response.ok) return;
   const rows = await response.json();
+  // Ignore a stale response after a fast source/filter switch.
+  if (seq !== state.requestSeq) return;
   if (append) {
     state.rows = state.rows.concat(rows);
     state.offset += rows.length;
@@ -317,6 +320,16 @@ async function loadRequests(append = false) {
 
 $("more").addEventListener("click", () => loadRequests(true));
 
+function setSourceFilter(source) {
+  state.source = source;
+  const select = $("source");
+  if ([...select.options].some((option) => option.value === source)) select.value = source;
+  document.querySelectorAll("#sources .chip").forEach((chip) => {
+    chip.classList.toggle("active", chip.dataset.source === source);
+  });
+  loadRequests(false);
+}
+
 async function loadSources() {
   const response = await fetch("/api/devices");
   if (!response.ok) return;
@@ -327,6 +340,9 @@ async function loadSources() {
     if (!item.client_ip) continue;
     counts.set(item.client_ip, (counts.get(item.client_ip) || 0) + item.count);
   }
+  const signature = JSON.stringify([data.unknown_count || 0, [...counts.entries()].sort()]);
+  if (signature === state.sourceSignature) return;
+  state.sourceSignature = signature;
   const options = ['<option value="all">All sources</option>'];
   if (data.unknown_count > 0) options.push(`<option value="unknown">Unknown identity (${data.unknown_count})</option>`);
   for (const [ip, count] of [...counts.entries()].sort()) {
@@ -345,10 +361,7 @@ async function loadSources() {
   sourceBox.innerHTML = chips.join("");
   sourceBox.querySelectorAll(".chip").forEach((chip) => {
     chip.classList.toggle("active", chip.dataset.source === state.source);
-    chip.addEventListener("click", () => {
-      state.source = chip.dataset.source;
-      loadRequests();
-    });
+    chip.addEventListener("click", () => setSourceFilter(chip.dataset.source));
   });
   if (select.value !== state.source) {
     state.source = "all";
@@ -365,6 +378,7 @@ function resetFilters() {
   state.source = "all";
   state.offset = 0;
   document.querySelectorAll("#apps .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.app === "all"));
+  document.querySelectorAll("#sources .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.source === "all"));
   loadRequests();
 }
 
@@ -406,9 +420,7 @@ async function openDetail(id) {
     ${detail.error ? `<h3>Error</h3><pre>${esc(detail.error)}</pre>` : ""}`;
   body.querySelector("#view-source").addEventListener("click", () => {
     if (!detail.client_ip) return;
-    state.source = detail.client_ip;
-    $("source").value = detail.client_ip;
-    loadRequests();
+    setSourceFilter(detail.client_ip);
     $("detail").classList.remove("open");
   });
   body.querySelector("#copy-curl").addEventListener("click", async () => {
