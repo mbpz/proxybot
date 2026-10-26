@@ -114,14 +114,32 @@ else
 fi
 
 banner "D. different Wi-Fi / CIDR"
-echo "Switch the Mac to a different Wi-Fi/hotspot with a different network,"
-echo "then press Enter. Do NOT stop the gateway before this capture."
-require "Switch to the other network now."
-capture d-switched
-has_stale d-switched && pass "network change: stale" || fail "network change: not stale"
-if grep -q 'network unknown' "$LOG_DIR/d-switched.txt"; then pass "network change: unknown/down detected"; fi
-echo "Old pf anchor (should not be treated as valid by status):"
-pfctl -a com.apple/proxybot-tun -sr 2>&1 | head -20 || true
+NET_BEFORE="$(route -n get default 2>/dev/null | egrep 'interface|gateway' || true) $(ipconfig getifaddr "$WIFI_IF" 2>/dev/null || true)"
+echo "Current network:"
+echo "$NET_BEFORE"
+echo "Switch the Mac to a different Wi-Fi/hotspot with a DIFFERENT interface/IP/CIDR."
+echo "Do NOT stop the gateway before this capture."
+SWITCHED=0
+for attempt in 1 2 3; do
+  require "Switch to the other network now (attempt $attempt/3)."
+  capture "d-switched-$attempt"
+  NET_AFTER="$(route -n get default 2>/dev/null | egrep 'interface|gateway' || true) $(ipconfig getifaddr "$WIFI_IF" 2>/dev/null || true)"
+  if [ "$NET_BEFORE" != "$NET_AFTER" ]; then
+    cp "$LOG_DIR/d-switched-$attempt.txt" "$LOG_DIR/d-switched.txt"
+    SWITCHED=1
+    break
+  fi
+  echo "Network did not change (still: $NET_AFTER). The hotspot test was not executed."
+done
+if [ "$SWITCHED" -eq 1 ]; then
+  echo "Network after switch: $NET_AFTER"
+  has_stale d-switched && pass "network change: stale" || fail "network change: not stale"
+  if grep -q 'network unknown' "$LOG_DIR/d-switched.txt"; then pass "network change: unknown/down detected"; fi
+  echo "Old pf anchor (should not be treated as valid by status):"
+  pfctl -a com.apple/proxybot-tun -sr 2>&1 | head -20 || true
+else
+  fail "network did not change after 3 attempts; cross-network test not executed"
+fi
 require "Switch back to the original Wi-Fi, then press Enter."
 sleep 5
 capture d-restored
