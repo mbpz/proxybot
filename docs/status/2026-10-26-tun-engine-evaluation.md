@@ -145,9 +145,22 @@ packets), so Hudsucker generates a certificate for the IP. The iPhone rejects
 it (`certificate not valid for name "117.141.255.9"`) and HTTPS fails. Local
 curl worked only because curl put a hostname in the SOCKS request.
 
-Conclusion: TCP MITM needs the **sniffed domain/SNI**, not just the IP. Move the
-TUN ingress to sing-box itself and enable the `sniff` route action before
-routing TCP/443 to the HTTP outbound:
+Conclusion: TCP MITM needs the **sniffed domain/SNI**, not just the IP.
+
+A second issue was then identified: even with sing-box TUN + `action: sniff`,
+sing-box's HTTP outbound still sends `CONNECT IP:443`. Hudsucker generated the
+right client certificate from the ClientHello SNI (it already prefers SNI for
+the server certificate), but it forwarded upstream by IP and failed upstream
+certificate validation with errors such as
+`certificate not valid for name "117.141.255.9"`.
+
+Fix in ProxyBot: `should_intercept_tls` records the ClientHello SNI per client
+connection; `handle_request` rewrites an IP-based HTTPS request URI and `Host`
+to that SNI before forwarding. Local simulation (CONNECT to an IP, TLS SNI
+`example.com`) now returns 200 and ProxyBot records `host=example.com`.
+
+TUN ingress moved to sing-box with the `sniff` route action before routing
+TCP/443 to the HTTP outbound:
 
 - Config: `minimal/examples/singbox-tun-mitm.json`
 - TUN inbound (`interface_name: utun6`, no auto_route; pf route-to feeds it)

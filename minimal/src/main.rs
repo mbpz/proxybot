@@ -390,6 +390,7 @@ async fn run_start(args: StartArgs) -> Result<()> {
         events: events.clone(),
         rules: rules.clone(),
         passthrough: passthrough.clone(),
+        sni_by_client: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
     });
     let http_state = capture_state.clone();
     let ws_state = capture_state.clone();

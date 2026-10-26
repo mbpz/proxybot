@@ -5,13 +5,15 @@ use crate::rules::Rules;
 use crate::store::{Captured, RequestSummary, Store, WsFrameInput, MAX_BODY_BYTES};
 use hudsucker::hyper::body::{Body as HttpBody, Bytes, Frame, SizeHint};
 use hudsucker::hyper::header::{ACCEPT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST};
-use hudsucker::hyper::{Request, Response};
+use hudsucker::hyper::{Request, Response, Uri};
 use hudsucker::tokio_tungstenite::tungstenite::Message;
 use hudsucker::{
     Body, HttpContext, HttpHandler, RequestOrResponse, WebSocketContext, WebSocketHandler,
 };
 use http_body_util::{BodyExt, Full};
 use std::io::Read;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -25,6 +27,10 @@ pub struct CaptureState {
     pub rules: Arc<RwLock<Rules>>,
     /// Host suffixes that are forwarded without TLS interception (pinned apps).
     pub passthrough: Arc<RwLock<Vec<String>>>,
+    /// SNI observed for each client connection. TUN/SOCKS paths can only put an
+    /// IP in CONNECT; the SNI is needed to make Hudsucker forward upstream with
+    /// the domain (upstream certificate verification).
+    pub sni_by_client: Arc<Mutex<HashMap<SocketAddr, String>>>,
 }
 
 pub struct CaptureHandler {
@@ -76,6 +82,11 @@ impl HttpHandler for CaptureHandler {
         let state = self.state.clone();
         let host = client_hello.server_name().map(str::to_string);
         let client_ip = ctx.client_addr.ip().to_string();
+        if let Some(host) = host.as_ref() {
+            if let Ok(mut map) = state.sni_by_client.lock() {
+                map.insert(ctx.client_addr, host.clone());
+            }
+        }
         async move {
             let Some(host) = host else {
                 return true;
@@ -118,7 +129,6 @@ impl HttpHandler for CaptureHandler {
             })
             .collect();
         let method = req.method().as_str().to_string();
-        let (host, path, scheme) = request_target(&req);
 
         // Ask upstream for uncompressed bodies so the inspector shows JSON/text
         // rather than gzip. This is a normal MITM debugging trade-off.
@@ -128,6 +138,40 @@ impl HttpHandler for CaptureHandler {
         );
 
         async move {
+            // TUN/SOCKS CONNECTs only carry an IP. If a TLS ClientHello exposed
+            // the real SNI, rewrite the request authority so Hudsucker forwards
+            // upstream with the domain and validates the upstream certificate
+            // against that name.
+            let sni = state
+                .sni_by_client
+                .lock()
+                .ok()
+                .and_then(|map| map.get(&ctx.client_addr).cloned());
+            if let Some(sni) = sni {
+                let current_host = req.uri().host().unwrap_or_default();
+                let needs_rewrite = current_host.is_empty()
+                    || current_host.parse::<IpAddr>().is_ok();
+                if needs_rewrite {
+                    let port = req.uri().port_u16().unwrap_or(443);
+                    let mut parts = req.uri().clone().into_parts();
+                    parts.scheme = Some("https".parse().expect("scheme"));
+                    parts.authority = Some(
+                        format!("{sni}:{port}")
+                            .parse()
+                            .expect("authority from SNI"),
+                    );
+                    if let Ok(uri) = Uri::from_parts(parts) {
+                        *req.uri_mut() = uri;
+                        if let Ok(value) =
+                            hudsucker::hyper::header::HeaderValue::from_str(&format!("{sni}:{port}"))
+                        {
+                            req.headers_mut().insert(HOST, value);
+                        }
+                    }
+                }
+            }
+
+            let (host, path, scheme) = request_target(&req);
             let app = {
                 let rules = state.rules.read().await;
                 rules.classify(&host)
