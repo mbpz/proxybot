@@ -20,6 +20,7 @@ the authority on current behavior.
 | [0008](0008-rockxy-clean-room-parity.md) | Rockxy Community clean-room parity policy | Accepted |
 | [0009](0009-gateway-device-identity.md) | Gateway device identity and metadata | Accepted |
 | [0010](0010-gateway-beta-boundary.md) | Gateway beta boundary and lifecycle | Accepted |
+| [0011](0011-launchd-gateway-boundary.md) | launchd boundary for Gateway | Proposed |
 
 ## When to write an ADR
 
