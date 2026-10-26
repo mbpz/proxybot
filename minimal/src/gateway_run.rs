@@ -680,3 +680,27 @@ pub fn status() -> Result<()> {
     println!("  logs {}", state.log_dir);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotates_logs_at_limit() {
+        let path = std::env::temp_dir().join(format!("proxybot-rotate-{}.log", std::process::id()));
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(path.with_extension("log.1"));
+        let _ = fs::remove_file(path.with_extension("log.2"));
+        let data = vec![b'x'; LOG_LIMIT as usize + 1];
+        fs::write(&path, data).unwrap();
+        rotate_if_needed(&path);
+        assert!(!path.exists());
+        assert!(path.with_extension("log.1").exists());
+        fs::write(&path, b"new").unwrap();
+        rotate_if_needed(&path); // below limit: no second rotation
+        assert!(path.exists());
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(path.with_extension("log.1"));
+        let _ = fs::remove_file(path.with_extension("log.2"));
+    }
+}

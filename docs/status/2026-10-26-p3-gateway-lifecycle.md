@@ -114,13 +114,17 @@ the failed state.
    orphan child whose command contains this instance's config path, restores
    pf/forwarding, and ends in `stopped`. Verified: no sing-box process, no
    `utun6`, forwarding 0, Mac HTTPS 200.
-9. Forced recovery failure is still to verify (needs a controlled pf/command
-   failure injection); it is not a blocker for phase 1.
+9. Forced recovery failure: `PROXYBOT_RECOVERY_FAIL=1` produced
+   `gateway: recovery_failed`; retry without the variable produced `stopped`,
+   `recovery success`. The real network was restored even during injection.
+10. Startup mutex: two concurrent starts produced one `gateway started` and one
+    `Error: another gateway start is already in progress`.
+11. Log rotation unit test passes at the 2 MiB boundary.
 
 Phase 1 acceptance: normal lifecycle, exit diagnostics, unexpected TERM/kill -9,
-startup failure, stale supervisor, idempotent stop, mutex, rotation and recovery
-failure injection are implemented. Automatic restart, launchd and sleep/Wi-Fi
-handling remain future work.
+startup failure, stale supervisor, idempotent stop, startup mutex, log rotation
+and recovery-failure injection all pass. Automatic restart, launchd and
+sleep/Wi-Fi handling remain future work.
 
 ## Known limits
 
