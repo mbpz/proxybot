@@ -86,8 +86,14 @@ sudo sh minimal/gateway-service-lifecycle-test.sh
 
 Installs the LaunchDaemon, runs the full sleep/Wi-Fi lifecycle runner (which
 delegates start/stop to launchd via the installed service), then uninstalls and
-checks plist/process/TUN/forwarding/Mac network. The runner asserts that a
-`proxybot gateway service` process is present during the running phase.
+checks plist/process/TUN/forwarding/Mac network.
+
+The lifecycle runner now prints `[STAGE]`, `[EXPECT]` and `[MANUAL]` gates and
+asks for explicit confirmation after the iPhone Safari checks in stages B, C, D
+and E. An unconfirmed manual check is counted as `NOT_VERIFIED` and makes the
+run fail; it is never silently counted as PASS. Launchd ownership is checked with
+`launchctl print system/com.proxybot.gateway`, a `proxybot gateway service`
+process, and absence of a bypass direct supervisor.
 
 ## Known boundaries
 

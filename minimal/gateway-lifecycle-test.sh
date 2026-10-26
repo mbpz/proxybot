@@ -26,11 +26,20 @@ TEE_PID=$!
 exec > "$LOG_PIPE" 2>&1
 
 WIFI_IF="$(networksetup -listallhardwareports 2>/dev/null | awk '/Hardware Port: (Wi-Fi|AirPort)/{found=1;next} found&&/Device:/{print $2;exit}')"
-PASS=0; FAIL=0; SKIP=0
+PASS=0; FAIL=0; SKIP=0; NOT_VERIFIED=0
 
 pass() { PASS=$((PASS+1)); echo "PASS: $*"; }
 fail() { FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 skip() { SKIP=$((SKIP+1)); echo "SKIP: $*"; }
+manual_check() {
+  echo "[MANUAL] $*"
+  printf "  y = confirmed / n = not verified: "
+  IFS= read -r answer
+  case "$answer" in
+    y|Y|yes|YES) pass "manual: $*" ;;
+    *) NOT_VERIFIED=$((NOT_VERIFIED+1)); echo "NOT_VERIFIED: $*" ;;
+  esac
+}
 banner() { echo; echo "========== $* =========="; }
 
 cleanup() {
@@ -38,7 +47,7 @@ cleanup() {
   "$BIN" gateway stop >/dev/null 2>&1 || true
   [ -n "$WIFI_IF" ] && networksetup -setairportpower "$WIFI_IF" on >/dev/null 2>&1 || true
   echo "logs: $LOG_DIR"
-  echo "summary: PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
+  echo "summary: PASS=$PASS FAIL=$FAIL SKIP=$SKIP NOT_VERIFIED=$NOT_VERIFIED"
   if [ -n "$TEE_PID" ]; then
     kill "$TEE_PID" >/dev/null 2>&1 || true
   fi
@@ -89,9 +98,18 @@ capture a-started
 has_running has_running a-started && pass "start reaches running" || fail "start not running"
 if [ "${PROXYBOT_EXPECT_SERVICE:-0}" = "1" ]; then
   pgrep -f 'proxybot gateway service' >/dev/null 2>&1 && pass "launchd service supervisor is running" || fail "launchd service supervisor not found"
+  launchctl print system/com.proxybot.gateway >/dev/null 2>&1 && pass "launchd job queryable" || fail "launchd job not queryable"
+  if pgrep -f 'proxybot gateway supervise' >/dev/null 2>&1; then
+    fail "unexpected direct supervise process beside launchd service"
+  else
+    pass "no bypass direct supervisor"
+  fi
 fi
 
 banner "B. sleep / wake while running"
+echo "[STAGE B] sleep/wake under launchd; no automatic restart"
+echo "[EXPECT] TUN/child/forwarding remain or stale is diagnosed; iPhone regains normal internet"
+echo "[MANUAL] after wake: open https://example.com on iPhone before pressing Enter"
 require "The Mac will sleep for the next test."
 capture b-before-sleep
 pmset sleepnow || true
@@ -100,8 +118,12 @@ capture b-after-wake
 if has_running b-after-wake; then pass "awake: running"; else fail "awake: not running"; fi
 grep -q 'health tun=up' "$LOG_DIR/b-after-wake.txt" && pass "awake: TUN up" || fail "awake: TUN missing"
 grep -q 'mac=200' "$LOG_DIR/b-after-wake.txt" && pass "awake: Mac internet" || fail "awake: Mac internet"
+manual_check "Stage B: iPhone Safari https://example.com after wake"
 
 banner "C. Wi-Fi off / on"
+echo "[STAGE C] Wi-Fi loss/reconnect; status must not lie about health"
+echo "[EXPECT] Wi-Fi off => stale/network unknown; reconnect => running or explicit stale"
+echo "[MANUAL] after reconnect: open https://example.com on iPhone"
 if [ -z "$WIFI_IF" ]; then
   skip "Wi-Fi interface not detected"
 else
@@ -114,9 +136,13 @@ else
   capture c-wifi-on
   if has_running c-wifi-on; then pass "Wi-Fi on: running"; else fail "Wi-Fi on: not running"; fi
   grep -q 'mac=200' "$LOG_DIR/c-wifi-on.txt" && pass "Wi-Fi on: Mac internet" || fail "Wi-Fi on: Mac internet"
+  manual_check "Stage C: iPhone Safari https://example.com after Wi-Fi reconnect"
 fi
 
 banner "D. different Wi-Fi / CIDR"
+echo "[STAGE D] switch to iPhone hotspot/different network, then back"
+echo "[EXPECT] status becomes stale; old network rules are not treated as valid"
+echo "[MANUAL] enable iPhone hotspot, join it on Mac, then press Enter; switch back afterwards"
 NET_BEFORE="$(route -n get default 2>/dev/null | egrep 'interface|gateway' || true) $(ipconfig getifaddr "$WIFI_IF" 2>/dev/null || true)"
 echo "Current network:"
 echo "$NET_BEFORE"
@@ -146,8 +172,11 @@ fi
 require "Switch back to the original Wi-Fi, then press Enter."
 sleep 5
 capture d-restored
-
+manual_check "Stage D: iPhone Safari https://example.com after returning to original Wi-Fi"
 banner "E. manual stop then sleep/wake"
+echo "[STAGE E] explicit stop must survive sleep/wake"
+echo "[EXPECT] stopped before and after wake; no auto-start"
+echo "[MANUAL] after wake: confirm iPhone normal internet (not gateway)"
 "$BIN" gateway stop || fail "gateway stop"
 sleep 2
 capture e-stopped
@@ -159,6 +188,7 @@ pmset sleepnow || true
 sleep 5
 capture e-after-wake
 has_stopped e-after-wake && pass "awake after manual stop: still stopped" || fail "awake after manual stop: changed state"
+manual_check "Stage E: iPhone Safari after manual-stop wake (normal Wi-Fi)"
 
 banner "F. kill sing-box / recovery"
 "$BIN" gateway start || fail "restart gateway"
@@ -179,6 +209,5 @@ fi
 banner "summary"
 echo "logs: $LOG_DIR"
 echo "PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
-echo "Manual checks still required: iPhone browsing after wake/reconnect, and after switching"
-echo "a different network use a fresh gateway start rather than the old state."
-[ "$FAIL" -eq 0 ]
+echo "Manual checks not confirmed are counted as NOT_VERIFIED."
+[ "$FAIL" -eq 0 ] && [ "$NOT_VERIFIED" -eq 0 ]

@@ -128,8 +128,10 @@ operations a script cannot safely perform alone:
 
 It tests start, sleep/wake, Wi-Fi off/on, cross-network stale detection, manual
 stop + sleep, and `kill -9` sing-box recovery. Logs are written under
-`/tmp/proxybot-lifecycle-<timestamp>/`. The script always attempts to stop the
-gateway and power Wi-Fi back on at exit. Phone browsing remains a manual check.
+`/tmp/proxybot-lifecycle-<timestamp>/`. The script prints stage expectations and
+asks for explicit iPhone Safari confirmations in B/C/D/E; an unconfirmed item is
+`NOT_VERIFIED` and fails the run. It always attempts to stop the gateway and
+power Wi-Fi back on at exit.
 
 ## Test commands
 
