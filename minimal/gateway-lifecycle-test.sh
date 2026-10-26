@@ -18,7 +18,12 @@ BIN="${PROXYBOT_BIN:-$(command -v proxybot 2>/dev/null || true)}"
 
 LOG_DIR="/tmp/proxybot-lifecycle-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$LOG_DIR"
-exec > >(tee -a "$LOG_DIR/run.log") 2>&1
+LOG_PIPE="$LOG_DIR/.logpipe"
+TEE_PID=""
+mkfifo "$LOG_PIPE"
+tee -a "$LOG_DIR/run.log" < "$LOG_PIPE" &
+TEE_PID=$!
+exec > "$LOG_PIPE" 2>&1
 
 WIFI_IF="$(networksetup -listallhardwareports 2>/dev/null | awk '/Hardware Port: (Wi-Fi|AirPort)/{found=1;next} found&&/Device:/{print $2;exit}')"
 PASS=0; FAIL=0; SKIP=0
@@ -34,6 +39,10 @@ cleanup() {
   [ -n "$WIFI_IF" ] && networksetup -setairportpower "$WIFI_IF" on >/dev/null 2>&1 || true
   echo "logs: $LOG_DIR"
   echo "summary: PASS=$PASS FAIL=$FAIL SKIP=$SKIP"
+  if [ -n "$TEE_PID" ]; then
+    kill "$TEE_PID" >/dev/null 2>&1 || true
+  fi
+  rm -f "$LOG_PIPE"
 }
 trap cleanup EXIT INT TERM
 
