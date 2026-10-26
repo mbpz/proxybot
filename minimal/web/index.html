@@ -580,6 +580,7 @@ function connectStream() {
 $("q").addEventListener("input", () => { loadRequests(); });
 $("method").addEventListener("change", () => loadRequests());
 $("status").addEventListener("change", () => loadRequests());
+$("source").addEventListener("change", (event) => setSourceFilter(event.target.value));
 for (const chip of document.querySelectorAll("#apps .chip")) {
   chip.addEventListener("click", () => {
     state.app = chip.dataset.app;
