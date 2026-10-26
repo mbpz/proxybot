@@ -159,6 +159,22 @@ The web UI has three views:
 - **Rules** — edit the YAML app classification rules in place; changes apply
   immediately.
 
+## Passive sniff mode (experimental, root)
+
+`proxybot sniff` observes the interface without proxying anything. It is the
+low-risk path for "what traffic is this device actually sending?" when
+transparent interception is unavailable:
+
+```bash
+sudo proxybot sniff --device 192.168.3.20 --duration 30
+sudo proxybot sniff --device 192.168.3.20 --log /tmp/proxybot-sniff.jsonl
+```
+
+Output: new TCP SYN flows, DNS query names, TLS ClientHello SNI, UDP flows, and a
+final top-destination summary. This only sees packets that actually reach the Mac
+(capture on the same interface; forwarding must already work). It cannot decrypt
+HTTPS, and ECH/DoH can hide SNI/DNS. Requires root for BPF.
+
 ## Current status
 
 Verified on an iPhone (2026-10-24): HTTP proxy mode captured Safari and WeChat

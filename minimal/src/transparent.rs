@@ -194,7 +194,7 @@ fn find_header(text: &str, name: &str) -> Option<String> {
 }
 
 /// Minimal TLS ClientHello SNI parser (RFC 6066). Returns None for no SNI.
-pub fn parse_sni(record: &[u8]) -> Option<String> {
+pub(crate) fn parse_sni(record: &[u8]) -> Option<String> {
     if record.len() < 5 + 4 {
         return None;
     }

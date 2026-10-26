@@ -9,6 +9,7 @@ mod gateway;
 mod rules;
 mod store;
 mod transparent;
+mod sniff;
 mod web;
 
 use anyhow::{Context, Result};
@@ -41,6 +42,8 @@ enum Command {
     Version,
     /// List every command with a detailed description and examples.
     List,
+    /// Passive packet capture (flows, DNS, TLS SNI); requires root.
+    Sniff(sniff::SniffArgs),
 }
 
 #[derive(Args)]
@@ -155,6 +158,7 @@ async fn main() -> Result<()> {
             print_command_list();
             Ok(())
         }
+        Command::Sniff(args) => sniff::run(args),
     }
 }
 
@@ -226,6 +230,19 @@ fn print_command_list() {
     println!("        proxybot rules show | head -40");
     println!("        proxybot rules reset");
     println!();
+    println!("SNIFF (EXPERIMENTAL; passive observation, requires sudo)");
+    println!("  sniff");
+    println!("      Capture packets on the default-route interface and print flow,");
+    println!("      DNS query and TLS SNI metadata. Does not proxy or modify traffic.");
+    println!("      --interface <NAME>     capture interface (default: default route)");
+    println!("      --device <IP>          only traffic for this device IP");
+    println!("      --duration <SECONDS>   stop automatically (default: until Ctrl+C)");
+    println!("      --log <FILE>           append JSON-lines events to a file");
+    println!();
+    println!("      Examples:");
+    println!("        sudo proxybot sniff --device 192.168.3.20 --duration 30");
+    println!("        sudo proxybot sniff --interface en1 --log /tmp/proxybot-sniff.jsonl");
+    println!();
     println!("MISC");
     println!("  version       Print the CLI version.");
     println!("  list          Print this reference.");
@@ -235,7 +252,7 @@ fn print_command_list() {
     println!("  PROXYBOT_TRANSPARENT_BIND=all    dev/test override: bind the transparent");
     println!("                                   adapter on 0.0.0.0 outside --gateway mode");
     println!("  Installer (minimal/install.sh):");
-    println!("    PROXYBOT_VERSION=0.1.7         pin a CLI release");
+    println!("    PROXYBOT_VERSION=0.1.10         pin a CLI release");
     println!("    PROXYBOT_PREFIX=/usr/local/bin install prefix (default ~/.local/bin)");
     println!("    PROXYBOT_LOCAL_BINARY=<path>   install an already-built binary");
     println!("    PROXYBOT_DOWNLOAD_BASE=<url>   mirror serving proxybot-min-*.tar.gz");
