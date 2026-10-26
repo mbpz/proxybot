@@ -26,7 +26,9 @@ case "$1" in
     TUN="${2:-}"
     [ -n "$TUN" ] || usage
     if ! ifconfig "$TUN" >/dev/null 2>&1; then
-      echo "interface $TUN not found; start 'proxybot tun-probe' first (it prints utunN)" >&2
+      echo "interface $TUN not found. Start the TUN owner first and keep it running:" >&2
+      echo "  sudo /tmp/tun2socks/tun2socks --device tun://$TUN --proxy direct --interface $IFACE" >&2
+      echo "  or: sudo proxybot tun-probe --duration 90   # prints utunN" >&2
       exit 1
     fi
     # An engine-owned utun (e.g. tun2socks) has no IPv4 address by default;
