@@ -103,6 +103,30 @@ fn alive(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+fn process_command(pid: u32) -> String {
+    output("ps", &["-p", &pid.to_string(), "-o", "command="]).unwrap_or_default()
+}
+
+fn terminate_state_child(state: &State) {
+    let Some(pid) = state.singbox_pid else { return; };
+    if !alive(pid) {
+        return;
+    }
+    // Only kill a process that still carries this instance's config path; never
+    // kill a recycled PID.
+    if !process_command(pid).contains(&state.config) {
+        return;
+    }
+    let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(5) && alive(pid) {
+        thread::sleep(Duration::from_millis(100));
+    }
+    if alive(pid) {
+        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+    }
+}
+
 fn run(cmd: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(cmd)
         .args(args)
@@ -256,6 +280,7 @@ pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<
         if alive(old.supervisor_pid) {
             bail!("gateway already running (instance {}, supervisor pid {})", old.instance_id, old.supervisor_pid);
         }
+        terminate_state_child(&old);
         let _ = restore_network(&old, Path::new(&old.log_dir));
         let _ = fs::remove_file(state_path());
     }
@@ -483,7 +508,9 @@ pub fn stop() -> Result<()> {
             println!("gateway is already stopped");
             return Ok(());
         }
-        // Stale state: recover what we can, but never kill an unrelated PID.
+        // Stale state: recover what we can. Kill only a child that still carries
+        // this instance's config path, never an unrelated recycled PID.
+        terminate_state_child(&state);
         state.state = "recovering".into();
         let _ = write_state(&state);
         let recovery = restore_network(&state, Path::new(&state.log_dir));
@@ -540,7 +567,14 @@ pub fn status() -> Result<()> {
     let supervisor_alive = alive(state.supervisor_pid);
     let heartbeat_age = now_ms().saturating_sub(state.last_heartbeat_at) / 1000;
     let child_alive = state.singbox_pid.map(alive).unwrap_or(false);
-    println!("gateway: {}", if supervisor_alive && state.state == "running" { "running" } else { &state.state });
+    let display = if state.state == "running" && !supervisor_alive {
+        "stale"
+    } else if state.state == "running" {
+        "running"
+    } else {
+        state.state.as_str()
+    };
+    println!("gateway: {display}");
     println!("  instance {}  supervisor {}  sing-box {:?}", state.instance_id, state.supervisor_pid, state.singbox_pid);
     println!("  heartbeat {}s ago  recovery {}", heartbeat_age, state.recovery_status);
     if let Some(code) = state.exit_code {

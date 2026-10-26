@@ -74,9 +74,12 @@ sudo proxybot gateway stop
 4. Normal stop: `stopped`, recovery success; second stop is idempotent.
 5. `kill -9 <sing-box>`: `exit_signal=9`, `exit_reason=signal_terminated`,
    recovery success, `utun6` gone, forwarding restored, Mac 200.
-6. Stale state after an exited instance is recovered by `stop`; the status
-   transition is being tightened to `stopped` so repeated stop is quiet.
-7. Forced recovery failure is still to verify.
+6. Repeated stop is idempotent (`gateway is already stopped`).
+7. Stale exited state transitions to `stopped` after recovery.
+8. Supervisor `kill -9` handling is implemented: `status` reports `stale`,
+   `stop` kills only an orphan child whose command still contains this
+   instance's config path, then restores pf/forwarding. Verification pending.
+9. Forced recovery failure is still to verify.
 
 ## Known limits
 
