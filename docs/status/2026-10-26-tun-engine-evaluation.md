@@ -88,9 +88,35 @@ Tested with `--proxy http://127.0.0.1:8088` and ProxyBot's HTTP proxy:
   needs a SOCKS5 outlet with TCP CONNECT **and UDP ASSOCIATE** (for DNS/QUIC),
   or a different engine/outlet design.
 
-Next: add/evaluate a SOCKS5 server (TCP CONNECT + UDP ASSOCIATE) and use
-`--proxy socks5://127.0.0.1:1080`. Keep the direct outlet as the reference
-closed loop.
+### SOCKS5 outlet validation with sing-box 1.14.4
+
+Built sing-box v1.14.4 from source (GPL-3.0, evaluation only) and ran a
+loopback SOCKS inbound:
+
+```json
+{
+  "inbounds": [{"type":"socks","tag":"socks-in","listen":"127.0.0.1","listen_port":1080}],
+  "outbounds": [{"type":"direct","tag":"direct"}]
+}
+```
+
+Config is kept at `minimal/examples/singbox-socks.json`.
+
+Results on macOS arm64:
+
+- **TCP CONNECT**: `curl --socks5-hostname 127.0.0.1:1080 https://example.com`
+  returned 200;
+- **UDP ASSOCIATE**: relay allocated; a real DNS query for `example.com` via
+  `223.5.5.5:53` returned a response with the matching transaction ID
+  (`txid 1234`, ancount 2) — **PASS**;
+- helper: `minimal/tools/socks5_udp_test.py`.
+
+This version/config does not show the reported 1.14.x UDP-relay failure; still,
+the full path must be validated through tun2socks + iPhone, not just the local
+SOCKS test.
+
+Next: `tun2socks --proxy socks5://127.0.0.1:1080` + pf route-to, then verify
+TCP, DNS, UDP/QUIC and Mac isolation on the phone.
 
 ## Test procedure
 
