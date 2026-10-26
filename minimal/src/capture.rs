@@ -150,11 +150,6 @@ impl HttpHandler for CaptureHandler {
             .get("x-proxybot-connection-id")
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
-        let identity_source_marker = req
-            .headers()
-            .get("x-proxybot-identity-source")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
         let confidence_marker = req
             .headers()
             .get("x-proxybot-confidence")
