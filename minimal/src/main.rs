@@ -116,8 +116,11 @@ enum GatewayCommand {
         #[arg(long, default_value = "utun6")]
         tun: String,
         /// Single-device prototype: attach this source IP to gateway metadata.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "devices")]
         client_ip: Option<String>,
+        /// Device file for per-source-IP outbound routing (P4.3).
+        #[arg(long)]
+        devices: Option<std::path::PathBuf>,
     },
     /// Stop the gateway and restore pf/forwarding.
     Stop,
@@ -338,8 +341,8 @@ fn print_command_list() {
 fn run_gateway(args: GatewayArgs) -> Result<()> {
     let data_dir = default_data_dir();
     match args.command {
-        GatewayCommand::Start { block_quic, singbox, tun, client_ip } => {
-            gateway_run::start(block_quic, singbox, tun, client_ip)
+        GatewayCommand::Start { block_quic, singbox, tun, client_ip, devices } => {
+            gateway_run::start(block_quic, singbox, tun, client_ip, devices)
         }
         GatewayCommand::Stop => gateway_run::stop(),
         GatewayCommand::Supervise(args) => gateway_run::supervise(args),

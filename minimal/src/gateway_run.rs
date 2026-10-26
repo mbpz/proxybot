@@ -316,6 +316,7 @@ pub fn start(
     singbox: Option<PathBuf>,
     tun: String,
     client_ip: Option<String>,
+    devices: Option<PathBuf>,
 ) -> Result<()> {
     if !is_root() {
         bail!("gateway start requires root: sudo proxybot gateway start");
@@ -349,6 +350,9 @@ pub fn start(
         .args(["--tun", &tun]);
     if let Some(client_ip) = client_ip.as_deref() {
         cmd.args(["--client-ip", client_ip]);
+    }
+    if let Some(devices) = devices.as_deref() {
+        cmd.arg("--devices").arg(devices);
     }
     if block_quic {
         cmd.arg("--block-quic");
@@ -422,6 +426,8 @@ pub struct SuperviseArgs {
     pub tun: String,
     #[arg(long)]
     pub client_ip: Option<String>,
+    #[arg(long)]
+    pub devices: Option<PathBuf>,
 }
 
 pub fn supervise(args: SuperviseArgs) -> Result<()> {
@@ -434,13 +440,24 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
     install_signal_handlers();
     let detected = crate::gateway::detect(8089)?;
     let config_path = dir.join("singbox.json");
-    let config = crate::singbox_config::build_config(
-        "127.0.0.1:8088",
-        &args.tun,
-        "127.0.0.1:8089",
-        args.block_quic,
-        args.client_ip.as_deref(),
-    );
+    let config = if let Some(path) = args.devices.as_deref() {
+        let devices = crate::singbox_config::load_devices(path)?;
+        crate::singbox_config::build_config_devices(
+            "127.0.0.1:8088",
+            &args.tun,
+            "127.0.0.1:8089",
+            args.block_quic,
+            &devices,
+        )?
+    } else {
+        crate::singbox_config::build_config(
+            "127.0.0.1:8088",
+            &args.tun,
+            "127.0.0.1:8089",
+            args.block_quic,
+            args.client_ip.as_deref(),
+        )
+    };
     fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
     let previous_forwarding = output("sysctl", &["-n", "net.inet.ip.forwarding"]).unwrap_or_else(|_| "0".into());
     let mut state = State {
@@ -465,6 +482,18 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
     };
     write_state(&state)?;
     log_line(&dir, "supervisor.log", &format!("supervisor start instance={}", args.instance));
+
+    let check = Command::new(&args.singbox)
+        .args(["check", "-c", config_path.to_str().unwrap_or_default()])
+        .status();
+    if !check.map(|status| status.success()).unwrap_or(false) {
+        state.state = "exited".into();
+        state.exit_reason = Some("startup_failed".into());
+        state.recovery_status = "success".into();
+        write_state(&state)?;
+        log_line(&dir, "supervisor.log", "sing-box config check failed");
+        bail!("sing-box config check failed");
+    }
 
     let mut child = match Command::new(&args.singbox)
         .args(["run", "-c"])
