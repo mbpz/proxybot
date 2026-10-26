@@ -78,6 +78,17 @@ noise, not a lifecycle failure.
 8. Uninstall while stopped/crashed: service removed; TUN/pf/forwarding clean.
 9. Direct path is not used when service is installed.
 
+## Service-mode lifecycle regression (pending)
+
+```bash
+sudo sh minimal/gateway-service-lifecycle-test.sh
+```
+
+Installs the LaunchDaemon, runs the full sleep/Wi-Fi lifecycle runner (which
+delegates start/stop to launchd via the installed service), then uninstalls and
+checks plist/process/TUN/forwarding/Mac network. The runner asserts that a
+`proxybot gateway service` process is present during the running phase.
+
 ## Known boundaries
 
 - No automatic restart or automatic network reconfiguration.
