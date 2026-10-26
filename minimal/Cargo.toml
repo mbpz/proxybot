@@ -26,6 +26,7 @@ pcap = "2"
 tun = "0.5"
 brotli = "8"
 hudsucker = "0.25"
+libc = "0.2"
 http-body-util = "0.1"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rusqlite = "0.37"

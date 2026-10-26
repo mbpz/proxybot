@@ -170,9 +170,11 @@ sudo proxybot gateway status
 sudo proxybot gateway stop
 ```
 
-`gateway start` generates the config, starts sing-box, configures the TUN and
-pf route-to, and records state; `gateway stop` restores everything. Raw
-config generation remains available with `proxybot singbox-config`.
+`gateway start` launches a detached supervisor that owns sing-box, configures
+the TUN/pf route-to, records exit status and heartbeats, and restores networking
+when the child exits. `gateway stop` signals the supervisor; cleanup is
+idempotent. Raw config generation remains available with
+`proxybot singbox-config`.
 
 ### Gateway beta: generate the sing-box config
 

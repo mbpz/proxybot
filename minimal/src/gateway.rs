@@ -143,6 +143,7 @@ pub fn uninstall(data_dir: &Path, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn status() -> Result<String> {
     let forwarding = sysctl_value("net.inet.ip.forwarding").unwrap_or_else(|_| "unknown".into());
     let rules = Command::new("pfctl")

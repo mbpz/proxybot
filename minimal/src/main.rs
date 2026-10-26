@@ -118,6 +118,9 @@ enum GatewayCommand {
     },
     /// Stop the gateway and restore pf/forwarding.
     Stop,
+    /// Internal: detached supervisor owning sing-box and network recovery.
+    #[command(hide = true)]
+    Supervise(gateway_run::SuperviseArgs),
     /// EXPERIMENTAL: install the pf redirect/NAT anchor and enable IP forwarding.
     Install {
         #[arg(long)]
@@ -336,6 +339,7 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             gateway_run::start(block_quic, singbox, tun)
         }
         GatewayCommand::Stop => gateway_run::stop(),
+        GatewayCommand::Supervise(args) => gateway_run::supervise(args),
         GatewayCommand::Install {
             dry_run,
             transparent_port,
