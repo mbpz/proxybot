@@ -98,7 +98,6 @@
       <button id="clear" class="action" type="button">Clear</button>
       <a id="har" class="action" href="/api/har" download="proxybot.har" style="text-decoration:none">Export HAR</a>
     </div>
-    <div class="chips" id="sources"></div>
     <div class="chips" id="apps">
       <button class="chip active" data-app="all" type="button">All apps</button>
       <button class="chip" data-app="WeChat" type="button">WeChat</button>
@@ -324,9 +323,6 @@ function setSourceFilter(source) {
   state.source = source;
   const select = $("source");
   if ([...select.options].some((option) => option.value === source)) select.value = source;
-  document.querySelectorAll("#sources .chip").forEach((chip) => {
-    chip.classList.toggle("active", chip.dataset.source === source);
-  });
   loadRequests(false);
 }
 
@@ -350,19 +346,6 @@ async function loadSources() {
   }
   select.innerHTML = options.join("");
   select.value = state.source;
-  const chips = ['<button class="chip" data-source="all" type="button">All sources</button>'];
-  if (data.unknown_count > 0) {
-    chips.push(`<button class="chip" data-source="unknown" type="button">Unknown identity (${data.unknown_count})</button>`);
-  }
-  for (const [ip, count] of [...counts.entries()].sort()) {
-    chips.push(`<button class="chip" data-source="${esc(ip)}" type="button">${esc(ip)} (${count})</button>`);
-  }
-  const sourceBox = $("sources");
-  sourceBox.innerHTML = chips.join("");
-  sourceBox.querySelectorAll(".chip").forEach((chip) => {
-    chip.classList.toggle("active", chip.dataset.source === state.source);
-    chip.addEventListener("click", () => setSourceFilter(chip.dataset.source));
-  });
   if (select.value !== state.source) {
     state.source = "all";
     select.value = "all";
@@ -378,7 +361,6 @@ function resetFilters() {
   state.source = "all";
   state.offset = 0;
   document.querySelectorAll("#apps .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.app === "all"));
-  document.querySelectorAll("#sources .chip").forEach((chip) => chip.classList.toggle("active", chip.dataset.source === "all"));
   loadRequests();
 }
 
