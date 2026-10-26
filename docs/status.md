@@ -26,9 +26,9 @@ This is the single status overview. Phase records live under `docs/status/`.
 - Device metadata: `client_ip` and `identity_source=tun_source_ip` with
   `confidence=inferred`; `device_id` remains NULL; `connection_id` is proxy-side.
 - Gateway stop restored pf/forwarding and Mac networking in tested runs.
-- Source/device UI: source grouping by `client_ip`, unknown-identity filter,
-  identity labels, detail navigation and offset pagination (visual acceptance
-  pending).
+- Source/device UI: source dropdown grouping by `client_ip`, unknown-identity
+  filter, identity labels, detail navigation and offset pagination; browser
+  interaction verified.
 
 ## Not verified / not supported
 
