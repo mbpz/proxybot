@@ -31,6 +31,8 @@ pub struct CaptureState {
     /// IP in CONNECT; the SNI is needed to make Hudsucker forward upstream with
     /// the domain (upstream certificate verification).
     pub sni_by_client: Arc<Mutex<HashMap<SocketAddr, String>>>,
+    /// Source marker supplied by the gateway adapter on CONNECT.
+    pub source_by_client: Arc<Mutex<HashMap<SocketAddr, String>>>,
 }
 
 pub struct CaptureHandler {
@@ -41,6 +43,10 @@ pub struct CaptureHandler {
 struct Pending {
     ts_ms: i64,
     client_ip: Option<String>,
+    source_type: String,
+    peer_ip: Option<String>,
+    device_id: Option<String>,
+    connection_id: Option<String>,
     scheme: String,
     method: String,
     host: String,
@@ -118,6 +124,18 @@ impl HttpHandler for CaptureHandler {
     ) -> impl std::future::Future<Output = RequestOrResponse> + Send {
         let state = self.state.clone();
         let client_ip = ctx.client_addr.ip().to_string();
+        let source_marker = req
+            .headers()
+            .get("x-proxybot-source")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        req.headers_mut().remove("x-proxybot-source");
+        let source_type = state
+            .source_by_client
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&ctx.client_addr).cloned())
+            .unwrap_or_else(|| "local_proxy".to_string());
         let headers: Vec<(String, String)> = req
             .headers()
             .iter()
@@ -138,6 +156,15 @@ impl HttpHandler for CaptureHandler {
         );
 
         async move {
+            if req.method() == hudsucker::hyper::Method::CONNECT {
+                if let Some(marker) = source_marker {
+                    if let Ok(mut map) = state.source_by_client.lock() {
+                        map.insert(ctx.client_addr, marker);
+                    }
+                }
+                return RequestOrResponse::Request(req);
+            }
+
             // TUN/SOCKS CONNECTs only carry an IP. If a TLS ClientHello exposed
             // the real SNI, rewrite the request authority so Hudsucker forwards
             // upstream with the domain and validates the upstream certificate
@@ -171,6 +198,36 @@ impl HttpHandler for CaptureHandler {
                 }
             }
 
+            // Plain HTTP through CONNECT has no SNI. If the URI still points at
+            // an IP but the Host header carries a domain, rewrite the authority
+            // so Hudsucker connects upstream with the domain (and correct Host).
+            let host_header = req
+                .headers()
+                .get(HOST)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            if let Some(host_header) = host_header {
+                if req.uri().host().is_some_and(|host| host.parse::<IpAddr>().is_ok())
+                    && host_header.parse::<IpAddr>().is_err()
+                {
+                    let scheme = req.uri().scheme_str().unwrap_or("http");
+                    let port = req
+                        .uri()
+                        .port_u16()
+                        .unwrap_or(if scheme == "https" { 443 } else { 80 });
+                    let mut parts = req.uri().clone().into_parts();
+                    parts.scheme = Some(scheme.parse().expect("scheme"));
+                    parts.authority = Some(
+                        format!("{host_header}:{port}")
+                            .parse()
+                            .expect("authority from Host"),
+                    );
+                    if let Ok(uri) = Uri::from_parts(parts) {
+                        *req.uri_mut() = uri;
+                    }
+                }
+            }
+
             let (host, path, scheme) = request_target(&req);
             let app = {
                 let rules = state.rules.read().await;
@@ -190,7 +247,15 @@ impl HttpHandler for CaptureHandler {
             let req = Request::from_parts(head, body);
             self.pending = Some(Pending {
                 ts_ms: now_ms(),
-                client_ip: Some(client_ip),
+                client_ip: if source_type == "gateway" {
+                    None
+                } else {
+                    Some(client_ip.clone())
+                },
+                source_type,
+                peer_ip: Some(client_ip.clone()),
+                device_id: None,
+                connection_id: Some(client_ip),
                 scheme,
                 method,
                 host,
@@ -248,6 +313,10 @@ impl HttpHandler for CaptureHandler {
             let captured = Captured {
                 ts_ms: pending.ts_ms,
                 client_ip: pending.client_ip,
+                source_type: pending.source_type,
+                peer_ip: pending.peer_ip,
+                device_id: pending.device_id,
+                connection_id: pending.connection_id,
                 scheme: pending.scheme,
                 method: pending.method,
                 host: pending.host,

@@ -197,11 +197,12 @@ involve the HTTP proxy or MITM.
 
 ## Current status
 
-Verified on an iPhone (2026-10-24): HTTP proxy mode captured Safari and WeChat
-WKWebView traffic, including decrypted HTTPS JSON bodies (`welfarem.maidelong.com`,
-`dmall.com` APIs). Gateway mode remains experimental: pf redirect delivery was
-not reliable, so it is hidden behind a warning and is not part of the supported
-workflow.
+- HTTP proxy mode: verified on an iPhone (Safari, WeChat WKWebView, HTTPS JSON).
+- Gateway beta: TUN ingress + sniff + HTTPS MITM verified for a tested domain
+  through sing-box + Hudsucker (see
+  `docs/status/2026-10-26-phase2-acceptance.md`). HTTP/80 is verified locally;
+  UDP/DNS are direct; device identity and lifecycle are still pending. The pf
+  `rdr` path remains abandoned and is not the gateway implementation.
 
 Implemented and locally verified:
 

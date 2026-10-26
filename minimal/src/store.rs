@@ -15,6 +15,10 @@ pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 pub struct Captured {
     pub ts_ms: i64,
     pub client_ip: Option<String>,
+    pub source_type: String,
+    pub peer_ip: Option<String>,
+    pub device_id: Option<String>,
+    pub connection_id: Option<String>,
     pub scheme: String,
     pub method: String,
     pub host: String,
@@ -50,6 +54,10 @@ pub struct RequestSummary {
     pub id: i64,
     pub ts: i64,
     pub client_ip: Option<String>,
+    pub source_type: String,
+    pub peer_ip: Option<String>,
+    pub device_id: Option<String>,
+    pub connection_id: Option<String>,
     pub scheme: String,
     pub method: String,
     pub host: String,
@@ -260,6 +268,23 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_tls_host_ts ON tls_attempts(host, ts DESC);
             "#,
         )?;
+        // Additive migration for newer provenance fields.
+        let existing: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(requests)")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            rows.filter_map(|row| row.ok()).collect()
+        };
+        for column in [
+            "source_type TEXT NOT NULL DEFAULT 'local_proxy'",
+            "peer_ip TEXT",
+            "device_id TEXT",
+            "connection_id TEXT",
+        ] {
+            let name = column.split_whitespace().next().unwrap_or("");
+            if !existing.iter().any(|existing| existing == name) {
+                conn.execute(&format!("ALTER TABLE requests ADD COLUMN {column}"), [])?;
+            }
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -272,13 +297,18 @@ impl Store {
         let conn = self.conn.lock().expect("store mutex poisoned");
         conn.execute(
             r#"INSERT INTO requests
-               (ts, client_ip, scheme, method, host, path, status, duration_ms, app, app_source,
+               (ts, client_ip, source_type, peer_ip, device_id, connection_id,
+                scheme, method, host, path, status, duration_ms, app, app_source,
                 req_headers, req_body, req_truncated, resp_headers, resp_body, resp_truncated,
                 content_type, error)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"#,
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)"#,
             params![
                 captured.ts_ms,
                 captured.client_ip,
+                captured.source_type,
+                captured.peer_ip,
+                captured.device_id,
+                captured.connection_id,
                 captured.scheme,
                 captured.method,
                 captured.host,
@@ -306,6 +336,10 @@ impl Store {
             id,
             ts: captured.ts_ms,
             client_ip: captured.client_ip.clone(),
+            source_type: captured.source_type.clone(),
+            peer_ip: captured.peer_ip.clone(),
+            device_id: captured.device_id.clone(),
+            connection_id: captured.connection_id.clone(),
             scheme: captured.scheme.clone(),
             method: captured.method.clone(),
             host: captured.host.clone(),
@@ -335,7 +369,8 @@ impl Store {
         let conn = self.conn.lock().expect("store mutex poisoned");
         let row = conn
             .query_row(
-                r#"SELECT id, ts, client_ip, scheme, method, host, path, status, duration_ms,
+                r#"SELECT id, ts, client_ip, source_type, peer_ip, device_id, connection_id,
+                          scheme, method, host, path, status, duration_ms,
                           app, app_source, content_type, length(resp_body),
                           req_headers, req_body, req_truncated, resp_headers, resp_body,
                           resp_truncated, error
@@ -346,24 +381,28 @@ impl Store {
                         id: row.get(0)?,
                         ts: row.get(1)?,
                         client_ip: row.get(2)?,
-                        scheme: row.get(3)?,
-                        method: row.get(4)?,
-                        host: row.get(5)?,
-                        path: row.get(6)?,
-                        status: row.get::<_, Option<i64>>(7)?.map(|v| v as u16),
-                        duration_ms: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
-                        app: row.get(9)?,
-                        app_source: row.get(10)?,
-                        content_type: row.get(11)?,
-                        resp_size: row.get::<_, Option<i64>>(12)?.map(|v| v as usize),
+                        source_type: row.get(3)?,
+                        peer_ip: row.get(4)?,
+                        device_id: row.get(5)?,
+                        connection_id: row.get(6)?,
+                        scheme: row.get(7)?,
+                        method: row.get(8)?,
+                        host: row.get(9)?,
+                        path: row.get(10)?,
+                        status: row.get::<_, Option<i64>>(11)?.map(|v| v as u16),
+                        duration_ms: row.get::<_, Option<i64>>(12)?.map(|v| v as u64),
+                        app: row.get(13)?,
+                        app_source: row.get(14)?,
+                        content_type: row.get(15)?,
+                        resp_size: row.get::<_, Option<i64>>(16)?.map(|v| v as usize),
                     };
-                    let req_headers: String = row.get(13)?;
-                    let req_body: Option<Vec<u8>> = row.get(14)?;
-                    let req_truncated: i64 = row.get(15)?;
-                    let resp_headers: String = row.get(16)?;
-                    let resp_body: Option<Vec<u8>> = row.get(17)?;
-                    let resp_truncated: i64 = row.get(18)?;
-                    let error: Option<String> = row.get(19)?;
+                    let req_headers: String = row.get(17)?;
+                    let req_body: Option<Vec<u8>> = row.get(18)?;
+                    let req_truncated: i64 = row.get(19)?;
+                    let resp_headers: String = row.get(20)?;
+                    let resp_body: Option<Vec<u8>> = row.get(21)?;
+                    let resp_truncated: i64 = row.get(22)?;
+                    let error: Option<String> = row.get(23)?;
                     let req_headers: Vec<(String, String)> =
                         serde_json::from_str(&req_headers).unwrap_or_default();
                     let resp_headers: Vec<(String, String)> =
@@ -463,7 +502,7 @@ impl Store {
         params.push(Value::Integer(limit));
 
         let columns = if include_id {
-            "id, ts, client_ip, scheme, method, host, path, status, duration_ms, app, app_source, content_type, length(resp_body)"
+            "id, ts, client_ip, source_type, peer_ip, device_id, connection_id, scheme, method, host, path, status, duration_ms, app, app_source, content_type, length(resp_body)"
         } else {
             "*"
         };
@@ -480,16 +519,20 @@ fn map_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestSummary> {
         id: row.get(0)?,
         ts: row.get(1)?,
         client_ip: row.get(2)?,
-        scheme: row.get(3)?,
-        method: row.get(4)?,
-        host: row.get(5)?,
-        path: row.get(6)?,
-        status: row.get::<_, Option<i64>>(7)?.map(|v| v as u16),
-        duration_ms: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
-        app: row.get(9)?,
-        app_source: row.get(10)?,
-        content_type: row.get(11)?,
-        resp_size: row.get::<_, Option<i64>>(12)?.map(|v| v as usize),
+        source_type: row.get(3)?,
+        peer_ip: row.get(4)?,
+        device_id: row.get(5)?,
+        connection_id: row.get(6)?,
+        scheme: row.get(7)?,
+        method: row.get(8)?,
+        host: row.get(9)?,
+        path: row.get(10)?,
+        status: row.get::<_, Option<i64>>(11)?.map(|v| v as u16),
+        duration_ms: row.get::<_, Option<i64>>(12)?.map(|v| v as u64),
+        app: row.get(13)?,
+        app_source: row.get(14)?,
+        content_type: row.get(15)?,
+        resp_size: row.get::<_, Option<i64>>(16)?.map(|v| v as usize),
     })
 }
 

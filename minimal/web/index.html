@@ -129,10 +129,17 @@
             Set the device Wi-Fi HTTP proxy to <code id="proxy-addr">…</code>, then open
             <code id="ca-page">…</code> on the device and install the CA.</p>
           <details>
-            <summary><strong>Mode 2 — Side-router / gateway (experimental)</strong></summary>
-            <p class="muted">Not recommended yet: macOS pf redirect delivery is unreliable and a
-              failed/stopped gateway can leave the device without internet. Keep the phone on
-              automatic IP when you are not actively testing this mode.</p>
+            <summary><strong>Mode 2 — Gateway (beta)</strong></summary>
+            <p class="muted">TUN-based gateway path under active validation. Keep the phone on
+              automatic IP when the gateway is not running; a failed gateway can leave the device
+              without internet.</p>
+            <ul class="muted" style="margin:8px 0 8px 18px;line-height:1.7">
+              <li>TUN ingress: verified</li>
+              <li>HTTPS decryption: verified for tested domains</li>
+              <li>HTTP/80: verified locally (phone pending)</li>
+              <li>UDP / QUIC: direct, not MITM</li>
+              <li>Device identity: single-device test, not attributed</li>
+            </ul>
             <p>Start the CLI with <code>proxybot start --gateway</code>, then set the device Wi-Fi
               <strong>gateway</strong> to <code id="gateway-addr">…</code> (DNS can stay on the router).
               HTTP/HTTPS is redirected to ProxyBot; other traffic is NATed.</p>
@@ -241,7 +248,7 @@ function renderRow(row) {
     <td class="mono muted">${esc(fmtTime(row.ts))}</td>
     <td><span class="app">${esc(row.app || "—")}</span></td>
     <td class="mono">${esc(row.method)}</td>
-    <td class="mono" title="${esc(row.host)}">${esc(row.host)}</td>
+    <td class="mono" title="${esc(row.host)}">${row.source_type && row.source_type !== "local_proxy" ? `<span class="chip" style="padding:1px 6px;font-size:10px">${esc(row.source_type)}</span> ` : ""}${esc(row.host)}</td>
     <td class="mono" title="${esc(row.path)}">${esc(row.path)}</td>
     <td class="mono ${statusClass(row.status)}">${row.status ?? "–"}</td>
     <td class="mono muted">${esc(fmtDuration(row.duration_ms))}</td>`;

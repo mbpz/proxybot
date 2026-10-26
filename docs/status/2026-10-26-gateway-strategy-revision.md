@@ -63,6 +63,9 @@
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must
    not affect it.
 
+Phase 2 acceptance and Phase 3 P0–P4 work are tracked in
+`docs/status/2026-10-26-phase2-acceptance.md`.
+
 ## Acceptance boundaries
 
 - Sniff cannot decrypt HTTPS; ECH/DoH can hide SNI/DNS.
