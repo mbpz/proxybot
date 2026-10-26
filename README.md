@@ -1,5 +1,14 @@
 # ProxyBot
 
+> **Active lightweight implementation:** the CLI + local web UI under
+> [`minimal/`](minimal/README.md) is the current product path. The Tauri desktop
+> app described below is the legacy implementation and is not where Gateway
+> Beta or the current identity/lifecycle work lives.
+>
+> Current status: [`docs/status.md`](docs/status.md) · Gateway Beta:
+> [`docs/gateway-beta.md`](docs/gateway-beta.md) · release gates:
+> [`docs/release-checklist.md`](docs/release-checklist.md).
+
 [![CI](https://github.com/mbpz/proxybot/actions/workflows/ci.yml/badge.svg)](https://github.com/mbpz/proxybot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mbpz.github.io/proxybot/)

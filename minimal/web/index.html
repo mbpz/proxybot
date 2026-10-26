@@ -135,17 +135,20 @@
               without internet.</p>
             <ul class="muted" style="margin:8px 0 8px 18px;line-height:1.7">
               <li>TUN ingress: verified</li>
+              <li>Lifecycle: supervisor, exit diagnostics, recovery verified</li>
               <li>HTTPS decryption: verified for tested domains</li>
               <li>HTTP/80: verified on phone</li>
               <li>UDP / QUIC: <span id="quic-policy">direct</span>, not MITM</li>
-              <li>Device identity: single-device test, not attributed</li>
+              <li>Device identity: two-device source-IP routing verified; unknown sources stay unassigned</li>
             </ul>
             <p>Generate the gateway config, then run it as root:</p>
-            <pre style="margin:8px 0;padding:10px;background:#111;border-radius:6px;overflow:auto"><code>proxybot singbox-config [--block-quic]
-sudo sing-box run -c "$HOME/Library/Application Support/ProxyBot/singbox-tun-mitm.json"
-sudo sh minimal/pf-tun-test.sh install utun6</code></pre>
+            <pre style="margin:8px 0;padding:10px;background:#111;border-radius:6px;overflow:auto"><code>proxybot start
+sudo proxybot gateway start [--block-quic] [--devices FILE]
+proxybot gateway status
+sudo proxybot gateway stop</code></pre>
             <p>Then set the device Wi-Fi <strong>gateway</strong> to <code id="gateway-addr">…</code> (DNS can stay on the router).
-              TCP/80/443 enters ProxyBot; UDP stays direct unless <code>--block-quic</code> is used.</p>
+              TCP/80/443 enters ProxyBot; UDP stays direct unless <code>--block-quic</code> is used.
+              Gateway requires a separately installed sing-box (GPL-3.0, not bundled).</p>
           </details>
           <p class="muted">HTTP proxy mode needs the CA trusted on the device before HTTPS can be decrypted:
             iOS Settings → General → About → Certificate Trust Settings; Android install as a user CA.

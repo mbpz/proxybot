@@ -107,5 +107,5 @@ case ":$PATH:" in
 esac
 echo
 echo "Next:"
-echo "  proxybot start            # explicit proxy + web UI"
-echo "  proxybot start --gateway  # transparent Wi-Fi gateway mode (asks for admin)"
+echo "  proxybot start                 # explicit proxy + web UI (supported)"
+echo "  proxybot gateway start         # Gateway Beta (root; install sing-box separately)"

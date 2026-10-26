@@ -37,7 +37,7 @@ struct Cli {
 enum Command {
     /// Start capture, the local web UI, and optionally the pf gateway.
     Start(StartArgs),
-    /// Manage the macOS pf transparent gateway.
+    /// Manage the Gateway Beta (TUN + sing-box); legacy pf commands are hidden.
     Gateway(GatewayArgs),
     /// Show or reset app classification rules.
     Rules(RulesArgs),
@@ -127,7 +127,8 @@ enum GatewayCommand {
     /// Internal: detached supervisor owning sing-box and network recovery.
     #[command(hide = true)]
     Supervise(gateway_run::SuperviseArgs),
-    /// EXPERIMENTAL: install the pf redirect/NAT anchor and enable IP forwarding.
+    /// LEGACY: old pf redirect/NAT anchor; use `gateway start` instead.
+    #[command(hide = true)]
     Install {
         #[arg(long)]
         dry_run: bool,
@@ -141,7 +142,8 @@ enum GatewayCommand {
         #[arg(long)]
         block_quic: bool,
     },
-    /// Remove the pf anchor and restore forwarding state.
+    /// LEGACY: remove the old pf anchor and restore forwarding state.
+    #[command(hide = true)]
     Uninstall {
         #[arg(long)]
         dry_run: bool,
@@ -209,35 +211,37 @@ fn print_command_list() {
     println!();
     println!("CAPTURE");
     println!("  start");
-    println!("      Start the explicit HTTP proxy, the local web UI and (with --gateway)");
-    println!("      the pf side-router. Opens the web UI unless --no-open is set.");
+    println!("      Start the explicit HTTP proxy and local web UI. Opens the web UI");
+    println!("      unless --no-open is set.");
     println!();
     println!("      --proxy-port <PORT>        device Wi-Fi HTTP proxy port (default 8088)");
     println!("      --transparent-port <PORT>  pf redirect target (default 8089)");
     println!("      --web-port <PORT>          loopback Web UI port (default 8899)");
     println!("      --ca-port <PORT>           LAN CA page port (default 8090)");
-    println!("      --gateway                  install pf rules while running (requires admin);");
-    println!("                                 transparent adapter listens on 0.0.0.0:<transparent-port>");
-    println!("      --block-quic               with --gateway, drop QUIC (UDP 80/443) so apps");
-    println!("                                 fall back to TCP/TLS and become capturable");
+    println!("      --gateway                  LEGACY pf side-router (unsupported); use");
+    println!("                                 `proxybot gateway start` instead");
+    println!("      --block-quic               LEGACY pf QUIC drop, only with --gateway");
     println!("      --no-open                  do not open a browser");
     println!("      --data-dir <DIR>           CA, SQLite and rules directory");
     println!();
     println!("      Examples:");
     println!("        proxybot start                              # HTTP proxy mode (no admin)");
-    println!("        proxybot start --gateway --block-quic       # side-router mode (admin)");
+    println!("        proxybot start --no-open                    # HTTP proxy, no browser");
     println!("        proxybot start --proxy-port 9090 --web-port 9999");
     println!("        proxybot start --no-open --data-dir /tmp/proxybot");
     println!();
-    println!("GATEWAY (EXPERIMENTAL — macOS pf; install/uninstall ask for admin)");
+    println!("GATEWAY (BETA — TUN + sing-box; requires sudo and a running ProxyBot)");
     println!("  gateway start [--block-quic] [--singbox <PATH>] [--tun utun6]");
-    println!("      Start sing-box TUN + pf route-to. Requires sudo and a running ProxyBot.");
+    println!("                [--client-ip <IP> | --devices <FILE>]");
+    println!("      Start sing-box TUN + pf route-to. Requires sudo, a running ProxyBot,");
+    println!("      and a user-supplied sing-box built with -tags with_gvisor.");
+    println!("      --client-ip  single-device metadata prototype");
+    println!("      --devices    per-device source-IP routing (P4.3)");
     println!();
-    println!("  gateway stop");
-    println!("      Stop the TUN gateway, flush its pf anchor and restore forwarding.");
+    println!("  gateway stop       stop the supervisor and restore pf/forwarding");
+    println!("  gateway status     show lifecycle state");
     println!();
-    println!("  gateway status");
-    println!("      Show gateway lifecycle state.");
+    println!("  singbox-config      generate the gateway config; --block-quic / --client-ip / --devices");
     println!();
     println!("  gateway install [EXPERIMENTAL]");
     println!("      Write the pf anchor, enable IP forwarding and load redirect/NAT rules.");
@@ -354,8 +358,8 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             block_quic,
         } => {
             eprintln!(
-                "WARNING: gateway mode is experimental on macOS. Verify the device keeps\n\
-                 internet access and use `proxybot gateway uninstall` afterwards."
+                "WARNING: this pf redirect/NAT gateway is LEGACY and unsupported.\n\
+                 Use `proxybot gateway start` for the current TUN gateway."
             );
             let mut config = gateway::detect(transparent_port)?;
             if let Some(interface) = interface {

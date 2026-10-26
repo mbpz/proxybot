@@ -19,6 +19,7 @@ the authority on current behavior.
 | [0007](0007-lightweight-positioning.md) | Lightweight positioning and removal of Android SSL bypass | Accepted |
 | [0008](0008-rockxy-clean-room-parity.md) | Rockxy Community clean-room parity policy | Accepted |
 | [0009](0009-gateway-device-identity.md) | Gateway device identity and metadata | Accepted |
+| [0010](0010-gateway-beta-boundary.md) | Gateway beta boundary and lifecycle | Accepted |
 
 ## When to write an ADR
 
