@@ -10,6 +10,7 @@ mod rules;
 mod store;
 mod transparent;
 mod sniff;
+mod singbox_config;
 mod tun_probe;
 mod web;
 
@@ -45,6 +46,8 @@ enum Command {
     List,
     /// Passive packet capture (flows, DNS, TLS SNI); requires root.
     Sniff(sniff::SniffArgs),
+    /// Generate the gateway sing-box TUN config (optional QUIC blocking).
+    SingboxConfig(singbox_config::SingboxConfigArgs),
     /// EXPERIMENTAL: create a utun and print packets routed into it (root).
     TunProbe(tun_probe::TunProbeArgs),
 }
@@ -162,6 +165,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Sniff(args) => sniff::run(args),
+        Command::SingboxConfig(args) => singbox_config::run(args),
         Command::TunProbe(args) => tun_probe::run(args),
     }
 }
@@ -233,6 +237,19 @@ fn print_command_list() {
     println!("        proxybot rules path");
     println!("        proxybot rules show | head -40");
     println!("        proxybot rules reset");
+    println!();
+    println!("GATEWAY CONFIG (sing-box TUN + sniff; optional QUIC policy)");
+    println!("  singbox-config");
+    println!("      Generate the sing-box TUN config used by the gateway beta.");
+    println!("      --block-quic             reject UDP/443 (QUIC fallback test)");
+    println!("      --output <FILE>          config path (default: <data>/singbox-tun-mitm.json)");
+    println!("      --http-proxy <ADDR>      Hudsucker address (default 127.0.0.1:8088)");
+    println!("      --transparent <ADDR>     plain-HTTP adapter (default 127.0.0.1:8089)");
+    println!("      --tun <NAME>             TUN interface (default utun6)");
+    println!();
+    println!("      Examples:");
+    println!("        proxybot singbox-config");
+    println!("        proxybot singbox-config --block-quic");
     println!();
     println!("TUN PROBE (EXPERIMENTAL; ingress/return feasibility, requires sudo)");
     println!("  tun-probe");
@@ -399,7 +416,11 @@ async fn run_start(args: StartArgs) -> Result<()> {
     let lan_ip = gateway::detect(args.transparent_port)
         .map(|config| config.lan_ip)
         .unwrap_or_else(|_| "127.0.0.1".to_string());
+    let quic_policy = std::fs::read_to_string(data_dir.join("quic-policy"))
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|_| "direct".to_string());
     let setup = web::SetupInfo {
+        quic_policy,
         ca_url: format!("http://{lan_ip}:{}/ca.crt", args.ca_port),
         ca_page_url: format!("http://{lan_ip}:{}/", args.ca_port),
         lan_ip: lan_ip.clone(),

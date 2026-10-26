@@ -33,6 +33,7 @@ pub struct WebState {
 #[derive(Debug, Clone, Serialize)]
 pub struct SetupInfo {
     pub lan_ip: String,
+    pub quic_policy: String,
     pub proxy_port: u16,
     pub transparent_port: u16,
     pub web_port: u16,

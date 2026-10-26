@@ -159,6 +159,19 @@ The web UI has three views:
 - **Rules** — edit the YAML app classification rules in place; changes apply
   immediately.
 
+### Gateway beta: generate the sing-box config
+
+```bash
+proxybot singbox-config              # UDP/443 direct (default)
+proxybot singbox-config --block-quic # reject UDP/443 for fallback testing
+```
+
+The generated config routes TCP/443 to Hudsucker, TCP/80 to the transparent
+adapter, keeps UDP/DNS direct, and can optionally reject UDP/443 at the sing-box
+route layer. ProxyBot's Setup page reads the saved `quic-policy` and shows
+whether QUIC is direct or blocked. See
+[`docs/status/2026-10-26-p2-quic-policy.md`](../docs/status/2026-10-26-p2-quic-policy.md).
+
 ## Passive sniff mode (experimental, root)
 
 `proxybot sniff` observes the interface without proxying anything. It is the

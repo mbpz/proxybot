@@ -137,7 +137,7 @@
               <li>TUN ingress: verified</li>
               <li>HTTPS decryption: verified for tested domains</li>
               <li>HTTP/80: verified on phone</li>
-              <li>UDP / QUIC: direct, not MITM</li>
+              <li>UDP / QUIC: <span id="quic-policy">direct</span>, not MITM</li>
               <li>Device identity: single-device test, not attributed</li>
             </ul>
             <p>Start the CLI with <code>proxybot start --gateway</code>, then set the device Wi-Fi
@@ -346,6 +346,7 @@ async function loadSetup() {
   $("proxy-addr").textContent = `${setup.lan_ip}:${setup.proxy_port}`;
   $("ca-page").textContent = setup.ca_page_url;
   $("gateway-addr").textContent = setup.lan_ip;
+  $("quic-policy").textContent = setup.quic_policy === "block" ? "blocked (fallback test)" : "direct";
   $("qr").src = "/api/qr.svg?data=" + encodeURIComponent(setup.ca_page_url);
   $("setup-kv").innerHTML = [
     ["Device CA page", setup.ca_page_url],

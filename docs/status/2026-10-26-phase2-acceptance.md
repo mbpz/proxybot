@@ -83,9 +83,10 @@ Do not forge the device IP into `client_ip`; filtering/statistics should use
 
 ### P2 — UDP/QUIC policy
 
-- Default direct, visibly "not decrypted".
-- Optional QUIC blocking to compare fallback behavior.
-- Never represent UDP as captured HTTP.
+- Implemented `proxybot singbox-config [--block-quic]`: default UDP/443 direct;
+  optional sing-box route-layer reject for fallback tests.
+- Setup shows the policy; request list never fakes UDP rows.
+- Acceptance checklist: `docs/status/2026-10-26-p2-quic-policy.md`.
 
 ### P3 — gateway lifecycle
 
