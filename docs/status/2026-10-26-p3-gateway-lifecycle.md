@@ -76,10 +76,16 @@ sudo proxybot gateway stop
    recovery success, `utun6` gone, forwarding restored, Mac 200.
 6. Repeated stop is idempotent (`gateway is already stopped`).
 7. Stale exited state transitions to `stopped` after recovery.
-8. Supervisor `kill -9` handling is implemented: `status` reports `stale`,
-   `stop` kills only an orphan child whose command still contains this
-   instance's config path, then restores pf/forwarding. Verification pending.
-9. Forced recovery failure is still to verify.
+8. Supervisor `kill -9`: `status` reports `stale`; `stop` kills only the
+   orphan child whose command contains this instance's config path, restores
+   pf/forwarding, and ends in `stopped`. Verified: no sing-box process, no
+   `utun6`, forwarding 0, Mac HTTPS 200.
+9. Forced recovery failure is still to verify (needs a controlled pf/command
+   failure injection); it is not a blocker for phase 1.
+
+Phase 1 acceptance: normal lifecycle, exit diagnostics, unexpected TERM/kill -9,
+startup failure, stale supervisor and idempotent stop all pass. Automatic
+restart, launchd, sleep/Wi-Fi handling and log rotation remain future work.
 
 ## Known limits
 
