@@ -54,6 +54,10 @@
    showed SOCKS5 loses SNI (CONNECT by IP), so Phase 2 moves TUN ingress to
    sing-box with `action: sniff` before the HTTP outbound; tun2socks is dropped
    from this path. Config: `minimal/examples/singbox-tun-mitm.json`.
+   **Phase 2 passed**: after rewriting the upstream request from IP to ClientHello
+   SNI, phone HTTPS is decrypted and captured. Client IP is currently
+   `127.0.0.1` because sing-box forwards through loopback; attribution is a
+   follow-up.
 4. Evaluate Network Extension only if productisation requires system lifecycle
    and supported interception.
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must
