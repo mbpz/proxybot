@@ -1,0 +1,24 @@
+{
+  "log": {"level": "debug"},
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "utun6",
+      "auto_route": false,
+      "strict_route": false,
+      "stack": "gvisor"
+    }
+  ],
+  "outbounds": [
+    {"type": "http", "tag": "mitm", "server": "127.0.0.1", "server_port": 8088},
+    {"type": "direct", "tag": "direct"}
+  ],
+  "route": {
+    "rules": [
+      {"action": "sniff"},
+      {"network": ["tcp"], "port": 443, "outbound": "mitm"}
+    ],
+    "final": "direct"
+  }
+}

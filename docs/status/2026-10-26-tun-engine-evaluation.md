@@ -139,8 +139,23 @@ Results on the Mac (local SOCKS client):
 - route rule must be `network: ["tcp"]`; otherwise UDP 443 hits the HTTP outbound
   and logs `UDP is not supported by outbound`.
 
-This establishes the phased path: **TCP/443 → Hudsucker MITM; TCP/80 direct for
-now; UDP/DNS direct**. Phone validation is next.
+This established the phased path locally, but the phone test exposed a new
+problem: tun2socks SOCKS5 only knows the destination **IP** (it consumes IP
+packets), so Hudsucker generates a certificate for the IP. The iPhone rejects
+it (`certificate not valid for name "117.141.255.9"`) and HTTPS fails. Local
+curl worked only because curl put a hostname in the SOCKS request.
+
+Conclusion: TCP MITM needs the **sniffed domain/SNI**, not just the IP. Move the
+TUN ingress to sing-box itself and enable the `sniff` route action before
+routing TCP/443 to the HTTP outbound:
+
+- Config: `minimal/examples/singbox-tun-mitm.json`
+- TUN inbound (`interface_name: utun6`, no auto_route; pf route-to feeds it)
+- route rules: `action: sniff`, then TCP/443 -> HTTP outbound (Hudsucker)
+- HTTP/80 and UDP stay direct
+- `sing-box check` passes
+
+Next phone test uses sing-box TUN instead of tun2socks; no SOCKS layer.
 
 ## Test procedure
 

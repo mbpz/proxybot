@@ -50,8 +50,10 @@
    no UDP/DNS, and CONNECT-for-port-80 breaks plain HTTP through hudsucker.
    Next: SOCKS5 (TCP CONNECT + UDP ASSOCIATE) outlet. **SOCKS5 + IPv4 UDP/DNS
    closed loop passed on the iPhone**; local routing test then showed TCP/443
-   can go through Hudsucker MITM while HTTP/80 and UDP stay direct. Phase 2
-   (TCP MITM adapter) is now a config-level route rather than a protocol hack.
+   can go through Hudsucker MITM while HTTP/80 and UDP stay direct. Phone test
+   showed SOCKS5 loses SNI (CONNECT by IP), so Phase 2 moves TUN ingress to
+   sing-box with `action: sniff` before the HTTP outbound; tun2socks is dropped
+   from this path. Config: `minimal/examples/singbox-tun-mitm.json`.
 4. Evaluate Network Extension only if productisation requires system lifecycle
    and supported interception.
 5. Keep explicit HTTP proxy as the stable fallback; experimental features must
