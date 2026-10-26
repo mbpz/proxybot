@@ -13,6 +13,7 @@ set -eu
 IFACE="${PROXYBOT_IFACE:-en1}"
 CIDR="${PROXYBOT_CIDR:-192.168.3.0/24}"
 PEER="${PROXYBOT_TUN_PEER:-10.255.0.2}"
+LOCAL="${PROXYBOT_TUN_LOCAL:-10.255.0.1}"
 ANCHOR="com.apple/proxybot-tun"
 CONF="/tmp/proxybot-tun.conf"
 STATE="/tmp/proxybot-tun-forwarding"
@@ -28,6 +29,13 @@ case "$1" in
       echo "interface $TUN not found; start 'proxybot tun-probe' first (it prints utunN)" >&2
       exit 1
     fi
+    # An engine-owned utun (e.g. tun2socks) has no IPv4 address by default;
+    # route-to needs the gateway (peer) to be reachable on that interface.
+    sudo ifconfig "$TUN" inet "$LOCAL" "$PEER" up
+    ifconfig "$TUN" | grep -q "inet " || {
+      echo "failed to configure addresses on $TUN" >&2
+      exit 1
+    }
     cat > "$CONF" <<RULES
 # Keep multicast/broadcast on the normal path (mDNS, discovery), then route
 # only internet-bound traffic: never steal traffic destined to the Mac itself or
@@ -44,7 +52,7 @@ RULES
     done
     sudo pfctl -a "$ANCHOR" -f "$CONF"
     sudo sysctl -w net.inet.ip.forwarding=1
-    echo "TUN route-to loaded: ${CIDR} -> (${TUN} ${PEER})"
+    echo "TUN route-to loaded: ${CIDR} -> (${TUN} ${PEER}); ${TUN} local=${LOCAL}"
     echo "WARNING: no return path; the iPhone has no internet until restore."
     echo "Watch the tun-probe terminal for packets. Restore: sudo sh $0 restore"
     ;;

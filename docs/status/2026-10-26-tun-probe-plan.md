@@ -52,8 +52,10 @@ This probe is deliberately smaller than a transparent proxy:
   (`to ! <lan_cidr>`) and only forwards internet-bound phone traffic; a second
   live run then captured 165 packets, all from the iPhone (DNS/ICMP/TCP/UDP to
   public destinations), while the Mac kept its internet access.
-- `minimal/pf-tun-test.sh install utunN` loads the route-to rule; `restore`
-  removes it and restores forwarding.
+- `minimal/pf-tun-test.sh install utunN` configures the utun address
+  (`10.255.0.1`/peer `10.255.0.2`) and loads the route-to rule; `restore`
+  removes it and restores forwarding. Engine-owned TUNs (tun2socks) start with
+  no IPv4 address, so route-to would otherwise point at an unreachable gateway.
 - Both are local tools only; not integrated into `proxybot start --gateway`.
 
 ## Non-goals
