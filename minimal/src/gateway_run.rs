@@ -7,11 +7,13 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Child, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -73,16 +75,50 @@ fn read_state() -> Option<State> {
     serde_json::from_str(&fs::read_to_string(state_path()).ok()?).ok()
 }
 
-fn log_line(dir: &Path, name: &str, message: &str) {
-    let path = dir.join(name);
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(
-            file,
-            "{} {}",
-            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            message
-        );
+const LOG_LIMIT: u64 = 2 * 1024 * 1024;
+
+fn rotate_if_needed(path: &Path) {
+    let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size <= LOG_LIMIT {
+        return;
     }
+    let _ = fs::remove_file(path.with_extension("log.2"));
+    let _ = fs::rename(path.with_extension("log.1"), path.with_extension("log.2"));
+    let _ = fs::rename(path, path.with_extension("log.1"));
+}
+
+fn append_log(path: &Path, bytes: &[u8]) {
+    rotate_if_needed(path);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(bytes);
+    }
+}
+
+fn log_line(dir: &Path, name: &str, message: &str) {
+    let line = format!(
+        "{} {}\n",
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        message
+    );
+    append_log(&dir.join(name), line.as_bytes());
+}
+
+fn lock_path() -> PathBuf {
+    state_dir().join("lock")
+}
+
+fn acquire_lock(path: &Path, message: &str) -> Result<File> {
+    fs::create_dir_all(state_dir())?;
+    let file = OpenOptions::new().create(true).write(true).open(path)?;
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if rc != 0 {
+        bail!("{message}");
+    }
+    Ok(file)
+}
+
+fn acquire_supervisor_lock() -> Result<File> {
+    acquire_lock(&lock_path(), "another gateway supervisor holds the instance lock")
 }
 
 fn is_root() -> bool {
@@ -226,11 +262,14 @@ fn restore_network(state: &State, dir: &Path) -> Result<()> {
             failures.push(format!("restore forwarding: {error}"));
         }
     }
+    if std::env::var("PROXYBOT_RECOVERY_FAIL").ok().as_deref() == Some("1") {
+        failures.push("injected recovery failure (PROXYBOT_RECOVERY_FAIL=1)".into());
+    }
     log_line(dir, "recovery.log", &format!("restore instance={} failures={:?}", state.instance_id, failures));
     if failures.is_empty() {
         Ok(())
     } else {
-        bail!("{} recovery step(s) failed", failures.len())
+        bail!("{} recovery step(s) failed: {:?}", failures.len(), failures)
     }
 }
 
@@ -276,6 +315,10 @@ pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<
     if !is_root() {
         bail!("gateway start requires root: sudo proxybot gateway start");
     }
+    let _start_lock = acquire_lock(
+        &state_dir().join("start.lock"),
+        "another gateway start is already in progress",
+    )?;
     if let Some(old) = read_state() {
         if alive(old.supervisor_pid) {
             bail!("gateway already running (instance {}, supervisor pid {})", old.instance_id, old.supervisor_pid);
@@ -327,6 +370,22 @@ pub fn start(block_quic: bool, singbox: Option<PathBuf>, tun: String) -> Result<
         }
         thread::sleep(Duration::from_millis(200));
     }
+    // Do not leave a half-started supervisor behind when start times out or
+    // observes a terminal state.
+    if let Some(current) = read_state() {
+        if alive(current.supervisor_pid) {
+            let _ = Command::new("kill")
+                .args(["-TERM", &current.supervisor_pid.to_string()])
+                .status();
+            let wait = std::time::Instant::now();
+            while wait.elapsed() < Duration::from_secs(5) && alive(current.supervisor_pid) {
+                thread::sleep(Duration::from_millis(100));
+            }
+            let _ = Command::new("kill")
+                .args(["-KILL", &current.supervisor_pid.to_string()])
+                .status();
+        }
+    }
     let tail = fs::read_to_string(dir.join("supervisor.log")).unwrap_or_default();
     let child_tail = fs::read_to_string(dir.join("sing-box.log")).unwrap_or_default();
     bail!(
@@ -361,6 +420,7 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
     }
     let dir = instance_dir(&args.instance);
     fs::create_dir_all(&dir)?;
+    let _instance_lock = acquire_supervisor_lock()?;
     install_signal_handlers();
     let detected = crate::gateway::detect(8089)?;
     let config_path = dir.join("singbox.json");
@@ -390,12 +450,11 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
     write_state(&state)?;
     log_line(&dir, "supervisor.log", &format!("supervisor start instance={}", args.instance));
 
-    let log = File::create(dir.join("sing-box.log"))?;
     let mut child = match Command::new(&args.singbox)
         .args(["run", "-c"])
         .arg(&config_path)
-        .stdout(Stdio::from(log.try_clone()?))
-        .stderr(Stdio::from(log))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
     {
         Ok(child) => child,
@@ -410,6 +469,31 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
     };
     state.singbox_pid = Some(child.id());
     write_state(&state)?;
+    let log_path = Arc::new(dir.join("sing-box.log"));
+    let log_lock = Arc::new(Mutex::new(()));
+    for stream in [
+        child.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>),
+        child.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let path = log_path.clone();
+        let lock = log_lock.clone();
+        std::thread::spawn(move || {
+            let mut stream = stream;
+            let mut buffer = [0u8; 8192];
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let _guard = lock.lock().ok();
+                        append_log(&path, &buffer[..n]);
+                    }
+                }
+            }
+        });
+    }
 
     if let Err(error) = wait_tun(&args.tun) {
         let _ = child.kill();

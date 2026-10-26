@@ -59,6 +59,40 @@ proxybot gateway status
 sudo proxybot gateway stop
 ```
 
+## P3 hardening
+
+### Startup mutex
+
+- `gateway start` takes `/tmp/proxybot-gateway/start.lock` with `flock(LOCK_NB)`
+  for the whole startup window.
+- The detached supervisor takes `/tmp/proxybot-gateway/lock` for its lifetime.
+- A second start fails before touching TUN/pf; the lock is released
+  automatically if the owner exits (including SIGKILL).
+
+### Log rotation
+
+- Per-instance `supervisor.log`, `sing-box.log`, `recovery.log`.
+- 2 MiB cap; rotated as `.log.1` / `.log.2`; recent exit/recovery lines are kept.
+- sing-box stdout/stderr are read through pipes so rotation happens while the
+  child is running.
+
+### Recovery failure injection
+
+Set `PROXYBOT_RECOVERY_FAIL=1` to append a controlled failure after the real
+restore commands:
+
+```bash
+sudo PROXYBOT_RECOVERY_FAIL=1 proxybot gateway start
+sudo PROXYBOT_RECOVERY_FAIL=1 proxybot gateway stop
+proxybot gateway status             # recovery_failed
+sudo env -u PROXYBOT_RECOVERY_FAIL proxybot gateway stop
+proxybot gateway status             # stopped
+```
+
+The real network restore still runs; the injected failure tests state/log/status
+handling without breaking Mac networking. Retry without the variable must clear
+the failed state.
+
 ## Failure injection evidence
 
 1. normal start/status → `running`, supervisor and child PIDs recorded.
@@ -84,8 +118,9 @@ sudo proxybot gateway stop
    failure injection); it is not a blocker for phase 1.
 
 Phase 1 acceptance: normal lifecycle, exit diagnostics, unexpected TERM/kill -9,
-startup failure, stale supervisor and idempotent stop all pass. Automatic
-restart, launchd, sleep/Wi-Fi handling and log rotation remain future work.
+startup failure, stale supervisor, idempotent stop, mutex, rotation and recovery
+failure injection are implemented. Automatic restart, launchd and sleep/Wi-Fi
+handling remain future work.
 
 ## Known limits
 
