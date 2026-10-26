@@ -6,6 +6,7 @@
 mod ca;
 mod capture;
 mod gateway;
+mod gateway_run;
 mod rules;
 mod store;
 mod transparent;
@@ -103,6 +104,20 @@ struct GatewayArgs {
 
 #[derive(Subcommand)]
 enum GatewayCommand {
+    /// Start sing-box TUN + pf route-to for the gateway beta (root).
+    Start {
+        /// Reject UDP/443 at the sing-box route layer (QUIC fallback test).
+        #[arg(long)]
+        block_quic: bool,
+        /// sing-box binary (default: PROXYBOT_SINGBOX_BIN or a known path).
+        #[arg(long)]
+        singbox: Option<std::path::PathBuf>,
+        /// TUN interface name.
+        #[arg(long, default_value = "utun6")]
+        tun: String,
+    },
+    /// Stop the gateway and restore pf/forwarding.
+    Stop,
     /// EXPERIMENTAL: install the pf redirect/NAT anchor and enable IP forwarding.
     Install {
         #[arg(long)]
@@ -122,7 +137,7 @@ enum GatewayCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Show forwarding state and currently loaded anchor rules.
+    /// Show gateway lifecycle state.
     Status,
 }
 
@@ -206,6 +221,15 @@ fn print_command_list() {
     println!("        proxybot start --no-open --data-dir /tmp/proxybot");
     println!();
     println!("GATEWAY (EXPERIMENTAL — macOS pf; install/uninstall ask for admin)");
+    println!("  gateway start [--block-quic] [--singbox <PATH>] [--tun utun6]");
+    println!("      Start sing-box TUN + pf route-to. Requires sudo and a running ProxyBot.");
+    println!();
+    println!("  gateway stop");
+    println!("      Stop the TUN gateway, flush its pf anchor and restore forwarding.");
+    println!();
+    println!("  gateway status");
+    println!("      Show gateway lifecycle state.");
+    println!();
     println!("  gateway install [EXPERIMENTAL]");
     println!("      Write the pf anchor, enable IP forwarding and load redirect/NAT rules.");
     println!("      Not recommended yet: pf redirect delivery is unreliable on macOS and a");
@@ -308,6 +332,10 @@ fn print_command_list() {
 fn run_gateway(args: GatewayArgs) -> Result<()> {
     let data_dir = default_data_dir();
     match args.command {
+        GatewayCommand::Start { block_quic, singbox, tun } => {
+            gateway_run::start(block_quic, singbox, tun)
+        }
+        GatewayCommand::Stop => gateway_run::stop(),
         GatewayCommand::Install {
             dry_run,
             transparent_port,
@@ -330,10 +358,7 @@ fn run_gateway(args: GatewayArgs) -> Result<()> {
             gateway::install(&config, &data_dir, dry_run)
         }
         GatewayCommand::Uninstall { dry_run } => gateway::uninstall(&data_dir, dry_run),
-        GatewayCommand::Status => {
-            println!("{}", gateway::status()?);
-            Ok(())
-        }
+        GatewayCommand::Status => gateway_run::status(),
     }
 }
 

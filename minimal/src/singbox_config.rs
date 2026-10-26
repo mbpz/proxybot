@@ -26,16 +26,17 @@ pub struct SingboxConfigArgs {
     pub transparent: String,
 }
 
-pub fn run(args: SingboxConfigArgs) -> Result<()> {
-    let data_dir = crate::default_data_dir();
-    std::fs::create_dir_all(&data_dir)?;
-    let output = args
-        .output
-        .unwrap_or_else(|| data_dir.join("singbox-tun-mitm.json"));
-
-    let transparent_host = args.transparent.split(':').next().unwrap_or("127.0.0.1");
-    let transparent_port = args
-        .transparent
+/// Build the gateway config. Kept here so the CLI and `gateway start` share one
+/// source of truth.
+pub fn build_config(http_proxy: &str, tun: &str, transparent: &str, block_quic: bool) -> serde_json::Value {
+    let proxy_host = http_proxy.split(':').next().unwrap_or("127.0.0.1");
+    let proxy_port = http_proxy
+        .rsplit(':')
+        .next()
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(8088);
+    let transparent_host = transparent.split(':').next().unwrap_or("127.0.0.1");
+    let transparent_port = transparent
         .rsplit(':')
         .next()
         .and_then(|port| port.parse::<u16>().ok())
@@ -50,16 +51,15 @@ pub fn run(args: SingboxConfigArgs) -> Result<()> {
         "override_port": transparent_port
     }));
     rules.push(json!({"network": ["tcp"], "port": 443, "outbound": "mitm"}));
-    if args.block_quic {
+    if block_quic {
         rules.push(json!({"network": ["udp"], "port": 443, "action": "reject"}));
     }
-
-    let config = json!({
+    json!({
         "log": {"level": "debug"},
         "inbounds": [{
             "type": "tun",
             "tag": "tun-in",
-            "interface_name": args.tun,
+            "interface_name": tun,
             "auto_route": false,
             "strict_route": false,
             "stack": "gvisor"
@@ -68,14 +68,24 @@ pub fn run(args: SingboxConfigArgs) -> Result<()> {
             {
                 "type": "http",
                 "tag": "mitm",
-                "server": args.http_proxy.split(':').next().unwrap_or("127.0.0.1"),
-                "server_port": args.http_proxy.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()).unwrap_or(8088),
+                "server": proxy_host,
+                "server_port": proxy_port,
                 "headers": {"X-ProxyBot-Source": "gateway"}
             },
             {"type": "direct", "tag": "direct"}
         ],
         "route": {"rules": rules, "final": "direct"}
-    });
+    })
+}
+
+pub fn run(args: SingboxConfigArgs) -> Result<()> {
+    let data_dir = crate::default_data_dir();
+    std::fs::create_dir_all(&data_dir)?;
+    let output = args
+        .output
+        .unwrap_or_else(|| data_dir.join("singbox-tun-mitm.json"));
+
+    let config = build_config(&args.http_proxy, &args.tun, &args.transparent, args.block_quic);
     std::fs::write(&output, serde_json::to_vec_pretty(&config)?)
         .with_context(|| format!("write sing-box config {}", output.display()))?;
 
