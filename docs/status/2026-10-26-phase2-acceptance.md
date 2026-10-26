@@ -17,8 +17,12 @@ apps or all devices can be captured/decrypted.
 - Hudsucker receives the request; after rewriting an IP-based CONNECT request to
   the ClientHello SNI, upstream forwarding and certificate validation succeed.
 - ProxyBot records `example.com` requests (`/`, `/s.js`) with 200 responses.
-- HTTP/80: locally verified through a CONNECT-by-IP + `Host` rewrite
-  (200, recorded as `example.com`); phone verification is pending.
+- HTTP/80: Hudsucker's CONNECT handling only special-cases `GET`, so POST and
+  other methods fail with `Unknown protocol`. Fixed by routing TCP/80 to
+  ProxyBot's transparent adapter (`override_address=127.0.0.1`,
+  `override_port=8089`), which rewrites absolute-form requests and marks
+  `X-ProxyBot-Source: gateway`. Locally verified GET and POST (200/405 from the
+  test origin) with `source_type=gateway`; phone verification is next.
 - Provenance marker `X-ProxyBot-Source: gateway` from the sing-box HTTP outbound
   is stored as `source_type=gateway`; the header is stripped before forwarding.
 - Existing direct/HTTP-proxy mode keeps `source_type=local_proxy` and the real

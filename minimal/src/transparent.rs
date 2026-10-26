@@ -135,6 +135,7 @@ async fn http_via_proxy(mut client: TcpStream, proxy: SocketAddr) -> io::Result<
 
     let mut rewritten = String::new();
     rewritten.push_str(&format!("{method} {absolute} {version}\r\n"));
+    rewritten.push_str("X-ProxyBot-Source: gateway\r\n");
     for line in text.split("\r\n").skip(1) {
         if line.is_empty() {
             continue;

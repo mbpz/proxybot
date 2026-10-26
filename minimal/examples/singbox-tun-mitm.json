@@ -37,7 +37,10 @@
           "tcp"
         ],
         "port": 80,
-        "outbound": "mitm"
+        "action": "route",
+        "outbound": "direct",
+        "override_address": "127.0.0.1",
+        "override_port": 8089
       },
       {
         "network": [

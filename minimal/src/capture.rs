@@ -130,12 +130,13 @@ impl HttpHandler for CaptureHandler {
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
         req.headers_mut().remove("x-proxybot-source");
-        let source_type = state
-            .source_by_client
-            .lock()
-            .ok()
-            .and_then(|map| map.get(&ctx.client_addr).cloned())
-            .unwrap_or_else(|| "local_proxy".to_string());
+        let source_type = source_marker.clone().or_else(|| {
+            state
+                .source_by_client
+                .lock()
+                .ok()
+                .and_then(|map| map.get(&ctx.client_addr).cloned())
+        }).unwrap_or_else(|| "local_proxy".to_string());
         let headers: Vec<(String, String)> = req
             .headers()
             .iter()
