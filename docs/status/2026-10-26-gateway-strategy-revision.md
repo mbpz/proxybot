@@ -33,8 +33,10 @@
 
 ## Order of work
 
-1. `proxybot sniff` (this change): interface, device filter, DNS, TLS SNI,
-   flow/connection statistics; terminal + optional JSONL log.
+1. `proxybot sniff` (implemented and verified 2026-10-26): interface, device
+   filter, DNS, TLS SNI, flow/connection statistics; terminal + optional JSONL
+   log. Real run on en1: 298 packets / 45 flows unfiltered, and 19 packets /
+   8 flows with `--device 192.168.3.190` (the iPhone's current IP).
 2. Gateway forwarding was validated (Stage 1). Keep it as a prerequisite check,
    not a product feature.
 3. TUN minimal prototype: prove forwarded packets enter TUN and return.
