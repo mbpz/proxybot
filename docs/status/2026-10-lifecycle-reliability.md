@@ -105,6 +105,24 @@ Run in a recoverable test environment; do not test during important work.
 Record actual results here before launchd implementation. Do not infer Wi-Fi
 safety from one sleep test.
 
+## One-command test runner
+
+```bash
+sudo sh minimal/gateway-lifecycle-test.sh
+```
+
+It captures status/TUN/forwarding/Mac/pf at each phase and pauses only for the
+operations a script cannot safely perform alone:
+
+1. confirm Mac sleep;
+2. switch to a different Wi-Fi/hotspot and back;
+3. confirm the second sleep.
+
+It tests start, sleep/wake, Wi-Fi off/on, cross-network stale detection, manual
+stop + sleep, and `kill -9` sing-box recovery. Logs are written under
+`/tmp/proxybot-lifecycle-<timestamp>/`. The script always attempts to stop the
+gateway and power Wi-Fi back on at exit. Phone browsing remains a manual check.
+
 ## Test commands
 
 ```bash

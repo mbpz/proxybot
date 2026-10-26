@@ -35,6 +35,8 @@ struct State {
     recovery_status: String,
     tun: String,
     iface: String,
+    #[serde(default)]
+    lan_ip: String,
     cidr: String,
     peer: String,
     local: String,
@@ -473,6 +475,7 @@ pub fn supervise(args: SuperviseArgs) -> Result<()> {
         recovery_status: "not_needed".into(),
         tun: args.tun.clone(),
         iface: detected.interface,
+        lan_ip: detected.lan_ip,
         cidr: detected.lan_cidr,
         peer: "10.255.0.2".into(),
         local: "10.255.0.1".into(),
@@ -712,7 +715,11 @@ pub fn status() -> Result<()> {
     let proxy_open = proxyport_open();
     let current_network = crate::gateway::detect(8089).ok();
     let network_changed = match current_network.as_ref() {
-        Some(net) => net.interface != state.iface || net.lan_cidr != state.cidr,
+        Some(net) => {
+            net.interface != state.iface
+                || net.lan_cidr != state.cidr
+                || (!state.lan_ip.is_empty() && net.lan_ip != state.lan_ip)
+        }
         None => true,
     };
     let unhealthy =
@@ -736,11 +743,16 @@ pub fn status() -> Result<()> {
     );
     match current_network {
         Some(net) => {
-            println!("  network {} {} (state expected {} {})", net.interface, net.lan_cidr, state.iface, state.cidr);
+            println!(
+                "  network {} {} {} (state expected {} {} {})",
+                net.interface, net.lan_ip, net.lan_cidr, state.iface, state.lan_ip, state.cidr
+            );
             if net.interface != state.iface {
                 println!("  stale state: network interface changed");
             } else if net.lan_cidr != state.cidr {
                 println!("  stale state: LAN CIDR changed");
+            } else if !state.lan_ip.is_empty() && net.lan_ip != state.lan_ip {
+                println!("  stale state: LAN IP changed");
             }
         }
         None => println!("  network unknown (Wi-Fi down or default route missing)"),
