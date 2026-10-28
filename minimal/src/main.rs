@@ -37,52 +37,56 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Start capture, the local web UI, and optionally the pf gateway.
+    /// Start the HTTP proxy and local web UI.
     Start(StartArgs),
-    /// Manage the Gateway Beta (TUN + sing-box); legacy pf commands are hidden.
+    /// Manage Gateway Beta (TUN + sing-box).
     Gateway(GatewayArgs),
-    /// Show or reset app classification rules.
+    /// Show or reset app rules.
+    #[command(hide = true)]
     Rules(RulesArgs),
     /// Print version information.
     Version,
-    /// Uninstall this ProxyBot binary and installed support files.
+    /// Remove this binary and installed files.
     Uninstall(maintenance::UninstallArgs),
-    /// Download, verify and install a newer ProxyBot release.
+    /// Download and install a release.
     Update(maintenance::UpdateArgs),
-    /// List every command with a detailed description and examples.
+    /// Print the core command reference.
     List,
-    /// Passive packet capture (flows, DNS, TLS SNI); requires root.
+    /// Experimental passive capture (root).
+    #[command(hide = true)]
     Sniff(sniff::SniffArgs),
-    /// Generate the gateway sing-box TUN config (optional QUIC blocking).
+    /// Generate the Gateway sing-box config.
+    #[command(hide = true)]
     SingboxConfig(singbox_config::SingboxConfigArgs),
-    /// EXPERIMENTAL: create a utun and print packets routed into it (root).
+    /// Experimental TUN ingress probe (root).
+    #[command(hide = true)]
     TunProbe(tun_probe::TunProbeArgs),
 }
 
 #[derive(Args)]
 struct StartArgs {
-    /// Explicit HTTP proxy port (device Wi-Fi HTTP proxy).
+    /// HTTP proxy port.
     #[arg(long, default_value_t = 8088)]
     proxy_port: u16,
-    /// Transparent listener port used by the pf redirect.
+    /// Plain-HTTP adapter port.
     #[arg(long, default_value_t = 8089)]
     transparent_port: u16,
-    /// Local web UI port (bound to 127.0.0.1).
+    /// Local web UI port.
     #[arg(long, default_value_t = 8899)]
     web_port: u16,
-    /// LAN port that serves the CA page and certificate to the test device.
+    /// LAN CA page port.
     #[arg(long, default_value_t = 8090)]
     ca_port: u16,
-    /// Do not open the browser automatically.
+    /// Do not open a browser.
     #[arg(long)]
     no_open: bool,
-    /// EXPERIMENTAL: install pf gateway rules while capture runs (requires admin).
+    /// Legacy pf gateway (unsupported).
     #[arg(long)]
     gateway: bool,
-    /// With --gateway, also block QUIC (UDP 80/443) to force TCP capture.
+    /// Legacy QUIC block (with --gateway only).
     #[arg(long)]
     block_quic: bool,
-    /// Data directory for the CA, database, and rules.
+    /// Data directory.
     #[arg(long, env = "PROXYBOT_DATA_DIR")]
     data_dir: Option<PathBuf>,
 }
@@ -110,29 +114,29 @@ struct GatewayArgs {
 
 #[derive(Subcommand)]
 enum GatewayCommand {
-    /// Start sing-box TUN + pf route-to for the gateway beta (root).
+    /// Start Gateway Beta (root).
     Start {
-        /// Reject UDP/443 at the sing-box route layer (QUIC fallback test).
+        /// Reject UDP/443 (QUIC fallback test).
         #[arg(long)]
         block_quic: bool,
-        /// sing-box binary (default: PROXYBOT_SINGBOX_BIN or a known path).
+        /// sing-box binary.
         #[arg(long)]
         singbox: Option<std::path::PathBuf>,
         /// TUN interface name.
         #[arg(long, default_value = "utun6")]
         tun: String,
-        /// Single-device prototype: attach this source IP to gateway metadata.
+        /// Single-device metadata IP.
         #[arg(long, conflicts_with = "devices")]
         client_ip: Option<String>,
-        /// Device file for per-source-IP outbound routing (P4.3).
+        /// Per-device source-IP routing file.
         #[arg(long)]
         devices: Option<std::path::PathBuf>,
     },
-    /// Stop the gateway and restore pf/forwarding.
+    /// Stop Gateway Beta and restore networking.
     Stop,
-    /// Install a system LaunchDaemon that runs the foreground supervisor.
+    /// Install Gateway service (root).
     InstallService(launchd::InstallServiceArgs),
-    /// Remove the LaunchDaemon and clean gateway network state.
+    /// Remove Gateway service and clean up (root).
     UninstallService,
     /// Internal foreground supervisor entry point used by launchd.
     #[command(hide = true)]
@@ -161,7 +165,7 @@ enum GatewayCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Show gateway lifecycle state.
+    /// Show Gateway state and health.
     Status,
 }
 
@@ -212,140 +216,28 @@ async fn main() -> Result<()> {
 }
 
 fn print_command_list() {
-    let data_dir = default_data_dir();
-    println!("ProxyBot {} — command reference", env!("CARGO_PKG_VERSION"));
+    println!("ProxyBot {} — core commands", env!("CARGO_PKG_VERSION"));
     println!();
     println!("USAGE");
-    println!("  proxybot [COMMAND] [OPTIONS]");
-    println!("  proxybot                       same as `proxybot start`");
+    println!("  proxybot [command]");
     println!();
-    println!("DEFAULTS");
-    println!("  data directory  {}", data_dir.display());
-    println!("  web UI          http://127.0.0.1:8899  (loopback only)");
-    println!("  CA page         http://<Mac LAN IP>:8090  (open on the test device)");
+    println!("CORE");
+    println!("  start                 HTTP proxy + local web UI");
+    println!("  gateway start         Gateway Beta (root; sing-box required)");
+    println!("  gateway stop          Stop gateway and restore networking");
+    println!("  gateway status        Show gateway state and health");
+    println!("  uninstall             Remove binary and installed files");
+    println!("  update                Download and install a release");
+    println!("  version               Show version");
+    println!("  list                  Show this reference");
     println!();
-    println!("CAPTURE");
-    println!("  start");
-    println!("      Start the explicit HTTP proxy and local web UI. Opens the web UI");
-    println!("      unless --no-open is set.");
+    println!("DEVICE");
+    println!("  HTTP proxy            <Mac IP>:8088");
+    println!("  CA page               http://<Mac IP>:8090/");
+    println!("  Web UI                http://127.0.0.1:8899");
     println!();
-    println!("      --proxy-port <PORT>        device Wi-Fi HTTP proxy port (default 8088)");
-    println!("      --transparent-port <PORT>  plain-HTTP adapter port (default 8089)");
-    println!("      --web-port <PORT>          loopback Web UI port (default 8899)");
-    println!("      --ca-port <PORT>           LAN CA page port (default 8090)");
-    println!("      --gateway                  LEGACY pf side-router (unsupported); use");
-    println!("                                 `proxybot gateway start` instead");
-    println!("      --block-quic               LEGACY pf QUIC drop, only with --gateway");
-    println!("      --no-open                  do not open a browser");
-    println!("      --data-dir <DIR>           CA, SQLite and rules directory");
-    println!();
-    println!("      Examples:");
-    println!("        proxybot start                              # HTTP proxy mode (no admin)");
-    println!("        proxybot start --no-open                    # HTTP proxy, no browser");
-    println!("        proxybot start --proxy-port 9090 --web-port 9999");
-    println!("        proxybot start --no-open --data-dir /tmp/proxybot");
-    println!();
-    println!("GATEWAY (BETA — TUN + sing-box; requires sudo and a running ProxyBot)");
-    println!("  gateway start [--block-quic] [--singbox <PATH>] [--tun utun6]");
-    println!("                [--client-ip <IP> | --devices <FILE>]");
-    println!("      Start sing-box TUN + pf route-to. Requires sudo, a running ProxyBot,");
-    println!("      and a user-supplied sing-box built with -tags with_gvisor.");
-    println!("      --client-ip  single-device metadata prototype");
-    println!("      --devices    per-device source-IP routing (P4.3)");
-    println!();
-    println!("  gateway stop       stop the supervisor and restore pf/forwarding");
-    println!("  gateway status     show lifecycle state");
-    println!();
-    println!("  singbox-config      generate the gateway config; --block-quic / --client-ip / --devices");
-    println!();
-    println!("  LEGACY PF (unsupported): `gateway install` / `gateway uninstall` and");
-    println!("  `start --gateway` are hidden historical pf paths. Use `gateway start`.");
-    println!();
-    println!("RULES (app classification)");
-    println!("  rules path    Print the active YAML rules path.");
-    println!("  rules show    Print the active YAML rules.");
-    println!("  rules reset   Restore the built-in rules file (restart to reload).");
-    println!();
-    println!("      Examples:");
-    println!("        proxybot rules path");
-    println!("        proxybot rules show | head -40");
-    println!("        proxybot rules reset");
-    println!();
-    println!("GATEWAY CONFIG (sing-box TUN + sniff; optional QUIC policy)");
-    println!("  singbox-config");
-    println!("      Generate the sing-box TUN config used by the gateway beta.");
-    println!("      --block-quic             reject UDP/443 (QUIC fallback test)");
-    println!("      --output <FILE>          config path (default: <data>/singbox-tun-mitm.json)");
-    println!("      --http-proxy <ADDR>      Hudsucker address (default 127.0.0.1:8088)");
-    println!("      --transparent <ADDR>     plain-HTTP adapter (default 127.0.0.1:8089)");
-    println!("      --tun <NAME>             TUN interface (default utun6)");
-    println!();
-    println!("      Examples:");
-    println!("        proxybot singbox-config");
-    println!("        proxybot singbox-config --block-quic");
-    println!();
-    println!("TUN PROBE (EXPERIMENTAL; ingress/return feasibility, requires sudo)");
-    println!("  tun-probe");
-    println!("      Create a utun interface and print IP packets routed into it.");
-    println!("      Does not forward or reply; intended to prove forwarded-device");
-    println!("      packets can enter a TUN before building a user-space engine.");
-    println!("      --duration <SECONDS>   run time (default 30)");
-    println!("      --address <IP>         local TUN address (default 10.255.0.1)");
-    println!("      --peer <IP>            TUN peer address (default 10.255.0.2)");
-    println!();
-    println!("      Examples:");
-    println!("        sudo proxybot tun-probe --duration 60");
-    println!("        sudo sh minimal/pf-tun-test.sh install utunN   # after it prints utunN");
-    println!();
-    println!("SNIFF (EXPERIMENTAL; passive observation, requires sudo)");
-    println!("  sniff");
-    println!("      Capture packets on the default-route interface and print flow,");
-    println!("      DNS query and TLS SNI metadata. Does not proxy or modify traffic.");
-    println!("      --interface <NAME>     capture interface (default: default route)");
-    println!("      --device <IP>          only traffic for this device IP");
-    println!("      --duration <SECONDS>   stop automatically (default: until Ctrl+C)");
-    println!("      --log <FILE>           append JSON-lines events to a file");
-    println!();
-    println!("      Examples:");
-    println!("        sudo proxybot sniff --device 192.168.3.20 --duration 30");
-    println!("        sudo proxybot sniff --interface en1 --log /tmp/proxybot-sniff.jsonl");
-    println!();
-    println!("MAINTENANCE");
-    println!("  uninstall [--purge] [--yes]");
-    println!("      Remove the installed binary/share files, optionally user data.");
-    println!("      Gateway service cleanup needs root and is delegated first.");
-    println!();
-    println!("  update [--version X]");
-    println!("      Download the release archive, verify SHA-256 and replace this binary.");
-    println!();
-    println!("  version       Print the CLI version.");
-    println!("  list          Print this reference.");
-    println!();
-    println!("ENVIRONMENT");
-    println!("  PROXYBOT_DATA_DIR=<DIR>          same as --data-dir");
-    println!("  PROXYBOT_TRANSPARENT_BIND=all    dev/test override: bind the transparent");
-    println!("                                   adapter on 0.0.0.0 outside --gateway mode");
-    println!("  Installer (minimal/install.sh):");
-    println!("    PROXYBOT_VERSION=0.2.0          pin a CLI release");
-    println!("    PROXYBOT_PREFIX=/usr/local/bin install prefix (default ~/.local/bin)");
-    println!("    PROXYBOT_LOCAL_BINARY=<path>   install an already-built binary");
-    println!("    PROXYBOT_DOWNLOAD_BASE=<url>   mirror serving proxybot-min-*.tar.gz");
-    println!("    PROXYBOT_REPO=owner/repo       override the GitHub repository");
-    println!();
-    println!("NOTES");
-    println!("  * HTTP proxy mode: device Wi-Fi HTTP proxy = <Mac IP>:8088; no admin.");
-    println!("  * HTTP proxy is the supported default; no admin required.");
-    println!("  * Gateway Beta is separate: sudo proxybot gateway start; device Wi-Fi");
-    println!("    gateway = <Mac IP>, HTTP proxy off, keep DNS on the router. It requires");
-    println!("    a user-supplied sing-box built with gvisor and does not auto-start.");
-    println!("  * Install/trust the CA from http://<Mac IP>:8090 on the test device.");
-    println!("  * Certificate-pinned apps may reject the CA (TLS tab shows SNI attempts);");
-    println!("    add their domains to <data>/rules/passthrough.txt to keep them working.");
-    println!("  * Ctrl+C stops the explicit proxy; stop Gateway Beta with");
-    println!("    `sudo proxybot gateway stop`.");
-    println!("  * The Web UI is loopback-only; the CA page and transparent adapter are on the LAN.");
+    println!("Advanced commands remain available but are not listed here.");
 }
-
 
 fn run_gateway(args: GatewayArgs) -> Result<()> {
     let data_dir = default_data_dir();
