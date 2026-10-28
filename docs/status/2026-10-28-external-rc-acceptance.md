@@ -7,7 +7,7 @@ the exact archive and checksum.
 
 ```text
 proxybot-min-aarch64-apple-darwin.tar.gz
-sha256 21aceab1e527d3d5881012dabdb685f40cd37af033fd999f778e21bc6fa5aec2
+sha256 70fbddfe65c9a859df3da33c33203d10072b5aae88723fa3bc61510f198be912
 contents proxybot, LICENSE, THIRD_PARTY.md, uninstall.sh
 ```
 
