@@ -82,9 +82,19 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [ "$ok" = "1" ] && pass "fresh data start" || { fail "fresh data start"; tail "$TMP/start.log"; }
 
-HTTP_CODE="$(curl -sS -m 10 -x "http://127.0.0.1:$PORT" -o /dev/null -w '%{http_code}' http://example.com 2>/dev/null || true)"
+HTTP_CODE=""
+for _ in 1 2 3; do
+  HTTP_CODE="$(curl -sS -m 10 -x "http://127.0.0.1:$PORT" -o /dev/null -w '%{http_code}' http://example.com 2>/dev/null || true)"
+  [ "$HTTP_CODE" = "200" ] && break
+  sleep 1
+done
 [ "$HTTP_CODE" = "200" ] && pass "HTTP proxy 200" || fail "HTTP proxy code=$HTTP_CODE"
-HTTPS_CODE="$(curl -sS -m 15 -x "http://127.0.0.1:$PORT" --cacert "$DATA/ca.pem" -o /dev/null -w '%{http_code}' https://example.com 2>/dev/null || true)"
+HTTPS_CODE=""
+for _ in 1 2 3; do
+  HTTPS_CODE="$(curl -sS -m 15 -x "http://127.0.0.1:$PORT" --cacert "$DATA/ca.pem" -o /dev/null -w '%{http_code}' https://example.com 2>/dev/null || true)"
+  [ "$HTTPS_CODE" = "200" ] && break
+  sleep 1
+done
 [ "$HTTPS_CODE" = "200" ] && pass "HTTPS MITM with generated CA" || fail "HTTPS code=$HTTPS_CODE"
 sleep 1
 curl -sS -m 3 "http://127.0.0.1:$WPORT/api/requests?limit=10" | grep -q '"host":"example.com"' \
