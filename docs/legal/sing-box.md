@@ -8,7 +8,7 @@
 | Version used for validation | v1.14.4 |
 | Revision | `c005f35300ce76427dc285481ec5695f5b179cd2` |
 | License | GPL-3.0 |
-| Build | Go 1.27.2, `-tags with_gvisor` (from upstream source) |
+| Build used for validation | Official v1.14.4 Darwin arm64 release, Go 1.26.10; tags include `with_gvisor`, `with_quic` |
 | Modifications | None made by ProxyBot |
 | Integration | separate process, JSON config, loopback HTTP CONNECT |
 | Distribution in ProxyBot beta | **not bundled** |
