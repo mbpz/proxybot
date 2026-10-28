@@ -95,7 +95,7 @@ banner "A. start gateway"
 "$BIN" gateway start || { fail "gateway start"; exit 1; }
 sleep 2
 capture a-started
-has_running has_running a-started && pass "start reaches running" || fail "start not running"
+has_running a-started && pass "start reaches running" || fail "start not running"
 if [ "${PROXYBOT_EXPECT_SERVICE:-0}" = "1" ]; then
   pgrep -f 'proxybot gateway service' >/dev/null 2>&1 && pass "launchd service supervisor is running" || fail "launchd service supervisor not found"
   launchctl print system/com.proxybot.gateway >/dev/null 2>&1 && pass "launchd job queryable" || fail "launchd job not queryable"
