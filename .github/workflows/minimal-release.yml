@@ -53,8 +53,11 @@ jobs:
           set -eu
           mkdir -p dist
           cp "minimal/target/${{ matrix.target }}/release/proxybot" dist/proxybot
+          cp LICENSE dist/LICENSE
+          cp minimal/THIRD_PARTY.md dist/THIRD_PARTY.md
+          cp minimal/uninstall.sh dist/uninstall.sh
           ASSET="proxybot-min-${{ matrix.target }}.tar.gz"
-          tar -czf "dist/${ASSET}" -C dist proxybot
+          tar -czf "dist/${ASSET}" -C dist proxybot LICENSE THIRD_PARTY.md uninstall.sh
           ( cd dist && shasum -a 256 "${ASSET}" > "${ASSET}.sha256" )
           cat "dist/${ASSET}.sha256"
 

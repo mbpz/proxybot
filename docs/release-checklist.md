@@ -52,7 +52,8 @@ launchd design is accepted.
 
 - [x] Version bumped in the one source of truth; changelog updated.
 - [x] Fresh-prefix install and fresh-data-directory smoke test pass.
-- [ ] Upgrade from 0.1.11 and a truly clean external Mac remain untested.
+- [x] Upgrade 0.1.11 → 0.2.0 data migration verified locally; external clean Mac
+  still pending.
 - [x] Release archive checksum and local install script verified.
 - [ ] CI gate still to run; local `cargo test`/release build pass.
 - [x] Release notes/changelog label Gateway Beta and list limits.
