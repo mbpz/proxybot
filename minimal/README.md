@@ -191,8 +191,10 @@ proxybot uninstall --yes    # remove data and trusted CA without prompting
 proxybot update             # download + checksum-verify + replace this binary
 ```
 
-Gateway service cleanup needs root and is delegated first by `uninstall`. CA
-trust is never removed automatically.
+`uninstall` prompts before deleting user data and only deletes trusted CA
+certificates whose SHA-1 fingerprint matches the CA file from the data directory.
+`--purge --yes` is destructive and non-interactive. System-keychain deletion may
+require sudo; iPhone profiles/trust are always manual.
 
 ## Licensing
 

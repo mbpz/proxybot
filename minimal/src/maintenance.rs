@@ -14,10 +14,10 @@ use std::process::Command;
 
 #[derive(clap::Args)]
 pub struct UninstallArgs {
-    /// Also remove the user data directory (database, CA, rules).
+    /// Remove user data (prompts before CA trust removal).
     #[arg(long)]
     pub purge: bool,
-    /// Remove data and trusted CA without prompting.
+    /// Remove data and the verified ProxyBot CA without prompting (destructive).
     #[arg(long)]
     pub yes: bool,
 }
@@ -43,40 +43,87 @@ fn prompt_yes(question: &str, default_yes: bool) -> bool {
     }
 }
 
-fn keychain_has_ca(path: &Path) -> bool {
-    if !path.exists() {
-        return false;
-    }
-    Command::new("security")
-        .args(["find-certificate", "-c", CA_NAME, "-a"])
-        .arg(path)
-        .output()
-        .map(|out| out.status.success() && !out.stdout.is_empty())
-        .unwrap_or(false)
+fn normalize_fingerprint(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
-fn remove_keychain_ca(path: &Path, allow_sudo: bool) -> Result<()> {
-    if !keychain_has_ca(path) {
-        return Ok(());
+fn data_ca_fingerprints(data: &Path) -> Vec<String> {
+    let cert = data.join("ca.pem");
+    if !cert.is_file() {
+        return Vec::new();
     }
-    let mut command = if allow_sudo {
-        let mut c = Command::new("sudo");
-        c.arg("security");
-        c
-    } else {
-        Command::new("security")
+    let output = match Command::new("openssl")
+        .args(["x509", "-in"])
+        .arg(&cert)
+        .args(["-noout", "-fingerprint", "-sha1"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return Vec::new(),
     };
-    let status = command
-        .args(["delete-certificate", "-c", CA_NAME])
-        .arg(path)
-        .status()
-        .with_context(|| format!("remove CA from {}", path.display()))?;
-    if !status.success() {
-        bail!("could not remove {CA_NAME} from {}", path.display());
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.split_once('=')
+        .map(|(_, value)| normalize_fingerprint(value))
+        .filter(|value| !value.is_empty())
+        .into_iter()
+        .collect()
+}
+
+fn keychain_fingerprints(path: &Path) -> Vec<String> {
+    if !path.exists() {
+        return Vec::new();
     }
-    println!("removed CA from {}", path.display());
+    let output = match Command::new("security")
+        .args(["find-certificate", "-c", CA_NAME, "-a", "-Z"])
+        .arg(path)
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return Vec::new(),
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("SHA-1 hash:"))
+        .map(normalize_fingerprint)
+        .filter(|hash| !hash.is_empty())
+        .collect()
+}
+
+fn matching_fingerprints(path: &Path, wanted: &[String]) -> Vec<String> {
+    keychain_fingerprints(path)
+        .into_iter()
+        .filter(|hash| wanted.iter().any(|w| w == hash))
+        .collect()
+}
+
+fn remove_keychain_hashes(path: &Path, hashes: &[String], sudo: bool) -> Result<()> {
+    for hash in hashes {
+        let mut command = if sudo {
+            let mut command = Command::new("sudo");
+            command.arg("security");
+            command
+        } else {
+            Command::new("security")
+        };
+        let status = command
+            .args(["delete-certificate", "-Z", hash])
+            .arg(path)
+            .status()
+            .with_context(|| format!("remove CA {hash} from {}", path.display()))?;
+        if !status.success() {
+            bail!("could not remove CA {hash} from {}", path.display());
+        }
+    }
+    if !hashes.is_empty() {
+        println!("removed ProxyBot CA from {}", path.display());
+    }
     Ok(())
 }
+
 
 #[derive(clap::Args)]
 pub struct UpdateArgs {
@@ -103,6 +150,16 @@ fn user_data_dir() -> PathBuf {
         }
     }
     crate::default_data_dir()
+}
+
+fn user_home() -> PathBuf {
+    if let Ok(user) = std::env::var("SUDO_USER") {
+        let home = PathBuf::from("/Users").join(user);
+        if home.is_dir() {
+            return home;
+        }
+    }
+    PathBuf::from(std::env::var("HOME").unwrap_or_default())
 }
 
 fn listener_matches_exe(port: u16, exe: &Path) -> bool {
@@ -158,6 +215,13 @@ pub fn uninstall(args: UninstallArgs) -> Result<()> {
     }
 
     let data = user_data_dir();
+    let fingerprints = data_ca_fingerprints(&data);
+    let login_keychain = user_home()
+        .join("Library/Keychains/login.keychain-db");
+    let system_keychain = PathBuf::from("/Library/Keychains/System.keychain");
+    let login_matches = matching_fingerprints(&login_keychain, &fingerprints);
+    let system_matches = matching_fingerprints(&system_keychain, &fingerprints);
+
     let remove_data = if !data.exists() {
         false
     } else if args.purge || args.yes {
@@ -168,42 +232,46 @@ pub fn uninstall(args: UninstallArgs) -> Result<()> {
             false,
         )
     };
+
+    let remove_ca = if !login_matches.is_empty() || !system_matches.is_empty() {
+        args.yes
+            || prompt_yes(
+                &format!("Remove trusted certificate '{CA_NAME}' from Keychain?"),
+                false,
+            )
+    } else {
+        false
+    };
+    if remove_ca {
+        if fingerprints.is_empty() {
+            bail!("cannot identify the trusted ProxyBot CA without its data CA file; refusing to delete by name");
+        }
+        remove_keychain_hashes(&login_keychain, &login_matches, false)?;
+        if !system_matches.is_empty() {
+            if root() {
+                remove_keychain_hashes(&system_keychain, &system_matches, false)?;
+            } else {
+                io::stdout().flush().ok();
+                println!("System keychain removal requires sudo (will prompt) ...");
+                remove_keychain_hashes(&system_keychain, &system_matches, true)?;
+            }
+        }
+    } else if !login_matches.is_empty() || !system_matches.is_empty() {
+        if fingerprints.is_empty() {
+            println!("trusted CA exists, but no data CA file is available to verify its identity; not removed");
+        } else {
+            println!("kept trusted CA '{CA_NAME}'");
+        }
+    } else {
+        println!("no matching '{CA_NAME}' found in the login/system keychain");
+    }
+
     if remove_data {
         fs::remove_dir_all(&data)
             .with_context(|| format!("remove data directory {}", data.display()))?;
         println!("removed user data {}", data.display());
     } else {
         println!("kept user data {}", data.display());
-    }
-
-    let login_keychain = PathBuf::from(std::env::var("HOME").unwrap_or_default())
-        .join("Library/Keychains/login.keychain-db");
-    let system_keychain = PathBuf::from("/Library/Keychains/System.keychain");
-    let has_login = keychain_has_ca(&login_keychain);
-    let has_system = keychain_has_ca(&system_keychain);
-    if has_login || has_system {
-        let remove_ca = args.yes
-            || prompt_yes(
-                &format!("Remove trusted certificate '{CA_NAME}' from Keychain?"),
-                false,
-            );
-        if remove_ca {
-            remove_keychain_ca(&login_keychain, false)?;
-            if has_system {
-                if root() {
-                    remove_keychain_ca(&system_keychain, false)?;
-                } else {
-                    println!(
-                        "System keychain CA still requires: sudo security delete-certificate -c \"{CA_NAME}\" {}",
-                        system_keychain.display()
-                    );
-                }
-            }
-        } else {
-            println!("kept trusted CA '{CA_NAME}'");
-        }
-    } else {
-        println!("no '{CA_NAME}' found in the login/system keychain");
     }
 
     if share.exists() {
