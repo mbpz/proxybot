@@ -37,7 +37,7 @@ else
     echo "Nothing was removed. Re-run this uninstaller after gateway cleanup." >&2
     exit 1
   fi
-  if pgrep -f 'proxybot start' >/dev/null 2>&1; then
+  if pgrep -f "$BIN start" >/dev/null 2>&1; then
     echo "ProxyBot is still running. Stop it (Ctrl+C) before uninstalling." >&2
     exit 1
   fi
