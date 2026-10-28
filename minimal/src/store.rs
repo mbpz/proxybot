@@ -250,6 +250,12 @@ impl Store {
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts            INTEGER NOT NULL,
                 client_ip     TEXT,
+                source_type   TEXT NOT NULL DEFAULT 'local_proxy',
+                peer_ip       TEXT,
+                device_id     TEXT,
+                connection_id TEXT,
+                identity_source TEXT NOT NULL DEFAULT 'unknown',
+                confidence    TEXT NOT NULL DEFAULT 'unknown',
                 scheme        TEXT NOT NULL,
                 method        TEXT NOT NULL,
                 host          TEXT NOT NULL,
@@ -271,8 +277,6 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_requests_host ON requests(host);
             CREATE INDEX IF NOT EXISTS idx_requests_app ON requests(app);
             CREATE INDEX IF NOT EXISTS idx_requests_client_ip ON requests(client_ip);
-            CREATE INDEX IF NOT EXISTS idx_requests_source ON requests(source_type);
-            CREATE INDEX IF NOT EXISTS idx_requests_identity ON requests(source_type, client_ip, identity_source, confidence);
             CREATE TABLE IF NOT EXISTS ws_frames (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts          INTEGER NOT NULL,
@@ -315,6 +319,10 @@ impl Store {
                 conn.execute(&format!("ALTER TABLE requests ADD COLUMN {column}"), [])?;
             }
         }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_requests_source ON requests(source_type);
+             CREATE INDEX IF NOT EXISTS idx_requests_identity ON requests(source_type, client_ip, identity_source, confidence);",
+        )?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })

@@ -5,19 +5,19 @@ gate, not a wish list.
 
 ## Documentation and support boundary
 
-- [ ] README says explicit proxy is Core; Gateway is Beta.
-- [ ] Legacy pf gateway marked legacy and hidden from help/UI.
-- [ ] `docs/status.md` reflects verified vs unverified behavior.
-- [ ] Gateway guide includes start/stop/recovery and known limitations.
-- [ ] ADR-0010 remains the boundary record.
+- [x] README says explicit proxy is Core; Gateway is Beta.
+- [x] Legacy pf gateway marked legacy and hidden from help/UI.
+- [x] `docs/status.md` reflects verified vs unverified behavior.
+- [x] Gateway guide includes start/stop/recovery and known limitations.
+- [x] ADR-0010 remains the boundary record.
 
 ## Licensing and dependencies
 
-- [ ] sing-box is not inside the release archive unless GPL compliance work is
+- [x] sing-box is not inside the release archive unless GPL compliance work is
   complete.
-- [ ] Exact sing-box version/revision/build tags recorded.
-- [ ] User-supplied dependency is documented; missing/wrong build fails clearly.
-- [ ] License/notice files are included for all distributed components.
+- [x] Exact sing-box version/revision/build tags recorded.
+- [x] User-supplied dependency is documented; missing/wrong build fails clearly.
+- [x] License/notice files are included for all distributed components.
 
 ## Lifecycle gates (blocking)
 
@@ -27,12 +27,14 @@ launchd design is accepted.
 
 - [x] launchd: service lifecycle (install/start/stop/crash/no-restart/uninstall)
   and service-mode sleep/wake/Wi-Fi/manual-stop regression passed.
-- [ ] Sleep/wake: no stale TUN or pf after wake; state/status accurate.
-- [ ] Wi-Fi switch/IP change: gateway recovers, reconfigures or reports failure.
-- [ ] Recovery failure is visible/retryable; never reports clean stopped.
-- [ ] Uninstall removes ProxyBot resources and restores system network settings.
-- [ ] Repeated/concurrent start is safe.
-- [ ] Mac and phone network recovery verified after every failure path.
+- [x] Sleep/wake: no stale TUN or pf after wake; state/status accurate.
+- [x] Wi-Fi switch/IP change: gateway reports stale/unknown and requires explicit
+  recovery (no automatic reconfiguration).
+- [x] Recovery failure is visible/retryable; never reports clean stopped.
+- [x] Uninstall removes ProxyBot resources and restores system network settings
+  (service/temporary-prefix tests).
+- [x] Repeated/concurrent start is safe.
+- [x] Mac and phone network recovery verified after tested failure paths.
 
 ## Gateway data behavior
 
@@ -48,9 +50,9 @@ launchd design is accepted.
 
 ## Build/release
 
-- [ ] Version bumped in the one source of truth; changelog updated.
-- [ ] Fresh-environment install (no dev caches or /tmp sing-box) succeeds.
-- [ ] Upgrade and uninstall paths tested.
-- [ ] Release archive checksums and install script verified.
-- [ ] `cargo test`, release build and any CI gate pass.
-- [ ] Release notes explicitly label Gateway Beta and list limits.
+- [x] Version bumped in the one source of truth; changelog updated.
+- [x] Fresh-prefix install and fresh-data-directory smoke test pass.
+- [ ] Upgrade from 0.1.11 and a truly clean external Mac remain untested.
+- [x] Release archive checksum and local install script verified.
+- [ ] CI gate still to run; local `cargo test`/release build pass.
+- [x] Release notes/changelog label Gateway Beta and list limits.

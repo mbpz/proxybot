@@ -69,8 +69,12 @@ if [ -n "${PROXYBOT_LOCAL_ARCHIVE:-}" ]; then
     echo "Checksum verified."
   fi
   tar -xzf "${TMP}/proxybot-local.tar.gz" -C "$TMP"
-  mkdir -p "$PREFIX"
+  mkdir -p "$PREFIX" "$PREFIX/share/proxybot"
   install -m 0755 "${TMP}/proxybot" "${PREFIX}/proxybot"
+  [ -f "${TMP}/LICENSE" ] && install -m 0644 "${TMP}/LICENSE" "$PREFIX/share/proxybot/LICENSE"
+  [ -f "${TMP}/THIRD_PARTY.md" ] && install -m 0644 "${TMP}/THIRD_PARTY.md" "$PREFIX/share/proxybot/THIRD_PARTY.md"
+install -m 0755 "${TMP}/uninstall.sh" "$PREFIX/share/proxybot/uninstall.sh"
+  [ -f "${TMP}/uninstall.sh" ] && install -m 0755 "${TMP}/uninstall.sh" "$PREFIX/share/proxybot/uninstall.sh"
   echo "Installed $( "${PREFIX}/proxybot" --version ) to ${PREFIX}/proxybot"
   exit 0
 fi
@@ -93,7 +97,11 @@ echo "Checksum verified."
 
 mkdir -p "$PREFIX"
 tar -xzf "${TMP}/${ASSET}" -C "$TMP"
+mkdir -p "$PREFIX/share/proxybot"
 install -m 0755 "${TMP}/proxybot" "${PREFIX}/proxybot"
+install -m 0644 "${TMP}/LICENSE" "$PREFIX/share/proxybot/LICENSE"
+install -m 0644 "${TMP}/THIRD_PARTY.md" "$PREFIX/share/proxybot/THIRD_PARTY.md"
+install -m 0755 "${TMP}/uninstall.sh" "$PREFIX/share/proxybot/uninstall.sh"
 
 echo
 echo "Installed $( "${PREFIX}/proxybot" --version ) to ${PREFIX}/proxybot"
