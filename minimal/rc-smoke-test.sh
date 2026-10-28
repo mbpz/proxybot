@@ -27,26 +27,28 @@ DATA="$TMP/data"
 PORT=18088; TPORT=18089; WPORT=18899; CAPORT=18090
 BIN="$PREFIX/proxybot"
 PID=""
+KEEP_TMP="${KEEP_TMP:-0}"
 PASS=0; FAIL=0
 pass(){ PASS=$((PASS+1)); echo "PASS: $*"; }
 fail(){ FAIL=$((FAIL+1)); echo "FAIL: $*"; }
 cleanup(){
   [ -n "$PID" ] && kill "$PID" >/dev/null 2>&1 || true
   [ -n "$PID" ] && wait "$PID" >/dev/null 2>&1 || true
+  if [ "$KEEP_TMP" != "1" ]; then rm -rf "$TMP"; fi
 }
 trap cleanup EXIT INT TERM
 
+echo "macOS:   $(sw_vers -productVersion 2>/dev/null || echo unknown) ($(uname -m))"
 echo "archive: $ARCHIVE"
 echo "tmp:     $TMP"
 
-case "$(uname -m)" in
-  arm64) TARGET=aarch64-apple-darwin ;;
-  x86_64) TARGET=x86_64-apple-darwin ;;
-esac
-EXPECTED="$(cut -d ' ' -f1 "$ARCHIVE.sha256" 2>/dev/null || true)"
+SHA_FILE="$ARCHIVE.sha256"
+[ -f "$SHA_FILE" ] || { fail "checksum file missing: $SHA_FILE"; exit 1; }
+EXPECTED="$(cut -d ' ' -f1 "$SHA_FILE")"
 ACTUAL="$(shasum -a 256 "$ARCHIVE" | cut -d ' ' -f1)"
-if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then fail "checksum"; exit 1; fi
-pass "checksum ($ACTUAL)"
+[ -n "$EXPECTED" ] || { fail "checksum file is empty"; exit 1; }
+[ "$EXPECTED" = "$ACTUAL" ] || { fail "checksum mismatch (expected $EXPECTED actual $ACTUAL)"; exit 1; }
+pass "checksum file verified ($ACTUAL)"
 
 tar -tzf "$ARCHIVE" | grep -qx proxybot && pass "archive has proxybot" || fail "archive missing proxybot"
 tar -tzf "$ARCHIVE" | grep -qx LICENSE && pass "archive has LICENSE" || fail "archive missing LICENSE"
@@ -91,5 +93,5 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then fail "proxy port st
 [ -d "$DATA" ] && pass "user data kept" || echo "WARN: data dir removed"
 echo
 echo "SMOKE RESULT: $([ "$FAIL" -eq 0 ] && echo PASS || echo FAIL) (PASS=$PASS FAIL=$FAIL)"
-echo "tmp: $TMP"
+if [ "$KEEP_TMP" = "1" ]; then echo "tmp kept: $TMP"; else echo "tmp cleaned (KEEP_TMP=1 to retain)"; fi
 [ "$FAIL" -eq 0 ]

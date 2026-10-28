@@ -21,8 +21,14 @@ Copy these to the test Mac:
 
 ```bash
 shasum -a 256 proxybot-min-aarch64-apple-darwin.tar.gz
+cat proxybot-min-aarch64-apple-darwin.tar.gz.sha256
 sh rc-smoke-test.sh proxybot-min-aarch64-apple-darwin.tar.gz
 ```
+
+`rc-smoke-test.sh` now requires the `.sha256` file, compares it before doing
+anything, and fails if it is missing/empty/mismatched. It also records macOS and
+architecture, kills its ProxyBot process, and removes its temporary prefix/data
+on exit. Set `KEEP_TMP=1` if you need to retain failure logs.
 
 Expected: `SMOKE RESULT: PASS (PASS=18 FAIL=0)`.
 
