@@ -126,6 +126,8 @@ proxybot gateway status
 proxybot gateway stop
 proxybot singbox-config --help
 proxybot rules show
+proxybot uninstall [--purge] [--yes]
+proxybot update [--version X]
 proxybot list
 ```
 
@@ -179,6 +181,17 @@ sudo proxybot tun-probe --duration 60                    # TUN ingress probe
 
 Sniffing sees only packets reaching the Mac and cannot decrypt TLS; ECH/DoH can
 hide SNI/DNS.
+
+## Uninstall / update
+
+```bash
+proxybot uninstall          # remove binary + installed share files; keep data/CA
+proxybot uninstall --purge  # also remove database/rules/CA files
+proxybot update             # download + checksum-verify + replace this binary
+```
+
+Gateway service cleanup needs root and is delegated first by `uninstall`. CA
+trust is never removed automatically.
 
 ## Licensing
 

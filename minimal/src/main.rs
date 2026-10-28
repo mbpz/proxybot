@@ -7,6 +7,7 @@ mod ca;
 mod capture;
 mod gateway;
 mod launchd;
+mod maintenance;
 mod gateway_run;
 mod rules;
 mod store;
@@ -44,6 +45,10 @@ enum Command {
     Rules(RulesArgs),
     /// Print version information.
     Version,
+    /// Uninstall this ProxyBot binary and installed support files.
+    Uninstall(maintenance::UninstallArgs),
+    /// Download, verify and install a newer ProxyBot release.
+    Update(maintenance::UpdateArgs),
     /// List every command with a detailed description and examples.
     List,
     /// Passive packet capture (flows, DNS, TLS SNI); requires root.
@@ -190,6 +195,8 @@ async fn main() -> Result<()> {
         Command::Start(args) => run_start(args).await,
         Command::Gateway(args) => run_gateway(args),
         Command::Rules(args) => run_rules(args),
+        Command::Uninstall(args) => maintenance::uninstall(args),
+        Command::Update(args) => maintenance::update(args),
         Command::Version => {
             println!("proxybot {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -303,7 +310,14 @@ fn print_command_list() {
     println!("        sudo proxybot sniff --device 192.168.3.20 --duration 30");
     println!("        sudo proxybot sniff --interface en1 --log /tmp/proxybot-sniff.jsonl");
     println!();
-    println!("MISC");
+    println!("MAINTENANCE");
+    println!("  uninstall [--purge] [--yes]");
+    println!("      Remove the installed binary/share files, optionally user data.");
+    println!("      Gateway service cleanup needs root and is delegated first.");
+    println!();
+    println!("  update [--version X]");
+    println!("      Download the release archive, verify SHA-256 and replace this binary.");
+    println!();
     println!("  version       Print the CLI version.");
     println!("  list          Print this reference.");
     println!();
@@ -570,7 +584,7 @@ fn ensure_port_available(addr: SocketAddr, label: &str) -> Result<()> {
     })
 }
 
-fn default_data_dir() -> PathBuf {
+pub(crate) fn default_data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("PROXYBOT_DATA_DIR") {
         return PathBuf::from(dir);
     }

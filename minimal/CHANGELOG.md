@@ -17,6 +17,9 @@ Gateway Beta and lifecycle release.
   routed per-device outbounds, and a source/unknown filter UI with pagination.
 - Lifecycle diagnostics (`gateway status` health/network) and one-command
   lifecycle/launchd test scripts.
+- CLI `uninstall` (binary/share cleanup, optional `--purge`, Gateway service
+  delegation) and `update` (release download, SHA-256 verification, binary
+  replacement).
 
 ### Changed
 
