@@ -15,6 +15,7 @@ Copy these to the test Mac:
 
 - the archive and `.sha256`;
 - `minimal/install.sh` (published separately in the GitHub release);
+- `minimal/uninstall.sh` (standalone release asset; also inside the archive);
 - `minimal/rc-smoke-test.sh` (copy next to the archive/install.sh).
 
 ## 1. Automated smoke test

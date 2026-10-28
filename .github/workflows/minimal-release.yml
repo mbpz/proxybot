@@ -88,7 +88,8 @@ jobs:
         run: |
           set -eu
           cp minimal/install.sh release-assets/install.sh
-          ( cd release-assets && shasum -a 256 install.sh > install.sh.sha256 )
+          cp minimal/uninstall.sh release-assets/uninstall.sh
+          ( cd release-assets && shasum -a 256 install.sh > install.sh.sha256 && shasum -a 256 uninstall.sh > uninstall.sh.sha256 )
 
       - name: Publish
         uses: softprops/action-gh-release@v3
