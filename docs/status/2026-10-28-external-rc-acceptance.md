@@ -7,7 +7,7 @@ the exact archive and checksum.
 
 ```text
 proxybot-min-aarch64-apple-darwin.tar.gz
-sha256 1fcbacf2a2eb96e8ec7acb0e95fc71e4d7958a7b9329357739172841ab2a19c6
+sha256 c777146c2a54b08b8bfec38a9bacd387c9fd4a35c3c65344b3cc521ad478fbb4
 contents proxybot, LICENSE, THIRD_PARTY.md, uninstall.sh
 ```
 
@@ -124,7 +124,16 @@ First stop ProxyBot (`Ctrl+C`), then run the installed uninstaller:
 
 ```bash
 ~/.local/bin/share/proxybot/uninstall.sh
+# or:
+proxybot uninstall
+# non-interactive full removal:
+proxybot uninstall --purge --yes
 ```
+
+The uninstaller prompts to remove user data and a trusted `ProxyBot Local CA`.
+`--yes` removes both without prompting. The login keychain CA is removed when
+possible; System keychain removal still needs sudo, and iPhone profiles/trust are
+always manual.
 
 Checks:
 

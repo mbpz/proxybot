@@ -106,7 +106,7 @@ PID=""
 sleep 1
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then fail "proxy port still listening"; else pass "proxy stopped"; fi
 
-"$PREFIX/share/proxybot/uninstall.sh" >"$TMP/uninstall.log" 2>&1
+"$PREFIX/share/proxybot/uninstall.sh" </dev/null >"$TMP/uninstall.log" 2>&1
 [ ! -e "$BIN" ] && pass "binary removed" || fail "binary remains"
 [ ! -e "$PREFIX/share/proxybot/LICENSE" ] && pass "license removed" || fail "license remains"
 [ -d "$DATA" ] && pass "user data kept" || echo "WARN: data dir removed"

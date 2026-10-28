@@ -185,8 +185,9 @@ hide SNI/DNS.
 ## Uninstall / update
 
 ```bash
-proxybot uninstall          # remove binary + installed share files; keep data/CA
-proxybot uninstall --purge  # also remove database/rules/CA files
+proxybot uninstall          # prompts for data and trusted CA removal
+proxybot uninstall --purge  # also remove database/rules/CA files (CA trust prompts)
+proxybot uninstall --yes    # remove data and trusted CA without prompting
 proxybot update             # download + checksum-verify + replace this binary
 ```
 
