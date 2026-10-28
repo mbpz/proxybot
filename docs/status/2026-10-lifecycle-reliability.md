@@ -177,6 +177,7 @@ Decisions required before code:
 5. **Uninstall:** remove service definition, stop supervisor, restore network
    state, and verify no TUN/pf/process remains.
 
-The service command/plist/install/uninstall implementation is present; see
-`docs/status/2026-10-launchd.md`. launchd remains unverified until the test matrix
-passes; the release checklist still lists it as blocking.
+The service command/plist/install/uninstall implementation passed the service-mode
+sleep/Wi-Fi/manual-stop/kill/uninstall matrix (`PASS=23`, `NOT_VERIFIED=0`); see
+`docs/status/2026-10-launchd.md`. launchd lifecycle is accepted. Clean-environment
+install/package validation remains.
