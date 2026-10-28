@@ -8,7 +8,8 @@
 # Default archive: minimal/dist/proxybot-min-$(uname -m mapped).tar.gz
 set -u
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ARCHIVE="${1:-}"
 if [ -z "$ARCHIVE" ]; then
   case "$(uname -m)" in
@@ -56,7 +57,15 @@ tar -tzf "$ARCHIVE" | grep -qx THIRD_PARTY.md && pass "archive has THIRD_PARTY" 
 tar -tzf "$ARCHIVE" | grep -qx uninstall.sh && pass "archive has uninstall.sh" || fail "archive missing uninstall.sh"
 if tar -tzf "$ARCHIVE" | grep -qi sing-box; then fail "archive contains sing-box"; else pass "no sing-box in archive"; fi
 
-if [ -f "$ROOT/minimal/install.sh" ]; then INSTALL_SH="$ROOT/minimal/install.sh"; else INSTALL_SH="$ROOT/install.sh"; fi
+if [ -f "$SCRIPT_DIR/minimal/install.sh" ]; then
+  INSTALL_SH="$SCRIPT_DIR/minimal/install.sh"
+elif [ -f "$SCRIPT_DIR/install.sh" ]; then
+  INSTALL_SH="$SCRIPT_DIR/install.sh"
+elif [ -f "$ROOT/minimal/install.sh" ]; then
+  INSTALL_SH="$ROOT/minimal/install.sh"
+else
+  INSTALL_SH="$ROOT/install.sh"
+fi
 [ -f "$INSTALL_SH" ] || { fail "install.sh not found (copy it next to this script)"; exit 1; }
 PROXYBOT_LOCAL_ARCHIVE="$ARCHIVE" PROXYBOT_PREFIX="$PREFIX" sh "$INSTALL_SH" >"$TMP/install.log" 2>&1 \
   && pass "install.sh" || { fail "install.sh"; cat "$TMP/install.log"; exit 1; }
