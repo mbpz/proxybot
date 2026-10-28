@@ -32,7 +32,7 @@
   <h2>2. Capture this device’s traffic</h2>
   <div class="box">
     <p><strong>Mode 1 · HTTP proxy</strong> (no admin): Wi-Fi → HTTP proxy → Manual → server <code>{{PROXY}}</code>. Leave gateway and DNS unchanged.</p>
-    <p><strong>Mode 2 · Side-router / gateway</strong> (Mac running with <code>proxybot start --gateway</code>): Wi-Fi → configure IP → gateway <code>{{GATEWAY}}</code>, keep the current DNS. HTTP/HTTPS is redirected; other traffic is NATed.</p>
+    <p><strong>Mode 2 · Gateway Beta</strong> (Mac running with <code>sudo proxybot gateway start</code>): Wi-Fi → configure IP → gateway <code>{{GATEWAY}}</code>, HTTP proxy off, keep the current DNS. Requires a separately installed sing-box; TCP/80/443 is intercepted, UDP/DNS stays direct.</p>
     <p class="muted">Certificate-pinned apps will refuse decryption; that is an application security boundary, not a ProxyBot failure.</p>
   </div>
 

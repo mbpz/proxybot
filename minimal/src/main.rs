@@ -223,7 +223,7 @@ fn print_command_list() {
     println!("      unless --no-open is set.");
     println!();
     println!("      --proxy-port <PORT>        device Wi-Fi HTTP proxy port (default 8088)");
-    println!("      --transparent-port <PORT>  pf redirect target (default 8089)");
+    println!("      --transparent-port <PORT>  plain-HTTP adapter port (default 8089)");
     println!("      --web-port <PORT>          loopback Web UI port (default 8899)");
     println!("      --ca-port <PORT>           LAN CA page port (default 8090)");
     println!("      --gateway                  LEGACY pf side-router (unsupported); use");
@@ -312,7 +312,7 @@ fn print_command_list() {
     println!("  PROXYBOT_TRANSPARENT_BIND=all    dev/test override: bind the transparent");
     println!("                                   adapter on 0.0.0.0 outside --gateway mode");
     println!("  Installer (minimal/install.sh):");
-    println!("    PROXYBOT_VERSION=0.1.11         pin a CLI release");
+    println!("    PROXYBOT_VERSION=0.2.0          pin a CLI release");
     println!("    PROXYBOT_PREFIX=/usr/local/bin install prefix (default ~/.local/bin)");
     println!("    PROXYBOT_LOCAL_BINARY=<path>   install an already-built binary");
     println!("    PROXYBOT_DOWNLOAD_BASE=<url>   mirror serving proxybot-min-*.tar.gz");
@@ -320,13 +320,15 @@ fn print_command_list() {
     println!();
     println!("NOTES");
     println!("  * HTTP proxy mode: device Wi-Fi HTTP proxy = <Mac IP>:8088; no admin.");
-    println!("  * Gateway mode: device Wi-Fi router/gateway = <Mac IP>, HTTP proxy OFF;");
-    println!("    set a manual IP in the same subnet and keep DNS on the router.");
-    println!("  * Gateway mode is experimental; HTTP proxy mode is the supported path.");
+    println!("  * HTTP proxy is the supported default; no admin required.");
+    println!("  * Gateway Beta is separate: sudo proxybot gateway start; device Wi-Fi");
+    println!("    gateway = <Mac IP>, HTTP proxy off, keep DNS on the router. It requires");
+    println!("    a user-supplied sing-box built with gvisor and does not auto-start.");
     println!("  * Install/trust the CA from http://<Mac IP>:8090 on the test device.");
     println!("  * Certificate-pinned apps may reject the CA (TLS tab shows SNI attempts);");
     println!("    add their domains to <data>/rules/passthrough.txt to keep them working.");
-    println!("  * Ctrl+C stops capture and, in --gateway mode, removes the pf rules.");
+    println!("  * Ctrl+C stops the explicit proxy; stop Gateway Beta with");
+    println!("    `sudo proxybot gateway stop`.");
     println!("  * The Web UI is loopback-only; the CA page and transparent adapter are on the LAN.");
 }
 
@@ -526,10 +528,11 @@ async fn run_start(args: StartArgs) -> Result<()> {
         "  Explicit proxy  {lan_ip}:{}  (device Wi-Fi HTTP proxy)",
         args.proxy_port
     );
-    println!(
-        "  Gateway mode    device Wi-Fi gateway = {lan_ip}  (pf redirect :80/:443 -> :{})",
-        args.transparent_port
-    );
+    if args.gateway {
+        println!("  Gateway         LEGACY pf side-router enabled (unsupported)");
+    } else {
+        println!("  Gateway Beta    sudo proxybot gateway start  (TUN + sing-box; root)");
+    }
     if args.gateway && args.block_quic {
         println!("  QUIC            blocked for the device subnet (forces TCP fallback)");
     }

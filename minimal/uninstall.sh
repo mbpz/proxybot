@@ -16,7 +16,7 @@ if [ "$(id -u)" = "0" ]; then
     "$BIN" gateway stop >/dev/null 2>&1 || true
   fi
 else
-  if [ -e /Library/LaunchDaemons/com.proxybot.gateway.plist ] || [ -x "$BIN" ]; then
+  if [ -e /Library/LaunchDaemons/com.proxybot.gateway.plist ] || pgrep -f 'proxybot gateway service|proxybot gateway supervise' >/dev/null 2>&1; then
     echo "Gateway cleanup needs root; run:"
     echo "  sudo \"$BIN\" gateway uninstall-service"
     echo "  sudo \"$BIN\" gateway stop"
