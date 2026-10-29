@@ -1,33 +1,25 @@
 # ProxyBot minimal changelog
 
-## [0.2.0] — 2026-10-28
+## [0.1.12] — 2026-10-29
 
-Gateway Beta and lifecycle release.
+Gateway Beta and maintenance release; next small version after GitHub v0.1.11.
 
 ### Added
 
 - Gateway Beta: TUN + sing-box + Hudsucker path with TLS SNI rewrite, HTTP/80
-  transparent-adapter handling, and optional UDP/443 QUIC blocking.
-- Gateway supervisor: start/stop/status, startup lock, exit code/signal/reason,
-  stale/orphan cleanup, recovery-failure visibility, log rotation, retry.
-- launchd service integration: explicit install/start/stop/uninstall,
-  `RunAtLoad`/`KeepAlive` disabled, no automatic restart; service-mode
-  sleep/wake/Wi-Fi regression.
-- Device identity metadata on CONNECT, `identity_source`/`confidence`, source-IP
-  routed per-device outbounds, and a source/unknown filter UI with pagination.
-- Lifecycle diagnostics (`gateway status` health/network) and one-command
-  lifecycle/launchd test scripts.
-- CLI `uninstall` (binary/share cleanup, optional `--purge`, Gateway service
-  delegation) and `update` (release download, SHA-256 verification, binary
-  replacement).
+  transparent-adapter handling, optional UDP/443 QUIC blocking, supervisor,
+  launchd service, device identity metadata and per-device source-IP routing.
+- CLI `uninstall` (prompts for data/verified CA, `--purge --yes`, Keychain
+  handling) and `update` (release download, SHA-256 verification).
+- Full `proxybot list`; focused top-level help; source/unknown identity UI.
+- Release archives include LICENSE, THIRD_PARTY.md and uninstall.sh; no sing-box.
 
 ### Changed
 
-- Gateway documented as Beta; explicit HTTP proxy remains the supported Core
-  mode.
-- Legacy pf `rdr` gateway hidden and marked unsupported.
-- sing-box is a user-supplied GPL-3.0 dependency; it is not bundled.
-- Product status/boundary docs and ADR-0010/ADR-0011 added.
+- Explicit HTTP proxy remains Core; Gateway is Beta.
+- Legacy pf `rdr` gateway hidden/unsupported.
+- sing-box remains a user-supplied GPL-3.0 dependency.
+- Product boundary docs, ADRs and lifecycle test scripts.
 
 ## [0.1.11] — 2026-10-24
 

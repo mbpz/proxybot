@@ -1,6 +1,6 @@
 [package]
 name = "proxybot-min"
-version = "0.2.0"
+version = "0.1.12"
 edition = "2021"
 description = "Minimal macOS traffic debugger: transparent gateway + local web UI"
 license = "MIT"

@@ -1,6 +1,6 @@
 # ProxyBot status
 
-Last updated: 2026-10-26 (minimal CLI v0.2.0)
+Last updated: 2026-10-29 (minimal CLI v0.1.12)
 
 This is the single status overview. Phase records live under `docs/status/`.
 
