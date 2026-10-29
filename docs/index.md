@@ -1,65 +1,77 @@
 # ProxyBot
 
-**A lightweight macOS MITM traffic debugger for mobile application developers.**
+**A lightweight macOS MITM traffic debugger for mobile developers.**
 
-ProxyBot connects an iOS or Android test device to a local Rust MITM Runtime so
-you can inspect, filter, modify, replay, and export HTTP, HTTPS, and WebSocket
-Captured Requests — without a bundled native toolchain or a second-stage
-download.
+ProxyBot is one Rust CLI plus a local web UI. It starts an explicit HTTP proxy,
+terminates TLS with a local CA, records HTTP/HTTPS/WebSocket traffic, and can
+optionally run a Gateway Beta for full-device TCP testing.
 
-!!! warning "Development preview"
+!!! warning "Gateway Beta"
 
-    The project is not yet a stable, notarized macOS distribution. Existing
-    GitHub releases are previews; build from source for the current supported
-    contributor workflow.
+    Explicit HTTP proxy is the supported default. Gateway Beta requires root and
+    a user-supplied sing-box; it is not a bundled dependency. See
+    [Gateway Beta](gateway-beta.md) before enabling it.
 
-## The focused workflow
+## Start here
 
-1. Start ProxyBot on a Mac.
-2. Connect a test device using an explicit proxy.
-3. Install and trust the local CA for HTTPS inspection.
-4. Verify a known request appears in Capture → Requests.
-5. Inspect, change, replay, or export the Captured Request.
-6. Stop capture and restore the device network settings.
+```bash
+curl -fsSL https://github.com/mbpz/proxybot/releases/latest/download/install.sh | sh
+proxybot start
+```
+
+Then:
+
+1. Set the test device Wi-Fi HTTP proxy to `<Mac LAN IP>:8088`.
+2. Open `http://<Mac LAN IP>:8090/` on the device and install the CA.
+3. iOS: enable full trust in Certificate Trust Settings.
+4. Open `https://example.com`; the request appears in the local UI.
 
 [Get started](getting-started.md){ .md-button .md-button--primary }
-[Read the roadmap](roadmap.md){ .md-button }
+[Gateway Beta](gateway-beta.md){ .md-button }
+[Current status](status.md){ .md-button }
 
-## Core capabilities
+## Modes
 
-- HTTP, HTTPS, and WebSocket capture
-- Captured Request history, detail, filters, and export
-- Routing Rules, breakpoints, replay, and Composer
-- Request detail actions: replay, add rule, copy as cURL, export HAR
-- certificate export and a local device-setup server
-- DNS-supported Application Attribution
-- a reusable Rust `proxybot-core` crate
+| Mode | Status | Device setup | Admin |
+| --- | --- | --- | --- |
+| HTTP proxy | **Supported / default** | Wi-Fi HTTP proxy `<Mac>:8088` | No |
+| Gateway Beta | Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes |
 
-The default shell exposes three destinations: **Capture**, **Setup**, and
-**Settings**. Requests, Rules, Replay, DNS, Alerts, and Analysis live in the
-Capture context; Replay and Composer share the Replay context.
+The HTTP proxy does not change Mac routing. Gateway uses TUN + sing-box + pf
+route-to and needs a compatible sing-box binary with `-tags with_gvisor`.
 
-## Scope
+## What it records
 
-Explicit proxy is the default setup path. macOS `pf`, DNS, MCP, scripting, the
-mobile dashboard, and protocol analysis are Advanced capabilities.
+- HTTP and HTTPS request/response headers and bodies (up to 1 MiB per body).
+- WebSocket frames.
+- App/source classification from SNI/host rules.
+- Gateway source metadata: `source_type`, `client_ip`, `peer_ip`,
+  `identity_source`, `confidence`.
 
-Labs — AI analysis, Generate, Deploy, and the Graph/Topology analysis views — are
-experimental, off by default, and not part of the supported first-capture
-journey. Enable them under **Settings → Labs**; while disabled, Labs routes show
-a single "Labs are off" page.
+UDP/QUIC/DNS are **not** decrypted in this release. HTTP/80 identity remains
+unknown, and certificate-pinned apps can refuse interception.
 
-Use ProxyBot only on devices and networks you own or are authorized to test.
-Captured traffic and local CA material are sensitive.
+## Commands
 
-## Learn more
+```bash
+proxybot start                 # HTTP proxy + local web UI
+proxybot gateway start         # Gateway Beta (root; sing-box required)
+proxybot gateway stop
+proxybot gateway status
+proxybot uninstall             # prompt for data/verified CA removal
+proxybot update                # download, verify, replace binary
+proxybot list                  # full command reference
+```
+
+## Documentation
 
 - [Getting started](getting-started.md)
+- [Gateway Beta](gateway-beta.md)
+- [Status and limitations](status.md)
 - [Architecture](architecture.md)
-- [Product comparison and lessons](comparison.md)
-- [Product roadmap](roadmap.md)
+- [Release checklist](release-checklist.md)
 - [Architecture decisions](adr/README.md)
-- [Changelog](https://github.com/mbpz/proxybot/blob/main/CHANGELOG.md)
-- [Support](https://github.com/mbpz/proxybot/blob/main/SUPPORT.md)
-- [Contributing](https://github.com/mbpz/proxybot/blob/main/CONTRIBUTING.md)
-- [Security policy](https://github.com/mbpz/proxybot/blob/main/SECURITY.md)
+- [sing-box licensing](legal/sing-box.md)
+
+Use ProxyBot only on devices and networks you own or are authorized to test.
+Captured traffic, CA keys and tokens are sensitive.

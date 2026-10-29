@@ -1,6 +1,6 @@
 site_name: ProxyBot
 site_url: https://mbpz.github.io/proxybot/
-site_description: Lightweight macOS desktop traffic debugger for mobile app developers
+site_description: Lightweight macOS MITM traffic debugger (CLI + local web UI)
 
 # Internal agent guides, archived historical records, one-off status snapshots,
 # and the clean-room parity evidence ledger stay in the repository but are not
@@ -10,6 +10,9 @@ exclude_docs: |
   history/
   parity/
   status/
+  comparison.md
+  app-classification.md
+  mcp-integration.md
 
 theme:
   name: material
@@ -69,20 +72,18 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Gateway Beta: gateway-beta.md
+  - Status: status.md
   - Architecture: architecture.md
-  - Product Roadmap: roadmap.md
-  - Comparison: comparison.md
+  - Roadmap: roadmap.md
+  - Release Checklist: release-checklist.md
   - Releasing: releasing.md
+  - Licensing:
+      - sing-box / GPL: legal/sing-box.md
   - Architecture Decisions:
       - Overview: adr/README.md
-      - "0001 — Single composition root and layering": adr/0001-single-composition-root-and-layering.md
       - "0002 — Explicit proxy first": adr/0002-explicit-proxy-first.md
-      - "0003 — Capture Event and persistence ownership": adr/0003-capture-event-and-persistence-ownership.md
-      - "0004 — Generated Desktop Contract": adr/0004-generated-desktop-contract.md
-      - "0005 — Product tiers": adr/0005-product-tiers.md
-      - "0006 — Single product version and release contract": adr/0006-single-product-version-and-release-contract.md
       - "0007 — Lightweight positioning": adr/0007-lightweight-positioning.md
-      - "0008 — Rockxy clean-room parity": adr/0008-rockxy-clean-room-parity.md
-  - Advanced:
-      - Application Attribution: app-classification.md
-      - MCP stdio Adapter: mcp-integration.md
+      - "0009 — Gateway device identity": adr/0009-gateway-device-identity.md
+      - "0010 — Gateway Beta boundary": adr/0010-gateway-beta-boundary.md
+      - "0011 — launchd boundary": adr/0011-launchd-gateway-boundary.md
