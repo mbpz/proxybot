@@ -98,7 +98,7 @@ Other options:
 
 ```bash
 sh minimal/install.sh
-PROXYBOT_VERSION=0.1.0 sh minimal/install.sh
+PROXYBOT_VERSION=0.1.13 sh minimal/install.sh
 PROXYBOT_LOCAL_BINARY=minimal/target/release/proxybot sh minimal/install.sh
 PROXYBOT_PREFIX=/usr/local/bin sh minimal/install.sh
 ```

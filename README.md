@@ -1,222 +1,204 @@
 # ProxyBot
 
-> **Active lightweight implementation:** the CLI + local web UI under
-> [`minimal/`](minimal/README.md) is the current product path. The Tauri desktop
-> app described below is the legacy implementation and is not where Gateway
-> Beta or the current identity/lifecycle work lives.
->
-> Current status: [`docs/status.md`](docs/status.md) · Gateway Beta:
-> [`docs/gateway-beta.md`](docs/gateway-beta.md) · release gates:
-> [`docs/release-checklist.md`](docs/release-checklist.md).
-
-[![CI](https://github.com/mbpz/proxybot/actions/workflows/ci.yml/badge.svg)](https://github.com/mbpz/proxybot/actions/workflows/ci.yml)
+[![Minimal CLI CI](https://github.com/mbpz/proxybot/actions/workflows/minimal-ci.yml/badge.svg)](https://github.com/mbpz/proxybot/actions/workflows/minimal-ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://mbpz.github.io/proxybot/)
+[![Latest CLI release](https://img.shields.io/github/v/release/mbpz/proxybot?filter=minimal-v*&label=cli)](https://github.com/mbpz/proxybot/releases)
 
-ProxyBot is a **lightweight macOS MITM traffic debugger** for mobile application
-developers. An iOS or Android test device points its Wi-Fi HTTP proxy at a Mac
-running ProxyBot; the app terminates TLS with a locally generated CA, then lets
-you inspect, filter, modify, replay, and export HTTP, HTTPS, and WebSocket
-Captured Requests.
+ProxyBot is a lightweight macOS MITM traffic debugger for mobile developers.
+One CLI binary starts an explicit HTTP proxy, a local web UI, a locally generated
+CA, and an optional Gateway Beta (TUN + sing-box) for full-device testing.
 
-It is deliberately narrow: one explicit-proxy workflow, a small supported
-surface, and no bundled native toolchains. See
-[docs/roadmap.md](docs/roadmap.md) for the product tiers.
+The active implementation is [`minimal/`](minimal/README.md): a small Rust CLI +
+local web UI. The Tauri desktop app remains in the repository as legacy work but
+is not the current product path.
 
-> **Development preview:** interfaces, on-disk data, capture behavior, and
-> release packaging may change before the first stable release. Existing GitHub
-> release artifacts are previews; the supported contributor path is currently a
-> source build.
+> Authorized use only: TLS interception exposes sensitive traffic. Use ProxyBot
+> only on devices, applications, and networks you own or are explicitly
+> authorized to test. Never share captured payloads, private keys, certificates
+> or access tokens.
 
-> **Authorized use only:** TLS interception exposes sensitive traffic and
-> changes the device trust model. Use ProxyBot only on devices, applications,
-> and networks you own or are explicitly authorized to test. Never share
-> captured payloads, private keys, certificates, or access tokens in public
-> issues.
+## Modes
 
-## Product focus
+| Mode | Status | Device setup | Admin |
+| --- | --- | --- | --- |
+| HTTP proxy | **Supported / default** | Wi-Fi HTTP proxy `<Mac>:8088` | No |
+| Gateway Beta | Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes (TUN/pf) |
 
-ProxyBot is built around one dependable workflow:
+Gateway currently requires a user-supplied sing-box built with `-tags with_gvisor`;
+it is **not bundled**. See [Gateway Beta](docs/gateway-beta.md).
 
-1. Start a Capture Session on a Mac.
-2. Connect a test device with an explicit proxy.
-3. Install and trust the local CA when HTTPS inspection is needed.
-4. Verify a known request.
-5. Inspect, filter, modify, replay, or export the Captured Request.
-6. Stop capture and restore the device network settings.
+## Requirements
 
-The default shell has three Product Destinations — **Capture**, **Setup**, and
-**Settings**. Request-derived tools stay one click away inside the Capture
-context: Requests, Rules, Replay, DNS, and Alerts, plus Analysis when Labs are
-enabled. Replay and Composer share the Replay context. Existing deep links are
-preserved.
+- macOS (Apple Silicon or Intel releases).
+- No Rust/Node/Python toolchain needed for installation.
+- Gateway additionally needs root and a compatible sing-box binary.
 
-The following capabilities support that workflow:
-
-- Rust MITM Runtime with HTTP, HTTPS, and WebSocket Capture Events
-- React + TypeScript desktop application delivered by Tauri
-- Captured Request history, detail, filtering, breakpoints, replay, and Composer
-- Routing Rules for direct, upstream proxy, reject, mapping, and breakpoint
-  outcomes
-- Request detail actions: replay, add breakpoint rule from request, copy as
-  cURL, and export the session HAR
-- DNS observations and application-aware traffic attribution
-- certificate export and a local device-setup server
-- reusable `proxybot-core` crate without GUI dependencies
-
-macOS `pf`, the DNS server, MCP stdio, scripting, the mobile dashboard, and
-protocol analysis are **Advanced** capabilities. **Labs** — AI analysis,
-Generate, Deploy, and the Graph/Topology analysis views — are off by default.
-Enable them under **Settings → Labs** (stored locally as
-`proxybot.labs.enabled`); after that they are reachable from Settings and the
-command palette (⌘K). Opening a Labs route while Labs are off shows a
-"Labs are off" page instead of the experiment.
-
-Some applications use certificate pinning or platform protections that
-intentionally prevent decryption. ProxyBot may still expose DNS or SNI metadata,
-but it cannot guarantee payload access.
-
-## Build from source
-
-ProxyBot currently targets macOS. You need:
-
-- Xcode Command Line Tools
-- a stable Rust toolchain
-- Node.js 20 or newer
-- pnpm 10
-- the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
+## Install
 
 ```bash
-git clone https://github.com/mbpz/proxybot.git
-cd proxybot
-pnpm install --frozen-lockfile
-pnpm tauri dev
+curl -fsSL https://github.com/mbpz/proxybot/releases/latest/download/install.sh | sh
+proxybot --version
 ```
 
-Source builds are self-contained: no second-stage downloads, no bundled native
-toolchain, and no extra resource fetching step. The default build already
-includes everything the app needs.
-
-Use the persistent Capture Session bar in the main window to start or stop
-capture and see lifecycle failures. The ProxyBot menu-bar item provides the same
-actions and stays synchronized with the window. Open **Setup** to discover the
-Mac's active LAN address, start the temporary CA server, and follow the explicit
-proxy and verification steps for iOS or Android; the same page links to the CA
-and registered-device panels. Follow the
-[getting started guide](docs/getting-started.md) to connect and clean up a
-device safely.
-
-Create a local application bundle with:
+The installer verifies the archive SHA-256 and installs to `~/.local/bin` by
+default. If that directory is not on `PATH`, add it:
 
 ```bash
-pnpm build:tauri
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-A local bundle is unsigned and not notarized. It is useful for development only;
-it is not evidence that a signed release exists. See
-[docs/releasing.md](docs/releasing.md).
+Other install paths:
 
-## Traffic path
+```bash
+# From a repository checkout
+sh minimal/install.sh
 
-Explicit proxy is the supported first-capture mode:
+# Pin a release
+PROXYBOT_VERSION=0.1.13 sh minimal/install.sh
+
+# Local build (no download)
+sh minimal/dev-install.sh
+
+# Custom prefix
+PROXYBOT_PREFIX=/usr/local/bin sh minimal/install.sh
+```
+
+## Quick start: HTTP proxy
+
+```bash
+proxybot start
+```
+
+The CLI prints the values you need:
 
 ```text
-Test device --Wi-Fi explicit proxy--> Mac --MITM Runtime--> upstream server
-                                         |
-                                         +--> Captured Request
+Web UI          http://127.0.0.1:8899
+Explicit proxy  <Mac LAN IP>:8088
+CA page         http://<Mac LAN IP>:8090/
 ```
 
-Advanced `pf` routing and DNS observation add host-level network changes:
+1. Put the test device on the same Wi-Fi and set its HTTP proxy to
+   `<Mac LAN IP>:8088`.
+2. On the device, open `http://<Mac LAN IP>:8090/` and install the ProxyBot CA.
+3. iOS only: enable full trust under
+   Settings → General → About → Certificate Trust Settings.
+4. Open `https://example.com`; the request appears in the Live UI.
+
+HTTP proxy needs no admin and does not change the Mac's routing. Install/trust
+the CA only on test devices you control.
+
+## Gateway Beta
+
+Gateway sends a device's TCP traffic through a TUN interface, sing-box and
+Hudsucker. It is a Beta path; keep the device on automatic networking when it is
+not running.
+
+Prerequisites: root, and a sing-box v1.14.4-compatible binary with gvisor support.
+Pass it explicitly if it is not on `PATH`:
+
+```bash
+# terminal 1: ProxyBot must be running
+proxybot start
+
+# terminal 2: install a LaunchDaemon (explicit start only, no autostart)
+sudo proxybot gateway install-service --singbox /path/to/sing-box
+
+sudo proxybot gateway start
+proxybot gateway status
+```
+
+On the device: Wi-Fi **gateway** = `<Mac LAN IP>`, HTTP proxy off, DNS may stay on
+the router.
+
+Stop/remove:
+
+```bash
+sudo proxybot gateway stop
+sudo proxybot gateway uninstall-service
+```
+
+The old `start --gateway` and `gateway install|uninstall` pf paths are legacy and
+unsupported. See [Gateway Beta](docs/gateway-beta.md) and
+[status](docs/status.md) for limitations (UDP/QUIC direct, HTTP/80 identity
+unknown, no sleep/Wi-Fi automatic reconfiguration, certificate pinning).
+
+## Commands
+
+```bash
+proxybot start                 # HTTP proxy + web UI
+proxybot gateway start         # Gateway Beta (root; sing-box required)
+proxybot gateway stop
+proxybot gateway status
+proxybot uninstall             # prompts for data/CA removal
+proxybot update                # download + verify + replace binary
+proxybot list                  # full command reference with examples
+proxybot --help                # core commands
+```
+
+`proxybot uninstall --purge --yes` removes user data and the verified ProxyBot CA
+without prompting; it is destructive. System Keychain removal may require sudo;
+iPhone profiles/trust are always manual.
+
+## Data and CA
 
 ```text
-Test device --Wi-Fi--> macOS pf --> MITM Runtime --> upstream server
-                          |
-                          +--> DNS server --> Application Attribution
+~/Library/Application Support/ProxyBot/
+  ca.key, ca.pem       local CA (never share)
+  history.sqlite       captured requests
+  rules/               app classification / passthrough rules
 ```
 
-Install and trust the ProxyBot CA only on a test device, and remove it when the
-session is finished.
+CA trust lives outside this directory, in macOS Keychain or an iOS profile.
+Uninstalling the binary does not automatically revoke it.
 
-## Repository layout
-
-```text
-proxybot-core/   reusable MITM Runtime, certificates, rules, and analysis models
-src-tauri/       composition root, desktop Adapters, persistence, MCP, and macOS integration
-src/             React desktop application, generated Desktop Contract, and adapter tests
-e2e/             browser-mock Playwright coverage
-docs/            current docs, adr/, agents/, parity/, history/, status/, zh/
-design/          original Pencil (.pen) design sources (not bundled)
-scripts/         development, version, and parity tooling
-```
-
-Repository governance lives in [CONTRIBUTING.md](CONTRIBUTING.md),
-[SECURITY.md](SECURITY.md), [SUPPORT.md](SUPPORT.md),
-[CHANGELOG.md](CHANGELOG.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and
-[.github/CODEOWNERS](.github/CODEOWNERS). `docs/history/` is archived research,
-not a list of supported features; `docs/status/` holds one-off status snapshots.
-
-## Development checks
-
-The local CI command covers version/workflow/parity checks, formatting, Rust
-tests and lints, the generated contract, TypeScript checks, UI tests, and the
-frontend production build:
+## Update / uninstall
 
 ```bash
-pnpm ci:local
+proxybot update                 # verify GitHub SHA-256, replace this binary
+proxybot uninstall              # remove binary/share; prompt for data + CA
+proxybot uninstall --purge --yes
 ```
 
-Individual checks are also available:
+## Status and limitations
+
+- Explicit HTTP proxy is the supported Core mode and is verified on iPhone
+  Safari/WeChat.
+- Gateway Beta passed lifecycle and two-device source-IP tests, but remains a
+  Beta support claim.
+- UDP/QUIC/DNS are not decrypted; TLS-pinned apps can refuse interception.
+- HTTP/80 is MITM'd but its device identity remains unknown.
+- `confidence=inferred` is not device authentication.
+- launchd/sleep/Wi-Fi behavior is documented and tested for the current
+  Supervisor; automatic network reconfiguration is out of scope.
+
+See [docs/status.md](docs/status.md), [Gateway Beta](docs/gateway-beta.md), and
+[release checklist](docs/release-checklist.md).
+
+## Development
 
 ```bash
-pnpm version:check
-pnpm test:workflow-config
-pnpm parity:check
-cargo test --workspace --locked --no-default-features
-cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
-cargo fmt --all -- --check
-pnpm contract:check
-pnpm typecheck
-pnpm test:ui
-pnpm test:e2e
-pnpm build
+sh minimal/dev-run.sh start          # build + run HTTP proxy
+sh minimal/dev-install.sh            # build + install ~/.local/bin
+cargo test --manifest-path minimal/Cargo.toml
+sh minimal/package.sh                # local release archive
+sh minimal/rc-smoke-test.sh          # clean-install/HTTP/HTTPS/uninstall smoke
 ```
 
-Playwright exercises a BrowserMockAdapter in a browser, not a packaged Tauri
-app. Passing it does not by itself prove real certificate distribution or
-capture. The isolated packaged-process journey uses the real Tauri composition
-root, generated CA, HTTPS MITM Runtime, SQLite persistence, and stop/restart
-lifecycle:
-
-```bash
-pnpm exec tauri build --bundles app
-pnpm test:desktop:acceptance
-```
-
-It writes its report inside a temporary workspace and removes that workspace
-after validation; it does not use external network services or user data. It
-proves the backend journey only — it does not drive visible UI controls or prove
-a signed installation.
-
-`package.json` is the canonical product version. Use `pnpm version:set <version>`
-to update its checked Rust mirrors, and follow the
-[release runbook](docs/releasing.md). Public artifacts must come from the hosted
-Tauri bundler workflow; local bundles are not evidence of signing or
-notarization.
+CI: `.github/workflows/minimal-ci.yml`; packaging:
+`.github/workflows/minimal-release.yml` (manual dispatch).
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md) — first capture end to end.
-- [Architecture](docs/architecture.md) — runtime composition and adapter seams.
-- [Roadmap](docs/roadmap.md) — product tiers and current work.
-- [ADRs](docs/adr/README.md) — binding architecture and product decisions.
-- [Changelog](CHANGELOG.md) — released and unreleased changes.
-- [Support](SUPPORT.md) — supported configuration, version policy, and help.
+- [minimal/README.md](minimal/README.md) — CLI details
+- [docs/status.md](docs/status.md) — verified/unsupported behavior
+- [docs/gateway-beta.md](docs/gateway-beta.md) — Gateway Beta guide
+- [docs/release-checklist.md](docs/release-checklist.md) — release gates
+- [docs/adr/](docs/adr/README.md) — architecture decisions
+- [docs/legal/sing-box.md](docs/legal/sing-box.md) — sing-box/GPL decision
 
-## Contributing and security
+## License
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Use the
-issue forms for reproducible bugs and focused feature requests. Report
-vulnerabilities privately as described in [SECURITY.md](SECURITY.md), and follow
-the [Code of Conduct](CODE_OF_CONDUCT.md) in all project spaces.
-
-ProxyBot is available under the [MIT License](LICENSE).
+ProxyBot is MIT-licensed. The Gateway Beta does not bundle sing-box, which is
+GPL-3.0 and supplied separately by the operator. See [LICENSE](LICENSE) and
+[minimal/THIRD_PARTY.md](minimal/THIRD_PARTY.md).
