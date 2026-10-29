@@ -1,5 +1,20 @@
 # ProxyBot minimal changelog
 
+## [0.1.13] — 2026-10-29
+
+Patch release for the self-update download path.
+
+### Fixed
+
+- `proxybot update` now passes `curl --output`; the 0.1.12 build wrote the archive
+  to stdout and treated the output path as a URL. Update now verifies the
+  checksum and replaces the binary correctly.
+
+### Notes
+
+- 0.1.12 already published the Gateway Beta/maintenance feature set to GitHub.
+- 0.1.13 is the recommended latest release for external acceptance.
+
 ## [0.1.12] — 2026-10-29
 
 Gateway Beta and maintenance release; next small version after GitHub v0.1.11.

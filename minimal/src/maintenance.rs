@@ -315,6 +315,7 @@ pub fn update(args: UpdateArgs) -> Result<()> {
     let status = Command::new("curl")
         .args(["--http1.1", "--fail", "--location", "--silent", "--show-error", "--retry", "3"])
         .arg(format!("{base}/{asset}"))
+        .arg("--output")
         .arg(tmp.join(&asset))
         .status()?;
     if !status.success() {
@@ -323,6 +324,7 @@ pub fn update(args: UpdateArgs) -> Result<()> {
     let status = Command::new("curl")
         .args(["--http1.1", "--fail", "--location", "--silent", "--show-error", "--retry", "3"])
         .arg(format!("{base}/{asset}.sha256"))
+        .arg("--output")
         .arg(tmp.join(format!("{asset}.sha256")))
         .status()?;
     if !status.success() {

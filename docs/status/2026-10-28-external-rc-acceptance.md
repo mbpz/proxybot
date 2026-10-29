@@ -1,13 +1,13 @@
-# External Mac RC acceptance (0.1.12)
+# External Mac RC acceptance (0.1.13)
 
 Use a Mac that has never had ProxyBot installed. Do not rebuild from source; use
-the exact archive and checksum. For a GitHub release, use the checksum attached to that release; a local archive checksum is not interchangeable.
+the exact archive and checksum. This is the checksum from GitHub release `minimal-v0.1.13`; use the release asset directly, not a local build.
 
 ## Artifact
 
 ```text
 proxybot-min-aarch64-apple-darwin.tar.gz
-sha256 a39b99e1628bb1b63b619de09cf7ae74f7b1534dbf0600dbd07b2afb05620467
+sha256 2c080efa536272d1bf58c9bda613326cad5a08a1d94eeff723cddd86e6ff116b
 contents proxybot, LICENSE, THIRD_PARTY.md, uninstall.sh
 ```
 
@@ -34,7 +34,7 @@ on exit. Set `KEEP_TMP=1` if you need to retain failure logs.
 Expected: `SMOKE RESULT: PASS (PASS=18 FAIL=0)`.
 
 This verifies checksum, archive manifest/no sing-box, install into a temporary
-prefix, 0.1.12 version, fresh DB, HTTP proxy, HTTPS MITM with the generated CA,
+prefix, 0.1.13 version, fresh DB, HTTP proxy, HTTPS MITM with the generated CA,
 request persistence, stop, and uninstall. It does **not** modify system CA trust.
 
 ## 2. Manual CA / HTTPS acceptance
@@ -166,14 +166,14 @@ Do not leave the temporary acceptance CA trusted.
 
 ## 5. Upgrade check (separate from fresh install)
 
-Local evidence: 0.1.11 binary → 0.1.12 archive on the same data directory preserved
+Local evidence: 0.1.11 binary → 0.1.13 archive on the same data directory preserved
 the existing request and added `source_type/peer_ip/device_id/connection_id/
 identity_source/confidence` with defaults. On the external Mac, repeat with the
 0.1.11 release artifact:
 
 1. install 0.1.11;
 2. create at least one real request row;
-3. install 0.1.12 over it;
+3. install 0.1.13 over it;
 4. verify the old row is readable and provenance columns exist;
 5. verify schema migration and normal use;
 6. verify Gateway did not auto-start;
@@ -203,7 +203,7 @@ notes:
 
 - [ ] Archive SHA-256 matches the published `.sha256`
 - [ ] Smoke PASS=18, no SKIP/NOT_VERIFIED
-- [ ] Installed version 0.1.12 and expected path
+- [ ] Installed version 0.1.13 and expected path
 - [ ] CA installed and trust explicitly enabled
 - [ ] HTTPS MITM succeeds with expected URL/method/status
 - [ ] ProxyBot request row persisted
@@ -211,4 +211,4 @@ notes:
 - [ ] Stop: process/port cleaned
 - [ ] Uninstall: no residual TUN/forwarding/service
 - [ ] CA/user-data handling documented and completed
-- [ ] 0.1.11 → 0.1.12 upgrade verified separately
+- [ ] 0.1.11 → 0.1.13 upgrade verified separately
