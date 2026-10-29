@@ -7,7 +7,7 @@ the exact archive and checksum. This is the checksum from GitHub release `minima
 
 ```text
 proxybot-min-aarch64-apple-darwin.tar.gz
-sha256 2c080efa536272d1bf58c9bda613326cad5a08a1d94eeff723cddd86e6ff116b
+sha256 a2ff8a23e04c59be5312d5c6e9dd4a88e11c7356cb8ae4dfced19ab2d6a00355
 contents proxybot, LICENSE, THIRD_PARTY.md, uninstall.sh
 ```
 
