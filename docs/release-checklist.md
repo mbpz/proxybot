@@ -52,8 +52,8 @@ launchd design is accepted.
 
 Windows x64 release gates (new platform; not yet accepted):
 
-- [ ] Windows CI builds, tests and opens the web UI and CA endpoint.
-- [ ] Windows ZIP checksum and archive manifest verified on a clean machine.
+- [x] Windows CI builds, tests and opens the web UI and CA endpoint (run `41450530110`).
+- [x] Windows ZIP checksum and archive manifest verified on a hosted Windows runner (run `41450530110`).
 - [ ] A physical test device reaches the Windows proxy and CA page and records
   an HTTPS request after trusting the CA.
 - [ ] Windows Firewall/private-network and uninstall instructions checked.

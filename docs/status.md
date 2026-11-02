@@ -1,15 +1,20 @@
 # ProxyBot status
 
-Last updated: 2026-11-02 (source version 2.0.0; last confirmed release `minimal-v0.1.13`)
+Last updated: 2026-11-02 (CLI 2.0.0; published release `minimal-v2.0.0`)
 
 This is the single status overview. Phase records live under `docs/status/`.
+
+Release evidence: Minimal CLI CI run `41450530110` passed on macOS and Windows;
+tag-triggered release run `41451429010` published macOS arm64/x64 archives and
+the Windows x64 ZIP with SHA-256 files. Windows physical-device testing is not
+included in those runs.
 
 ## Capture modes
 
 | Mode | Status | Notes |
 | --- | --- | --- |
 | Explicit HTTP proxy | **Supported / default on macOS** | iPhone Safari/WeChat verified; no admin |
-| Explicit HTTP proxy on Windows x64 | **Source implementation; support acceptance pending** | CI builds, runtime smoke and device acceptance are support gates |
+| Explicit HTTP proxy on Windows x64 | **Release asset published; device acceptance pending** | Windows CI passed unit tests, package verification, CA delivery and HTTP capture; physical device acceptance remains open |
 | Gateway (TUN + sing-box) | **macOS Beta** | Not a Core support claim; see limitations |
 | Passive sniff | Experimental / macOS only | Metadata only; no decryption |
 | Legacy pf `rdr` gateway | **Legacy / unsupported** | Historical research only; not the gateway implementation |
