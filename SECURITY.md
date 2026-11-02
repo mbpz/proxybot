@@ -1,6 +1,8 @@
 # Security policy
 
-ProxyBot handles decrypted traffic, local certificates, network routing, and elevated macOS packet-filter operations. Please report suspected vulnerabilities privately.
+ProxyBot handles decrypted traffic and local certificates on macOS and Windows,
+and elevated packet-filter operations on macOS. Please report suspected
+vulnerabilities privately.
 
 ## Reporting a vulnerability
 
@@ -10,16 +12,15 @@ Include the affected version or commit, impact, reproduction steps, and any sugg
 
 ## Supported versions
 
-ProxyBot is on the 1.x release line. Security fixes are prepared on `main` and
-released on the latest stable release line.
+The active CLI uses the `minimal-v<version>` release line. Security fixes are
+prepared on `main` and released on the latest CLI release line.
 
 - **Supported:** the latest published release line and `main`.
 - **Not supported:** older releases and preview/prerelease artifacts — upgrade to
   the latest release before requesting a security fix.
 
-Until the first signed, notarized, and install-verified release is published,
-published artifacts are development previews; support evidence for them is
-limited to the latest preview line and `main`.
+Platform support claims are limited to the tested and published assets. See
+[current status](docs/status.md) for the latest verification boundary.
 
 ## Scope note
 

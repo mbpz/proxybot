@@ -50,6 +50,14 @@ launchd design is accepted.
 
 ## Build/release
 
+Windows x64 release gates (new platform; not yet accepted):
+
+- [ ] Windows CI builds, tests and opens the web UI and CA endpoint.
+- [ ] Windows ZIP checksum and archive manifest verified on a clean machine.
+- [ ] A physical test device reaches the Windows proxy and CA page and records
+  an HTTPS request after trusting the CA.
+- [ ] Windows Firewall/private-network and uninstall instructions checked.
+
 - [x] Version bumped in the one source of truth; changelog updated.
 - [x] Fresh-prefix install and fresh-data-directory smoke test pass.
 - [x] Upgrade 0.1.11 → 0.1.13 data migration verified locally; external clean Mac

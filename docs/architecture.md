@@ -1,13 +1,14 @@
 # Architecture
 
 ProxyBot's active implementation is the minimal CLI + local web UI under
-`minimal/`. The Tauri desktop app remains in the repository as legacy work.
+`minimal/`. The old Tauri desktop implementation has been removed from the
+active source tree; its design history remains under `docs/history/`.
 
 ## Runtime
 
 ```text
-device --HTTP proxy--> Mac :8088 ─┐
-device --gateway-----> TUN ───────┴─> Hudsucker (MITM)
+device --HTTP proxy--> Mac/Windows :8088 ─┐
+device --gateway-----> Mac TUN ───────────┴─> Hudsucker (MITM)
                                         ├─ SQLite history
                                         ├─ app/source classification
                                         ├─ CA page :8090
@@ -17,13 +18,19 @@ device --gateway-----> TUN ───────┴─> Hudsucker (MITM)
 Components:
 
 - `minimal/src/main.rs` — CLI entry point and HTTP proxy/web composition.
+- `minimal/src/platform.rs` — data path, LAN address and browser launch.
 - `minimal/src/capture.rs` — Hudsucker handler, request persistence, identity.
 - `minimal/src/transparent.rs` — plain HTTP/80 adapter.
-- `minimal/src/gateway.rs`, `gateway_run.rs` — pf/route-to and supervisor.
+- `minimal/src/gateway.rs`, `gateway_run.rs` — macOS pf/route-to and supervisor.
 - `minimal/src/launchd.rs` — explicit LaunchDaemon lifecycle.
 - `minimal/src/singbox_config.rs` — TUN/sniff/per-device config generation.
 - `minimal/src/store.rs` — SQLite schema and queries.
 - `minimal/web/` — embedded Live/Setup/TLS/Rules UI.
+
+Windows packages contain the same explicit proxy, CA page and web UI. Gateway,
+passive sniffing and launchd modules are compiled on macOS only. Windows ZIP
+assets are built and tested on `windows-latest` in the minimal CI and release
+workflows.
 
 ## Gateway Beta
 

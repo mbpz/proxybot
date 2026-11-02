@@ -19,7 +19,7 @@
 <body>
 <main>
   <h1>ProxyBot device setup</h1>
-  <p class="muted">This page is served by the Mac running ProxyBot. Do not close capture on the Mac while installing.</p>
+  <p class="muted">This page is served by the computer running ProxyBot. Keep capture running while installing.</p>
 
   <h2>1. Install the ProxyBot CA</h2>
   <div class="box">
@@ -32,18 +32,18 @@
   <h2>2. Capture this device’s traffic</h2>
   <div class="box">
     <p><strong>Mode 1 · HTTP proxy</strong> (no admin): Wi-Fi → HTTP proxy → Manual → server <code>{{PROXY}}</code>. Leave gateway and DNS unchanged.</p>
-    <p><strong>Mode 2 · Gateway Beta</strong> (Mac running with <code>sudo proxybot gateway start</code>): Wi-Fi → configure IP → gateway <code>{{GATEWAY}}</code>, HTTP proxy off, keep the current DNS. Requires a separately installed sing-box; TCP/80/443 is intercepted, UDP/DNS stays direct.</p>
+    {{GATEWAY_SECTION}}
     <p class="muted">Certificate-pinned apps will refuse decryption; that is an application security boundary, not a ProxyBot failure.</p>
   </div>
 
   <h2>3. Verify</h2>
   <div class="box">
-    <p>Open <code>http://example.com</code>, then <code>https://example.com</code>. Both should appear on the Mac’s ProxyBot web UI (Live tab).</p>
+    <p>Open <code>http://example.com</code>, then <code>https://example.com</code>. Both should appear in ProxyBot’s Live tab.</p>
   </div>
 
   <h2>4. Clean up</h2>
   <div class="box">
-    <p>When finished: turn the Wi-Fi proxy off (or restore the gateway), stop capture on the Mac, and remove the CA from the device.</p>
+    <p>When finished: turn the Wi-Fi proxy off, stop capture on the computer, and remove the CA from the device.</p>
   </div>
 </main>
 </body>

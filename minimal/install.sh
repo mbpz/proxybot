@@ -73,7 +73,6 @@ if [ -n "${PROXYBOT_LOCAL_ARCHIVE:-}" ]; then
   install -m 0755 "${TMP}/proxybot" "${PREFIX}/proxybot"
   [ -f "${TMP}/LICENSE" ] && install -m 0644 "${TMP}/LICENSE" "$PREFIX/share/proxybot/LICENSE"
   [ -f "${TMP}/THIRD_PARTY.md" ] && install -m 0644 "${TMP}/THIRD_PARTY.md" "$PREFIX/share/proxybot/THIRD_PARTY.md"
-install -m 0755 "${TMP}/uninstall.sh" "$PREFIX/share/proxybot/uninstall.sh"
   [ -f "${TMP}/uninstall.sh" ] && install -m 0755 "${TMP}/uninstall.sh" "$PREFIX/share/proxybot/uninstall.sh"
   echo "Installed $( "${PREFIX}/proxybot" --version ) to ${PREFIX}/proxybot"
   exit 0

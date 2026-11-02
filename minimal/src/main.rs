@@ -5,15 +5,23 @@
 
 mod ca;
 mod capture;
+#[cfg(target_os = "macos")]
 mod gateway;
+#[cfg(target_os = "macos")]
 mod launchd;
+#[cfg(target_os = "macos")]
 mod maintenance;
+#[cfg(target_os = "macos")]
 mod gateway_run;
+mod platform;
 mod rules;
 mod store;
 mod transparent;
+#[cfg(target_os = "macos")]
 mod sniff;
+#[cfg(target_os = "macos")]
 mod singbox_config;
+#[cfg(target_os = "macos")]
 mod tun_probe;
 mod web;
 
@@ -28,7 +36,7 @@ use tokio::sync::{broadcast, oneshot, RwLock};
 #[command(
     name = "proxybot",
     version,
-    about = "Minimal macOS traffic debugger for mobile apps"
+    about = "Traffic debugger for mobile apps (macOS and Windows)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -40,6 +48,7 @@ enum Command {
     /// Start the HTTP proxy and local web UI.
     Start(StartArgs),
     /// Manage Gateway Beta (TUN + sing-box).
+    #[cfg(target_os = "macos")]
     Gateway(GatewayArgs),
     /// Show or reset app rules.
     #[command(hide = true)]
@@ -47,18 +56,23 @@ enum Command {
     /// Print version information.
     Version,
     /// Remove this binary and installed files.
+    #[cfg(target_os = "macos")]
     Uninstall(maintenance::UninstallArgs),
     /// Download and install a release.
+    #[cfg(target_os = "macos")]
     Update(maintenance::UpdateArgs),
     /// Print the core command reference.
     List,
     /// Experimental passive capture (root).
+    #[cfg(target_os = "macos")]
     #[command(hide = true)]
     Sniff(sniff::SniffArgs),
     /// Generate the Gateway sing-box config.
+    #[cfg(target_os = "macos")]
     #[command(hide = true)]
     SingboxConfig(singbox_config::SingboxConfigArgs),
     /// Experimental TUN ingress probe (root).
+    #[cfg(target_os = "macos")]
     #[command(hide = true)]
     TunProbe(tun_probe::TunProbeArgs),
 }
@@ -77,6 +91,9 @@ struct StartArgs {
     /// LAN CA page port.
     #[arg(long, default_value_t = 8090)]
     ca_port: u16,
+    /// LAN IPv4 address shown to the test device (use when automatic selection picks a VPN).
+    #[arg(long)]
+    lan_ip: Option<std::net::Ipv4Addr>,
     /// Do not open a browser.
     #[arg(long)]
     no_open: bool,
@@ -98,6 +115,7 @@ impl Default for StartArgs {
             transparent_port: 8089,
             web_port: 8899,
             ca_port: 8090,
+            lan_ip: None,
             no_open: false,
             gateway: false,
             block_quic: false,
@@ -107,12 +125,14 @@ impl Default for StartArgs {
 }
 
 #[derive(Args)]
+#[cfg(target_os = "macos")]
 struct GatewayArgs {
     #[command(subcommand)]
     command: GatewayCommand,
 }
 
 #[derive(Subcommand)]
+#[cfg(target_os = "macos")]
 enum GatewayCommand {
     /// Start Gateway Beta (root).
     Start {
@@ -197,9 +217,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Start(StartArgs::default())) {
         Command::Start(args) => run_start(args).await,
+        #[cfg(target_os = "macos")]
         Command::Gateway(args) => run_gateway(args),
         Command::Rules(args) => run_rules(args),
+        #[cfg(target_os = "macos")]
         Command::Uninstall(args) => maintenance::uninstall(args),
+        #[cfg(target_os = "macos")]
         Command::Update(args) => maintenance::update(args),
         Command::Version => {
             println!("proxybot {}", env!("CARGO_PKG_VERSION"));
@@ -209,13 +232,27 @@ async fn main() -> Result<()> {
             print_command_list();
             Ok(())
         }
+        #[cfg(target_os = "macos")]
         Command::Sniff(args) => sniff::run(args),
+        #[cfg(target_os = "macos")]
         Command::SingboxConfig(args) => singbox_config::run(args),
+        #[cfg(target_os = "macos")]
         Command::TunProbe(args) => tun_probe::run(args),
     }
 }
 
 fn print_command_list() {
+    #[cfg(target_os = "windows")]
+    {
+        println!("ProxyBot {} — Windows command reference", env!("CARGO_PKG_VERSION"));
+        println!("  proxybot start [--proxy-port PORT] [--web-port PORT] [--ca-port PORT] [--lan-ip IPV4] [--no-open]");
+        println!("  proxybot rules path | show | reset");
+        println!("  proxybot version | list");
+        println!("  data: {}", default_data_dir().display());
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
     println!("ProxyBot {} — command reference", env!("CARGO_PKG_VERSION"));
     println!();
     println!("USAGE");
@@ -229,6 +266,7 @@ fn print_command_list() {
     println!("      --transparent-port <PORT>  plain-HTTP adapter port (default 8089)");
     println!("      --web-port <PORT>          loopback UI port (default 8899)");
     println!("      --ca-port <PORT>           LAN CA page port (default 8090)");
+    println!("      --lan-ip <IPV4>           LAN address shown to the test device");
     println!("      --data-dir <DIR>           CA/database/rules directory");
     println!("      --no-open                  do not open a browser");
     println!("      Examples:");
@@ -302,7 +340,9 @@ fn print_command_list() {
     println!("  data     {}", default_data_dir().display());
     println!("  web UI   http://127.0.0.1:8899");
     println!("  CA page  http://<Mac LAN IP>:8090/");
+    }
 }
+#[cfg(target_os = "macos")]
 fn run_gateway(args: GatewayArgs) -> Result<()> {
     let data_dir = default_data_dir();
     match args.command {
@@ -363,6 +403,10 @@ fn run_rules(args: RulesArgs) -> Result<()> {
 }
 
 async fn run_start(args: StartArgs) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    if args.gateway || args.block_quic {
+        anyhow::bail!("gateway mode requires macOS; Windows supports the explicit HTTP proxy");
+    }
     // pf redirects LAN traffic to the Mac's LAN IP (not loopback), so the
     // transparent adapter must listen on all interfaces in gateway mode.
     // PROXYBOT_TRANSPARENT_BIND=all is an explicit override for tests/dev.
@@ -417,13 +461,14 @@ async fn run_start(args: StartArgs) -> Result<()> {
     let http_state = capture_state.clone();
     let ws_state = capture_state.clone();
 
-    let lan_ip = gateway::detect(args.transparent_port)
-        .map(|config| config.lan_ip)
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
+    let lan_ip = args.lan_ip.map(|ip| ip.to_string()).unwrap_or_else(platform::lan_ip);
     let quic_policy = std::fs::read_to_string(data_dir.join("quic-policy"))
         .map(|value| value.trim().to_string())
         .unwrap_or_else(|_| "direct".to_string());
     let setup = web::SetupInfo {
+        platform: std::env::consts::OS,
+        data_dir: data_dir.display().to_string(),
+        gateway_supported: cfg!(target_os = "macos"),
         quic_policy,
         ca_url: format!("http://{lan_ip}:{}/ca.crt", args.ca_port),
         ca_page_url: format!("http://{lan_ip}:{}/", args.ca_port),
@@ -477,7 +522,9 @@ async fn run_start(args: StartArgs) -> Result<()> {
     let ca_addr: SocketAddr = ([0, 0, 0, 0], args.ca_port).into();
     let ca_task = tokio::spawn(web::serve_ca_page(ca_state, ca_addr));
 
+    #[cfg(target_os = "macos")]
     let mut gateway_installed = false;
+    #[cfg(target_os = "macos")]
     if args.gateway {
         eprintln!(
             "WARNING: --gateway is experimental on macOS. pf redirect delivery is unreliable\n\
@@ -501,6 +548,7 @@ async fn run_start(args: StartArgs) -> Result<()> {
     if args.gateway {
         println!("  Gateway         LEGACY pf side-router enabled (unsupported)");
     } else {
+        #[cfg(target_os = "macos")]
         println!("  Gateway Beta    sudo proxybot gateway start  (TUN + sing-box; root)");
     }
     if args.gateway && args.block_quic {
@@ -516,12 +564,13 @@ async fn run_start(args: StartArgs) -> Result<()> {
     println!();
 
     if !args.no_open {
-        let _ = std::process::Command::new("open").arg(&web_url).status();
+        platform::open_browser(&web_url);
     }
 
     tokio::signal::ctrl_c().await?;
     println!("stopping...");
     let _ = shutdown_tx.send(());
+    #[cfg(target_os = "macos")]
     if gateway_installed {
         if let Err(error) = gateway::uninstall(&data_dir, false) {
             eprintln!("warning: failed to remove gateway rules: {error}");
@@ -533,21 +582,15 @@ async fn run_start(args: StartArgs) -> Result<()> {
 }
 
 fn ensure_port_available(addr: SocketAddr, label: &str) -> Result<()> {
-    std::net::TcpListener::bind(addr).map(|listener| drop(listener)).with_context(|| {
+    std::net::TcpListener::bind(addr).map(drop).with_context(|| {
         format!(
-            "{label} port {addr} is already in use; stop the previous `proxybot` process (Ctrl+C or `pkill -f 'proxybot start'`) and retry"
+            "{label} port {addr} is already in use; stop the previous ProxyBot process and retry"
         )
     })
 }
 
 pub(crate) fn default_data_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("PROXYBOT_DATA_DIR") {
-        return PathBuf::from(dir);
-    }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("Library/Application Support/ProxyBot")
+    platform::data_dir()
 }
 
 fn rules_path(data_dir: &std::path::Path) -> PathBuf {

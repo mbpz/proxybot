@@ -111,7 +111,7 @@ fn lock_path() -> PathBuf {
 
 fn acquire_lock(path: &Path, message: &str) -> Result<File> {
     fs::create_dir_all(state_dir())?;
-    let file = OpenOptions::new().create(true).write(true).open(path)?;
+    let file = OpenOptions::new().create(true).write(true).truncate(false).open(path)?;
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
         bail!("{message}");

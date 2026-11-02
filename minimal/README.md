@@ -1,21 +1,21 @@
 # ProxyBot minimal (CLI + local web UI)
 
 The active lightweight ProxyBot implementation: **one binary**, a local web UI,
-an explicit HTTP-proxy mode, and a **Beta** gateway mode. It is independent from
-the legacy Tauri desktop app at the repository root (separate Cargo workspace).
+and an explicit HTTP-proxy mode on macOS. Windows x64 source support is added;
+Windows CI and device acceptance are pending. Gateway Beta is macOS only.
 
 ```
-phone --Wi-Fi HTTP proxy--> Mac:8088 ─┐
-phone --Wi-Fi gateway-----> Mac TUN  ─┴--> MITM / classification / SQLite / web UI
+phone --Wi-Fi HTTP proxy--> computer:8088 --> MITM / classification / SQLite / web UI
+phone --Wi-Fi gateway-----> Mac TUN  --> Gateway Beta (macOS only)
 ```
 
 ## Modes
 
 | Mode | Status | Device setting | Admin |
 | --- | --- | --- | --- |
-| Explicit HTTP proxy | **Supported / default** | Wi-Fi HTTP proxy `<Mac>:8088` | No |
-| Gateway (TUN + sing-box) | **Beta** | Wi-Fi gateway `<Mac>`, HTTP proxy off | Yes (TUN/pf) |
-| Passive sniff | Experimental | none (same interface) | Yes (BPF) |
+| Explicit HTTP proxy | **Supported / default on macOS; Windows release pending** | Wi-Fi HTTP proxy `<computer>:8088` | No |
+| Gateway (TUN + sing-box) | **Beta / macOS only** | Wi-Fi gateway `<Mac>`, HTTP proxy off | Yes (TUN/pf) |
+| Passive sniff | Experimental / macOS only | none (same interface) | Yes (BPF) |
 | Legacy pf `rdr` gateway | **Legacy / unsupported** | do not use | — |
 
 The explicit proxy is the only Core capture mode. It covers apps that honour the
@@ -28,8 +28,8 @@ proxybot start
 # Web UI: http://127.0.0.1:8899
 ```
 
-- Set the device Wi-Fi HTTP proxy to `<Mac LAN IP>:8088`.
-- Install/trust the CA from `http://<Mac LAN IP>:8090/`; iOS also needs
+- Set the device Wi-Fi HTTP proxy to `<computer LAN IP>:8088`.
+- Install/trust the CA from `http://<computer LAN IP>:8090/`; iOS also needs
   Certificate Trust Settings.
 - No pf, NAT, IP forwarding or admin rights.
 - A stopped ProxyBot only affects proxied apps; the device can still browse.
@@ -90,6 +90,8 @@ Status: [`docs/status.md`](../docs/status.md).
 
 ## Install
 
+### macOS
+
 ```bash
 curl -fsSL https://github.com/mbpz/proxybot/releases/latest/download/install.sh | sh
 ```
@@ -106,6 +108,30 @@ PROXYBOT_PREFIX=/usr/local/bin sh minimal/install.sh
 The script downloads the matching macOS archive, verifies SHA-256, and installs
 `proxybot` (default `~/.local/bin`). No Rust/Node/Python toolchain required.
 
+### Windows x64
+
+After a Windows release is published, download
+`proxybot-min-x86_64-pc-windows-msvc.zip` and its `.sha256` file from the same
+ProxyBot CLI release. In PowerShell, verify the archive, extract it,
+and run the binary:
+
+```powershell
+$zip = 'proxybot-min-x86_64-pc-windows-msvc.zip'
+$expected = (Get-Content "$zip.sha256").Split(' ')[0]
+$actual = (Get-FileHash -Algorithm SHA256 $zip).Hash
+if ($expected -ne $actual) { throw 'ProxyBot checksum mismatch' }
+Expand-Archive $zip -DestinationPath "$env:LOCALAPPDATA\Programs\ProxyBot" -Force
+& "$env:LOCALAPPDATA\Programs\ProxyBot\proxybot.exe" start
+```
+
+Set the device proxy to the LAN address printed by ProxyBot. If the selected
+address is a VPN or another network, pass `--lan-ip <IPv4 address>`. The web UI
+is on `127.0.0.1:8899`, the device CA page on `<LAN IP>:8090`, and data is kept
+in `%LOCALAPPDATA%\ProxyBot`. Allow the Windows Firewall prompt for private
+networks so the test device can reach ports 8088 and 8090. The Windows source
+build implements explicit HTTP proxy capture; gateway, sniff, self-update and
+self-uninstall remain macOS-only.
+
 ### Local development
 
 ```bash
@@ -115,7 +141,8 @@ sh minimal/package.sh
 ```
 
 `dev-run.sh` and `dev-install.sh` reuse `.cache-cargo` and build offline when
-possible. Releases use `.github/workflows/minimal-release.yml`.
+possible. On Windows, run `./minimal/package.ps1` to create the ZIP and checksum.
+Releases use `.github/workflows/minimal-release.yml`.
 
 ## Use
 

@@ -1,8 +1,9 @@
 # Releasing ProxyBot CLI
 
 The minimal CLI is released by `.github/workflows/minimal-release.yml`. The
-workflow builds macOS arm64 and x64 archives, verifies the package manifest, and
-publishes them with checksums, `install.sh` and `uninstall.sh`.
+workflow builds macOS arm64 and x64 archives plus a Windows x64 ZIP, runs tests
+on each platform, and publishes them with checksums, `install.sh` and
+`uninstall.sh` for macOS.
 
 ## Version
 
@@ -25,7 +26,7 @@ sh minimal/rc-smoke-test.sh
    ```bash
    gh workflow run minimal-release.yml --ref main -f version=0.1.13
    ```
-5. Wait for both build jobs and publish to succeed.
+5. Wait for both macOS builds, the Windows build, and publish to succeed.
 6. Verify the downloaded asset checksum and run the smoke test against the
    GitHub asset:
    ```bash
@@ -39,14 +40,16 @@ sh minimal/rc-smoke-test.sh
 
 - `proxybot-min-aarch64-apple-darwin.tar.gz` + `.sha256`
 - `proxybot-min-x86_64-apple-darwin.tar.gz` + `.sha256`
+- `proxybot-min-x86_64-pc-windows-msvc.zip` + `.sha256`
 - `install.sh`, `install.sh.sha256`
 - `uninstall.sh`, `uninstall.sh.sha256`
 
 Archives contain `proxybot`, `LICENSE`, `THIRD_PARTY.md`, `uninstall.sh`; they
 must not contain sing-box.
+The Windows ZIP contains `proxybot.exe`, `LICENSE`, and `THIRD_PARTY.md`.
 
 ## CI
 
-`.github/workflows/minimal-ci.yml` runs minimal tests, builds the local archive,
-and checks its manifest/no-sing-box invariant. `.github/workflows/pages.yml`
+`.github/workflows/minimal-ci.yml` runs macOS and Windows tests, builds both
+package formats, and checks their manifests. `.github/workflows/pages.yml`
 publishes this documentation.

@@ -5,10 +5,12 @@ on:
     paths:
       - 'minimal/**'
       - '.github/workflows/minimal-ci.yml'
+      - '.github/workflows/minimal-release.yml'
   pull_request:
     paths:
       - 'minimal/**'
       - '.github/workflows/minimal-ci.yml'
+      - '.github/workflows/minimal-release.yml'
 
 permissions:
   contents: read
@@ -49,3 +51,80 @@ jobs:
           tar -tzf "$ARCHIVE" | grep -qx uninstall.sh
           ! tar -tzf "$ARCHIVE" | grep -qi sing-box
           shasum -a 256 "$ARCHIVE"
+
+  windows:
+    name: Windows CLI tests and package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test
+        run: cargo test --locked --manifest-path minimal/Cargo.toml
+      - name: Build package
+        shell: pwsh
+        run: ./minimal/package.ps1
+      - name: Verify archive and CLI
+        shell: pwsh
+        run: |
+          $archive = 'minimal/dist/proxybot-min-x86_64-pc-windows-msvc.zip'
+          $contents = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            $names = $contents.Entries.FullName
+            foreach ($name in @('proxybot.exe', 'LICENSE', 'THIRD_PARTY.md')) {
+              if ($name -notin $names) { throw "Missing $name" }
+            }
+          } finally { $contents.Dispose() }
+          $expected = (Get-Content "$archive.sha256").Split(' ')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash
+          if ($expected -ne $actual) { throw 'Checksum mismatch' }
+          & minimal/target/x86_64-pc-windows-msvc/release/proxybot.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'CLI smoke test failed' }
+      - name: Smoke test Windows servers
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'minimal/target/x86_64-pc-windows-msvc/release/proxybot.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList @('start', '--no-open', '--proxy-port', '18088', '--transparent-port', '18089', '--web-port', '18899', '--ca-port', '18090', '--lan-ip', '127.0.0.1') -PassThru
+          $upstream = $null
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              if ($process.HasExited) { throw "ProxyBot exited with code $($process.ExitCode)" }
+              try {
+                $setup = Invoke-RestMethod 'http://127.0.0.1:18899/api/setup' -TimeoutSec 2
+                $ready = $true
+                break
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Web UI did not become ready' }
+            if ($setup.platform -ne 'windows' -or $setup.gateway_supported) { throw 'Windows setup metadata is incorrect' }
+            $ca = Invoke-WebRequest 'http://127.0.0.1:18090/ca.crt' -TimeoutSec 5
+            if ($ca.Content -notmatch 'BEGIN CERTIFICATE') { throw 'CA page did not serve a certificate' }
+            $upstream = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '19080', '--bind', '127.0.0.1') -PassThru
+            $upstreamReady = $false
+            for ($i = 0; $i -lt 10; $i++) {
+              try {
+                Invoke-WebRequest 'http://127.0.0.1:19080/' -TimeoutSec 2 | Out-Null
+                $upstreamReady = $true
+                break
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $upstreamReady) { throw 'Local upstream did not become ready' }
+            $body = & curl.exe --silent --show-error --fail --proxy 'http://127.0.0.1:18088' --noproxy 'example.invalid' 'http://127.0.0.1:19080/'
+            if ($LASTEXITCODE -ne 0 -or ($body -join "`n") -notmatch 'Directory listing for') { throw 'Explicit HTTP proxy did not forward the request' }
+            $captured = $false
+            for ($i = 0; $i -lt 10; $i++) {
+              $requests = Invoke-RestMethod 'http://127.0.0.1:18899/api/requests' -TimeoutSec 2
+              if (@($requests | Where-Object { $_.host -eq '127.0.0.1' -and $_.status -eq 200 }).Count -gt 0) {
+                $captured = $true
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $captured) { throw 'Proxy request did not appear in history' }
+          } finally {
+            if ($upstream) { Stop-Process -Id $upstream.Id -ErrorAction SilentlyContinue }
+            Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+          }

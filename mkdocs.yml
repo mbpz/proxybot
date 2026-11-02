@@ -1,18 +1,12 @@
 site_name: ProxyBot
 site_url: https://mbpz.github.io/proxybot/
-site_description: Lightweight macOS MITM traffic debugger (CLI + local web UI)
+site_description: Lightweight macOS and Windows MITM traffic debugger (CLI + local web UI)
 
-# Internal agent guides, archived historical records, one-off status snapshots,
-# and the clean-room parity evidence ledger stay in the repository but are not
-# part of the published user documentation site.
+# Archived historical records and one-off status snapshots are not part of the
+# published user documentation site.
 exclude_docs: |
-  agents/
   history/
-  parity/
   status/
-  comparison.md
-  app-classification.md
-  mcp-integration.md
 
 theme:
   name: material
@@ -87,3 +81,4 @@ nav:
       - "0009 — Gateway device identity": adr/0009-gateway-device-identity.md
       - "0010 — Gateway Beta boundary": adr/0010-gateway-beta-boundary.md
       - "0011 — launchd boundary": adr/0011-launchd-gateway-boundary.md
+      - "0012 — Minimal multiplatform release": adr/0012-minimal-multiplatform-release.md

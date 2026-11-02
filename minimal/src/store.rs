@@ -674,7 +674,7 @@ fn hex_preview(bytes: &[u8], cap: usize) -> String {
         out.push_str(&format!("{byte:02x} "));
     }
     if bytes.len() > cap {
-        out.push_str("…");
+        out.push('…');
     }
     out
 }

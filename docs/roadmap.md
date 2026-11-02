@@ -25,13 +25,16 @@ Gateway is Beta.
 - Clean external Mac, GitHub download path, and 0.1.11 → 0.1.13 upgrade
   acceptance for the current release.
 - Signed/notarized distribution and commercial licensing review.
+- Windows x64 CI, clean-machine package and physical-device HTTPS acceptance
+  before a published Windows support claim.
 
 ## Next
 
-1. External Mac release-candidate acceptance on the GitHub 0.1.13 assets.
-2. Upgrade validation from 0.1.11.
-3. Expand lifecycle fault injection and release packaging checks.
-4. Decide whether a future ingress adapter is needed for exact connection
+1. Windows x64 CI and device acceptance for explicit proxy capture.
+2. External Mac release-candidate acceptance on the GitHub 0.1.13 assets.
+3. Upgrade validation from 0.1.11.
+4. Expand lifecycle fault injection and release packaging checks.
+5. Decide whether a future ingress adapter is needed for exact connection
    identity.
 
 See [status](status.md) and [release checklist](release-checklist.md).

@@ -3,8 +3,8 @@
 Architecture Decision Records (ADRs) capture decisions that are binding for
 ProxyBot: choices that affect a public interface, a persistence model, a
 security boundary, the release contract, or the product tiers. They are
-deliberately short; the code, tests, and [`CONTEXT.md`](https://github.com/mbpz/proxybot/blob/main/CONTEXT.md) remain
-the authority on current behavior.
+deliberately short; the current code and tests remain the authority on behavior.
+Older ADRs describe the former Tauri app where ADR-0012 supersedes them.
 
 ## Index
 
@@ -21,6 +21,7 @@ the authority on current behavior.
 | [0009](0009-gateway-device-identity.md) | Gateway device identity and metadata | Accepted |
 | [0010](0010-gateway-beta-boundary.md) | Gateway beta boundary and lifecycle | Accepted |
 | [0011](0011-launchd-gateway-boundary.md) | launchd boundary for Gateway | Proposed |
+| [0012](0012-minimal-multiplatform-release.md) | Minimal CLI and Windows x64 release | Accepted |
 
 ## When to write an ADR
 

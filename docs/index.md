@@ -1,6 +1,9 @@
 # ProxyBot
 
-**A lightweight macOS MITM traffic debugger for mobile developers.**
+**A lightweight MITM traffic debugger for mobile developers.**
+
+macOS is the verified release platform. Windows x64 source support is added;
+Windows CI and device acceptance are still pending.
 
 ProxyBot is one Rust CLI plus a local web UI. It starts an explicit HTTP proxy,
 terminates TLS with a local CA, records HTTP/HTTPS/WebSocket traffic, and can
@@ -8,7 +11,7 @@ optionally run a Gateway Beta for full-device TCP testing.
 
 !!! warning "Gateway Beta"
 
-    Explicit HTTP proxy is the supported default. Gateway Beta requires root and
+    Explicit HTTP proxy is the supported default. Gateway Beta is macOS only and requires root and
     a user-supplied sing-box; it is not a bundled dependency. See
     [Gateway Beta](gateway-beta.md) before enabling it.
 
@@ -21,8 +24,8 @@ proxybot start
 
 Then:
 
-1. Set the test device Wi-Fi HTTP proxy to `<Mac LAN IP>:8088`.
-2. Open `http://<Mac LAN IP>:8090/` on the device and install the CA.
+1. Set the test device Wi-Fi HTTP proxy to `<computer LAN IP>:8088`.
+2. Open `http://<computer LAN IP>:8090/` on the device and install the CA.
 3. iOS: enable full trust in Certificate Trust Settings.
 4. Open `https://example.com`; the request appears in the local UI.
 
@@ -34,10 +37,10 @@ Then:
 
 | Mode | Status | Device setup | Admin |
 | --- | --- | --- | --- |
-| HTTP proxy | **Supported / default** | Wi-Fi HTTP proxy `<Mac>:8088` | No |
-| Gateway Beta | Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes |
+| HTTP proxy | **Supported / default on macOS; Windows release pending** | Wi-Fi HTTP proxy `<computer>:8088` | No |
+| Gateway Beta | macOS Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes |
 
-The HTTP proxy does not change Mac routing. Gateway uses TUN + sing-box + pf
+The HTTP proxy does not change host routing. On macOS, Gateway uses TUN + sing-box + pf
 route-to and needs a compatible sing-box binary with `-tags with_gvisor`.
 
 ## What it records
@@ -52,6 +55,8 @@ UDP/QUIC/DNS are **not** decrypted in this release. HTTP/80 identity remains
 unknown, and certificate-pinned apps can refuse interception.
 
 ## Commands
+
+The Gateway, update, and uninstall commands below are macOS only.
 
 ```bash
 proxybot start                 # HTTP proxy + local web UI

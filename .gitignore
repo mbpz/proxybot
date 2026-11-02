@@ -1,84 +1,33 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# Dependencies
-node_modules/
-.pnpm-store/
-/.cache-pnpm/
-/.cache-pnpm-store/
-
-# Build outputs
-dist/
-dist-ssr
-*.local
-*.tsbuildinfo
-/vite.config.js
-/vite.config.d.ts
+# Rust build and local release output
 target/
-proxybot-core/target/
-
-# Generated documentation site
-site/
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-.vscode
-package-lock.json
-
-# Claude Code / MCP
-.claude/
-.mcp.json
-.code-review-graph/
-.superpowers/
-
-# Git worktrees
-.worktrees/
-
-# Homebrew tap (separate repo, not shipped from here)
-homebrew-proxybot/
-
-# Local configuration (may contain secrets)
-*.local
-.env
-.env.*
-
-# Design sources (`design/*.pen` are tracked Pencil files)
-/proxybot-*.png
-
-# Local agent/session artifacts
-/handoff/
-/ralph/
-/progress.txt
-
-# Playwright
-test-results/
-playwright-report/
-e2e-report/
-
-# macOS
+minimal/dist/
 *.dSYM/
 
-# Local audit drafts and package-manager caches
-/.audit/
-/.cache-cargo/
-/.cache-gh/
+# Local caches and generated documentation
+.cache-cargo/
+.cache-gh/
+.cache-pnpm-store/
+.pnpm-store/
+site/
 
-# Local Playwright browser cache
-/.cache-playwright/
+# Local state and secrets
+.env
+.env.*
+*.local
+*.log
+.DS_Store
+.mcp.json
+.audit/
+.worktrees/
+.superpowers/
+.claude/
 
-# Minimal CLI local packaging output
-/minimal/dist/
+# Historical local build output
+dist/
+node_modules/
+test-results/
+e2e-report/
+playwright-report/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

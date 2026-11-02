@@ -2,7 +2,7 @@
 name = "proxybot-min"
 version = "0.1.13"
 edition = "2021"
-description = "Minimal macOS traffic debugger: transparent gateway + local web UI"
+description = "Minimal macOS and Windows traffic debugger with a local web UI"
 license = "MIT"
 publish = false
 
@@ -22,14 +22,11 @@ bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive", "env"] }
 flate2 = "1"
-pcap = "2"
-tun = "0.5"
 brotli = "8"
 hudsucker = "0.25"
-libc = "0.2"
 http-body-util = "0.1"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-rusqlite = "0.37"
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -37,6 +34,11 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+pcap = "2"
+tun = "0.5"
+libc = "0.2"
 
 [profile.release]
 strip = true

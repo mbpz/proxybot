@@ -32,6 +32,9 @@ pub struct WebState {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SetupInfo {
+    pub platform: &'static str,
+    pub data_dir: String,
+    pub gateway_supported: bool,
     pub lan_ip: String,
     pub quic_policy: String,
     pub proxy_port: u16,
@@ -85,10 +88,15 @@ async fn index() -> Html<&'static str> {
 
 async fn ca_page(State(state): State<WebState>) -> Html<String> {
     let setup = &state.setup;
+    let gateway_section = if setup.gateway_supported {
+        format!("<p><strong>Mode 2 · Gateway Beta</strong> (Mac running with <code>sudo proxybot gateway start</code>): Wi-Fi → configure IP → gateway <code>{}</code>, HTTP proxy off. Requires a separately installed sing-box.</p>", setup.lan_ip)
+    } else {
+        String::new()
+    };
     let body = CA_PAGE_HTML
         .replace("{{PROXY}}", &format!("{}:{}", setup.lan_ip, setup.proxy_port))
         .replace("{{CA_URL}}", &setup.ca_url)
-        .replace("{{GATEWAY}}", &setup.lan_ip);
+        .replace("{{GATEWAY_SECTION}}", &gateway_section);
     Html(body)
 }
 

@@ -4,13 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Latest CLI release](https://img.shields.io/github/v/release/mbpz/proxybot?filter=minimal-v*&label=cli)](https://github.com/mbpz/proxybot/releases)
 
-ProxyBot is a lightweight macOS MITM traffic debugger for mobile developers.
+ProxyBot is a lightweight MITM traffic debugger for mobile developers. macOS is
+the verified release platform; Windows x64 support is implemented in source and
+awaits Windows CI and device acceptance.
 One CLI binary starts an explicit HTTP proxy, a local web UI, a locally generated
 CA, and an optional Gateway Beta (TUN + sing-box) for full-device testing.
 
 The active implementation is [`minimal/`](minimal/README.md): a small Rust CLI +
-local web UI. The Tauri desktop app remains in the repository as legacy work but
-is not the current product path.
+local web UI. Gateway Beta is available on macOS only.
 
 > Authorized use only: TLS interception exposes sensitive traffic. Use ProxyBot
 > only on devices, applications, and networks you own or are explicitly
@@ -21,15 +22,15 @@ is not the current product path.
 
 | Mode | Status | Device setup | Admin |
 | --- | --- | --- | --- |
-| HTTP proxy | **Supported / default** | Wi-Fi HTTP proxy `<Mac>:8088` | No |
-| Gateway Beta | Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes (TUN/pf) |
+| HTTP proxy | **Supported / default** | Wi-Fi HTTP proxy `<computer>:8088` | No |
+| Gateway Beta | macOS Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes (TUN/pf) |
 
 Gateway currently requires a user-supplied sing-box built with `-tags with_gvisor`;
 it is **not bundled**. See [Gateway Beta](docs/gateway-beta.md).
 
 ## Requirements
 
-- macOS (Apple Silicon or Intel releases).
+- macOS (Apple Silicon or Intel) or Windows x64.
 - No Rust/Node/Python toolchain needed for installation.
 - Gateway additionally needs root and a compatible sing-box binary.
 
@@ -42,6 +43,11 @@ proxybot --version
 
 The installer verifies the archive SHA-256 and installs to `~/.local/bin` by
 default. If that directory is not on `PATH`, add it:
+
+Once a Windows release is published, download the `x86_64-pc-windows-msvc.zip`
+and `.sha256` assets,
+verify with PowerShell `Get-FileHash`, then extract and run `proxybot.exe start`.
+See [Windows installation](minimal/README.md#windows-x64) for the exact commands.
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc

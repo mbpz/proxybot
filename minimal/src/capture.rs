@@ -5,6 +5,7 @@ use crate::rules::Rules;
 use crate::store::{Captured, RequestSummary, Store, WsFrameInput, MAX_BODY_BYTES};
 use hudsucker::hyper::body::{Body as HttpBody, Bytes, Frame, SizeHint};
 use hudsucker::hyper::header::{ACCEPT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST};
+use hudsucker::hyper::http::uri::Authority;
 use hudsucker::hyper::{Request, Response, Uri};
 use hudsucker::tokio_tungstenite::tungstenite::Message;
 use hudsucker::{
@@ -275,21 +276,11 @@ impl HttpHandler for CaptureHandler {
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
             if let Some(host_header) = host_header {
-                if req.uri().host().is_some_and(|host| host.parse::<IpAddr>().is_ok())
-                    && host_header.parse::<IpAddr>().is_err()
-                {
+                if let Some(authority) = upstream_authority(req.uri(), &host_header) {
                     let scheme = req.uri().scheme_str().unwrap_or("http");
-                    let port = req
-                        .uri()
-                        .port_u16()
-                        .unwrap_or(if scheme == "https" { 443 } else { 80 });
                     let mut parts = req.uri().clone().into_parts();
                     parts.scheme = Some(scheme.parse().expect("scheme"));
-                    parts.authority = Some(
-                        format!("{host_header}:{port}")
-                            .parse()
-                            .expect("authority from Host"),
-                    );
+                    parts.authority = Some(authority);
                     if let Ok(uri) = Uri::from_parts(parts) {
                         *req.uri_mut() = uri;
                     }
@@ -331,7 +322,7 @@ impl HttpHandler for CaptureHandler {
                 connection_id: identity
                     .as_ref()
                     .map(|identity| identity.connection_id.clone())
-                    .or_else(|| Some(client_ip)),
+                    .or(Some(client_ip)),
                 identity_source: identity
                     .as_ref()
                     .map(|identity| identity.identity_source.clone())
@@ -710,6 +701,20 @@ fn request_target(req: &Request<Body>) -> (String, String, String) {
     (host, path, scheme)
 }
 
+fn upstream_authority(uri: &Uri, host_header: &str) -> Option<Authority> {
+    if uri.host()?.parse::<IpAddr>().is_err() {
+        return None;
+    }
+    let host: Authority = host_header.parse().ok()?;
+    if host.host().parse::<IpAddr>().is_ok() {
+        return None;
+    }
+    let port = host.port_u16().or_else(|| uri.port_u16()).unwrap_or_else(|| {
+        if uri.scheme_str() == Some("https") { 443 } else { 80 }
+    });
+    format!("{}:{port}", host.host()).parse().ok()
+}
+
 async fn capture_body(body: Body, headers: &hudsucker::hyper::HeaderMap) -> (Body, Option<Vec<u8>>, bool) {
     let length = headers
         .get(CONTENT_LENGTH)
@@ -773,4 +778,32 @@ fn decode_content(bytes: &[u8], encoding: &str) -> Option<Vec<u8>> {
         _ => return None,
     }
     Some(output)
+}
+
+#[cfg(test)]
+mod authority_tests {
+    use super::*;
+
+    #[test]
+    fn ip_host_with_port_does_not_rewrite_upstream() {
+        let uri: Uri = "http://127.0.0.1:19080/".parse().unwrap();
+        assert!(upstream_authority(&uri, "127.0.0.1:19080").is_none());
+    }
+
+    #[test]
+    fn domain_host_with_port_is_not_duplicated() {
+        let uri: Uri = "http://127.0.0.1:19080/".parse().unwrap();
+        assert_eq!(
+            upstream_authority(&uri, "example.test:19081")
+                .unwrap()
+                .as_str(),
+            "example.test:19081"
+        );
+    }
+
+    #[test]
+    fn malformed_host_never_rewrites_upstream() {
+        let uri: Uri = "http://127.0.0.1:19080/".parse().unwrap();
+        assert!(upstream_authority(&uri, "bad host").is_none());
+    }
 }

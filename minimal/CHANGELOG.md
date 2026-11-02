@@ -1,5 +1,24 @@
 # ProxyBot minimal changelog
 
+## Unreleased
+
+### Added
+
+- Windows x64 explicit proxy, local web UI and CA-page source support, with a
+  ZIP package and SHA-256 artifact in the manual release workflow.
+- Windows CI for package integrity, server startup, CA delivery and local HTTP
+  proxy capture.
+
+### Fixed
+
+- HTTP requests whose `Host` includes an IP address and port no longer panic
+  while choosing an upstream authority.
+
+### Changed
+
+- Removed the unused Tauri/React application and its separate build/release
+  toolchain. Gateway Beta and maintenance commands remain macOS-only.
+
 ## [0.1.13] — 2026-10-29
 
 Patch release for the self-update download path.

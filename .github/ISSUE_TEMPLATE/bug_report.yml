@@ -18,7 +18,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: macOS version, Mac architecture, and device platform
+      description: Host OS version and architecture, plus test device platform
     validations:
       required: true
   - type: textarea
