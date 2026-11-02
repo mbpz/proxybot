@@ -3,7 +3,7 @@
 **A lightweight MITM traffic debugger for mobile developers.**
 
 macOS is the verified release platform. Windows x64 source support is added;
-Windows CI and device acceptance are still pending.
+Windows CI and device acceptance are required before a support claim.
 
 ProxyBot is one Rust CLI plus a local web UI. It starts an explicit HTTP proxy,
 terminates TLS with a local CA, records HTTP/HTTPS/WebSocket traffic, and can
@@ -37,7 +37,7 @@ Then:
 
 | Mode | Status | Device setup | Admin |
 | --- | --- | --- | --- |
-| HTTP proxy | **Supported / default on macOS; Windows release pending** | Wi-Fi HTTP proxy `<computer>:8088` | No |
+| HTTP proxy | **Supported / default on macOS; Windows acceptance gated** | Wi-Fi HTTP proxy `<computer>:8088` | No |
 | Gateway Beta | macOS Beta | Wi-Fi gateway `<Mac>`, proxy off | Yes |
 
 The HTTP proxy does not change host routing. On macOS, Gateway uses TUN + sing-box + pf

@@ -1,6 +1,6 @@
 # ProxyBot minimal changelog
 
-## Unreleased
+## [2.0.0] — 2026-11-02
 
 ### Added
 
@@ -18,6 +18,8 @@
 
 - Removed the unused Tauri/React application and its separate build/release
   toolchain. Gateway Beta and maintenance commands remain macOS-only.
+- Releases can be built and published by pushing a matching `minimal-v2.0.0`
+  tag; the release workflow checks it against the Cargo package version.
 
 ## [0.1.13] — 2026-10-29
 

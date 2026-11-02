@@ -21,16 +21,20 @@ sh minimal/rc-smoke-test.sh
 
 1. Bump `minimal/Cargo.toml` (and the `proxybot-min` lock entry).
 2. Update `minimal/CHANGELOG.md` and release notes.
-3. Commit and push `main`.
-4. Trigger the manual workflow:
+3. Commit and push `main`; wait for Minimal CLI CI to pass on that commit.
+4. Push an annotated tag matching the Cargo version:
    ```bash
-   gh workflow run minimal-release.yml --ref main -f version=0.1.13
+   git tag -a minimal-v2.0.0 -m "ProxyBot CLI 2.0.0"
+   git push origin minimal-v2.0.0
    ```
-5. Wait for both macOS builds, the Windows build, and publish to succeed.
+   The tag push starts `minimal-release.yml`. A manual dispatch remains
+   available, but the workflow rejects a version that differs from Cargo.
+5. Wait for tag/version validation, both macOS builds, the Windows build, and
+   publishing to succeed.
 6. Verify the downloaded asset checksum and run the smoke test against the
    GitHub asset:
    ```bash
-   gh release download minimal-v0.1.13 -D /tmp/release
+   gh release download minimal-v2.0.0 -D /tmp/release
    cd /tmp/release
    shasum -a 256 -c proxybot-min-aarch64-apple-darwin.tar.gz.sha256
    ```

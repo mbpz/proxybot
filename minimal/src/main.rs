@@ -308,7 +308,7 @@ fn print_command_list() {
     println!("      Download a release archive, verify SHA-256 and replace this binary.");
     println!("      Examples:");
     println!("        proxybot update");
-    println!("        proxybot update --version 0.1.13");
+    println!("        proxybot update --version 2.0.0");
     println!("  version");
     println!("      Print the CLI version.");
     println!("  list");

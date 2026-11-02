@@ -2,7 +2,7 @@
 
 The active lightweight ProxyBot implementation: **one binary**, a local web UI,
 and an explicit HTTP-proxy mode on macOS. Windows x64 source support is added;
-Windows CI and device acceptance are pending. Gateway Beta is macOS only.
+Windows CI and device acceptance are release gates. Gateway Beta is macOS only.
 
 ```
 phone --Wi-Fi HTTP proxy--> computer:8088 --> MITM / classification / SQLite / web UI
@@ -13,7 +13,7 @@ phone --Wi-Fi gateway-----> Mac TUN  --> Gateway Beta (macOS only)
 
 | Mode | Status | Device setting | Admin |
 | --- | --- | --- | --- |
-| Explicit HTTP proxy | **Supported / default on macOS; Windows release pending** | Wi-Fi HTTP proxy `<computer>:8088` | No |
+| Explicit HTTP proxy | **Supported / default on macOS; Windows acceptance gated** | Wi-Fi HTTP proxy `<computer>:8088` | No |
 | Gateway (TUN + sing-box) | **Beta / macOS only** | Wi-Fi gateway `<Mac>`, HTTP proxy off | Yes (TUN/pf) |
 | Passive sniff | Experimental / macOS only | none (same interface) | Yes (BPF) |
 | Legacy pf `rdr` gateway | **Legacy / unsupported** | do not use | — |
@@ -100,7 +100,7 @@ Other options:
 
 ```bash
 sh minimal/install.sh
-PROXYBOT_VERSION=0.1.13 sh minimal/install.sh
+PROXYBOT_VERSION=2.0.0 sh minimal/install.sh
 PROXYBOT_LOCAL_BINARY=minimal/target/release/proxybot sh minimal/install.sh
 PROXYBOT_PREFIX=/usr/local/bin sh minimal/install.sh
 ```

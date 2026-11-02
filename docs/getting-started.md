@@ -48,7 +48,8 @@ Expand-Archive $zip -DestinationPath "$env:LOCALAPPDATA\Programs\ProxyBot" -Forc
 
 Allow access on private networks when Windows Firewall asks. The Windows source
 build implements the explicit HTTP proxy mode only; Windows CI and device
-acceptance are pending. Data is stored in `%LOCALAPPDATA%\ProxyBot`.
+acceptance are required before a support claim. Data is stored in
+`%LOCALAPPDATA%\ProxyBot`.
 
 ## Start capture
 

@@ -1,7 +1,8 @@
 # Roadmap and status
 
-Current CLI: **0.1.13**. Explicit HTTP proxy is the supported Core mode;
-Gateway is Beta.
+Current CLI source: **2.0.0**. Explicit HTTP proxy is the supported Core mode
+on macOS; Windows packaging and device acceptance are release gates. Gateway
+is macOS Beta.
 
 ## Verified
 

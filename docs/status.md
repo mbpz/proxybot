@@ -1,6 +1,6 @@
 # ProxyBot status
 
-Last updated: 2026-11-02 (source tree; last confirmed release `minimal-v0.1.13`)
+Last updated: 2026-11-02 (source version 2.0.0; last confirmed release `minimal-v0.1.13`)
 
 This is the single status overview. Phase records live under `docs/status/`.
 
@@ -9,7 +9,7 @@ This is the single status overview. Phase records live under `docs/status/`.
 | Mode | Status | Notes |
 | --- | --- | --- |
 | Explicit HTTP proxy | **Supported / default on macOS** | iPhone Safari/WeChat verified; no admin |
-| Explicit HTTP proxy on Windows x64 | **Source implementation; release verification pending** | CI builds and runtime smoke must pass before a release claim |
+| Explicit HTTP proxy on Windows x64 | **Source implementation; support acceptance pending** | CI builds, runtime smoke and device acceptance are support gates |
 | Gateway (TUN + sing-box) | **macOS Beta** | Not a Core support claim; see limitations |
 | Passive sniff | Experimental / macOS only | Metadata only; no decryption |
 | Legacy pf `rdr` gateway | **Legacy / unsupported** | Historical research only; not the gateway implementation |

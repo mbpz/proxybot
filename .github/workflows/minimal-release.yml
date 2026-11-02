@@ -1,8 +1,11 @@
 name: Minimal CLI release
 
-# Manual-only release for the CLI + local web UI build in `minimal/`.
+# Tag-driven or manual release for the CLI + local web UI build in `minimal/`.
 # End users install it with minimal/install.sh; no Homebrew or toolchain needed.
 on:
+  push:
+    tags:
+      - 'minimal-v*'
   workflow_dispatch:
     inputs:
       version:
@@ -14,8 +17,45 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Validate release tag and version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check tag against Cargo version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="minimal-v${INPUT_VERSION}"
+          fi
+          if [[ ! "$tag" =~ ^minimal-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          version="${tag#minimal-v}"
+          manifest_version="$(python3 -c 'import tomllib; print(tomllib.load(open("minimal/Cargo.toml", "rb"))["package"]["version"])')"
+          if [[ "$version" != "$manifest_version" ]]; then
+            echo "Tag version $version differs from Cargo version $manifest_version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.arch }}
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +112,7 @@ jobs:
 
   build-windows:
     name: Build Windows x64
+    needs: validate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -92,7 +133,7 @@ jobs:
 
   publish:
     name: Publish CLI release
-    needs: [build, build-windows]
+    needs: [validate, build, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -114,8 +155,8 @@ jobs:
       - name: Publish
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: minimal-v${{ inputs.version }}
-          name: ProxyBot CLI v${{ inputs.version }}
+          tag_name: ${{ needs.validate.outputs.tag }}
+          name: ProxyBot CLI v${{ needs.validate.outputs.version }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: release-assets/*

@@ -1,13 +1,12 @@
 [package]
 name = "proxybot-min"
-version = "0.1.13"
+version = "2.0.0"
 edition = "2021"
 description = "Minimal macOS and Windows traffic debugger with a local web UI"
 license = "MIT"
 publish = false
 
-# Standalone workspace: this crate is intentionally independent from the legacy
-# Tauri desktop app at the repository root.
+# Standalone workspace for the active CLI and local web UI.
 [workspace]
 
 [[bin]]

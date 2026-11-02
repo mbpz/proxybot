@@ -5,8 +5,8 @@
 [![Latest CLI release](https://img.shields.io/github/v/release/mbpz/proxybot?filter=minimal-v*&label=cli)](https://github.com/mbpz/proxybot/releases)
 
 ProxyBot is a lightweight MITM traffic debugger for mobile developers. macOS is
-the verified release platform; Windows x64 support is implemented in source and
-awaits Windows CI and device acceptance.
+the verified release platform. Windows x64 support is implemented in source;
+Windows CI and device acceptance are required before a support claim.
 One CLI binary starts an explicit HTTP proxy, a local web UI, a locally generated
 CA, and an optional Gateway Beta (TUN + sing-box) for full-device testing.
 
@@ -61,7 +61,7 @@ Other install paths:
 sh minimal/install.sh
 
 # Pin a release
-PROXYBOT_VERSION=0.1.13 sh minimal/install.sh
+PROXYBOT_VERSION=2.0.0 sh minimal/install.sh
 
 # Local build (no download)
 sh minimal/dev-install.sh

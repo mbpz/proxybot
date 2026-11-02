@@ -5,7 +5,7 @@ ProxyBot's active application is the CLI and local web UI in `minimal/`.
 | Capability | Status |
 | --- | --- |
 | macOS arm64 and x64 explicit HTTP proxy | Supported default path |
-| Windows x64 explicit HTTP proxy | Source implementation; Windows CI and device acceptance pending before a published support claim |
+| Windows x64 explicit HTTP proxy | Source implementation; Windows CI and device acceptance required before a support claim |
 | macOS Gateway Beta (TUN + sing-box) | Beta; see [gateway guide](docs/gateway-beta.md) |
 | Windows gateway, sniff, update, uninstall | Not implemented |
 | Linux | Not supported |

@@ -100,8 +100,9 @@ jobs:
             }
             if (-not $ready) { throw 'Web UI did not become ready' }
             if ($setup.platform -ne 'windows' -or $setup.gateway_supported) { throw 'Windows setup metadata is incorrect' }
-            $ca = Invoke-WebRequest 'http://127.0.0.1:18090/ca.crt' -TimeoutSec 5
-            if ($ca.Content -notmatch 'BEGIN CERTIFICATE') { throw 'CA page did not serve a certificate' }
+            $caFile = Join-Path $env:RUNNER_TEMP 'proxybot-ca.crt'
+            Invoke-WebRequest 'http://127.0.0.1:18090/ca.crt' -OutFile $caFile -TimeoutSec 5
+            if ((Get-Content -Raw $caFile) -notmatch 'BEGIN CERTIFICATE') { throw 'CA page did not serve a certificate' }
             $upstream = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '19080', '--bind', '127.0.0.1') -PassThru
             $upstreamReady = $false
             for ($i = 0; $i -lt 10; $i++) {

@@ -71,7 +71,8 @@ PROXYBOT_LOCAL_ARCHIVE="$ARCHIVE" PROXYBOT_PREFIX="$PREFIX" sh "$INSTALL_SH" >"$
   && pass "install.sh" || { fail "install.sh"; cat "$TMP/install.log"; exit 1; }
 [ -x "$BIN" ] && pass "installed binary" || fail "installed binary missing"
 [ -f "$PREFIX/share/proxybot/LICENSE" ] && pass "installed LICENSE" || fail "installed LICENSE missing"
-[ "$("$BIN" --version)" = "proxybot 0.1.13" ] && pass "version 0.1.12" || fail "wrong version: $("$BIN" --version)"
+EXPECTED_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/minimal/Cargo.toml" | head -1)"
+[ "$("$BIN" --version)" = "proxybot $EXPECTED_VERSION" ] && pass "version $EXPECTED_VERSION" || fail "wrong version: $("$BIN" --version)"
 
 "$BIN" start --no-open --data-dir "$DATA" --proxy-port "$PORT" --transparent-port "$TPORT" --web-port "$WPORT" --ca-port "$CAPORT" >"$TMP/start.log" 2>&1 &
 PID=$!
